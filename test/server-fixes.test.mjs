@@ -13,8 +13,21 @@ process.env.SLS_DATA_DIR = DATA;
 const { listRuns, readManifest, runSummary, mergeDocEntries, DOC_MAX_SKEW_MS, buildRun } = await import('../server/lib/build.mjs');
 const { RunDoc } = await import('../web/lib/doc.mjs');
 const { uploadTarget, scanLibrary, resolveId } = await import('../server/lib/library.mjs');
-const { readDoc, streamToFile } = await import('../server/app.mjs');
+const { readDoc, streamToFile, clientErrorBody } = await import('../server/app.mjs');
 test.after(() => rmSync(DATA, { recursive: true, force: true }));
+
+test('handler errors omit toolchain stderr from the JSON body (#43)', () => {
+  const e = new Error('Randomizer-Fehler: boom');
+  e.status = 500;
+  e.code = 'randomizer';
+  e.details = { stderr: 'Exception in thread "main" java.io.FileNotFoundException: C:\\Users\\secret\\ROM.gba' };
+  const body = clientErrorBody(e);
+  assert.deepEqual(body, { error: 'Randomizer-Fehler: boom', code: 'randomizer', vars: undefined });
+  assert.ok(!JSON.stringify(body).includes('secret'));
+  assert.ok(!('details' in body));
+  const plain = new Error('nope');
+  assert.deepEqual(clientErrorBody(plain), { error: 'nope', code: undefined, vars: undefined });
+});
 
 const quiet = async (fn) => {
   const warn = console.warn;
