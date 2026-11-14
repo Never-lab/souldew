@@ -218,6 +218,7 @@ export function encounter(doc, area, slot) {
  * slots (or its manifest); without them it is the old p1+p2 pair. `encs` holds each slot's encounter,
  * `a`/`b` are p1/p2 for older call sites. In a solo Nuzlocke the "group" is the one encounter: caught is
  * `linked` (alive), missed is `failed`, dead stays `dead`.
+ * With `failKillsPair` off (doc `rules`), a miss is personal: the row is not `failed` while anyone caught (#38).
  */
 export function pairState(doc, area, slots = PAIR) {
   const list = Array.isArray(slots) ? slots : slotsOf(slots);
@@ -225,8 +226,16 @@ export function pairState(doc, area, slots = PAIR) {
   const p = doc.get(`pair:${area}`, null);
   const base = { encs, pair: p, a: encs.p1 ?? null, b: encs.p2 ?? null };
   const all = Object.values(encs);
+  const failKillsPair = doc.get('rules')?.failKillsPair !== false;
   if (p?.state === 'dead') return { state: 'dead', ...base };
-  if (all.some((e) => e?.outcome === 'missed')) return { state: 'failed', ...base };
+  if (all.some((e) => e?.outcome === 'missed')) {
+    if (failKillsPair) return { state: 'failed', ...base };
+    // rule off: everyone settled with at least one catch → linked; all missed → failed; else waiting
+    if (all.every(Boolean)) {
+      return all.some((e) => e?.outcome === 'caught') ? { state: 'linked', ...base } : { state: 'failed', ...base };
+    }
+    return { state: 'waiting', ...base };
+  }
   if (all.every((e) => e?.outcome === 'caught')) return { state: 'linked', ...base };
   if (all.some(Boolean)) return { state: 'waiting', ...base };
   return { state: 'empty', ...base };
@@ -412,7 +421,14 @@ export function blackout(doc, manifest, slot = 'p1') {
       if (p?.state === 'dead') last = Math.max(last, p.diedAt || 0);
       else alive++;
     }
-    alive += Object.values(doc.scan(`extra:${slot}:`)).filter((x) => x && !x.dead).length;
+    const extras = doc.scan(`extra:${slot}:`);
+    alive += Object.values(extras).filter((x) => x && !x.dead).length;
+    // living mons still in the inbox / unfiled live party (#36)
+    const ignored = doc.scan(`ign:${slot}:`);
+    for (const m of live(doc, slot)?.party || []) {
+      if (m.egg || m.area || extras[m.key] || ignored[m.key]) continue;
+      if (m.maxHp > 0 && m.hp > 0) alive++;
+    }
     return caught > 0 && alive === 0 && last > resumed;
   }
   return false;
@@ -424,16 +440,24 @@ export function blackout(doc, manifest, slot = 'p1') {
  * null. `slots`: whose teams to look at (or the run's manifest); slots without live data are skipped. A wipe the
  * players already waved off ("continue anyway", `run:resumed`) counts again only after a newer death.
  * With the manifest (2nd or 3rd argument) a Nuzlocke follows its blackout rule instead.
+ * SoulLink + autoDeath off: a full live faint (`downAt`) counts as wipe even with no death mark yet (#40).
  */
 export function wipedSlot(doc, slots = ALL_SLOTS, manifest = Array.isArray(slots) ? null : slots) {
   // A Nuzlocke ends by its own blackout rule (applySnapshot fails it right away).
   if (manifest && runMode(manifest) === 'nuzlocke') return blackout(doc, manifest, 'p1') ? 'p1' : null;
+  const list = Array.isArray(slots) ? slots : slotsOf(slots);
+  const m = manifest || (!Array.isArray(slots) ? slots : null);
+  const autoDeath = m ? rules(doc, m).autoDeath !== false : true;
   const resumed = doc.get('run:resumed', 0) || 0;
-  for (const slot of Array.isArray(slots) ? slots : slotsOf(slots)) {
-    const p = live(doc, slot)?.party || [];
-    const dead = (m) => m.area && pairState(doc, m.area).state === 'dead';
-    if (!p.length || !p.every((m) => m.egg || dead(m) || (m.maxHp > 0 && m.hp === 0))) continue;
-    const last = Math.max(0, ...p.filter(dead).map((m) => doc.get(`pair:${m.area}`)?.diedAt || 0));
+  for (const slot of list) {
+    const liveData = live(doc, slot);
+    const p = liveData?.party || [];
+    const dead = (mon) => mon.area && pairState(doc, mon.area).state === 'dead';
+    if (!p.length || !p.every((mon) => mon.egg || dead(mon) || (mon.maxHp > 0 && mon.hp === 0))) continue;
+    let last = Math.max(0, ...p.filter(dead).map((mon) => doc.get(`pair:${mon.area}`)?.diedAt || 0));
+    if (!last && !autoDeath && p.every((mon) => mon.egg || (mon.maxHp > 0 && mon.hp === 0))) {
+      last = liveData?.downAt || 0;
+    }
     if (last && last > resumed) return slot;
   }
   return null;
@@ -464,19 +488,65 @@ export function resumeRun(doc, slot) {
   feed(doc, { type: 'run', slot, msg: msg('feed.runResumed', 'reopened the run'), text: t('feed.runResumed', 'reopened the run') });
 }
 
+/** Areas / extra keys that still count as a deathless fail cause (dead pairs + dead bonus mons). */
+function deathlessCauses(doc) {
+  const out = [];
+  for (const [area, p] of Object.entries(doc.scan('pair:'))) {
+    if (p?.state === 'dead') out.push(area);
+  }
+  for (const [rest, x] of Object.entries(doc.scan('extra:'))) {
+    if (x?.dead) out.push(`extra:${rest}`);
+  }
+  return out;
+}
+
+/** Keep or clear `run:status` after undoing the deathless cause `cleared` (#35, #37). */
+function retargetDeathless(doc, cleared) {
+  const st = doc.get('run:status', null);
+  if (!(st?.state === 'failed' && st.auto && st.reason === 'deathless' && st.area === cleared)) return;
+  const next = deathlessCauses(doc)[0];
+  if (next) {
+    doc.set('run:status', { ...st, area: next });
+    return;
+  }
+  doc.set('run:status', null);
+  feed(doc, { type: 'run', slot: st.by, msg: msg('feed.runResumed', 'reopened the run'), text: t('feed.runResumed', 'reopened the run') });
+}
+
 /**
  * Undo a death. When that death is what ended the run – the first death of a deathless Nuzlocke, or the last one
  * of a "box" blackout (nothing alive was left; now something is) – the run goes on, too. A wipe or a "party"
  * blackout went by the team's HP, not by the death mark: those stay ended ("play on" is still there).
+ * Deathless: if another pair/extra is still dead, retarget `run:status.area` instead of clearing (#35).
  */
 export function revive(doc, area) {
   const p = doc.get(`pair:${area}`) || {};
   doc.set(`pair:${area}`, { ...p, state: 'alive', diedAt: null, cause: '' });
   const st = doc.get('run:status', null);
-  if (st?.state === 'failed' && st.auto && ((st.reason === 'deathless' && st.area === area) || (st.reason === 'blackout' && st.rule === 'box'))) {
+  if (st?.state === 'failed' && st.auto && st.reason === 'deathless' && st.area === area) {
+    retargetDeathless(doc, area);
+    return;
+  }
+  if (st?.state === 'failed' && st.auto && st.reason === 'blackout' && st.rule === 'box') {
     doc.set('run:status', null);
     feed(doc, { type: 'run', slot: st.by, msg: msg('feed.runResumed', 'reopened the run'), text: t('feed.runResumed', 'reopened the run') });
   }
+}
+
+/**
+ * Mark or undo a bonus/extra mon death. Under deathless, marking dead fails the run; undo retargets or clears (#37).
+ * `key` is the extra id (mon key). Returns false when the extra is missing.
+ */
+export function setExtraDead(doc, manifest, slot, key, dead) {
+  const x = doc.get(`extra:${slot}:${key}`);
+  if (!x) return false;
+  const cause = `extra:${slot}:${key}`;
+  doc.set(cause, { ...x, dead: !!dead, diedAt: dead ? Date.now() : null });
+  if (runMode(manifest) === 'nuzlocke' && rules(doc, manifest).deathless) {
+    if (dead) failRun(doc, manifest, slot, 'deathless', { area: cause });
+    else retargetDeathless(doc, cause);
+  }
+  return true;
 }
 
 export const party = (doc, slot) => doc.get(`party:${slot}`, []);
@@ -884,7 +954,19 @@ export function applySnapshot(doc, manifest, gen, slot, snap, { auto = true, rd 
       known.set(m.key, { area: guess, enc });
       newCatches.push(guess);
       feedMsg(doc, manifest, { type: 'catch', slot, area: guess, species: m.species, msg: msg('feed.autoCaught', '{area}: {name} (Lv. {lv}) caught', { area: { area: guess }, name: { species: m.species }, lv: m.level || m.metLevel || '?' }) });
-      if (m.inParty && m.hp === 0 && m.maxHp > 0) alerts.push({ type: 'fainted', area: guess, mon: m });
+      // same-pass faint: autoDeath marks dead now (known mons already do); else alert (#39)
+      if (m.inParty && m.hp === 0 && m.maxHp > 0) {
+        if (auto && r.autoDeath && snap.source === 'live') {
+          const name = m.nickname || { species: m.species };
+          const foe = fight?.enemy?.species ? fight.enemy : null;
+          const kind = fight?.kind === 'trainer' ? msg('cause.trainer', 'trainer battle') : msg('cause.wild', 'wild battle');
+          const cause = foe
+            ? msg('feed.faintedBy', '{name} fainted against {enemy} (Lv. {lv}, {kind})', { name, enemy: { species: foe.species }, lv: foe.level ?? '?', kind })
+            : msg('feed.faintedCause', '{name} fainted', { name });
+          const killer = foe ? { species: foe.species, level: foe.level ?? null, kind: fight.kind || null } : null;
+          if (markDead(doc, manifest, guess, { slot, cause, level: m.level ?? null, killer, place: snap.here || null })) deaths.push(guess);
+        } else alerts.push({ type: 'fainted', area: guess, mon: m });
+      }
     } else {
       inbox.push({ mon: m, guess, occupied: !!occupied, reason: !guess ? (hatched ? 'egg' : special ? 'special' : 'unknown') : occupied ? 'occupied' : shinyHold ? 'shiny' : dupe ? 'dupe' : 'manual',
         ...(dupe ? { dupeArea: dupe.area } : {}),

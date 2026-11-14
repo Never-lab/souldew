@@ -98,6 +98,16 @@ test('blackout "box" waits until nothing alive is left; "off" never ends the run
   bonus.set('extra:p1:shiny', { species: 25, at: 1 });
   assert.equal(snap(bonus, [mon({ hp: 0 })]).failed, null, 'a bonus shiny in the box is still alive');
 
+  // living untracked mon in the live party (shiny held in inbox) blocks box blackout (#36)
+  const inbox = mkDoc({ blackout: 'box', autoDeath: false });
+  snap(inbox, [mon()]);
+  R.markDead(inbox, SOLO, 'starter', { slot: 'p1' });
+  snap(inbox, [mon({ hp: 0 }), mon({ key: 'gift', species: 133, shiny: true, hp: 20, maxHp: 20, metLocation: 177, metLevel: 5 })]);
+  assert.equal(inbox.get('enc:route-29:p1', null), null, 'shiny stays unfiled');
+  assert.equal(R.blackout(inbox, SOLO), false, 'untracked living mon still counts');
+  snap(inbox, [mon({ hp: 0 }), mon({ key: 'gift', species: 133, shiny: true, hp: 0, maxHp: 20, metLocation: 177, metLevel: 5 })]);
+  assert.equal(R.blackout(inbox, SOLO), true, 'once the untracked mon is down too');
+
   const off = mkDoc({ blackout: 'off' });
   snap(off, [mon()]);
   assert.equal(snap(off, [mon({ hp: 0 })]).failed, null);

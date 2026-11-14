@@ -207,7 +207,14 @@ export function buildState(manifest, doc, opts = {}) {
 
   const encounters = [...areas.entries()].map(([area, bySlot]) => {
     const encs = slots.map((s) => obj(bySlot[s]));
-    const state = deadArea(area) ? 'dead' : encs.some((e) => e?.outcome === 'missed') ? 'failed' : encs.every((e) => e?.outcome === 'caught') ? 'alive' : 'waiting';
+    // failKillsPair off: a miss is personal – not a full-group `failed` while anyone caught (#38)
+    let state = 'waiting';
+    if (deadArea(area)) state = 'dead';
+    else if (encs.some((e) => e?.outcome === 'missed')) {
+      if (rules.failKillsPair !== false) state = 'failed';
+      else if (encs.every(Boolean)) state = encs.some((e) => e?.outcome === 'caught') ? 'alive' : 'failed';
+      else state = 'waiting';
+    } else if (encs.every((e) => e?.outcome === 'caught')) state = 'alive';
     const results = Object.fromEntries(slots.map((s, i) => {
       const e = encs[i];
       return [s, e ? { outcome: str(e.outcome, 12) || null, species: int(e.species), name: sp(int(e.species)), level: validLevel(e.level), nickname: str(e.nickname, 24), shiny: !!e.shiny, at: num(e.at) } : null];

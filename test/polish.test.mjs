@@ -73,6 +73,33 @@ test('deathless: undoing the death that ended the run reopens it; another death 
   assert.equal(g.get('run:status').state, 'failed');
 });
 
+test('deathless: undoing death A while B is still dead retargets run:status (#35)', () => {
+  const d = mkDoc({ deathless: true, blackout: 'off', autoDeath: false });
+  snap(d, [mon(), pidgey()]);
+  R.markDead(d, SOLO, 'starter', { slot: 'p1' });
+  assert.equal(d.get('run:status').area, 'starter');
+  R.markDead(d, SOLO, 'route-29', { slot: 'p1' });
+  assert.equal(d.get('run:status').area, 'starter', 'second death does not overwrite');
+  R.revive(d, 'starter');
+  assert.equal(d.get('run:status').reason, 'deathless');
+  assert.equal(d.get('run:status').area, 'route-29');
+  assert.equal(d.get('pair:route-29').state, 'dead');
+  R.revive(d, 'route-29');
+  assert.equal(d.get('run:status', null), null);
+});
+
+test('deathless: bonus/extra death fails the run; undo clears or retargets (#37)', () => {
+  const d = mkDoc({ deathless: true, blackout: 'off' });
+  snap(d, [mon()]);
+  d.set('extra:p1:gift', { species: 133, at: 1 });
+  assert.equal(R.setExtraDead(d, SOLO, 'p1', 'gift', true), true);
+  assert.equal(d.get('extra:p1:gift').dead, true);
+  assert.equal(d.get('run:status').reason, 'deathless');
+  assert.equal(d.get('run:status').area, 'extra:p1:gift');
+  R.setExtraDead(d, SOLO, 'p1', 'gift', false);
+  assert.equal(d.get('run:status', null), null);
+});
+
 test('blackout "box": undoing a death after nothing was left alive reopens the run', () => {
   const d = mkDoc({ blackout: 'box' });
   snap(d, [mon(), pidgey()]);

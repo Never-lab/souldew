@@ -318,8 +318,35 @@ test('"a missed encounter costs the whole pair" off: the partner’s catch is no
   const rd = { types: () => ['normal'], familyRoot: (id) => id };
   const failed = (doc) => R.checks(doc, HG, rd).some((c) => c.area === 'route-29' && c.level === 'error');
   assert.equal(failed(d), true);
+  assert.equal(R.pairState(d, 'route-29', ['p1', 'p2']).state, 'failed');
   d.set('rules', { ...R.rules(d), failKillsPair: false });
   assert.equal(failed(d), false);
+  assert.equal(R.pairState(d, 'route-29', ['p1', 'p2']).state, 'linked', 'miss is personal; partner catch stands (#38)');
+});
+
+test('SoulLink wipe with autoDeath off: full live faint ends the run (#40)', () => {
+  const d = mkDoc();
+  d.set('rules', { autoDeath: false });
+  const M = { ...HG, players: { p1: { name: 'Lou' }, p2: { name: 'Robin' } } };
+  R.applySnapshot(d, M, 4, 'p1', { source: 'live', party: [mon(), mon({ key: 'k2', species: 16, metLocation: 177 })] });
+  R.applySnapshot(d, M, 4, 'p1', { source: 'live', party: [mon({ hp: 0 }), mon({ key: 'k2', species: 16, metLocation: 177, hp: 0 })] });
+  assert.notEqual(d.get('pair:starter')?.state, 'dead', 'no death mark with autoDeath off');
+  assert.equal(R.wipedSlot(d, ['p1'], M), 'p1');
+});
+
+test('autoDeath marks a new auto-assigned catch that is already fainted in the same pass (#39)', () => {
+  const d = mkDoc();
+  d.set('rules', { autoDeath: true, autoAssign: true, blackout: 'off' });
+  const SOLO = { ...HG, mode: 'nuzlocke', players: { p1: { name: 'Lou' } } };
+  R.applySnapshot(d, SOLO, 4, 'p1', { source: 'live', party: [mon()] });
+  const res = R.applySnapshot(d, SOLO, 4, 'p1', {
+    source: 'live',
+    party: [mon(), mon({ key: 'k2', species: 16, metLocation: 177, hp: 0, maxHp: 20, level: 3, metLevel: 3 })],
+  });
+  assert.ok(res.newCatches.includes('route-29'));
+  assert.deepEqual(res.deaths, ['route-29']);
+  assert.equal(d.get('pair:route-29').state, 'dead');
+  assert.equal(res.alerts.some((a) => a.type === 'fainted' && a.area === 'route-29'), false);
 });
 
 test('a catch read before the game wrote its met data is not filed under "Mystery Zone"', () => {

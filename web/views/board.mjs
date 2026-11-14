@@ -6,7 +6,7 @@ import { api } from '../lib/api.mjs';
 import { speciesName, gameById, hackById, gameTitle } from '../lib/data.mjs';
 import { play } from '../lib/sound.mjs';
 import {
-  progression, pairState, setEncounter, markDead, revive, party, live, counts, checks, feedList, feed, feedText, causeText, msg, areaName, joinNames,
+  progression, pairState, setEncounter, markDead, revive, setExtraDead, party, live, counts, checks, feedList, feed, feedText, causeText, msg, areaName, joinNames,
   players as getPlayers, rules as getRules, levelCap, dupeOf, resumeRun, slotsOf, encounter, openAreas, runStats, isNuzlocke, logCheatRule,
   logTypeHelpRule, allowedRulesPatch, isHost, HOST_SLOT,
 } from '../lib/run.mjs';
@@ -595,7 +595,7 @@ function RoutesTab() {
         <div class="area-name"><strong>${{ shiny: t('routes.bonusShiny', 'Shiny'), gift: t('routes.bonusGift', 'Gift'), static: t('routes.bonusStatic', 'Static encounter') }[x.reason] || t('routes.bonus', 'bonus')}</strong></div>
         <${MonButton} enc=${{ outcome: 'caught', ...x }} slot="p1" onClick=${() => {}} />
         <${StatusChip} status=${x.dead ? 'dead' : 'bonus'} />
-        <div class="row route-act" style="justify-content:flex-end"><button class="btn small ghost" onClick=${() => doc.set(`extra:p1:${key}`, { ...x, dead: !x.dead, diedAt: x.dead ? null : Date.now() })}>
+        <div class="row route-act" style="justify-content:flex-end"><button class="btn small ghost" onClick=${() => setExtraDead(doc, manifest, 'p1', key, !x.dead)}>
           ${x.dead ? t('routes.undo', 'undo') : t('routes.died', 'died')}</button></div>
       </div>`)}
     </div>

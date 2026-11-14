@@ -168,6 +168,13 @@ test('state: players, party with HP/status/item/shiny/sprites, links, graveyard,
   assert.deepEqual([fainted.level, fainted.fainted, fainted.dead, fainted.alive], [null, true, true, false], 'Lv 172 is garbage; its link is dead');
   assert.equal(ben.party[0].status, 'psn');
   assert.deepEqual(s.encounters.map((x) => [x.area, x.state]), [['route-29', 'alive'], ['cherrygrove', 'dead'], ['route-30', 'failed']]);
+  // failKillsPair off: miss + catch → alive, not failed (#38)
+  const soft = structuredClone(docOf());
+  soft['rules'] = { v: { failKillsPair: false }, t: 1, by: '' };
+  soft['enc:route-30:p1'] = { v: { outcome: 'missed', at: NOW - 1000 }, t: NOW - 1000, by: 'p1' };
+  soft['enc:route-30:p2'] = { v: { outcome: 'caught', species: 19, level: 5, at: NOW - 900 }, t: NOW - 900, by: 'p2' };
+  const softState = buildState(manifest(), soft, { ...lookups, now: NOW });
+  assert.equal(softState.encounters.find((e) => e.area === 'route-30').state, 'alive');
   assert.equal(s.encounters[2].results.p2, null);
   assert.deepEqual(s.links.map((l) => [l.area, l.state]), [['route-29', 'alive'], ['cherrygrove', 'dead']]);
   assert.equal(s.links[1].members.p2.inParty, false, 'Ben’s Geodude comes from the encounter');
