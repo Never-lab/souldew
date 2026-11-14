@@ -5,8 +5,10 @@
 //   mgba_libretro.*              GBA: mGBA
 //   gambatte_libretro.*          Game Boy / Game Boy Color: Gambatte (libretro's port)
 //   SOURCES.txt                  which source each file was built from (GPL: the same tags/commits are public)
+//   linkhost                     native/link-host/linkhost.c on libmgba – link sessions: N linked GBA / GB consoles
+//                                in one process, lockstep (trades and battles between players, docs/MULTIPLAYER.md)
 //
-//   node scripts/build-native.mjs [--platform win32-x64] [--only nds,gba,gb] [--host-only] [--jobs n]
+//   node scripts/build-native.mjs [--platform win32-x64] [--only nds,gba,gb,link] [--host-only] [--jobs n]
 //   node scripts/build-native.mjs --check      (npm run dist: fails when the part is missing; SLS_NO_NATIVE=1 builds
 //                                               without it – the built-in browser emulator then plays everything)
 //
@@ -33,18 +35,22 @@ const win = os === 'win32';
 const ext = win ? 'dll' : os === 'darwin' ? 'dylib' : 'so';
 const out = join(root, 'tools', 'native', plat);
 const jobs = String(opt('jobs', Math.max(2, cpus().length)));
-const only = new Set(String(opt('only', 'nds,gba,gb')).split(','));
+const only = new Set(String(opt('only', win ? 'nds,gba,gb' : 'nds,gba,gb,link')).split(','));
 
 /** The sources, at fixed versions (bump them here; SOURCES.txt in the build says which ones went in). */
 export const SOURCES = {
   nds: { name: 'melonDS DS', repo: 'https://github.com/JesseTG/melonds-ds.git', ref: 'v1.4.0', file: `melondsds_libretro.${ext}`, license: ['LICENSE', 'LICENSE-melonds-ds-GPL-3.0.txt'] },
   gba: { name: 'mGBA', repo: 'https://github.com/mgba-emu/mgba.git', ref: '0.10.5', file: `mgba_libretro.${ext}`, license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
   gb: { name: 'Gambatte (libretro)', repo: 'https://github.com/libretro/gambatte-libretro.git', ref: '77f2567d718b8973d02caa2daa8dce4953faf811', file: `gambatte_libretro.${ext}`, license: ['COPYING', 'LICENSE-gambatte-GPL-2.0.txt'] },
+  // the link host links libmgba statically: mGBA's master has the rewritten GBA lockstep driver (sleep/wake instead of
+  // blocking threads – what a single-threaded, deterministic scheduler needs). Pinned: every peer must run the same
+  // build, or the consoles drift apart (the session compares RAM hashes).
+  link: { name: 'mGBA (libmgba, link host)', repo: 'https://github.com/mgba-emu/mgba.git', ref: 'd58ea8a86f30598fbf3958585de3d33028535072', file: win ? 'linkhost.exe' : 'linkhost', license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
 };
 const HOST = win ? 'retrohost.exe' : 'retrohost';
 
 if (has('check')) {
-  const need = [HOST, ...Object.values(SOURCES).map((s) => s.file)];
+  const need = [HOST, ...Object.entries(SOURCES).filter(([k]) => k !== 'link').map(([, s]) => s.file)]; // (the link host: optional for now)
   const missing = need.filter((f) => !existsSync(join(out, f)));
   if (!missing.length) {
     console.log(`fast player part: ${out} ✓`);
@@ -152,6 +158,25 @@ function buildGb() {
   license('gb', src);
 }
 
+/** The link host: libmgba (static, no frontends) + native/link-host/linkhost.c. */
+function buildLink() {
+  const src = source('link');
+  const build = join(src, `build-static-${plat}`);
+  const off = ['QT', 'SDL', 'GL', 'GLES2', 'GLES3', 'LIBRETRO', 'SHARED'].map((x) => `-DBUILD_${x}=OFF`);
+  const no = ['FFMPEG', 'ZLIB', 'LIBZIP', 'MINIZIP', 'PNG', 'SQLITE3', 'ELF', 'LUA', 'EDITLINE', 'DISCORD_RPC', 'EPOXY', 'JSON_C'].map((x) => `-DUSE_${x}=OFF`);
+  run('cmake', [...cmakeTarget(), '-DBUILD_STATIC=ON', '-DENABLE_SCRIPTING=OFF', ...off, ...no, '-S', src, '-B', build]);
+  run('cmake', ['--build', build, '--parallel', jobs, '--target', 'mgba']);
+  // the compile definitions libmgba was built with (its structs change shape with them)
+  const ninja = readFileSync(join(build, 'build.ninja'), 'utf8');
+  const defs = (ninja.match(/build CMakeFiles\/mgba\.dir\/src\/core\/core\.c\.o[\s\S]*?DEFINES = ([^\n]*)/)?.[1] || '').split(/\s+/).filter((d) => d.startsWith('-D'));
+  const flags = os === 'darwin' ? ['-arch', arch === 'arm64' ? 'arm64' : 'x86_64', '-mmacosx-version-min=11.0'] : [];
+  const libs = os === 'darwin' ? ['-framework', 'CoreFoundation'] : os === 'linux' ? ['-lpthread', '-lm'] : ['-static', '-lm'];
+  const exe = join(out, SOURCES.link.file);
+  run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), '-o', exe, join(root, 'native', 'link-host', 'linkhost.c'), join(build, 'libmgba.a'), ...libs]);
+  if (!win) chmodSync(exe, 0o755);
+  license('link', src);
+}
+
 function buildHost() {
   const exe = join(out, HOST);
   const libs = os === 'linux' ? ['-ldl', '-lpthread', '-lm'] : win ? ['-static', '-lm'] : [];
@@ -166,6 +191,7 @@ if (!has('host-only')) {
   if (only.has('nds')) buildNds();
   if (only.has('gba')) buildGba();
   if (only.has('gb')) buildGb();
+  if (only.has('link')) buildLink();
 }
 const lines = Object.entries(SOURCES).filter(([, s]) => existsSync(join(out, s.file))).map(([, s]) => `${s.file}: ${s.name} ${s.ref} – ${s.repo.replace(/\.git$/, '')}`);
 const prev = existsSync(join(out, 'SOURCES.txt')) ? readFileSync(join(out, 'SOURCES.txt'), 'utf8') : '';
