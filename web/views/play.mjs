@@ -1287,7 +1287,7 @@ export function GameSession({ session, mode }) {
           </div>
         </div>
         <div class="session-bar" role="toolbar" aria-label=${t('play.controls', 'Game controls')}>
-          ${btn(paused ? 'resume' : 'pause', t('keys.pause', 'Pause / resume') + ' (P)', actions.pause, { 'data-pad-first': '' })}
+${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.pause', 'Pause / resume') + ' (P)', actions.pause, { 'data-pad-first': '' })}
           ${btn('reset', t('keys.reset', 'Reset the game (asks first)') + ' (R)', actions.reset)}
           <span class="sep"></span>
           <button class="btn icon" title=${t('play.slower', 'Slower')} aria-label=${t('play.slower', 'Slower')} onClick=${actions.slower}><span aria-hidden="true">–</span></button>
@@ -1298,7 +1298,7 @@ export function GameSession({ session, mode }) {
           ${btn('save', t('states.quicksave', 'Quick save to slot {n}', { n: sel }) + ' (F5)', () => actions.quicksave())}
           <button class=${`btn small ghost states-btn ${statesOpen ? 'on' : ''}`} aria-expanded=${statesOpen} aria-haspopup="dialog"
             title=${t('states.openHint', 'All save states – load, overwrite, delete')} onClick=${() => setStatesOpen(!statesOpen)}>
-            <${Icon} name="load" size=${14} />${t('states.title', 'Save states')}<span class="px slot-no" aria-hidden="true">${sel}</span></button>
+            <${Icon} name="load" size=${14} />${t('states.title', 'Save states')}<span class="px slot-no" aria-hidden="true">${sel}</span></button>`}
           <span class="spacer"></span>
           ${target.system === '3ds' && html`<span class="layout-wrap">
             ${btn(layout3ds === 'lr' || layout3ds === 'large' ? 'layoutLr' : 'layoutTb', t('play.layout3ds', 'Screen layout'), () => setLayoutOpen(!layoutOpen), { 'aria-expanded': layoutOpen, 'aria-haspopup': 'dialog' })}

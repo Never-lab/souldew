@@ -571,6 +571,7 @@ function App() {
       closeSession: () => endSession(),
     });
     linkPlayRef.current = lp;
+    window.__slLink = { sessions: lp, sync: link }; // (tests: scripts/link-e2e.mjs)
     await link.start();
     if (linkRef.current === link) pref.set(`sl-autolink-${manifest.id}`, true);
   }, [runDoc, manifest, me]);

@@ -50,6 +50,7 @@ export class LinkSessions {
     this.onWindow = (e) => this._fromPlayer(e);
     addEventListener('message', this.onWindow);
     this.cmdQueue = [];
+    this.stats = {}; // (tests / diagnostics: hashes compared, inputs sent and received)
     this.cmdBusy = false;
   }
 
@@ -249,6 +250,7 @@ export class LinkSessions {
       const k = [];
       for (let o = 8; o + 4 <= d.bytes.length; o += 4) k.push(v.getUint32(o, true));
       this._send({ t: 'in', s: v.getUint32(0, true), f: v.getUint32(4, true), k });
+      this.stats.sent = (this.stats.sent || 0) + 1;
     } else if (d?.type === 'emu-link-hash') {
       this._send({ t: 'hash', f: d.frame, h: d.hash });
       this._hash(this.me, d.frame, d.hash);
@@ -259,6 +261,7 @@ export class LinkSessions {
     const box = (this.hashes[f] ||= {});
     box[slot] = h;
     const got = Object.values(box);
+    this.stats.hashes = (this.stats.hashes || 0) + 1;
     if (got.length > 1 && got.some((x) => x !== got[0])) {
       this._send({ t: 'bye', reason: 'linkDesync' }, { relayToo: true });
       return this._end('linkDesync', true);
@@ -281,6 +284,7 @@ export class LinkSessions {
     v.setUint32(12, m.f >>> 0, true);
     k.forEach((x, i) => v.setUint32(16 + i * 4, x >>> 0, true));
     this.cmdQueue.push(b);
+    this.stats.received = (this.stats.received || 0) + 1;
     this._flushCmds();
   }
 

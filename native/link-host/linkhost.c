@@ -9,7 +9,7 @@
 //            [--rtc <unix ms>] [--ram ADDR:LEN]… [--record <file>] [--script <file>] [--bench FRAMES [--out dir]]
 //
 // Messages are { u32 type, u32 length, payload } (little-endian) both ways, as native/retro-host/retrohost.c.
-//   host → souldew   2 VIDEO  u16 width, u16 height, u32 format (0 = BGRA bytes), pixels – the viewed seat (VIEW)
+//   host → souldew   2 VIDEO  u16 width, u16 height, u32 format (2 = RGB565), pixels – the viewed seat (VIEW)
 //                    5 STATE  all seats: u32 n, n × { u32 len, state } (answer to SAVE)
 //                    6 LOG    text
 //                    7 EVENT  json: loaded | stats | stepped | hash {frame, hash} | wait {seats, frame, ms} | saved |
@@ -302,24 +302,25 @@ static void do_poke(const uint8_t *p, uint32_t len) {
 // ---- picture / RAM / saves out ------------------------------------------------------------------------------------
 static uint8_t *frame_msg;
 static size_t frame_cap;
+/** The seat's picture as RGB565 (format 2, as retrohost sends mGBA's): half the bytes of 32-bit pixels on the stream. */
 static void send_frame(int seat) {
   const uint32_t *px;
   unsigned w, h, stride;
   B->video(seat, &px, &w, &h, &stride);
-  const size_t need = 8 + (size_t)w * h * 4;
+  const size_t need = 8 + (size_t)w * h * 2;
   if (need > frame_cap) {
     uint8_t *b = realloc(frame_msg, need);
     if (!b) return;
     frame_msg = b, frame_cap = need;
   }
   uint16_t ww = (uint16_t)w, hh = (uint16_t)h;
-  uint32_t f = 0;
+  uint32_t f = 2;
   memcpy(frame_msg, &ww, 2), memcpy(frame_msg + 2, &hh, 2), memcpy(frame_msg + 4, &f, 4);
-  uint8_t *o = frame_msg + 8;
+  uint16_t *o = (uint16_t *)(frame_msg + 8);
   for (unsigned y = 0; y < h; y++)
-    for (unsigned x = 0; x < w; x++, o += 4) { // 0x00BBGGRR → B, G, R, X bytes
+    for (unsigned x = 0; x < w; x++) { // 0x00BBGGRR → RRRRRGGGGGGBBBBB
       const uint32_t c = px[(size_t)y * stride + x];
-      o[0] = (uint8_t)(c >> 16), o[1] = (uint8_t)(c >> 8), o[2] = (uint8_t)c, o[3] = 0xff;
+      *o++ = (uint16_t)(((c & 0xf8) << 8) | ((c >> 5) & 0x7e0) | ((c >> 19) & 0x1f));
     }
   send_msg(2, frame_msg, (uint32_t)need);
 }

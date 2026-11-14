@@ -123,7 +123,7 @@ export function startHost(hostPath, argv, { onEvent = () => {}, onMessage = () =
   return api;
 }
 
-/** BGRA frames of every seat → one RGBA picture side by side. */
+/** Frames of every seat (RGB565 or BGRA) → one RGBA picture side by side. */
 export function sideBySide(frameList) {
   const fs = frameList.filter(Boolean);
   const ws = fs.map((f) => f.readUInt16LE(0)), hs = fs.map((f) => f.readUInt16LE(2));
@@ -133,8 +133,14 @@ export function sideBySide(frameList) {
   fs.forEach((f, i) => {
     for (let y = 0; y < hs[i]; y++)
       for (let x = 0; x < ws[i]; x++) {
-        const s = 8 + (y * ws[i] + x) * 4, d = (y * W + x0 + x) * 4;
-        out[d] = f[s + 2], out[d + 1] = f[s + 1], out[d + 2] = f[s], out[d + 3] = 255;
+        const d = (y * W + x0 + x) * 4;
+        if (f.readUInt32LE(4) === 2) { // RGB565
+          const c = f.readUInt16LE(8 + (y * ws[i] + x) * 2);
+          out[d] = (c >> 11) << 3, out[d + 1] = ((c >> 5) & 63) << 2, out[d + 2] = (c & 31) << 3, out[d + 3] = 255;
+        } else {
+          const s = 8 + (y * ws[i] + x) * 4;
+          out[d] = f[s + 2], out[d + 1] = f[s + 1], out[d + 2] = f[s], out[d + 3] = 255;
+        }
       }
     x0 += ws[i] + 4;
   });
