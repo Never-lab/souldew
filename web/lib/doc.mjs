@@ -30,6 +30,13 @@ const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
  *  server/lib/build.mjs, uses the same bounds). */
 const MAX_SKEW = 86400000;
 
+/** Feed types trophies / history need for the life of a run – never pruned (#45). */
+const FEED_KEEP_TYPES = new Set(['catch', 'evolve', 'badge', 'cheat', 'death', 'missed']);
+/** Cap for chatty feed types (`run`, `edit`, `rule`, …) so long runs stay bounded (#45). */
+export const FEED_CHATTY_CAP = 80;
+/** Debounce for localStorage + server PUT (was LS-immediate / server-only debounce) (#44). */
+const PERSIST_MS = 600;
+
 export class RunDoc {
   constructor(runId) {
     this.runId = runId;
@@ -113,19 +120,53 @@ export class RunDoc {
   }
 
   _changed(keys, localEntries, remote = false, info = null) {
+    // Prune before notify so UI/sync subscribers see the capped feed, not the pre-prune map.
+    if (keys.some((k) => k.startsWith('feed:'))) this._pruneChattyFeed();
     if (localEntries) for (const fn of this.localListeners) fn(localEntries);
     for (const fn of this.listeners) fn(keys, remote, info);
     this._persistSoon();
   }
 
-  _persistSoon() {
+  /**
+   * Tombstone oldest chatty `feed:*` beyond FEED_CHATTY_CAP (new LWW t so server merge / peers drop the
+   * live value). Hard-delete alone would leave keys on disk forever via mergeDocEntries. Keep-types
+   * stay forever for trophies (#45).
+   */
+  _pruneChattyFeed() {
+    const chatty = [];
+    for (const [k, e] of Object.entries(this.entries)) {
+      if (!k.startsWith('feed:') || !e || e.v == null || typeof e.v !== 'object') continue;
+      if (FEED_KEEP_TYPES.has(e.v.type)) continue;
+      chatty.push([k, Number(e.v.at) || 0]);
+    }
+    if (chatty.length <= FEED_CHATTY_CAP) return;
+    chatty.sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const drop = chatty.length - FEED_CHATTY_CAP;
+    for (let i = 0; i < drop; i++) {
+      this.entries[chatty[i][0]] = { v: null, t: this.tick(), by: this.by };
+    }
+  }
+
+  /** localStorage snapshot without high-churn `live:*` HP/status (#44). */
+  _persistLocal() {
     try {
-      localStorage.setItem(`sl-doc-${this.runId}`, JSON.stringify(this.entries));
+      const snap = {};
+      for (const [k, e] of Object.entries(this.entries)) {
+        if (k.startsWith('live:')) continue;
+        snap[k] = e;
+      }
+      localStorage.setItem(`sl-doc-${this.runId}`, JSON.stringify(snap));
     } catch {
       // quota / private mode — server copy still works
     }
+  }
+
+  _persistSoon() {
     clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => this._saveToServer(), 600);
+    this.saveTimer = setTimeout(() => {
+      this._persistLocal();
+      this._saveToServer();
+    }, PERSIST_MS);
   }
 
   /**

@@ -448,8 +448,8 @@ test('a snapshot larger than the broker limit is split into parts and still arri
   const da = mkDoc('a');
   const db = mkDoc('b');
   const writes = {};
-  // ~600 KB of barely compressible feed entries (a long run)
-  for (let i = 0; i < 1500; i++) writes[`feed:${i.toString(36)}`] = { at: i, text: Math.random().toString(36).repeat(10) };
+  // ~600 KB of barely compressible feed entries (a long run). type:catch so #45 chatty prune does not trim the stress payload.
+  for (let i = 0; i < 1500; i++) writes[`feed:${i.toString(36)}`] = { at: i, type: 'catch', text: Math.random().toString(36).repeat(10) };
   da.batch(writes);
   const a = mkLink(net, 'p1', da);
   await a.start();
@@ -463,7 +463,7 @@ test('a snapshot larger than the broker limit is split into parts and still arri
   await until(() => Object.keys(db.scan('feed:')).length === 1500, 8000, 'all entries');
   // ops batches are split the same way
   const big = {};
-  for (let i = 0; i < 800; i++) big[`feed:big-${i}`] = { text: Math.random().toString(36).repeat(10) };
+  for (let i = 0; i < 800; i++) big[`feed:big-${i}`] = { type: 'catch', text: Math.random().toString(36).repeat(10) };
   const a2 = mkLink(net, 'p1', da);
   await a2.start();
   await relayUp(a2);
