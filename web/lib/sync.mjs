@@ -62,7 +62,17 @@ const SCREEN = {
   maxBytes: 40 * 1024, // … and are dropped above this
   resendSame: 6000, // an unchanged picture is resent only this often (keeps the "x s ago" honest)
   streamGrace: 8000, // viewer: announced video that hasn't arrived after this long → ask for pictures
+  // sender: video bitrate per watcher – full while one or two watch, then shared so three watchers (a four-player run
+  // where everyone watches everyone) cost about as much upload as two: each player also decodes up to three videos
+  videoBitrate: 400000,
+  videoBudget: 900000,
+  videoMinBitrate: 250000,
 };
+
+/** Video bitrate for each of `n` watchers' peers (bps). */
+export function videoBitrate(n) {
+  return Math.round(Math.max(SCREEN.videoMinBitrate, Math.min(SCREEN.videoBitrate, SCREEN.videoBudget / Math.max(1, n))));
+}
 const FRAME_TYPES = ['image/jpeg', 'image/webp', 'image/png'];
 
 function b64(u8) {
@@ -745,6 +755,9 @@ export class SyncLink {
   // relay topic (never retained) that every watcher reads. One format for all keeps the sender simple; mixed
   // links are rare. Paused game / hidden window → the video track is disabled and no pictures are sent.
   // Viewer: watchPartnerScreen(fn, slot) → fn({ slot, known, active, mode, stream, url, blob, at, since, system }).
+  // Several at once (one per partner, views/partnerscreen.mjs) is fine: every partner is a peer of its own in the
+  // mesh, so each video arrives on its own connection (peerStreams per slot), and each partner decides video or
+  // pictures for itself – one partner on the relay only sends pictures while the others' videos keep running.
 
   /**
    * @param {object} source
@@ -830,7 +843,7 @@ export class SyncLink {
     if (active && wanted) mode = p2p && s.src.getStream && !s.noStream && (await this._ensureStream(s, targets)) ? 'stream' : 'image';
     if (this.stopped || this.share !== s) return;
     if (s.stream) for (const tr of s.stream.getVideoTracks()) tr.enabled = mode === 'stream';
-    if (mode === 'stream' && s.limited.size < s.streamPeers.size) this._limitBitrate(s);
+    if (mode === 'stream' && (s.limited.size < s.streamPeers.size || s.limitN !== s.streamPeers.size)) this._limitBitrate(s);
     const now = Date.now();
     if (mode !== s.mode || (wanted && now - s.lastState > SCREEN.wantEvery)) {
       s.mode = mode;
@@ -890,9 +903,15 @@ export class SyncLink {
     return !this.stopped && this.share === s;
   }
 
-  // Canvas tracks run at the canvas' full size (often > 1000 px on a retina screen) – cap what goes out.
+  // Canvas tracks run at the canvas' full size (often > 1000 px on a retina screen) – cap what goes out. With more
+  // watchers each one's share gets smaller (videoBitrate) – a change in their number sets every peer again.
   _limitBitrate(s) {
     const track = s.stream?.getVideoTracks()[0];
+    if (s.limitN !== s.streamPeers.size) {
+      s.limitN = s.streamPeers.size;
+      s.limited = new Set();
+    }
+    const maxBitrate = videoBitrate(s.streamPeers.size);
     for (const peer of s.streamPeers) {
       if (s.limited.has(peer)) continue;
       try {
@@ -902,7 +921,7 @@ export class SyncLink {
         const p = sender.getParameters();
         if (!p.encodings?.length) continue; // not negotiated yet → next tick
         const w = track.getSettings?.().width || 0;
-        Object.assign(p.encodings[0], { maxBitrate: 400000, maxFramerate: 15, scaleResolutionDownBy: Math.max(1, w / 384) });
+        Object.assign(p.encodings[0], { maxBitrate, maxFramerate: 15, scaleResolutionDownBy: Math.max(1, w / 384) });
         s.limited.add(peer);
         sender.setParameters(p).catch(() => s.limited.delete(peer));
       } catch {

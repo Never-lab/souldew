@@ -13,7 +13,7 @@ import { addRareCandies, cheatSupported } from '/shared/live/cheats.mjs';
 import { MusicKeyTracker } from '/shared/live/location.mjs';
 import { PlayHome } from './playhome.mjs';
 import { PartyGrid } from './party.mjs';
-import { PartnerScreen, useScreenShare } from './partnerscreen.mjs';
+import { PartnerScreens, useScreenShare } from './partnerscreen.mjs';
 import { StatePanel, SaveAge, useSaveGuard, describeState, stateInfo, slotName, SHOT, MANUAL_SLOTS, AUTO_SLOT } from './savestates.mjs';
 import { RunStrip, LinkedPairs, BattlePanel, RulesDrawer, useBattlePanelPrefs } from './session-info.mjs';
 import { LocationSign, readHere, nextHere, areaOfHere, musicInfo, loadRomLocations, romSpeciesNow, romDataReady, romWramNow, romMaps3Now, romOwnNow, romDataNow, resetRomData } from './location.mjs';
@@ -279,6 +279,7 @@ export function GameSession({ session, mode }) {
   const setLiveState = (x) => setLiveStateRaw((prev) => (prev.status === x.status && prev.entry === x.entry ? prev : x));
   const [pendingLoad, setPendingLoad] = useState(null); // { slot, bytes } – state load waiting for confirmation
   const [statesOpen, setStatesOpen] = useState(false);
+  const [psReserve, setPsReserve] = useState(0); // room the partner windows stacked in the right column take (PartnerScreens)
   const closeStates = useCallback(() => setStatesOpen(false), []);
   const [statesVer, setStatesVer] = useState(0); // bumped after every save → the open panel reads the list again
   const [sel, setSel] = useState(() => ls.get(`sl-state-sel-${session.target.stateId}`, 1)); // F5 / F8 work on this slot
@@ -1240,6 +1241,9 @@ export function GameSession({ session, mode }) {
   const battlePanel = html`<${BattlePanel} battle=${battle} mine=${myParty} gen=${gameGen} isRun=${isRun}
     side=${panelSide} collapsed=${panelPrefs.collapsed} onPrefs=${setPanelPrefs} noMoves=${features?.moves === 'no'} />`;
   const hasLeft = !!(isRun || here || (battle?.enemy && panelSide === 'left'));
+  // the partners' games, each in a window over the play area – not with the game in the corner (it floats over other
+  // pages there; the board shows the partners), and not in a solo run
+  const partnersShown = !!(isRun && names && !solo && mode === 'full');
   return html`<div class=${`session ${mode} ${fs && mode === 'full' ? 'is-fs' : ''} ${isDs ? 'ds' : ''}`} data-v=${docVersion}>
     <div class="mini-head">
       <${Led} on=${phase === 'running' && !paused} color="green" /><span class="grow ellipsis">${target.label}</span>
@@ -1372,8 +1376,9 @@ export function GameSession({ session, mode }) {
             ? html`<${LinkedPairs} mine=${myParty} gen=${gameGen} compact=${!!battle?.enemy} />`
             : liveState.status !== 'unsupported' && liveState.status !== 'hack' && html`<${PartyGrid} party=${myParty} gen=${gameGen} compact accent="var(--p1)" label=${t('play.yourTeam', 'Your team')} noItems=${features?.items === 'no'} />`}
         </section>
-        ${isRun && names && !solo && mode === 'full' && html`<div class="side-partner"><${PartnerScreen} link=${link} system=${target.system} /></div>`}
+        ${partnersShown && psReserve > 0 && html`<div class="side-partner-space" style=${`height:${psReserve}px`} aria-hidden="true"></div>`}
       </aside>
+      ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} onReserve=${setPsReserve} />`}
     </div>
     ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false}
       onDone=${() => setInserting(false)} />`}

@@ -2,6 +2,19 @@
 
 `npm run release` takes the release notes from the section of the version being released.
 
+## Unreleased
+
+- **Every partner's game at once, in windows you can move.** In a run with three or four players the play view now
+  shows each partner's game in a window of its own instead of one at a time. Drag a window by its header, resize it
+  from the corner (the picture keeps its shape), and it snaps lightly to the edges and to the other windows without
+  ever leaving the play area. Where each window sits, its size and whether it is hidden are remembered per run on this
+  computer. The buttons under the right column stack the windows in that column (the start) or tile them small in the
+  game's corner, bring back hidden windows and reset the layout. Two-player runs keep their single window – now movable
+  and resizable too. Only shown windows ask for pictures: a hidden one costs nothing, each partner sends video over a
+  direct link (several videos at once work) or small stills over the relay, and with three watchers the video bitrate
+  per watcher goes down so the upload stays about the same. The windows never take the keyboard or the controller from
+  the game; the controller reaches their buttons when it is in souldew's menus anyway (game paused, a menu open).
+
 ## 2.7.0
 
 - **The 3DS games can be randomized.** X/Y, Omega Ruby/Alpha Sapphire, Sun/Moon and Ultra Sun/Ultra Moon now go through
