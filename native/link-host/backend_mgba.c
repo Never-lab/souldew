@@ -1,0 +1,262 @@
+// Link backend on libmgba: Game Boy Advance seats joined by mGBA's lockstep SIO driver (link cable, multiplayer and
+// normal modes – Gen 3 Cable Club trades and battles, up to 4 seats), or two Game Boy / Game Boy Color seats joined by
+// its GB serial lockstep (Gen 1/2 Cable Club). All seats run in this thread: the drivers' sleep/wake only set flags,
+// and the scheduler runs whoever is awake, event by event, in a fixed order – deterministic by construction.
+#include "linkbackend.h"
+
+#include <mgba/flags.h>
+#include <mgba/core/core.h>
+#include <mgba/core/config.h>
+#include <mgba/core/interface.h>
+#include <mgba/core/lockstep.h>
+#include <mgba/core/log.h>
+#include <mgba/core/serialize.h>
+#include <mgba/gba/interface.h>
+#include <mgba/internal/gba/gba.h>
+#include <mgba/internal/gba/sio/lockstep.h>
+#include <mgba/internal/gb/gb.h>
+#include <mgba/internal/gb/sio/lockstep.h>
+#include <mgba-util/vfs.h>
+
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int nseats;
+static enum mPlatform platform;
+static struct mseat {
+  struct mCore *core;
+  uint32_t *video;
+  unsigned w, h;
+  int asleep;         // the lockstep driver put this console to sleep: it waits for the others
+  int32_t posted;     // GB lockstep: cycles the primary allowed this one to run
+  uint32_t wait_mask; // GB lockstep (primary): which secondaries it waits for
+} seats[LINK_MAX_SEATS];
+
+// GBA: the coordinator and one driver per console; sleep/wake set the flag the scheduler honours
+static struct GBASIOLockstepCoordinator gba_coord;
+static struct GBASIOLockstepDriver gba_drv[LINK_MAX_SEATS];
+static struct seat_user { struct mLockstepUser d; int seat; } users[LINK_MAX_SEATS];
+static void user_sleep(struct mLockstepUser *u) { seats[((struct seat_user *)u)->seat].asleep = 1; }
+static void user_wake(struct mLockstepUser *u) { seats[((struct seat_user *)u)->seat].asleep = 0; }
+static int user_requested_id(struct mLockstepUser *u) { return ((struct seat_user *)u)->seat; }
+
+// GB: the older mLockstep with signal/wait/cycle budgets, driven as mGBA's own MultiplayerController does – with flags
+// in place of thread pauses
+static struct GBSIOLockstep gb_lock;
+static struct GBSIOLockstepNode gb_node[LINK_MAX_SEATS];
+static bool gb_signal(struct mLockstep *l, unsigned mask) {
+  (void)l;
+  struct mseat *p = &seats[0];
+  p->wait_mask &= ~mask;
+  if (!p->wait_mask && p->asleep) { p->asleep = 0; return true; }
+  return false;
+}
+static bool gb_wait(struct mLockstep *l, unsigned mask) {
+  (void)l;
+  struct mseat *p = &seats[0];
+  p->wait_mask |= mask;
+  if (!p->asleep) { p->asleep = 1; return true; }
+  return false;
+}
+static void gb_add_cycles(struct mLockstep *l, int id, int32_t cycles) {
+  (void)l;
+  if (cycles < 0) return;
+  if (!id) {
+    struct mseat *p = &seats[1];
+    p->posted += cycles;
+    if (p->asleep) gb_node[1].nextEvent += p->posted;
+    p->asleep = 0;
+  } else seats[id].posted += cycles;
+}
+static int32_t gb_use_cycles(struct mLockstep *l, int id, int32_t cycles) {
+  (void)l;
+  struct mseat *p = &seats[id];
+  p->posted -= cycles;
+  if (p->posted <= 0) p->asleep = 1;
+  return p->posted;
+}
+static int32_t gb_unused_cycles(struct mLockstep *l, int id) { (void)l; return seats[id].posted; }
+static void gb_unload(struct mLockstep *l, int id) {
+  (void)l;
+  if (id) {
+    seats[id].posted = 0;
+    seats[0].wait_mask &= ~(1u << id);
+    if (!seats[0].wait_mask) seats[0].asleep = 0;
+  } else {
+    for (int i = 1; i < nseats; i++) {
+      seats[i].posted += gb_lock.players[0]->eventDiff;
+      if (seats[i].asleep) gb_node[i].nextEvent += seats[i].posted;
+      seats[i].asleep = 0;
+    }
+  }
+}
+
+// mGBA's own log: only what went badly wrong (it logs every DMA otherwise)
+static void core_log(struct mLogger *l, int category, enum mLogLevel level, const char *fmt, va_list ap) {
+  (void)l, (void)category;
+  if (!(level & (mLOG_FATAL | mLOG_ERROR))) return;
+  char buf[512];
+  vsnprintf(buf, sizeof buf, fmt, ap);
+  link_log("[mGBA] %s", buf);
+}
+static struct mLogger logger = {core_log, NULL};
+
+static const char *m_system(void) { return platform == mPLATFORM_GBA ? "gba" : "gb"; }
+
+static bool m_probe(const char *rom) {
+  struct VFile *vf = VFileOpen(rom, O_RDONLY);
+  if (!vf) return false;
+  const enum mPlatform p = mCoreIsCompatible(vf);
+  vf->close(vf);
+  return p == mPLATFORM_GBA || p == mPLATFORM_GB;
+}
+
+static bool m_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
+  mLogSetDefaultLogger(&logger);
+  nseats = n;
+  for (int s = 0; s < n; s++) {
+    struct mseat *st = &seats[s];
+    st->core = mCoreFind(cfg[s].rom);
+    if (!st->core) { link_log("seat %d: not a Game Boy / Game Boy Advance game", s); return false; }
+    if (!s) platform = st->core->platform(st->core);
+    else if (st->core->platform(st->core) != platform) { link_log("seat %d: another system than seat 0", s); return false; }
+    if (!st->core->init(st->core)) { link_log("seat %d: the core didn't start", s); return false; }
+    mCoreInitConfig(st->core, NULL);
+    struct mCoreOptions opts = {.useBios = false, .skipBios = true, .volume = 0, .mute = true};
+    mCoreConfigLoadDefaults(&st->core->config, &opts);
+    mCoreConfigSetDefaultValue(&st->core->config, "idleOptimization", "remove");
+    mCoreLoadConfig(st->core);
+    st->core->baseVideoSize(st->core, &st->w, &st->h);
+    st->video = calloc((size_t)st->w * st->h, sizeof *st->video);
+    st->core->setVideoBuffer(st->core, (void *)st->video, st->w);
+    if (!mCoreLoadFile(st->core, cfg[s].rom)) { link_log("seat %d: the game didn't load", s); return false; }
+    // the battery save in memory only – souldew gets it back through SRAM / SEATSRAM, nothing is written here
+    st->core->loadSave(st->core, VFileMemChunk(cfg[s].save, cfg[s].save_len));
+    // the cartridge clock: one shared start, then emulated time only (a real clock would differ between peers)
+    st->core->rtc.override = RTC_FAKE_EPOCH;
+    st->core->rtc.value = rtc_ms;
+    st->core->reset(st->core);
+    if (cfg[s].state) {
+      struct VFile *sf = VFileOpen(cfg[s].state, O_RDONLY);
+      if (!sf || !mCoreLoadStateNamed(st->core, sf, SAVESTATE_SAVEDATA | SAVESTATE_RTC)) { link_log("seat %d: state not loadable", s); return false; }
+      sf->close(sf);
+      st->core->rtc.override = RTC_FAKE_EPOCH; // (a state may carry its own clock setting)
+      st->core->rtc.value = rtc_ms;
+    }
+  }
+  if (n < 2) return true;
+  if (platform == mPLATFORM_GBA) {
+    GBASIOLockstepCoordinatorInit(&gba_coord);
+    for (int s = 0; s < n; s++) {
+      users[s] = (struct seat_user){{user_sleep, user_wake, user_requested_id, NULL}, s};
+      GBASIOLockstepDriverCreate(&gba_drv[s], &users[s].d);
+      GBASIOLockstepCoordinatorAttach(&gba_coord, &gba_drv[s]);
+      seats[s].core->setPeripheral(seats[s].core, mPERIPH_GBA_LINK_PORT, &gba_drv[s].d);
+    }
+  } else {
+    if (n > 2) { link_log("a Game Boy link cable joins two consoles"); return false; }
+    GBSIOLockstepInit(&gb_lock);
+    gb_lock.d.signal = gb_signal;
+    gb_lock.d.wait = gb_wait;
+    gb_lock.d.addCycles = gb_add_cycles;
+    gb_lock.d.useCycles = gb_use_cycles;
+    gb_lock.d.unusedCycles = gb_unused_cycles;
+    gb_lock.d.unload = gb_unload;
+    for (int s = 0; s < n; s++) {
+      GBSIOLockstepNodeCreate(&gb_node[s]);
+      GBSIOLockstepAttachNode(&gb_lock, &gb_node[s]);
+      GBSIOSetDriver(&((struct GB *)seats[s].core->board)->sio, &gb_node[s].d);
+    }
+  }
+  return true;
+}
+
+static void m_set_input(int seat, link_input in) {
+  seats[seat].core->setKeys(seats[seat].core, platform == mPLATFORM_GB ? in & 0xff : in & 0x3ff);
+}
+
+/**
+ * Every console runs until it has started one more frame. A console the lockstep driver put to sleep waits; the
+ * others run (event by event, `runLoop`) until it is woken. Consoles that finished the frame run on into the next one
+ * while a slower one still needs them – all in a fixed order, so it is the same on every peer.
+ */
+static void m_run_frame(void) {
+  uint32_t start[LINK_MAX_SEATS];
+  for (int s = 0; s < nseats; s++) start[s] = seats[s].core->frameCounter(seats[s].core);
+  for (long guard = 0;; guard++) {
+    int behind = 0, ran = 0;
+    for (int s = 0; s < nseats; s++) {
+      struct mCore *c = seats[s].core;
+      if (c->frameCounter(c) - start[s] >= 1) continue;
+      behind = 1;
+      if (seats[s].asleep) continue;
+      c->runLoop(c);
+      ran = 1;
+    }
+    if (!behind) break;
+    if (!ran) { // the ones still behind sleep: whoever is awake runs on (it is what they wait for)
+      for (int s = 0; s < nseats; s++) {
+        if (seats[s].asleep) continue;
+        seats[s].core->runLoop(seats[s].core);
+        ran = 1;
+      }
+      if (!ran) { link_log("link: every console waits for another (deadlock)"); abort(); }
+    }
+    if (guard > 50000000) { link_log("link: a frame never ended"); abort(); }
+  }
+}
+
+static void m_video(int seat, const uint32_t **px, unsigned *w, unsigned *h, unsigned *stride) {
+  struct mseat *st = &seats[seat];
+  unsigned cw = st->w, ch = st->h;
+  st->core->currentVideoSize(st->core, &cw, &ch); // (a Game Boy draws 160×144 into the 256×224 Super Game Boy frame)
+  *px = st->video, *w = cw, *h = ch, *stride = st->w;
+}
+static double m_fps(void) { return (double)seats[0].core->frequency(seats[0].core) / seats[0].core->frameCycles(seats[0].core); }
+static size_t m_sram(int seat, void **out) { return seats[seat].core->savedataClone(seats[seat].core, out); }
+
+static uint64_t m_hash(uint64_t h) {
+  for (int s = 0; s < nseats; s++) {
+    struct mCore *c = seats[s].core;
+    if (platform == mPLATFORM_GBA) {
+      struct GBA *gba = c->board;
+      h = link_fnv(h, gba->memory.wram, GBA_SIZE_EWRAM);
+      h = link_fnv(h, gba->memory.iwram, GBA_SIZE_IWRAM);
+      h = link_fnv(h, gba->cpu->gprs, sizeof gba->cpu->gprs);
+    } else {
+      struct GB *gb = c->board;
+      h = link_fnv(h, gb->memory.wram, GB_SIZE_WORKING_RAM);
+      h = link_fnv(h, gb->memory.hram, GB_SIZE_HRAM);
+    }
+    int32_t t = mTimingCurrentTime(c->timing);
+    h = link_fnv(h, &t, sizeof t);
+  }
+  return h;
+}
+
+static uint8_t *m_mem(int seat, uint32_t addr, uint32_t len) {
+  struct mCore *core = seats[seat].core;
+  const struct mCoreMemoryBlock *blocks;
+  size_t n = core->listMemoryBlocks(core, &blocks);
+  for (size_t i = 0; i < n; i++) {
+    const struct mCoreMemoryBlock *b = &blocks[i];
+    if (addr < b->start || (uint64_t)addr + len > (uint64_t)b->start + b->size) continue;
+    size_t size = 0;
+    uint8_t *p = core->getMemoryBlock(core, b->id, &size);
+    if (p && (uint64_t)(addr - b->start) + len <= size) return p + (addr - b->start);
+  }
+  return NULL;
+}
+static uint8_t m_read8(int seat, uint32_t addr) { return (uint8_t)seats[seat].core->busRead8(seats[seat].core, addr); }
+static void m_write8(int seat, uint32_t addr, uint8_t v) { seats[seat].core->busWrite8(seats[seat].core, addr, v); }
+static size_t m_state_size(int seat) { return seats[seat].core->stateSize(seats[seat].core); }
+static bool m_save_state(int seat, void *out) { return seats[seat].core->saveState(seats[seat].core, out); }
+static bool m_load_state(int seat, const void *in) { return seats[seat].core->loadState(seats[seat].core, in); }
+
+
+const struct link_backend link_backend_mgba = {
+  .name = "mgba", .system = m_system, .probe = m_probe, .open = m_open, .set_input = m_set_input, .run_frame = m_run_frame,
+  .video = m_video, .fps = m_fps, .sram = m_sram, .hash = m_hash, .mem = m_mem, .read8 = m_read8, .write8 = m_write8,
+  .state_size = m_state_size, .save_state = m_save_state, .load_state = m_load_state,
+};

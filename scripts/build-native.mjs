@@ -158,7 +158,7 @@ function buildGb() {
   license('gb', src);
 }
 
-/** The link host: libmgba (static, no frontends) + native/link-host/linkhost.c. */
+/** The link host: native/link-host (the session + its backends) on libmgba (static, no frontends). */
 function buildLink() {
   const src = source('link');
   const build = join(src, `build-static-${plat}`);
@@ -172,7 +172,7 @@ function buildLink() {
   const flags = os === 'darwin' ? ['-arch', arch === 'arm64' ? 'arm64' : 'x86_64', '-mmacosx-version-min=11.0'] : [];
   const libs = os === 'darwin' ? ['-framework', 'CoreFoundation'] : os === 'linux' ? ['-lpthread', '-lm'] : ['-static', '-lm'];
   const exe = join(out, SOURCES.link.file);
-  run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), '-o', exe, join(root, 'native', 'link-host', 'linkhost.c'), join(build, 'libmgba.a'), ...libs]);
+  run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), '-o', exe, ...['linkhost.c', 'backend_mgba.c'].map((f) => join(root, 'native', 'link-host', f)), join(build, 'libmgba.a'), ...libs]);
   if (!win) chmodSync(exe, 0o755);
   license('link', src);
 }
