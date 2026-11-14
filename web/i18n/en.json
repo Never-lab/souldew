@@ -747,6 +747,7 @@
   "feed.evolved": "{from} evolved into {to}",
   "feed.faintedBy": "{name} fainted against {enemy} (Lv. {lv}, {kind})",
   "feed.faintedCause": "{name} fainted",
+  "feed.linkTrade": "traded {gave} for {got} with {partner}",
   "feed.missed": "{area}: encounter missed",
   "feed.missedSpecies": "{area}: {name} got away – the area is spent",
   "feed.runBlackout": "{name} blacked out – the Nuzlocke has failed",

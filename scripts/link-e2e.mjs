@@ -141,28 +141,28 @@ async function main() {
     await shot('04-continued');
     for (const i of [0, 1]) { await go(i, 'x', 10); await go(i, 'y', 4); await hold(i, ['up'], 150); }
     await sleep(500);
-    for (const i of [0, 1]) await press(i, 'a', 1500); // the Direct Corner attendant (Emerald): "Welcome to the Cable Club"
     await shot('05-attendant');
-    for (const i of [0, 1]) await press(i, 'a', 1500); // → menu
-    for (const i of [0, 1]) await press(i, 'a', 1500); // Trade Center → save?
-    for (const i of [0, 1]) await press(i, 'a', 1500); // yes
-    for (const i of [0, 1]) await press(i, 'a', 4000); // overwrite: yes → saving
-    await shot('06-saving');
-    await sleep(4000);
-    // the leader (seat 0) confirms the link: "When all players are ready…" → 2P LINK → start link → (once more)
-    for (let k = 0; k < 4; k++) { await press(0, 'a', 2500); await shot(`07-confirm-${k}`); }
-    await until('the trade center', async () => (await pos(0))?.map === 6425 && (await pos(1))?.map === 6425, 60000);
+    // the attendant, the Trade Center, "save?" yes, overwrite yes, then the leader (seat 0) confirms the link – the
+    // same A on both games until both stand in the Trade Center (a confirm that comes too early just starts over)
+    await until('the trade center', async () => {
+      if ((await pos(0))?.map === 6425 && (await pos(1))?.map === 6425) return true;
+      await press(1, 'a', 500);
+      await press(0, 'a', 500);
+      return false;
+    }, 240000);
     log('both in the Trade Center');
     log('speed', await perf());
     await shot('08-trade-center');
     await go(0, 'y', 6); await go(0, 'x', 4); await go(0, 'y', 5);
     await go(1, 'y', 6); await go(1, 'x', 7); await go(1, 'y', 5);
-    await sleep(12000);
+    await sleep(35000); // "Communication standby…", then the trade screen
     await shot('09-trade-screen');
     for (const i of [0, 1]) { await press(i, 'right', 500); await press(i, 'a', 900); await press(i, 'down', 500); await press(i, 'a', 4000); }
     await shot('10-confirm');
     for (const i of [0, 1]) await press(i, 'a', 300);
-    await sleep(30000); // the trade animation, then the game saves
+    await sleep(40000); // the trade animation, then the game saves
+    // back on the trade screen: cancel and leave the table (B on both until the cancel prompt, then yes)
+    for (const i of [0, 1]) { await press(i, 'up', 400); await press(i, 'a', 1200); await press(i, 'a', 1500); }
     await shot('11-traded');
     const stats = [JSON.parse(await ev(0, 'JSON.stringify(window.__slLink.sessions.stats)')), JSON.parse(await ev(1, 'JSON.stringify(window.__slLink.sessions.stats)'))];
     log('stats', JSON.stringify(stats));

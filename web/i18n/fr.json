@@ -470,6 +470,7 @@
   "feed.evolved": "{from} a évolué en {to}",
   "feed.faintedBy": "{name} est K.O. face à {enemy} (N. {lv}, {kind})",
   "feed.faintedCause": "{name} est K.O.",
+  "feed.linkTrade": "a échangé {gave} contre {got} avec {partner}",
   "feed.missed": "{area} : rencontre ratée",
   "feed.missedSpecies": "{area} : {name} s’est échappé – la zone est utilisée",
   "feed.runBlackout": "{name} a été mis K.O. (black-out) – le Nuzlocke a échoué",

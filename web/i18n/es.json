@@ -470,6 +470,7 @@
   "feed.evolved": "{from} ha evolucionado a {to}",
   "feed.faintedBy": "{name} se debilitó contra {enemy} (Nv. {lv}, {kind})",
   "feed.faintedCause": "{name} se ha debilitado",
+  "feed.linkTrade": "ha intercambiado {gave} por {got} con {partner}",
   "feed.missed": "{area}: encuentro fallido",
   "feed.missedSpecies": "{area}: {name} escapó; la zona está gastada",
   "feed.runBlackout": "{name} fue derrotado (blackout) – el Nuzlocke ha fracasado",

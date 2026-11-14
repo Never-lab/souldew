@@ -470,6 +470,7 @@
   "feed.evolved": "{from} si è evoluto in {to}",
   "feed.faintedBy": "{name} è stato sconfitto da {enemy} (Lv. {lv}, {kind})",
   "feed.faintedCause": "{name} è esausto",
+  "feed.linkTrade": "ha scambiato {gave} per {got} con {partner}",
   "feed.missed": "{area}: incontro mancato",
   "feed.missedSpecies": "{area}: {name} è fuggito – l’area è esaurita",
   "feed.runBlackout": "{name} è stato sconfitto (blackout) – il Nuzlocke è fallito",

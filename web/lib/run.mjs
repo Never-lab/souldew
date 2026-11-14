@@ -329,6 +329,22 @@ export function logCheatRule(doc, manifest, by, allowed) {
     : solo ? msg('feed.cheatsOffSolo', 'Cheats turned off for this run') : msg('feed.cheatsOff', 'turned cheats off for this run') });
 }
 
+/**
+ * A trade in a link session (docs/MULTIPLAYER.md): what left `slot`'s team and what came in, by the party before and
+ * after (live data; a Pokémon is its `key` – personality value and trainer ID). Logged only when both sides changed.
+ */
+export function logLinkTrade(doc, manifest, slot, partner, before, after) {
+  const keys = (list) => new Set((list || []).map((m) => m?.key).filter(Boolean));
+  const was = keys(before), now = keys(after);
+  const gave = (before || []).filter((m) => m?.key && !now.has(m.key));
+  const got = (after || []).filter((m) => m?.key && !was.has(m.key));
+  if (!gave.length || !got.length) return false;
+  const name = players(doc, manifest)[partner]?.name || partner;
+  feedMsg(doc, manifest, { type: 'trade', slot, partner, gave: gave.map((m) => m.species), got: got.map((m) => m.species),
+    msg: msg('feed.linkTrade', 'traded {gave} for {got} with {partner}', { gave: { species: gave[0].species }, got: { species: got[0].species }, partner: name }) });
+  return true;
+}
+
 /** The run's host: the player who created it (P1 – the one who sends the invite). */
 export const HOST_SLOT = 'p1';
 export const isHost = (me) => (me || HOST_SLOT) === HOST_SLOT;

@@ -6,7 +6,7 @@ import { SyncLink, PARTNER_TTL } from './lib/sync.mjs';
 import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
 import { detectLayout } from './lib/controls.mjs';
-import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun } from './lib/run.mjs';
+import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, live as getLive, logLinkTrade } from './lib/run.mjs';
 import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal, openExternal } from './lib/ui.mjs';
 import { LINKS } from './lib/links.mjs';
@@ -558,6 +558,7 @@ function App() {
       sync: link, runId: manifest.id, me,
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
       openSession: (st) => {
+        lp.partyBefore = getLive(doc, me)?.party || null; // (for the trade's log entry when the link ends)
         const out = manifest.outputs?.[me];
         if (!out) return;
         startSession({
@@ -568,7 +569,17 @@ function App() {
         });
         navigate('play', { run: manifest.id });
       },
-      closeSession: () => endSession(),
+      closeSession: (st) => {
+        if (st.kind === 'trade') {
+          const partner = (st.seats || []).find((s) => s !== me);
+          try {
+            logLinkTrade(doc, manifest, me, partner, lp.partyBefore, getLive(doc, me)?.party);
+          } catch (e) {
+            console.warn('trade log', e);
+          }
+        }
+        endSession();
+      },
     });
     linkPlayRef.current = lp;
     window.__slLink = { sessions: lp, sync: link }; // (tests: scripts/link-e2e.mjs)
