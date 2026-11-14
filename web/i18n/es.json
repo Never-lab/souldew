@@ -1920,6 +1920,7 @@
   "stream.apiState": "Todo sobre la partida",
   "stream.apiText": "¿Prefieres tu propio diseño al de souldew? Tus fuentes de navegador pueden leer la partida en JSON – equipos, vínculos, cementerio, encuentros, lugares –, recibir cada captura, muerte y subida de nivel en directo y cargar los mismos sprites que la app.",
   "stream.apiToken": "Pedir un token",
+  "stream.apiTokenHeader": "Prefiere la cabecera X-Souldew-Token en fetch (consulta la doc de Stream API para la otra). EventSource y las etiquetas img siguen necesitando ?token= (puede filtrarse por Referer).",
   "stream.apiTokenHint": "Oculto en el modo streamer",
   "team.empty": "Tu equipo aparece aquí en cuanto tengas Pokémon.",
   "team.untrackedHint": "Aún no asignado a una zona – mira «Desde tu juego» en el tablero.",

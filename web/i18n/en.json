@@ -2197,6 +2197,7 @@
   "stream.apiState": "Everything about the run",
   "stream.apiText": "Want your own design instead of souldew’s? Your browser sources can read the run as JSON – teams, links, graveyard, encounters, locations – get every catch, death and level-up live, and load the same sprites the app shows.",
   "stream.apiToken": "Require a token",
+  "stream.apiTokenHeader": "Prefer the X-Souldew-Token header on fetch (see Stream API docs for the other header). EventSource and img tags still need ?token= (that can leak via Referer).",
   "stream.apiTokenHint": "Hidden in streamer mode",
   "stream.bgDark": "Dark",
   "stream.bgGame": "Bright game",

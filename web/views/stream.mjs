@@ -261,10 +261,10 @@ function PokelinkCard({ run, follow, slots, names }) {
  */
 function ApiCard({ run, stream, saveStream }) {
   const base = stream?.base || `http://127.0.0.1:${location.port}/api/v1`;
-  const tok = stream?.token ? `?token=${stream.token}` : '';
+  // Prefer header auth in copied URLs (#42); ?token= only for EventSource / <img> that can't set headers
   const rows = [
-    [t('stream.apiState', 'Everything about the run'), `${base}/runs/current${tok}`],
-    [t('stream.apiEvents', 'Live events (SSE)'), `${base}/runs/current/events${tok}`],
+    [t('stream.apiState', 'Everything about the run'), `${base}/runs/current`],
+    [t('stream.apiEvents', 'Live events (SSE)'), `${base}/runs/current/events`],
     [t('stream.apiSprite', 'A sprite'), `${base}/sprites/gen4/front/150.png`],
   ];
   return html`<section class="panel stack api-card">
@@ -281,7 +281,7 @@ function ApiCard({ run, stream, saveStream }) {
       <button type="button" class="btn small ghost" onClick=${() => openExternal(stream?.docs || LINKS.streamApiDocs)}><${Icon} name="external" size=${14} />${t('stream.apiDocs', 'Docs & examples')}</button>
     </div>
     <div class="api-rows">${rows.map(([label, u]) => html`<div class="ov-url"><span class="api-k small muted">${label}</span>
-      <span class=${`code ellipsis grow ${tok ? '' : 'sm-ok'}`} title=${u}>${u.replace(base, '…')}</span>
+      <span class="code ellipsis grow sm-ok" title=${u}>${u.replace(base, '…')}</span>
       <button type="button" class="btn small ghost" onClick=${() => copy(u)}>${t('common.copy', 'Copy')}</button></div>`)}</div>
     <div class="row wrap api-token" style="gap:8px 14px">
       <label class="check ov-tg"><input type="checkbox" checked=${!!stream?.token} disabled=${!stream} onChange=${(e) => saveStream({ token: e.target.checked ? 'new' : '' })} />
@@ -291,6 +291,7 @@ function ApiCard({ run, stream, saveStream }) {
         <button type="button" class="btn small ghost" onClick=${() => saveStream({ token: 'new' })}>${t('stream.apiNewToken', 'New token')}</button>`
         : html`<span class="small muted">${t('stream.apiOpenObs', 'Without a token, OBS (also local files), scripts and souldew may read – other websites can’t.')}</span>`}
     </div>
+    ${stream?.token && html`<p class="tiny faint">${t('stream.apiTokenHeader', 'Prefer the X-Souldew-Token header on fetch (see Stream API docs for the other header). EventSource and img tags still need ?token= (that can leak via Referer).')}</p>`}
     ${!stream?.token && html`<label class="check small"><input type="checkbox" checked=${!!stream?.localPages} disabled=${!stream} onChange=${(e) => saveStream({ localPages: e.target.checked })} />
       <span>${t('stream.apiLocal', 'Pages on this computer without a token, too: layouts opened from disk in a browser and other local web servers (localhost)')}</span></label>`}
     <p class="tiny faint">${t('stream.apiSafe', 'Read-only and on this computer only (127.0.0.1): no ROMs, saves, file names, invite codes or spoilers. Run: {name}', { name: run.name })}</p>

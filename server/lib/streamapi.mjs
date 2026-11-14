@@ -102,6 +102,15 @@ export function v1AccessError(req, url, { token = '', open = false, localPages =
   return localPages ? null : apiError('localPage');
 }
 
+/**
+ * May Chrome's Private Network Access preflight advertise access? Only when a later data GET could succeed:
+ * token configured (GET still checks it), or no-token trusted/localPages origin. Open assets pass via `open`.
+ */
+export function allowPrivateNetwork(req, url, { token = '', open = false, localPages = false } = {}) {
+  if (open || token) return true;
+  return !v1AccessError(req, url, { token: '', open: false, localPages });
+}
+
 /** CORS headers for an answer: the asking origin (or *), never credentials. */
 export function corsHeaders(req) {
   const origin = req.headers?.origin;
@@ -110,6 +119,8 @@ export function corsHeaders(req) {
     'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, X-Souldew-Token, Last-Event-ID, Cache-Control',
     'Access-Control-Max-Age': '600',
+    // Keep ?token= out of Referer when a layout loads third-party CSS/fonts/sprites (#42)
+    'Referrer-Policy': 'no-referrer',
     Vary: 'Origin',
   };
 }
@@ -305,18 +316,23 @@ export function createStreamHub(deps) {
   async function handle(req, res, path, url) {
     if (path !== API_PREFIX && !path.startsWith(`${API_PREFIX}/`)) return false;
     const sub = path.slice(API_PREFIX.length).replace(/\/+$/, '') || '/';
+    const sprite = sub.match(/^\/sprites\/([a-z0-9]+)\/([a-z-]+)\/(\d{1,4})\.(png|gif)$/);
+    const open = !!sprite || sub === '/coffee/qr.svg' || sub === '/legendaries';
+    const s = settings();
     if (req.method === 'OPTIONS') {
-      // CORS preflight (a custom header such as Authorization) – and Chrome's Private Network Access check
-      res.writeHead(204, { ...corsHeaders(req), ...(req.headers['access-control-request-private-network'] ? { 'Access-Control-Allow-Private-Network': 'true' } : {}) });
+      // CORS preflight (Authorization etc.) – PNA only when a later GET could be allowed (#41)
+      const headers = { ...corsHeaders(req) };
+      if (req.headers['access-control-request-private-network']
+        && allowPrivateNetwork(req, url, { token: s.token, open, localPages: s.localPages })) {
+        headers['Access-Control-Allow-Private-Network'] = 'true';
+      }
+      res.writeHead(204, headers);
       res.end();
       return true;
     }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       return fail(req, res, 'readOnly', { Allow: 'GET, HEAD, OPTIONS' });
     }
-    const sprite = sub.match(/^\/sprites\/([a-z0-9]+)\/([a-z-]+)\/(\d{1,4})\.(png|gif)$/);
-    const open = !!sprite || sub === '/coffee/qr.svg' || sub === '/legendaries';
-    const s = settings();
     const denied = v1AccessError(req, url, { token: s.token, open, localPages: s.localPages });
     if (denied) {
       return json(req, res, denied.status, { error: denied.error, code: denied.code });

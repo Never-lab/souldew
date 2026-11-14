@@ -12,7 +12,7 @@ import { LEGENDARY, MYTHICAL, legendaryKind, isLegendary, legendariesUpTo } from
 import { decideCoffee, recordCoffee, coffeeRoll, coffeeTexts, coffeeJokeId, COFFEE, COFFEE_TEXT, COFFEE_SHORT, COFFEE_URL } from '../shared/coffee.mjs';
 import { qrMatrix, qrSvg, qrPath } from '../shared/qr.mjs';
 import { buildState, eventsBetween, legendaryEncounters, spriteSource, spriteUrls, API_PREFIX } from '../shared/streamapi.mjs';
-import { v1AccessError, localOrigin, trustedOrigin, requestToken, streamSettings, streamMigration } from '../server/lib/streamapi.mjs';
+import { v1AccessError, allowPrivateNetwork, localOrigin, trustedOrigin, requestToken, streamSettings, streamMigration } from '../server/lib/streamapi.mjs';
 import { LINKS } from '../shared/links.mjs';
 
 const DATA = mkdtempSync(join(tmpdir(), 'sls-streamapi-'));
@@ -289,6 +289,20 @@ test('access without a token: OBS, scripts and souldew itself always; pages from
   assert.equal(streamMigration({ onboarded: true, stream: { localPages: false } }), null);
 });
 
+test('PNA preflight only when a later GET could succeed (#41)', () => {
+  const req = (origin, host = '127.0.0.1:47390') => ({ headers: { host, ...(origin === undefined ? {} : { origin }) } });
+  const url = new URL('http://127.0.0.1/api/v1');
+  const token = 'abcdefghijklmnopqrstuv';
+  assert.equal(allowPrivateNetwork(req(undefined), url), true, 'OBS / curl');
+  assert.equal(allowPrivateNetwork(req('http://127.0.0.1:47390'), url), true, 'souldew origin');
+  assert.equal(allowPrivateNetwork(req('https://evil.example'), url), false, 'foreign without token');
+  assert.equal(allowPrivateNetwork(req('https://evil.example'), url, { localPages: true }), false, 'localPages does not open websites');
+  assert.equal(allowPrivateNetwork(req('http://localhost:8080'), url), false, 'other localhost until allowed');
+  assert.equal(allowPrivateNetwork(req('http://localhost:8080'), url, { localPages: true }), true);
+  assert.equal(allowPrivateNetwork(req('https://evil.example'), url, { token }), true, 'token configured → GET can succeed');
+  assert.equal(allowPrivateNetwork(req('https://evil.example'), url, { open: true }), true, 'open assets');
+});
+
 // ---- the server ------------------------------------------------------------------------------------------------
 
 function sse(url, headers = {}) {
@@ -389,10 +403,14 @@ test('server: /api/v1 JSON, CORS, token, read-only, sprites, live events and the
     assert.equal((await fetch(`${url}/api/v1/runs/current`, { headers: { origin: 'https://evil.example' } })).status, 403);
     assert.equal((await fetch(`${url}/api/v1/runs/current`, { headers: { origin: 'null' } })).status, 200);
     assert.equal((await fetch(`${url}/api/v1/runs/current`, { method: 'POST', body: '{}' })).status, 405);
-    const pre = await fetch(`${url}/api/v1/runs/current`, { method: 'OPTIONS', headers: { origin: 'https://my.layout.example', 'access-control-request-method': 'GET', 'access-control-request-private-network': 'true' } });
-    assert.equal(pre.status, 204);
-    assert.equal(pre.headers.get('access-control-allow-private-network'), 'true');
-    assert.match(pre.headers.get('access-control-allow-headers'), /Authorization/);
+    // PNA: foreign origin without a token must not get Allow-Private-Network (#41)
+    const preDenied = await fetch(`${url}/api/v1/runs/current`, { method: 'OPTIONS', headers: { origin: 'https://my.layout.example', 'access-control-request-method': 'GET', 'access-control-request-private-network': 'true' } });
+    assert.equal(preDenied.status, 204);
+    assert.equal(preDenied.headers.get('access-control-allow-private-network'), null);
+    assert.match(preDenied.headers.get('access-control-allow-headers'), /Authorization/);
+    assert.equal(preDenied.headers.get('referrer-policy'), 'no-referrer');
+    const preLocal = await fetch(`${url}/api/v1/runs/current`, { method: 'OPTIONS', headers: { origin: 'http://localhost:8080', 'access-control-request-method': 'GET', 'access-control-request-private-network': 'true' } });
+    assert.equal(preLocal.headers.get('access-control-allow-private-network'), 'true', 'localPages on → local origin may GET');
     // the app's own API stays closed to other origins, as before
     assert.equal((await fetch(`${url}/api/runs/c0ffee02/doc`, { headers: { origin: 'http://localhost:8080' } })).status, 403);
 
@@ -419,7 +437,12 @@ test('server: /api/v1 JSON, CORS, token, read-only, sprites, live events and the
     assert.match(tok, /^[A-Za-z0-9_-]{24}$/);
     assert.equal((await fetch(`${url}/api/v1/runs/current`)).status, 401);
     assert.equal((await fetch(`${url}/api/v1/runs/current?token=${tok}`, { headers: { origin: 'https://my.layout.example' } })).status, 200);
+    assert.equal((await fetch(`${url}/api/v1/runs/current`, { headers: { origin: 'https://my.layout.example', authorization: `Bearer ${tok}` } })).status, 200);
+    const preTok = await fetch(`${url}/api/v1/runs/current`, { method: 'OPTIONS', headers: { origin: 'https://my.layout.example', 'access-control-request-method': 'GET', 'access-control-request-private-network': 'true' } });
+    assert.equal(preTok.headers.get('access-control-allow-private-network'), 'true', 'token set → foreign PNA ok; GET still needs token');
     assert.equal((await fetch(`${url}/api/v1/sprites/gen4/front/25.png`)).status, 200, 'sprites need no token');
+    const data = await fetch(`${url}/api/v1/runs/current?token=${tok}`);
+    assert.equal(data.headers.get('referrer-policy'), 'no-referrer');
     assert.equal((await set({ token: '' })).token, '');
     assert.equal((await fetch(`${url}/api/stream`, { method: 'POST', body: '{}' })).status, 403, 'settings are the app’s, not the open API’s');
 

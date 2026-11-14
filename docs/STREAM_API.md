@@ -28,11 +28,15 @@ If port 47390 is taken, souldew picks another one – the Stream page always sho
     existing layouts keep working; a new install starts with it off. Switch it off once your layouts run in OBS or
     use the token.
 - **Optional token.** Switch on **Require a token** on the Stream page: then every data request needs it – from
-  anywhere, which also lets a layout hosted on a website read the API. Pass it as `?token=…` (the only way for
-  `EventSource` and `<img>`), `Authorization: Bearer …` or `X-Souldew-Token: …`. The token is covered in streamer
-  mode. Sprites, the QR code and the legendary list are public pictures/data and never need it.
-- **CORS** is on: answers carry `Access-Control-Allow-Origin` for the asking page; preflights (and Chrome's
-  Private Network Access check) are answered.
+  anywhere, which also lets a layout hosted on a website read the API. Prefer `Authorization: Bearer …` or
+  `X-Souldew-Token: …` on `fetch` (the Stream page copies the token separately). Use `?token=…` only when the
+  client cannot set headers (`EventSource`, `<img>`) – query tokens can leak via `Referer`. The token is covered
+  in streamer mode. Sprites, the QR code and the legendary list are public pictures/data and never need it.
+  Answers also send `Referrer-Policy: no-referrer` so a layout URL with `?token=` is less likely to forward the
+  token to third-party assets.
+- **CORS** is on: answers carry `Access-Control-Allow-Origin` for the asking page; preflights are answered.
+  Chrome's Private Network Access allowance is only set when a later data GET could succeed (token configured, or
+  a trusted / allowed local origin) – not for foreign origins that would get `401`/`403` on the real request.
 
 ## Versioning
 
@@ -227,6 +231,7 @@ browser straight from disk, put the token in (or switch on **Pages on this compu
   const API = 'http://127.0.0.1:47390/api/v1'; // the address from souldew's Stream page
   const LANG = 'en';                           // en, de, fr, es, it
   const TOKEN = '';                            // only if you switched on "Require a token"
+  // EventSource cannot set Authorization – ?token= is the fallback (prefer headers on fetch)
   const q = `?lang=${LANG}${TOKEN ? `&token=${TOKEN}` : ''}`;
   // names and nicknames come from the players – escape them before they go into HTML
   const esc = (s) => String(s ?? '').replace(/[&<>"'`]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;' }[c]));
@@ -246,6 +251,9 @@ browser straight from disk, put the token in (or switch on **Pages on this compu
   // the live stream sends the whole state right away and again after every change
   const events = new EventSource(`${API}/runs/current/events${q}`);
   events.addEventListener('state', (e) => render(JSON.parse(e.data)));
+
+  // fetch example (preferred when you can set headers):
+  // fetch(`${API}/runs/current?lang=${LANG}`, { headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {} })
 </script>
 ```
 
