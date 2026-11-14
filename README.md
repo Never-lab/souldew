@@ -242,7 +242,7 @@ No. The apps find each other through public relays and connect directly; the fal
 <details>
 <summary><b>Do my friends need the same ROM?</b></summary>
 
-Everyone uses their own copy of the same game – a different language version works too. For randomized runs everyone builds the same game from the same seed; souldew compares the checksums so all players end up with byte-identical games.
+Everyone uses their own copy of the same game – a different language or release of that title works on a normal (non-randomized) run. HeartGold and SoulSilver can also share one plain SoulLink: the host picks one title, partners may join with the other. Randomized or ROM-hacked runs still need the same title and the same bytes (checksums). Mixing other classic pairs (Red/Blue, Ruby/Sapphire, …) is not supported yet.
 </details>
 
 <details>

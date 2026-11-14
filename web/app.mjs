@@ -157,7 +157,13 @@ function applyJoinName(doc, manifest) {
   try {
     const joined = JSON.parse(localStorage.getItem(`sl-joinname-${manifest.id}`) || 'null');
     if (!joined) return;
-    if (joined.name && slotsOf(manifest).includes(joined.slot)) doc.set(`player:${joined.slot}`, { ...(doc.get(`player:${joined.slot}`) || {}), name: joined.name });
+    if (slotsOf(manifest).includes(joined.slot) && (joined.name || joined.gameId)) {
+      doc.set(`player:${joined.slot}`, {
+        ...(doc.get(`player:${joined.slot}`) || {}),
+        ...(joined.name ? { name: joined.name } : {}),
+        ...(joined.gameId ? { gameId: joined.gameId } : {}),
+      });
+    }
     localStorage.removeItem(`sl-joinname-${manifest.id}`);
   } catch {
     // storage blocked – the host's name stays

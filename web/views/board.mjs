@@ -10,6 +10,7 @@ import {
   players as getPlayers, rules as getRules, levelCap, dupeOf, resumeRun, slotsOf, encounter, openAreas, runStats, isNuzlocke, logCheatRule,
   logTypeHelpRule, allowedRulesPatch, isHost, HOST_SLOT,
 } from '../lib/run.mjs';
+import { isMixedPairRun, pairHasExclusive, exclusiveSide } from '/shared/pair-titles.mjs';
 import { PartyPanel, PartyGrid, TeamColumns } from './party.mjs';
 import { HostCode } from './invitecode.mjs';
 import { RestartModal } from './restart.mjs';
@@ -522,6 +523,8 @@ function RoutesTab() {
   const slots = slotsOf(manifest);
   const solo = isNuzlocke(manifest);
   const n = slots.length;
+  const playerGameIds = Object.fromEntries(slots.map((s) => [s, names[s]?.gameId || manifest?.outputs?.[s]?.gameId || null]));
+  const mixedPair = !solo && isMixedPairRun(manifest, (id) => gameById(id)?.variantOf || id, playerGameIds);
   const prog = progression(doc, manifest);
   const cap = levelCap(doc, manifest, me);
   const bosses = doc.scan('boss:');
@@ -566,6 +569,14 @@ function RoutesTab() {
           waiting: n > 2 ? t('routes.waitingFor', 'waiting for {names}', { names: joinNames(waitingFor) }) : t('routes.waiting', 'waiting for partner'),
           linked: t('routes.linked', 'linked'), failed: t('routes.failed', 'missed'), dead: t('routes.dead', 'dead'),
         }[st.state];
+        const excl = mixedPair && pairHasExclusive(encs.map((e) => e?.outcome === 'caught' ? e.species : null).filter(Boolean));
+        const exclHint = excl
+          ? (() => {
+            const sides = [...new Set(encs.map((e) => e?.outcome === 'caught' ? exclusiveSide(e.species) : null).filter(Boolean))];
+            const label = sides.map((s) => (s === 'heartgold' ? 'HeartGold' : 'SoulSilver')).join(' / ');
+            return label ? t('routes.versionExclusive', 'Version exclusive ({games})', { games: label }) : t('routes.versionExclusiveShort', 'Version exclusive');
+          })()
+          : '';
         const actions = html`<div class="row route-act" style="justify-content:flex-end">
           ${st.state === 'dead'
             ? html`<button class="btn small ghost" onClick=${() => revive(doc, item.key)}>${t('routes.undo', 'undo')}</button>`
@@ -583,7 +594,7 @@ function RoutesTab() {
           </div>`;
         }
         return html`<div class=${`route ${n > 2 ? 'grp' : ''} ${st.state} ${settled ? 'settled' : ''}`} key=${item.key}>
-          <div class="area-name"><strong>${item.name}</strong><span>${stateText}${cause}</span></div>
+          <div class="area-name"><strong>${item.name}</strong><span>${stateText}${cause}${exclHint ? ` · ${exclHint}` : ''}</span></div>
           ${n === 2
             ? html`<${MonButton} enc=${st.encs.p1} slot="p1" onClick=${edit('p1')} /><${RouteThread} /><${MonButton} enc=${st.encs.p2} slot="p2" right onClick=${edit('p2')} />`
             : slots.map((s) => html`<${MonButton} key=${s} enc=${st.encs[s]} slot=${s} onClick=${edit(s)} label=${`${names[s].name}: ${st.encs[s]?.species ? speciesName(st.encs[s].species) : t('routes.add', '+ add encounter')}`} />`)}

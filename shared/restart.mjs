@@ -3,6 +3,7 @@
 // web/lib/restart.mjs gathers the inputs and sends it to POST /api/runs/build.
 import { randomSeed } from './randomizer-options.mjs';
 import { slotsOf, runMode, defaultRunName } from './slots.mjs';
+import { pairMate } from './pair-titles.mjs';
 
 /** "Lou & Noa" → "Lou & Noa #2" if that name is taken ("… #2" counts up from its base name). */
 export function numberedName(base, runs) {
@@ -25,8 +26,15 @@ export function baseRomsFor(m, roms, rootOf = null) {
     // Rev 1, another region or language. Only randomized or patched runs need byte-identical ROMs. The exact release
     // still comes first. rootOf maps a library ROM's catalog id to its main game (variants → their base).
     if (!rootOf || needsIdenticalRom(m) || !m?.game?.id) return exact;
-    const same = (roms || []).filter((r) => !exact.includes(r) && !r.hackId && r.gameId && rootOf(r.gameId) === m.game.id);
-    return [...exact, ...same];
+    // Catalog root (variants → base) so pairMate sees pokemon-heartgold, not a language variant id.
+    const host = rootOf(m.game.id);
+    const mate = pairMate(host);
+    const same = (roms || []).filter((r) => !exact.includes(r) && !r.hackId && r.gameId && rootOf(r.gameId) === host);
+    // Plain SoulLink: sister title (e.g. SoulSilver when the host runs HeartGold) is allowed too.
+    const sister = mate
+      ? (roms || []).filter((r) => !exact.includes(r) && !same.includes(r) && !r.hackId && r.gameId && rootOf(r.gameId) === mate)
+      : [];
+    return [...exact, ...same, ...sister];
   }
   if (m?.game?.system !== '3ds') return [];
   const id = m.game.id;

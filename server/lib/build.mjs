@@ -387,10 +387,11 @@ async function buildInto(opts, onLog) {
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     mode,
-    players,
-    base: { crc: patched.baseCrc, name: basename(String(opts.romId).split('::').pop()), gameId: opts.gameId || null },
-    patch: opts.patchId ? { name: patched.patchName, sha1: patched.patchSha1 || opts.patchSha1 || null, resultCrc: patched.crc, hackId: opts.hackId || null } : null,
-    game: { id: opts.gameId || existing?.game?.id || null, system: patched.system, code: patched.header?.code || '', title: patched.header?.title || '', hackId: opts.hackId || null },
+    players, // mutated below per built slot (gameId of that slot’s ROM)
+    // Join rebuilds keep the host's base/game; only a brand-new run takes them from this ROM.
+    base: existing?.base || { crc: patched.baseCrc, name: basename(String(opts.romId).split('::').pop()), gameId: opts.gameId || null },
+    patch: existing?.patch || (opts.patchId ? { name: patched.patchName, sha1: patched.patchSha1 || opts.patchSha1 || null, resultCrc: patched.crc, hackId: opts.hackId || null } : null),
+    game: existing?.game || { id: opts.gameId || null, system: patched.system, code: patched.header?.code || '', title: patched.header?.title || '', hackId: opts.hackId || null },
     patchedSha1: patched.sha1,
     randomizer: {
       enabled: opts.randomize !== false && !ctr,
@@ -438,11 +439,15 @@ async function buildInto(opts, onLog) {
       rmSync(logOut, { force: true });
     }
     const sha1 = ctr ? null : fileSha1(romOut);
+    const slotGameId = opts.gameId || existing?.game?.id || null;
+    // Keep the host's player rows; stamp the catalog id of the ROM this slot just built.
+    players[slot] = { ...(players[slot] || {}), ...(slotGameId ? { gameId: slotGameId } : {}) };
     manifest.outputs[slot] = {
       rom: basename(romOut),
       log: manifest.randomizer.enabled ? basename(logOut) : null,
       data: manifest.randomizer.enabled ? basename(dataOut) : null,
       sha1,
+      gameId: slotGameId,
       builtAt: new Date().toISOString(),
       expectedSha1: opts.expectedOutputs?.[slot]?.sha1 || null,
     };

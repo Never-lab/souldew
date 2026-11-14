@@ -9,6 +9,7 @@ import { Cart, coverOf } from './library.mjs';
 import { RestartModal } from './restart.mjs';
 import { mySlotIn } from '../lib/restart.mjs';
 import { numberedName, baseRomsFor, needsIdenticalRom } from '/shared/restart.mjs';
+import { pairMate } from '/shared/pair-titles.mjs';
 import { ALL_SLOTS, slotsOf, runMode, othersOf, defaultRunName } from '/shared/slots.mjs';
 import { NUZLOCKE_RULES, joinNames } from '../lib/run.mjs';
 import { suggestSlot } from '../lib/invitecode.mjs';
@@ -497,6 +498,9 @@ function NewRun({ gameId, hackId, from, mode: sectionMode }) {
   // (a ROM patched before it was added is recognised by its checksum – server/lib/library.mjs describeRom)
   const hack = patch?.hackId ? hackById(patch.hackId) : !patch && rom?.hackId ? hackById(rom.hackId) : null;
   const canRandomize = inspect && !inspect.info?.unsupported;
+  const hostGameId = game?.variantOf || game?.id || null;
+  const sisterId = hostGameId && !(randomize && canRandomize) && !patchId && !hack ? pairMate(hostGameId) : null;
+  const sisterGame = sisterId ? gameById(sisterId) : null;
   const step = { who: 1, game: 2, randomizer: 3, rules: 4, build: 5 };
   const seedSlots = solo || seedMode === 'shared' ? ['p1'] : slots;
 
@@ -592,6 +596,7 @@ function NewRun({ gameId, hackId, from, mode: sectionMode }) {
         : inspect.info?.unsupported ? (solo ? t('new.noRandomizerSolo', 'This game can’t be randomized – you can still play the Nuzlocke without the randomizer.')
           : t('new.noRandomizer', 'This game can’t be randomized – you can still play a regular SoulLink.'))
         : t('new.ok', '{n} Pokémon · randomizer supported', { n: inspect.info.pokemonCount })}${inspect && inspect.info && inspect.info.staticsSupported === false ? ` · ${t('new.noStatics', 'gifts & legendaries stay as in the hack')}` : ''}</p>
+      ${sisterGame && html`<p class="small muted"><span class="chip">${t('new.pairOk', 'Partner can join with {game}', { game: gameTitle(sisterGame) })}</span></p>`}
     </section>
 
     <section class="panel stack">
@@ -714,9 +719,14 @@ function JoinRun() {
     return null;
   };
   const otherRelease = rom && baseCrc && String(rom.crc || '').toUpperCase() !== String(baseCrc).toUpperCase();
+  const romRoot = rom?.gameId ? rootOf(rom.gameId) : null;
+  const hostRoot = pack?.game?.id ? rootOf(pack.game.id) : null;
+  const sisterJoin = !!(romRoot && hostRoot && romRoot !== hostRoot && pairMate(hostRoot) === romRoot);
   // own copies of this game in another release (shown when the run needs the exact one)
   const ownReleases = pack && needsIdenticalRom(pack) ? (library?.roms || []).filter((r) => !r.hackId && r.gameId && rootOf(r.gameId) === pack.game?.id) : [];
   const patch = pack?.patch ? library?.patches?.find((p) => p.sha1 === pack.patch.sha1) || (baseCrc && library?.patches?.find((p) => p.expectedCrc === baseCrc)) : null;
+  const mateId = hostRoot && !needsIdenticalRom(pack) ? pairMate(hostRoot) : null;
+  const mateTitle = mateId && gameById(mateId) ? gameTitle(gameById(mateId)) : null;
 
   // seat: the host's hint with a code invite – { slot, taken } (see JoinCode); none with an invite file
   const load = async (text, seat = null) => {
@@ -744,21 +754,24 @@ function JoinRun() {
     setBusy(true);
     setError(null);
     try {
+      const slotGameId = romRoot || pack.game?.id || null;
       const res = await api.post('/api/runs/build', {
         runId: pack.id, romId: rom.id, patchId: patch?.id || null, values: pack.randomizer.values, randomize: pack.randomizer.enabled,
         seeds: pack.randomizer.seeds, sharedSeed: pack.randomizer.sharedSeed, players: withMyName(), buildFor: [mine], name: pack.name, mode: runMode(pack),
-        expectedOutputs: pack.expectedOutputs, rules: pack.rules, gameId: pack.game?.id, hackId: pack.game?.hackId,
+        expectedOutputs: pack.expectedOutputs, rules: pack.rules, gameId: slotGameId, hackId: pack.game?.hackId,
         // same file name as the host's ("Robin – Silberne Edition Randomized.gbc", not the raw header title; a hack –
         // also a pre-patched one without a patch file – by its name, as the host's wizard does)
-        gameTitle: pack.patch?.name || hackById(pack.game?.hackId)?.name || (gameById(pack.game?.id) ? gameTitle(gameById(pack.game.id)) : undefined),
+        gameTitle: pack.patch?.name || hackById(pack.game?.hackId)?.name || (romRoot && gameById(romRoot) ? gameTitle(gameById(romRoot)) : undefined) || (gameById(pack.game?.id) ? gameTitle(gameById(pack.game.id)) : undefined),
       });
       setLog(res.log);
       setMe(mine, pack.id);
       // The shared doc still has the host's name for this seat. Ours goes in as the newest write, so the sync hands
-      // it to everyone – right away when the run's doc is open, else once it opens (app.mjs).
+      // it to everyone – right away when the run's doc is open, else once it opens (app.mjs). Also stamp gameId so
+      // a sister-title join (HG↔SS) shows as a mixed pair on every machine.
       const name = myName.trim();
-      if (name && doc?.runId === pack.id) doc.set(`player:${mine}`, { ...(doc.get(`player:${mine}`) || {}), name });
-      else if (name) try { localStorage.setItem(`sl-joinname-${pack.id}`, JSON.stringify({ slot: mine, name })); } catch {}
+      const playerPatch = { ...(name ? { name } : {}), ...(slotGameId ? { gameId: slotGameId } : {}) };
+      if (Object.keys(playerPatch).length && doc?.runId === pack.id) doc.set(`player:${mine}`, { ...(doc.get(`player:${mine}`) || {}), ...playerPatch });
+      else if (Object.keys(playerPatch).length) try { localStorage.setItem(`sl-joinname-${pack.id}`, JSON.stringify({ slot: mine, ...playerPatch })); } catch {}
       await reloadStatus();
       await reloadManifest(pack.id);
       toast({ kind: 'ok', title: t('join.ready', 'You’re in!'), text: t('join.readyText', 'Your game is built – have fun.') });
@@ -785,11 +798,16 @@ function JoinRun() {
     ${pack && html`<section class="panel stack">
       <h2>${t('join.step2', '2 · Your game')}</h2>
       ${rom ? html`<p class="small"><span class="chip ok">${t('join.found', 'Found in your library')}</span> <span class="mono">${rom.name}</span></p>
-        ${otherRelease && html`<p class="small muted">${t('join.otherRelease', 'Another release than the host’s ({host}) – that’s fine: everyone plays their own copy in this run.', { host: releaseOf(baseCrc) || `CRC32 ${baseCrc}` })}</p>`}`
+        ${sisterJoin && html`<p class="small muted">${t('join.pairTitle', 'You’re joining with {yours}; the host runs {host}. That’s fine for this pair.', {
+          yours: gameById(romRoot) ? gameTitle(gameById(romRoot)) : romRoot,
+          host: gameById(hostRoot) ? gameTitle(gameById(hostRoot)) : hostRoot })}</p>`}
+        ${otherRelease && !sisterJoin && html`<p class="small muted">${t('join.otherRelease', 'Another release than the host’s ({host}) – that’s fine: everyone plays their own copy in this run.', { host: releaseOf(baseCrc) || `CRC32 ${baseCrc}` })}</p>`}`
         : html`<p class="warning">${baseCrc && needsIdenticalRom(pack) ? t('join.missingExact', 'This run is {kind}, so everyone needs exactly the same release: {release}. Add it to your library first.', {
             kind: pack.patch ? t('join.kindPatched', 'a ROM hack') : t('join.kindRandom', 'randomized'), release: releaseOf(baseCrc) || `CRC32 ${baseCrc}` })
             + (ownReleases.length ? ' ' + t('join.youHave', 'You have: {list}.', { list: ownReleases.map((r) => releaseOf(r.crc) || r.name).join(', ') }) : '')
           : baseCrc && !gameById(pack.game?.id) ? t('join.missing', 'Add your own copy of the base game (CRC32 {crc}) to the library first.', { crc: baseCrc })
+          : mateTitle ? t('join.missingGameOrPair', 'Add your own copy of {game} (or {sister}) to the library first.', {
+              game: gameById(pack.game?.id) ? gameTitle(gameById(pack.game.id)) : pack.game?.title || '?', sister: mateTitle })
           : t('join.missingGame', 'Add your own copy of {game} to the library first.', { game: gameById(pack.game?.id) ? gameTitle(gameById(pack.game.id)) : pack.game?.title || pack.game?.code || '?' })}</p>
           <div><button class="btn" onClick=${() => navigate('library')}>${t('nav.library', 'Library')}</button></div>`}
       ${pack.patch && (patch ? html`<p class="small"><span class="chip ok">${t('join.patchFound', 'Patch found')}</span> <span class="mono">${patch.name}</span></p>`
