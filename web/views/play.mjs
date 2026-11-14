@@ -90,7 +90,8 @@ export function PlayView() {
   const running = session?.target;
   const home = route.params.home !== undefined;
   // The running game is drawn by the app shell (GameSession), so it keeps going in every other section.
-  if (running && !home && (!target || target.key === running.key)) return null;
+  // (a link session of this run counts as this run's game: web/lib/linksession.mjs)
+  if (running && !home && (!target || target.key === running.key || (running.link && running.runId && running.runId === target.runId))) return null;
   if (!target || home) return html`<div class="stack-l">${running && html`<${RunningBanner} />`}<${PlayHome} /></div>`;
   if (target.error === 'noRom') {
     return html`<div class="panel empty-state">
@@ -305,7 +306,7 @@ export function GameSession({ session, mode }) {
   // The fast player (playernative.html, server/lib/native.mjs): DS, GBA and Game Boy run in souldew's native host –
   // melonDS with its JIT, mGBA, Gambatte – at full speed with uncapped fast-forward, unless Settings › "Fast player" is
   // off or its part is missing. When it can't start the game, the session switches to the browser emulator by itself.
-  const [nativeOn, setNativeOn] = useState(() => target.system !== '3ds' && status?.config?.nativeCore !== false && !!status?.native?.cores?.[target.system] && !!status?.native?.ids?.[target.system]);
+  const [nativeOn, setNativeOn] = useState(() => !!target.link || (target.system !== '3ds' && status?.config?.nativeCore !== false && !!status?.native?.cores?.[target.system] && !!status?.native?.ids?.[target.system]));
   const core = target.system === '3ds' ? 'azahar-n3ds' : nativeOn ? status.native.ids[target.system] : isDs && /^(IPK|IPG|IRB|IRA|IRE|IRD)/.test(target.code || '') ? 'desmume' : '';
   // What fast-forward really reaches in this game on this computer (lib/reach.mjs), remembered per game and core: the
   // turbo steps it can't reach aren't offered – the highest one then plays as fast as the computer manages.
@@ -1162,7 +1163,8 @@ export function GameSession({ session, mode }) {
   }, [phase]);
 
   // The fast player's page: the host opens the ROM itself; the battery save comes from the same place as for player.html
-  const [nativeSrc] = useState(() => `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}`);
+  // (a link session: the server started the link host already – the page attaches to it, docs/MULTIPLAYER.md)
+  const [nativeSrc] = useState(() => target.link ? `/playernative.html?system=${target.system}&link=1&session=${encodeURIComponent(target.link.id)}&save=${encodeURIComponent(target.saveUrl)}` : `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}`);
   // The frame's URL is fixed for the whole session – changing it would reboot the game.
   const [wasmSrc] = useState(() => {
     // 3DS: souldew's own player page – the game runs in the native host (server/lib/ctr.mjs), its saves live in the

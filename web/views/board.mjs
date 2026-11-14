@@ -17,6 +17,7 @@ import { useStreamer } from '../lib/streamer.mjs';
 import { NuzlockeRules, Choice, TypeHelpRule } from './nuzrules.mjs';
 import { ShareButton } from './liveshare.mjs';
 import { deathEvent } from '../lib/liveshare.mjs';
+import { LinkButtons } from './linkplay.mjs';
 
 
 /** Is `slot` connected right now? Per player once the app tracks it (`onlineSlots`), before that "any partner". */
@@ -93,6 +94,7 @@ function PlayerTag({ slot, right }) {
         : playingHere ? t('board.playingNoTeam', 'playing – no team yet')
           : slot === me ? t('board.startPlaying', 'Start the game to go live')
             : online ? t('board.partnerOnline', 'online – no team yet') : linkStatus ? t('board.notPlaying', 'not playing yet') : t('rail.offline', 'Not connected')}</span>
+      ${slot !== me && html`<${LinkButtons} slot=${slot} />`}
     </div>
   </div>`;
 }

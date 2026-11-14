@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { WEB_DIR, SHARED_DIR, CACHE_DIR, DATA_DIR, CONFIG_PATH, NODE_MODULES, DEV, LIBRARY_DIR } from './lib/paths.mjs';
 import { writeFileAtomic, httpError, safeFileName, safeJoin, realInside } from './lib/fsutil.mjs';
 import { detectJava, uprStatus, installUpr, runBridge } from './lib/toolchain.mjs';
-import { preparePatchedRom, KNOWN_PATCHES } from './lib/roms.mjs';
+import { preparePatchedRom, KNOWN_PATCHES, fileSha1 } from './lib/roms.mjs';
 import { ROM_EXTENSIONS, PATCH_EXTENSIONS, isCtrExt } from '../shared/romid.mjs';
 import { ALL_SLOTS, slotsOf, runMode } from '../shared/slots.mjs';
 import { scanLibrary, catalog, loadFile, importFiles, uploadTarget, resolveId, discoverRoms, approvedFolder, placeUploadedZip, unpackLibraryZip, MAX_CTR_BYTES, setRomHack } from './lib/library.mjs';
@@ -22,7 +22,7 @@ import { EMULATORS, detectEmulator, installEmulator, launchRom, revealInFileMana
 import { LiveBridge } from './lib/livebridge.mjs';
 import { AzaharBridge, enableRpc } from './lib/azahar.mjs';
 import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted } from './lib/ctr.mjs';
-import { NativeSessions, nativeTools, NATIVE_CORES } from './lib/native.mjs';
+import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, LINK_SYSTEMS, MAX_LINK_SEATS } from './lib/native.mjs';
 import { moveToGraveyard, parseHgssSave } from '../shared/gen4save.mjs';
 import { listPresets, savePreset, deletePreset } from './lib/presets.mjs';
 import { pageHeaders } from './lib/csp.mjs';
@@ -1420,6 +1420,60 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if (!tools.cores?.[system]) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
     const id = native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl) });
     return { id, core: NATIVE_CORES[system].id };
+  });
+  // ---- link sessions: trades and battles between the players of a run (docs/MULTIPLAYER.md) -----------------------
+  // Every seat's ROM must be a file of this run on this computer (a partner's is rebuilt from the same base, patch and
+  // seed – ROMs never travel); its SHA-1 has to be what the partner says theirs is. SHA-1s are cached by size + mtime.
+  const romShaCache = new Map();
+  const runRomSha = (manifest, slot) => {
+    const name = manifest?.outputs?.[slot]?.rom;
+    const p = typeof name === 'string' ? runPath(manifest.id, name) : null;
+    if (!p || !existsSync(p)) return { path: null, sha1: null };
+    const st = statSync(p);
+    const k = `${p}\0${st.size}\0${st.mtimeMs}`;
+    if (!romShaCache.has(k)) romShaCache.set(k, fileSha1(p));
+    return { path: p, sha1: romShaCache.get(k) };
+  };
+  route('GET', /^\/api\/link\/check$/, (req, m, url) => {
+    const manifest = readManifest(url.searchParams.get('runId') || '');
+    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    const system = manifest.game?.system || null;
+    const slots = Object.fromEntries(slotsOf(manifest).map((s) => {
+      const r = runRomSha(manifest, s);
+      return [s, { rom: !!r.path, sha1: r.sha1 }];
+    }));
+    return { tool: !!linkTool(), system, supported: LINK_SYSTEMS.includes(system), slots };
+  });
+  route('POST', /^\/api\/link\/start$/, async (req) => {
+    const { runId, local, seats, delay, rtc } = await readBody(req);
+    const manifest = readManifest(String(runId || ''));
+    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    const system = manifest.game?.system;
+    if (!LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
+    const runSlots = slotsOf(manifest);
+    if (!Array.isArray(seats) || seats.length < 2 || seats.length > MAX_LINK_SEATS) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    if (new Set(seats.map((s) => s?.slot)).size !== seats.length || !seats.every((s) => runSlots.includes(s?.slot))) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    const localIndex = seats.findIndex((s) => s.slot === local);
+    if (localIndex < 0) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    const out = seats.map((s, i) => {
+      const r = runRomSha(manifest, s.slot);
+      if (!r.path) throw httpError(409, 'Das Spiel dieses Spielers fehlt hier', 'linkRomMissing', { slot: s.slot });
+      if (typeof s.sha1 !== 'string' || s.sha1.toLowerCase() !== r.sha1) throw httpError(409, 'Das Spiel dieses Spielers ist hier ein anderes', 'linkRomDiffers', { slot: s.slot });
+      let save = null;
+      if (i === localIndex) { // our own save: from disk, never from the page
+        const p = defaultSavePath(manifest, s.slot);
+        save = p && existsSync(p) ? readFileSync(p) : null;
+      } else if (typeof s.save === 'string' && s.save) save = Buffer.from(s.save, 'base64');
+      if (save && typeof s.saveSha1 === 'string' && createHash('sha1').update(save).digest('hex') !== s.saveSha1.toLowerCase()) {
+        throw httpError(409, 'Spielstand beschädigt', 'linkSaveDiffers', { slot: s.slot });
+      }
+      return { rom: r.path, save };
+    });
+    const id = native.startLink({
+      host: linkTool(), system, seats: out, local: localIndex, delay, rtc, key: `${manifest.id}:${local}`,
+      saveFile: defaultSavePath(manifest, local) ? { path: defaultSavePath(manifest, local), runId: manifest.id } : null,
+    });
+    return { id, system, local: localIndex, seats: seats.length };
   });
   route('POST', /^\/api\/native\/stop$/, async (req) => {
     const { id } = await readBody(req);

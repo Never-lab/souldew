@@ -1478,3 +1478,8 @@ html.pad-nav .cart:focus .cart-body { transform: translateY(-4px) rotate(-0.6deg
 html.pad-nav .cart:focus .cart-slot { filter: drop-shadow(0 0 2px var(--focus)) drop-shadow(0 0 12px color-mix(in srgb, var(--focus) 70%, transparent)) drop-shadow(0 8px 12px #0008); }
 html.pad-nav .cart:focus .cart-title { color: var(--focus); }
 @media (prefers-reduced-motion: reduce) { html.pad-nav :focus { transition: none; } }
+
+/* Link sessions (trades and battles, web/views/linkplay.mjs): the bar at the top of the window, the board buttons */
+.link-bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 60; max-width: min(760px, calc(100vw - 32px)); gap: 10px; align-items: center; box-shadow: 0 8px 28px rgb(0 0 0 / 0.35); }
+.link-buttons { gap: 6px; margin-top: 4px; }
+.link-buttons .btn { padding: 2px 8px; }

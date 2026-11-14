@@ -836,7 +836,10 @@ function JoinRun() {
     try {
       const res = await api.post('/api/runs/build', {
         progressId: pid, runId: pack.id, romId: rom.id, patchId: patch?.id || null, values: pack.randomizer.values, randomize: pack.randomizer.enabled,
-        seeds: pack.randomizer.seeds, sharedSeed: pack.randomizer.sharedSeed, players: withMyName(), buildFor: [mine], name: pack.name, mode: runMode(pack),
+        seeds: pack.randomizer.seeds, sharedSeed: pack.randomizer.sharedSeed, players: withMyName(), name: pack.name, mode: runMode(pack),
+        // GB / GBA: every player's game too (a few MB) – a link session (trades, battles) runs every seat here, from
+        // byte-identical games (docs/MULTIPLAYER.md); not with the pair's other title, nor DS/3DS (large, no link yet)
+        buildFor: !pair && ['gba', 'gb', 'gbc'].includes(pack.game?.system) && slots.length > 1 ? [mine, ...slots.filter((s) => s !== mine)] : [mine],
         // with the pair's other title our run is built for the game we play (live tracking, cover, trophies)
         expectedOutputs: pack.expectedOutputs, rules: pack.rules, gameId: joinGameId(pack, rom, rootOf), hackId: pack.game?.hackId, hackName: pack.game?.hackName || undefined,
         // same file name as the host's ("Robin – Silberne Edition Randomized.gbc", not the raw header title; a hack –

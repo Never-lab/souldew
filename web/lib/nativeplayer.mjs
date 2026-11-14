@@ -10,7 +10,12 @@ import { serverErrorText } from '/lib/errors.mjs';
 
 const q = new URLSearchParams(location.search);
 const SYSTEM = q.get('system') || 'nds';
-const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9 };
+// A link session (trades and battles, docs/MULTIPLAYER.md): the server started the link host already (?session=<id>);
+// this page shows the local seat. No save states, cheats or fast-forward there – every console of the session must stay
+// the same on every player's computer. The host's buttons for the partners and its hashes go to the play view
+// (web/lib/linksession.mjs sends them on).
+const LINK_SESSION = q.get('link') === '1' ? q.get('session') : null;
+const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, LINPUT: 12 };
 const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13 };
 const post = (m) => window.parent?.postMessage(m, location.origin);
 // ?debug=1 (the ROM matrix): what arrives from the host – events, picture sizes, saves – on the console
@@ -298,6 +303,7 @@ function read(addr, len) {
 }
 /** A cheat: bytes at a bus address – between two frames in the host, and right away in the mirror. */
 function write(addr, bytes) {
+  if (LINK_SESSION) return false; // (no cheats in a link session: the partners' copies of this console would differ)
   if (!st.ramReady || !ArrayBuffer.isView(bytes) || !bytes.length || bytes.length > 65536) return false;
   const r = region(addr, bytes.length);
   if (!r) return false;
@@ -333,6 +339,7 @@ function onEvent(p) {
     if (Number.isFinite(e.frame)) st.hostFrame = e.frame;
     waiters.stepped.splice(0).forEach((f) => f(e.frame));
   } else if (e.event === 'stateLoaded') waiters.loaded.splice(0).forEach((f) => f(!!e.ok));
+  else if (LINK_SESSION && (e.event === 'hash' || e.event === 'wait')) post({ type: `emu-link-${e.event}`, ...e });
   else if (e.event === 'error') {
     st.error = e.message;
     fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
@@ -393,6 +400,7 @@ async function pump() {
       else if (type === MSG.RAM) onRam(p);
       else if (type === MSG.SRAM) onSram(p);
       else if (type === MSG.EVENT) onEvent(p);
+      else if (type === MSG.LINPUT && LINK_SESSION) post({ type: 'emu-link-input', bytes: p.slice() });
       else if (type === MSG.STATE) waiters.state.shift()?.(p.slice());
       else if (type === MSG.LOG) {
         st.log.push(new TextDecoder().decode(p));
@@ -556,6 +564,7 @@ window.__emu = {
   write,
   paused: () => st.paused,
   pause() {
+    if (LINK_SESSION) return; // (the partners' games would stand still too – leave the link instead)
     st.paused = true;
     cmd(CMD.SPEED, f32(0));
     tellAudio({ type: 'paused', paused: true });
@@ -570,13 +579,14 @@ window.__emu = {
     else this.pause();
   },
   restart: () => {
+    if (LINK_SESSION) return Promise.resolve(false);
     tellAudio('clear');
     tellAudio({ type: 'cut' });
     return cmd(CMD.RESET);
   },
   /** 1–4, or Infinity: as fast as this computer can. */
   setSpeed(ratio) {
-    st.speed = ratio === Infinity ? Infinity : Math.max(1, Number(ratio) || 1);
+    st.speed = LINK_SESSION ? 1 : ratio === Infinity ? Infinity : Math.max(1, Number(ratio) || 1);
     if (!st.paused) cmd(CMD.SPEED, f32(speedValue()));
     tellAudio({ type: 'speed', ratio: Math.min(st.speed, MAX_SOUND_RATIO) });
   },
@@ -587,11 +597,11 @@ window.__emu = {
   fastForward: () => st.speed > 1,
   ffRatio: () => (st.speed > 1 ? st.speed : 3),
   getState() {
-    if (st.ended) return Promise.resolve(null);
+    if (st.ended || LINK_SESSION) return Promise.resolve(null);
     return ask(waiters.state, CMD.SAVE, undefined, null, (b) => (b && b.length ? b : null));
   },
   loadState(u8) {
-    if (st.ended) return Promise.resolve(false);
+    if (st.ended || LINK_SESSION) return Promise.resolve(false);
     tellAudio('clear');
     tellAudio({ type: 'cut' });
     return ask(waiters.loaded, CMD.LOAD, u8 instanceof Uint8Array ? u8 : new Uint8Array(u8), false);
@@ -615,7 +625,7 @@ window.__emu = {
   bootSave: () => st.bootSave,
   /** A battery save given after the start: into the core, then the game starts over with it. */
   loadSave(bytes) {
-    if (!ArrayBuffer.isView(bytes) || !bytes.length) return;
+    if (LINK_SESSION || !ArrayBuffer.isView(bytes) || !bytes.length) return;
     const b = new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength).slice();
     st.sram = b;
     st.bootSave = 'loaded';
@@ -719,6 +729,7 @@ async function start() {
   } catch (e) {
     st.log.push(`controls: ${e.message}`);
   }
+  if (LINK_SESSION) return startLinked(status, save);
   const res = await fetch('/api/native/start', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-soullink': '1' },
     // (saveUrl: where the server keeps a last battery save that comes after this page has gone – never when the save on
@@ -740,6 +751,18 @@ async function start() {
     fail(t('native.noStart', 'The game didn’t start in the fast player.'));
     stop();
   }, BOOT_TIMEOUT_MS);
+  pump().catch((e) => {
+    ended();
+    fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
+  });
+}
+/** A link session the play view started (web/lib/linksession.mjs): attach to it. The server booted it with the run's save. */
+function startLinked(status, save) {
+  st.id = LINK_SESSION;
+  st.core = 'link';
+  st.sram = save.bytes;
+  st.bootSave = 'loaded';
+  addEventListener('pagehide', () => fetch('/api/native/stop', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json', 'x-soullink': '1' }, body: JSON.stringify({ id: st.id }) }).catch(() => {}));
   pump().catch((e) => {
     ended();
     fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));

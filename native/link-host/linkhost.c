@@ -532,8 +532,13 @@ int main(int argc, char **argv) {
     const uint32_t *px;
     unsigned w, h, stride;
     B->video(0, &px, &w, &h, &stride);
-    send_event("{\"event\":\"loaded\",\"core\":\"souldew link (%s)\",\"system\":\"%s\",\"seats\":%d,\"local\":%d,\"net\":%s,\"delay\":%d,\"width\":%u,\"height\":%u,\"fps\":%.4f}",
-               B->name, B->system(), nseats, local_seat, net_mode ? "true" : "false", delay_frames, w, h, fps);
+    // (the regions as retrohost names them: the fast player mirrors the local seat's RAM for live tracking)
+    char regions[256] = "";
+    size_t o = 0;
+    for (int i = 0; i < ram_n && o < sizeof regions - 48; i++)
+      o += (size_t)snprintf(regions + o, sizeof regions - o, "%s{\"addr\":%u,\"len\":%u,\"ok\":%s}", i ? "," : "", ram[i].addr, ram[i].len, B->mem(local_seat, ram[i].addr, ram[i].len) ? "true" : "false");
+    send_event("{\"event\":\"loaded\",\"core\":\"souldew link (%s)\",\"system\":\"%s\",\"seats\":%d,\"local\":%d,\"net\":%s,\"delay\":%d,\"width\":%u,\"height\":%u,\"fps\":%.4f,\"sampleRate\":0,\"ram\":[%s]}",
+               B->name, B->system(), nseats, local_seat, net_mode ? "true" : "false", delay_frames, w, h, fps, regions);
   }
   pthread_t th;
   pthread_create(&th, NULL, reader, NULL);

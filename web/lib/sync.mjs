@@ -191,6 +191,7 @@ export class SyncLink {
     this.seenIds = new Set(); // ids of recent chat/screen messages (they may arrive over P2P and several brokers)
     this.clockOffsets = {}; // slot → our clock minus theirs, from their live messages
     this.clockOffset = 0; // the same for whoever spoke last (older callers)
+    this.linkListeners = new Set(); // link sessions (web/lib/linksession.mjs): fn(msg) per message
   }
 
   /** The other slots of the run (all four when the caller didn't say). */
@@ -291,6 +292,7 @@ export class SyncLink {
       }
       this.trysteroRoom = null;
       this.ops = null;
+      this.linkAct = null;
       this.peers.clear();
       this.peerId = null;
       this._set({ p2p: 'connecting' }); // no direct link to anybody until the room is joined again
@@ -521,9 +523,59 @@ export class SyncLink {
       return changed;
     }
     if (this._dup(msg.mid)) return null; // same chat / screen message over P2P and the relay (or two brokers)
-    if (msg.kind === 'msg') this.onMessage?.(msg);
+    if (msg.kind === 'msg' && msg.payload?.link) this._linkIn(msg.payload.link, null, 'relay');
+    else if (msg.kind === 'msg') this.onMessage?.(msg);
     else if (typeof msg.kind === 'string' && msg.kind.startsWith('screen-')) this._screenIn(msg);
     return null;
+  }
+
+  // --- link sessions --------------------------------------------------------------
+  /** Messages of link sessions: fn(msg) with msg.from = the sender's slot. Returns the unsubscribe function. */
+  onLink(fn) {
+    this.linkListeners.add(fn);
+    return () => this.linkListeners.delete(fn);
+  }
+
+  /** Is there a live direct (P2P) link to `slot` – what a link session's buttons need? */
+  linkDirect(slot) {
+    return this._p2pSlots().has(slot);
+  }
+
+  /**
+   * A link-session message to `slots` over the direct link (each peer of each slot). `relayToo`: control messages
+   * (invite, answer, bye) also go over the relay when there is no direct link; buttons never do (60 a second).
+   * Returns true when it went out directly to every slot.
+   */
+  sendLink(msg, slots, { relayToo = false } = {}) {
+    if (this.stopped) return false;
+    const m = { ...msg, from: this.slot, at: Date.now() };
+    let all = true;
+    for (const slot of slots) {
+      const peers = this.linkAct && this.status.p2p === 'connected' ? this._peersOf(slot) : [];
+      if (!peers.length) all = false;
+      for (const target of peers) {
+        try {
+          this.linkAct.send(m, { target })?.catch?.(() => {});
+        } catch (e) {
+          console.warn('link send failed', e);
+        }
+      }
+    }
+    if (!all && relayToo) this.sendMessage({ link: m });
+    return all;
+  }
+
+  _linkIn(msg, peerId, via = 'p2p') {
+    if (this.stopped || !msg || typeof msg !== 'object' || typeof msg.from !== 'string' || msg.from === this.slot) return;
+    if (!this.others.includes(msg.from)) return;
+    if (peerId) this._peerSlot(peerId, msg.from);
+    for (const fn of this.linkListeners) {
+      try {
+        fn(msg, via);
+      } catch (e) {
+        console.warn('link listener failed', e);
+      }
+    }
   }
 
   _offset(slot, ms) {
@@ -549,6 +601,10 @@ export class SyncLink {
       // The vendored Trystero passes the sender as { peerId, …metadata } (older builds: the bare id). Without the id
       // no peer ever gets its slot – no per-player direct flags, no video, and a needless room rejoin every 5 min.
       action.onMessage = (data, from) => this._receive(data, 'p2p', typeof from === 'string' ? from : from?.peerId);
+      // link sessions (trades and battles, docs/MULTIPLAYER.md): their own ordered, reliable channel
+      const link = room.makeAction('link');
+      this.linkAct = link;
+      link.onMessage = (data, from) => this._linkIn(data, typeof from === 'string' ? from : from?.peerId);
       // One peer per other player – plus possibly the same player in a second window / on a second device. The
       // link counts as connected while any peer that may be a partner is there; ops go to all peers at once.
       room.onPeerJoin = (peerId) => {

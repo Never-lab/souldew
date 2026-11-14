@@ -17,12 +17,19 @@ import { httpError } from './fsutil.mjs';
 import { CtrSessions, MSG, splitMessages, PLATFORM_DIR } from './ctr.mjs';
 
 const EXE = process.platform === 'win32' ? 'retrohost.exe' : 'retrohost';
+const LINK_EXE = process.platform === 'win32' ? 'linkhost.exe' : 'linkhost';
 const LIB_EXT = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
 
-/** Messages of the native host on top of the 3DS host's (MSG). */
-export const NMSG = { ...MSG, RAM: 8, SRAM: 9 };
+/** Messages of the native host on top of the 3DS host's (MSG); LINPUT / SEATSRAM come from the link host only. */
+export const NMSG = { ...MSG, RAM: 8, SRAM: 9, MEMREAD: 11, LINPUT: 12, SEATSRAM: 14 };
 /** Commands the page may send it. */
 export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13 };
+
+/** Commands of a link session (native/link-host/linkhost.c): no states, cheats, steps or memory access from a page. */
+export const LCMD = { INPUT: 1, SPEED: 2, QUIT: 6, FLUSH: 10, RESYNC: 12, VIEW: 20, RINPUT: 21, UNTIL: 24 };
+/** Systems the link host plays (its mGBA backend); the DS backend comes later (docs/MULTIPLAYER.md). */
+export const LINK_SYSTEMS = ['gba', 'gb', 'gbc'];
+export const MAX_LINK_SEATS = 4;
 
 const MAX_SAVE = 4 * 1024 * 1024; // the biggest battery save of a DS game is 8 Mbit; GBA / GB far less
 
@@ -87,6 +94,44 @@ export function nativeSaveDir(key) {
   return join(DATA_DIR, DEV ? 'runs/.native' : 'native', 'saves', h);
 }
 
+/** The link host (tools/native/<platform>/linkhost), or null when this build has none. */
+export function linkTool({ dirs = nativeDirs(), exists = existsSync } = {}) {
+  const dir = dirs.find((d) => exists(join(d, LINK_EXE)));
+  return dir ? join(dir, LINK_EXE) : null;
+}
+
+/**
+ * The link host's arguments: every seat's ROM and battery save (paths – the server's own), the local seat, net mode
+ * with the input delay, the shared clock start, and the local seat's memory for live tracking.
+ */
+export function linkArgs({ system, roms, saves, local, delay, rtc }) {
+  const c = NATIVE_CORES[system];
+  if (!c || !LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
+  if (!Array.isArray(roms) || roms.length < 2 || roms.length > MAX_LINK_SEATS) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+  if (!Number.isInteger(local) || local < 0 || local >= roms.length) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+  const d = Math.max(1, Math.min(60, Math.round(Number(delay) || 4)));
+  const args = [];
+  roms.forEach((r, i) => args.push('--rom', r, '--sram', saves[i] || '-'));
+  args.push('--local', String(local), '--net', '--delay', String(d), '--rtc', String(Math.round(Number(rtc) || Date.now())));
+  for (const [addr, len] of c.ram) args.push('--ram', `0x${addr.toString(16)}:0x${len.toString(16)}`);
+  return args;
+}
+
+/** Commands a page may send a link session: input, speed, flush, resync, view, a peer's buttons, the end frame. */
+export function checkLinkCommands(body) {
+  const { messages, rest } = splitMessages(body);
+  if (rest.length || !messages.length) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
+  const limits = {
+    [LCMD.INPUT]: [17, 32], [LCMD.SPEED]: [4, 4], [LCMD.QUIT]: [0, 0], [LCMD.FLUSH]: [0, 0], [LCMD.RESYNC]: [0, 0], [LCMD.VIEW]: [4, 4],
+    [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4],
+  };
+  for (const m of messages) {
+    const l = limits[m.type];
+    if (!l || m.payload.length < l[0] || m.payload.length > l[1] || (m.type === LCMD.RINPUT && (m.payload.length - 8) % 4)) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
+  }
+  return body;
+}
+
 /** The host's arguments for `system` (the paths are the server's own – nothing here comes from the page). */
 export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null }) {
   const c = NATIVE_CORES[system];
@@ -126,7 +171,7 @@ export class NativeSessions extends CtrSessions {
    */
   constructor({ writeSave = null, ...opts } = {}) {
     super(opts);
-    this.keepTypes = [NMSG.EVENT, NMSG.STATE, NMSG.SRAM];
+    this.keepTypes = [NMSG.EVENT, NMSG.STATE, NMSG.SRAM, NMSG.LINPUT, NMSG.SEATSRAM];
     this.writeSave = writeSave;
     this.label = 'fast player';
   }
@@ -169,6 +214,30 @@ export class NativeSessions extends CtrSessions {
     return id;
   }
 
+  /**
+   * A link session (docs/MULTIPLAYER.md): `seats` = [{ rom, save (bytes|null) }] in seat order, `local` = this player's
+   * seat. Every seat's ROM is a file on this computer (verified by the caller), the partners' saves came over the run's
+   * channel. The local seat's battery save goes where the run keeps it (`saveFile`), as in single play.
+   */
+  startLink({ host, system, seats, local, delay, rtc, key, saveFile = null }) {
+    if (!host) throw httpError(409, 'Der Link-Teil fehlt in dieser Version', 'linkMissing');
+    this.stop();
+    const dir = join(nativeSaveDir(`link:${key}`), 'link');
+    mkdirSync(dir, { recursive: true });
+    const saves = seats.map((s, i) => {
+      if (!s.save?.length) return null;
+      if (s.save.length > MAX_SAVE) throw httpError(413, 'Spielstand zu groß', 'saveTooLarge');
+      const f = join(dir, `seat${i}.sav`);
+      writeFileSync(f, s.save);
+      return f;
+    });
+    const id = this.launch(host, linkArgs({ system, roms: seats.map((s) => s.rom), saves, local, delay, rtc }), dir);
+    this.current.saveFile = saveFile;
+    this.current.rom = seats[local].rom;
+    this.current.link = { seats: seats.length, local, system };
+    return id;
+  }
+
   /** The host gets only what it needs from the environment (no tokens or the like the app was started with). */
   hostEnv() {
     const keep = ['PATH', 'HOME', 'USERPROFILE', 'TMPDIR', 'TEMP', 'TMP', 'SystemRoot', 'windir', 'LANG', 'LC_ALL', 'DISPLAY', 'XDG_RUNTIME_DIR'];
@@ -176,7 +245,7 @@ export class NativeSessions extends CtrSessions {
   }
 
   check(body) {
-    return checkNativeCommands(body);
+    return this.current?.link ? checkLinkCommands(body) : checkNativeCommands(body);
   }
 
   /** The session for the status: plus the last of what the host wrote to stderr (diagnostics, the ROM matrix). */

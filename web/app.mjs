@@ -19,6 +19,8 @@ import { LibraryView } from './views/library.mjs';
 import { unpackToast } from './lib/libadded.mjs';
 import { SoulLinkView, NuzlockeView } from './views/soullink.mjs';
 import { PlayView, GameSession, ExternalFeed } from './views/play.mjs';
+import { LinkSessions } from './lib/linksession.mjs';
+import { LinkBar } from './views/linkplay.mjs';
 import { unsavedProgress, unsavedTexts } from './views/savestates.mjs';
 import { LinkView } from './views/link.mjs';
 import { SettingsView, gpuFallbackText } from './views/settings.mjs';
@@ -196,6 +198,8 @@ function App() {
   sessionRef.current = session;
   const [, setLangTick] = useState(0);
   const linkRef = useRef(null);
+  const linkPlayRef = useRef(null); // trades and battles (web/lib/linksession.mjs)
+  const [linkPlay, setLinkPlay] = useState(null);
   const runIdRef = useRef(null);
   runIdRef.current = runId;
   const inboxKey = useRef('');
@@ -548,10 +552,32 @@ function App() {
       },
     });
     linkRef.current = link;
+    linkPlayRef.current?.stop();
+    // a link session: the play view shows the local seat (target.link); its end closes it
+    const lp = new LinkSessions({
+      sync: link, runId: manifest.id, me,
+      onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
+      openSession: (st) => {
+        const out = manifest.outputs?.[me];
+        if (!out) return;
+        startSession({
+          kind: 'run', key: `link-${st.id}`, system: manifest.game?.system, code: manifest.game?.code, title: manifest.game?.title,
+          rom: `/api/runs/${manifest.id}/file?inline=1&name=${encodeURIComponent(out.rom)}`, name: out.rom.replace(/\.\w+$/, ''),
+          saveUrl: `/api/runs/${manifest.id}/save/${me}`, stateId: `run-${manifest.id}-${me}`, label: manifest.name, gameId: manifest.game?.id,
+          runId: manifest.id, params: { run: manifest.id }, link: { id: st.id, seats: st.seats, kind: st.kind, delay: st.delay },
+        });
+        navigate('play', { run: manifest.id });
+      },
+      closeSession: () => endSession(),
+    });
+    linkPlayRef.current = lp;
     await link.start();
     if (linkRef.current === link) pref.set(`sl-autolink-${manifest.id}`, true);
   }, [runDoc, manifest, me]);
   const disconnect = useCallback(() => {
+    linkPlayRef.current?.stop();
+    linkPlayRef.current = null;
+    setLinkPlay(null);
     linkRef.current?.stop();
     linkRef.current = null;
     setLinkStatus(null);
@@ -561,6 +587,9 @@ function App() {
     // A solo Nuzlocke has nobody to sync with – no relay traffic unless connected by hand (Connection page).
     if (runDoc && runMode(manifest) !== 'nuzlocke' && pref.get(`sl-autolink-${manifest.id}`, true)) connect();
     return () => {
+      linkPlayRef.current?.stop();
+      linkPlayRef.current = null;
+      setLinkPlay(null);
       linkRef.current?.stop();
       linkRef.current = null;
       setLinkStatus(null);
@@ -615,7 +644,7 @@ function App() {
   const warnCount = runDoc ? checkCount + inbox.inbox.length + inbox.alerts.length : 0;
   const ctx = {
     status, reloadStatus, library, reloadLibrary, runId, setRunId, manifest, missingRun, reloadManifest, doc: runDoc, docVersion, runData, me, setMe,
-    navigate, route, link: linkRef.current, linkStatus, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, toast, liveInfo,
+    navigate, route, link: linkRef.current, linkStatus, linkPlay, linkSessions: linkPlayRef.current, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, toast, liveInfo,
     externalRun, setExternalRun,
     session, startSession, endSession, closeSession, offerRestart,
   };
@@ -754,6 +783,7 @@ function App() {
       <p class="muted">${unsavedTexts(unsavedProgress()).text}</p>
     <//>
     <${LicenseNag} open=${!!nag} launches=${nag?.launches} onClose=${() => setNag(null)} />
+    ${manifest && linkPlay && html`<${LinkBar} />`}
     <${Toasts} toasts=${toasts} dismiss=${(id) => setToasts((ts) => ts.filter((x) => x.id !== id))} />
     <${TrophyToasts} items=${trophyToasts} navigate=${navigate} dismiss=${(key) => setTrophyToasts((ts) => ts.filter((x) => x.key !== key))} />
     <${DeathAlert} alert=${runOver ? null : deathAlert} onClose=${() => setDeathAlert(null)} />
