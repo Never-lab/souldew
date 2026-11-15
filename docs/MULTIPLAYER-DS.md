@@ -33,7 +33,7 @@ local wireless in Diamond/Pearl/Platinum, HeartGold/SoulSilver, Black/White and 
 
 - **One link host.** The backend is linked into the same `linkhost` as mGBA and SameBoy (`scripts/build-native.mjs`:
   melonDS fork commit `16f127d`, `core` + `teakra`, **no JIT**, no OpenGL, no GDB stub). The JIT is compiled out: every
-  peer computes with the interpreter, also arm64 ↔ x64. (`SOULDEW_DS_JIT` only works in a build with `ENABLE_JIT`.)
+  peer computes with the interpreter, also arm64 ↔ x64.
 - **Touch.** The fast player's pointer (INPUT bytes 12–16) over the lower half of the 256 × 384 picture becomes
   link_input's touch bits; a tap lasts at least 4 frames (as retrohost holds it).
 - **Clock.** `--rtc` is the session's start, chosen by the inviter and the same on every peer.
@@ -93,9 +93,8 @@ DS adds nothing over GBA link sessions.
   - Link `libcore.a libteakra.a` with `c++` (+ `-framework CoreFoundation` on macOS).
   - The binary is about 3.7 MB, and no enet or slirp is needed.
   - Every peer must run the same melonDS commit and the same JIT setting.
-- **Environment (spike).** `SOULDEW_DS_JIT=1` turns the JIT on (off by default). `SOULDEW_DS_DEBUG` shows melonDS's
-  log, and `SOULDEW_DS_STATS` prints scheduler counters.
-  - Make JIT a real session option exchanged in `link-start`.
+- **JIT.** Not in the link host (the spike's `SOULDEW_DS_JIT` / `_DEBUG` / `_STATS` switches are gone). A JIT session
+  would have to be a real option every peer agrees on, and only between peers of the same architecture.
   - JIT across CPU architectures (arm64 Mac ↔ x64 Windows) is **untested**. Default to the interpreter for mixed
     sessions until a cross-arch net test passes.
 - **RTC.** `--rtc` must be the shared session epoch. With the default (`time(NULL)`), two runs differ.

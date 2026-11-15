@@ -11,10 +11,13 @@
 // Messages (msg.t), all with msg.sid = the session id; every player speaks for their OWN seat's game only:
 //   invite {kind, seats:[slot], sha1:{me}, crc:{me}, system}   from the one who starts it
 //   accept {sha1:{me}, crc:{me}} | refuse {reason}            every invited player, to everybody in the session
-//   snap   {slot, sha1, i, n, data}                           a seat's running game: the fast player's save state, in
-//                                                             parts (base64 deflate-raw; sha1 of the state itself)
-//   save   {slot, sha1, i, n, data, state}                    each seat's battery save, in parts (base64 deflate-raw);
-//                                                             state = the snap's sha1 (that seat starts from it) | null
+//   snap   {slot, sha1, i, n, data} | {slot, sha1, bin}        a seat's running game: the fast player's save state,
+//                                                             deflate-raw (sha1 of the state itself) – as bytes over the
+//                                                             channel's binary transfer, or in base64 parts
+//   save   {slot, sha1, i, n, data, state, model}             each seat's battery save, in parts (base64 deflate-raw);
+//                                                             state = the snap's sha1 (that seat starts from it) | null;
+//                                                             model = a Game Boy seat's console, 'dmg' | 'cgb' (its
+//                                                             player's look – every host runs that seat on it)
 //   ready                                                     "every seat's game is here" (after a pick or a build)
 //   ping {n} / pong {n}                                       the round trip, measured by the inviter
 //   snapnow                                                   from the inviter, once it measured the round trips and
@@ -29,6 +32,8 @@
 //   state  {i, n, data, frame} | state-busy                  … and gets the session as the others have it
 //   bye    {reason}                                           a player left: the session ends for everybody
 import { serverErrorText } from './errors.mjs';
+import { LINK_CMD, linkDelay } from '/shared/link.mjs';
+import { b64, unb64, deflate, inflate, sha1 } from './bytes.mjs';
 
 // Seamless (docs/MULTIPLAYER.md › "Seamless"): a player whose game runs here in the fast player doesn't restart it for
 // the link. Once every seat's game is found, that game stops for a moment ("Linking…"), its save state goes to every
@@ -37,25 +42,13 @@ import { serverErrorText } from './errors.mjs';
 // that fell out of step goes back to the game as it was before it (with the run's save, as before).
 
 const PART = 12 * 1024; // bytes of base64 per message (well below the data channel's message size)
-const FRAME_MS = 1000 / 59.7275;
 const REJOIN_KEY = (runId) => `sl-link-${runId}`;
 const REJOIN_MAX_MS = 30 * 60 * 1000;
-export const linkDelay = (rttMs) => Math.min(60, Math.max(4, Math.ceil(((rttMs / 2) * 1.25) / FRAME_MS) + 3));
-
-const sha1 = async (bytes) => [...new Uint8Array(await crypto.subtle.digest('SHA-1', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('');
+export { linkDelay };
+const INVITE_TIMEOUT_MS = 60 * 1000; // an invite nobody answers ends by itself
+const MAX_SAVE_BYTES = 4 * 1024 * 1024; // (server/lib/native.mjs MAX_SAVE: a partner's save can't be bigger)
 const newSid = () => [...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, '0')).join('');
-export function b64(bytes) {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
-const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-async function pipe(bytes, stream) {
-  const out = new Blob([bytes]).stream().pipeThrough(stream);
-  return new Uint8Array(await new Response(out).arrayBuffer());
-}
-const deflate = (b) => pipe(b, new CompressionStream('deflate-raw'));
-const inflate = (b) => pipe(b, new DecompressionStream('deflate-raw'));
+
 const store = {
   get(k) {
     try {
@@ -98,10 +91,8 @@ export class LinkSessions {
     this.off = sync.onLink((m) => this._in(m));
     this.onWindow = (e) => this._fromPlayer(e);
     addEventListener('message', this.onWindow);
-    this.cmdQueue = [];
-    this.stats = {}; // (tests / diagnostics: hashes compared, inputs sent and received, resends)
     this.cmdBusy = false;
-    this.needAt = {};
+    this._fresh();
     // a session this page was in when it went away (reload, crash, app restart): offer to rejoin it
     const old = store.get(REJOIN_KEY(runId));
     if (old?.sid && Date.now() - (old.at || 0) < REJOIN_MAX_MS && Array.isArray(old.seats) && old.seats.includes(me)) {
@@ -111,9 +102,32 @@ export class LinkSessions {
     this.routeTimer?.unref?.(); // (Node, in tests: no reason to stay alive)
   }
 
+  /** Nothing of an earlier session carries over into the next: queued commands, early buttons, resends, the snapshot. */
+  _fresh() {
+    this.cmdQueue = [];
+    this.early = [];
+    this.resendTo = [];
+    this.needAt = {};
+    this.going = false;
+    this.measuring = this.rtt = null;
+    this.own = null;
+    this.snapAt = null;
+    this.stats = {}; // (tests / diagnostics: hashes compared, inputs sent and received, resends, the start's steps)
+    clearTimeout(this.inviteTimer);
+  }
+
+  /** A whole new session state (not merged into the last one's: no id, models or snaps of before). */
+  _new(state) {
+    this._fresh();
+    this.state = { phase: 'idle' };
+    this._set(state);
+  }
+
   stop() {
     this.off?.();
     clearInterval(this.routeTimer);
+    clearTimeout(this.rejoinTimer);
+    clearTimeout(this.inviteTimer);
     removeEventListener('message', this.onWindow);
     // (a running session isn't ended by closing the page: the others wait, this player may come back – rejoin)
     if (this.state.phase === 'preparing' || this.state.phase === 'need' || this.state.phase === 'inviting') this.leave('closed');
@@ -154,14 +168,16 @@ export class LinkSessions {
     if (!c.tool || !c.supported) throw Object.assign(new Error('unsupported'), { code: c.tool ? 'linkSystem' : 'linkMissing' });
     const own = c.slots[this.me];
     if (!own?.rom) throw Object.assign(new Error('missing'), { code: 'linkOwnMissing' });
+    this.ownModel = c.model || null;
     const seats = [this.me, ...slots.filter((s) => s !== this.me)];
     store.set(REJOIN_KEY(this.runId), null);
-    this._set({
+    this._new({
       phase: 'inviting', sid: newSid(), kind, seats, host: this.me, sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null },
       accepted: {}, ready: {}, saves: {}, snaps: {}, missing: null, error: null, system: c.system, ended: null, route: {}, waiting: null, seamless: false,
     });
-    this.own = null;
-    this.measuring = this.rtt = null; // (a round trip measured for an earlier session doesn't count)
+    const sid = this.state.sid;
+    this.inviteTimer = setTimeout(() => this.state.sid === sid && this.state.phase === 'inviting' && this._fail('linkNoAnswer'), INVITE_TIMEOUT_MS);
+    this.inviteTimer?.unref?.();
     this._send({ t: 'invite', kind, seats, sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null }, system: c.system }, { relayToo: true });
   }
 
@@ -179,9 +195,20 @@ export class LinkSessions {
     st.sha1[this.me] = own.sha1;
     st.crc[this.me] = own.crc || null;
     st.accepted[this.me] = true;
+    this.ownModel = c.model || null;
     this._set({ phase: 'preparing' });
     this._send({ t: 'accept', sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null } }, { relayToo: true });
     this._resolve();
+  }
+
+  /** Check again whether every seat's game is here (after the player added or built one – the bar's buttons). */
+  recheck() {
+    return this._resolve();
+  }
+
+  /** Close the bar of a session that has ended. */
+  dismiss() {
+    if (['ended', 'rejoinable'].includes(this.state.phase)) this._new({ phase: 'idle', sid: null });
   }
 
   decline() {
@@ -269,29 +296,38 @@ export class LinkSessions {
         this.stats.snap = { bytes: snap.state.length, deflated: z.length, ms: Math.round(performance.now() - t0) };
         this.snapAt = t0; // (diagnostics: the steps of the start, in ms from the snapshot – stats.steps)
         this.stats.steps = {};
-        const n = Math.max(1, Math.ceil(data.length / PART));
-        for (let i = 0; i < n; i++) this._send({ t: 'snap', slot: this.me, sha1: hash, i, n, data: data.slice(i * PART, (i + 1) * PART) }, { relayToo: false });
+        // as bytes when the channel can (a DS state is 1.7 MB deflated: a third more as base64, and JSON on top), else in parts
+        if (!this.sync.sendLinkBinary?.({ t: 'snap', slot: this.me, sha1: hash, sid: st.sid }, z, this.partners)) {
+          const n = Math.max(1, Math.ceil(data.length / PART));
+          for (let i = 0; i < n; i++) this._send({ t: 'snap', slot: this.me, sha1: hash, i, n, data: data.slice(i * PART, (i + 1) * PART) }, { relayToo: false });
+        }
         this._step('sent');
       }
     }
     if (!snap?.state) { // (the game starts from its battery save: the one on disk – the running game's written first)
-      window.dispatchEvent(new Event('sl-save-now')); // (the play view writes the running game's save to disk)
+      // (the play view writes the running game's save to disk – its PUT finishes well within this)
+      window.dispatchEvent(new Event('sl-save-now'));
       await new Promise((r) => setTimeout(r, 1200));
     }
-    let bytes = new Uint8Array(0);
+    // (only "there is none" is a new cartridge: a save that couldn't be read would boot a blank one on the partners'
+    // hosts while ours boots the real one from disk)
+    let bytes = null;
     try {
       const r = await this.fetch(`/api/runs/${this.runId}/save/${this.me}`);
-      if (r.ok) bytes = new Uint8Array(await r.arrayBuffer());
+      bytes = r.ok ? new Uint8Array(await r.arrayBuffer()) : r.status === 404 ? new Uint8Array(0) : null;
     } catch {
-      // no save: a new game on that seat
+      bytes = null;
     }
+    if (!bytes) return this._fail('linkStart');
     const hash = bytes.length ? await sha1(bytes) : '';
     const data = bytes.length ? b64(await deflate(bytes)) : '';
     const n = Math.max(1, Math.ceil(data.length / PART));
     const state = st.snaps[this.me]?.sha1 || null;
+    // our seat's console: the running game's (its state only loads into that model), else this computer's setting
+    const model = snap?.model || this.ownModel || null;
     if (this.own) this.own.save = bytes.length ? bytes : null;
-    st.saves[this.me] = { sha1: hash, b64: bytes.length ? b64(bytes) : '', state };
-    for (let i = 0; i < n; i++) this._send({ t: 'save', slot: this.me, sha1: hash, i, n, data: data.slice(i * PART, (i + 1) * PART), state }, { relayToo: true });
+    st.saves[this.me] = { sha1: hash, b64: bytes.length ? b64(bytes) : '', state, model };
+    for (let i = 0; i < n; i++) this._send({ t: 'save', slot: this.me, sha1: hash, i, n, data: data.slice(i * PART, (i + 1) * PART), state, model }, { relayToo: true });
     this._maybeGo();
   }
 
@@ -346,9 +382,10 @@ export class LinkSessions {
   async _in(m) {
     const st = this.state;
     if (m.t === 'invite') {
-      if (!Array.isArray(m.seats) || !m.seats.includes(this.me) || m.seats.length > 4 || !['idle', 'ended', 'rejoinable'].includes(st.phase)) return;
-      this.own = null;
-      return this._set({
+      if (!Array.isArray(m.seats) || !m.seats.includes(this.me) || m.seats.length > 4) return;
+      // (in another session already: say so – the inviter would wait for an answer otherwise)
+      if (!['idle', 'ended', 'rejoinable'].includes(st.phase)) return st.sid !== m.sid && this.sync.sendLink({ t: 'refuse', reason: 'busy', sid: m.sid }, [m.from]);
+      return this._new({
         phase: 'invited', sid: m.sid, kind: m.kind === 'battle' ? 'battle' : 'trade', seats: m.seats, host: m.from, sha1: { [m.from]: m.sha1?.[m.from] || null },
         crc: { [m.from]: m.crc?.[m.from] || null }, saves: {}, snaps: {}, accepted: { [m.from]: true }, ready: {}, missing: null, error: null, system: m.system, ended: null,
         route: {}, waiting: null, seamless: false,
@@ -390,8 +427,10 @@ export class LinkSessions {
       const packed = collect(box, m);
       if (packed === null) return;
       const bytes = packed ? await inflate(unb64(packed)) : new Uint8Array(0);
-      if (bytes.length && (await sha1(bytes)) !== m.sha1) return this._fail('linkSaveDiffers');
+      delete box.parts;
+      if (bytes.length > MAX_SAVE_BYTES || (bytes.length && (await sha1(bytes)) !== m.sha1)) return this._fail('linkSaveDiffers');
       box.state = typeof m.state === 'string' && /^[0-9a-f]{40}$/.test(m.state) ? m.state : null;
+      box.model = m.model === 'dmg' || m.model === 'cgb' ? m.model : null;
       box.b64 = bytes.length ? b64(bytes) : '';
       return this._maybeGo();
     }
@@ -399,7 +438,7 @@ export class LinkSessions {
       if (typeof m.sha1 !== 'string' || !/^[0-9a-f]{40}$/.test(m.sha1)) return;
       const box = (st.snaps[m.from] ||= { sha1: m.sha1 });
       if (typeof box.z === 'string' || box.sha1 !== m.sha1) return;
-      const packed = collect(box, m);
+      const packed = m.bin instanceof Uint8Array ? b64(m.bin) : collect(box, m); // (as bytes, or in parts)
       if (packed === null) return;
       box.z = packed;
       this._step(`snap-${m.from}`);
@@ -416,7 +455,7 @@ export class LinkSessions {
       return this._start(m.delay, m.rtc);
     }
     if (m.t === 'in' && st.phase === 'running') return this._toHost(m);
-    if (m.t === 'in' && (st.phase === 'preparing' || st.phase === 'rejoining')) return (this.early ||= []).push(m); // (our host is still starting)
+    if (m.t === 'in' && (st.phase === 'preparing' || st.phase === 'rejoining')) return this.early.length < 4096 && this.early.push(m); // (our host is still starting)
     if (m.t === 'need' && st.phase === 'running') return this._need(m);
     if (m.t === 'hash' && st.phase === 'running') return this._hash(m.from, m.f, m.h);
     if (m.t === 'rejoin' && st.phase === 'running') return this._donate(m.from);
@@ -494,6 +533,7 @@ export class LinkSessions {
         slot, sha1: st.sha1[slot], crc: st.crc[slot] || null,
         save: slot === this.me || state ? null : st.saves[slot]?.b64 || null, saveSha1: state ? null : st.saves[slot]?.sha1 || null,
         state: snapOf(slot)?.z || null, stateSha1: snapOf(slot)?.sha1 || null,
+        model: state ? st.models?.[slot] || null : st.saves[slot]?.model || null,
       }));
       this._step('start');
       const r = await this._api('/api/link/start', { runId: this.runId, local: this.me, seats, delay, rtc, ...(state ? { state } : {}) });
@@ -501,11 +541,13 @@ export class LinkSessions {
       this.hashes = {};
       // our game was running here: the player's picture switches to the link session – no new player, no restart
       const seamless = !!snapOf(this.me) && !!this.emu()?.attachLink?.(r.id);
-      this._set({ phase: 'running', id: r.id, delay, rtc, local: r.local, waiting: null, startedAt: Date.now(), seamless });
+      const models = Object.fromEntries(seats.map((x) => [x.slot, x.model]));
+      this._set({ phase: 'running', id: r.id, delay, rtc, local: r.local, waiting: null, startedAt: Date.now(), seamless, models });
       // what a reload / crash needs to come back into this session (docs/MULTIPLAYER.md › "Rejoin")
-      store.set(REJOIN_KEY(this.runId), { sid: st.sid, kind: st.kind, seats: st.seats, host: st.host, sha1: st.sha1, crc: st.crc, delay, rtc, system: st.system, at: Date.now() });
+      // (models: a rejoining host must run every Game Boy seat on the console the others run it on)
+      store.set(REJOIN_KEY(this.runId), { sid: st.sid, kind: st.kind, seats: st.seats, host: st.host, sha1: st.sha1, crc: st.crc, delay, rtc, system: st.system, models, at: Date.now() });
       this.openSession(this.state);
-      for (const m of (this.early || []).splice(0)) this._toHost(m);
+      for (const m of this.early.splice(0)) this._toHost(m);
     } catch (e) {
       this._fail(e.code || 'linkStart');
     }
@@ -558,7 +600,7 @@ export class LinkSessions {
       const v = new DataView(d.bytes.buffer, d.bytes.byteOffset, d.bytes.byteLength);
       const k = [];
       for (let o = 8; o + 4 <= d.bytes.length; o += 4) k.push(v.getUint32(o, true));
-      const to = this.resendTo && v.getUint32(0, true) !== this.state.local ? this.resendTo.splice(0) : null; // (an answer to a need)
+      const to = v.getUint32(0, true) !== this.state.local ? this.resendTo.splice(0) : null; // (an answer to a need)
       this._send({ t: 'in', s: v.getUint32(0, true), f: v.getUint32(4, true), k }, to?.length ? { to } : {});
       this.stats.sent = (this.stats.sent || 0) + 1;
     } else if (d?.type === 'emu-link-hash') {
@@ -580,9 +622,9 @@ export class LinkSessions {
   /** A partner misses seat m.s's buttons from frame m.f: our host sends what it has (NEED → LINPUT → 'in'). */
   _need(m) {
     if (!Number.isInteger(m.s) || m.s < 0 || m.s >= this.state.seats.length || !Number.isInteger(m.f) || m.f < 0) return;
-    (this.resendTo ||= []).push(m.from);
+    this.resendTo.push(m.from);
     this.stats.resends = (this.stats.resends || 0) + 1;
-    this._cmd(25, [m.s, m.f >>> 0]);
+    this._cmd(LINK_CMD.NEED, [m.s, m.f >>> 0]);
   }
 
   _hash(slot, f, h) {
@@ -604,7 +646,7 @@ export class LinkSessions {
     const k = Array.isArray(m.k) ? m.k : [];
     const seat = m.s;
     if (!Number.isInteger(seat) || seat < 0 || seat >= this.state.seats.length || seat === this.state.local || !k.length || k.length > 4096) return;
-    this._cmd(21, [seat, m.f >>> 0, ...k]);
+    this._cmd(LINK_CMD.RINPUT, [seat, m.f >>> 0, ...k]);
     this.stats.received = (this.stats.received || 0) + 1;
   }
 

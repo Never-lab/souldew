@@ -292,7 +292,7 @@ export class SyncLink {
       }
       this.trysteroRoom = null;
       this.ops = null;
-      this.linkAct = null;
+      this.linkAct = this.linkBinAct = null;
       this.peers.clear();
       this.peerId = null;
       this._set({ p2p: 'connecting' }); // no direct link to anybody until the room is joined again
@@ -594,6 +594,23 @@ export class SyncLink {
     return all;
   }
 
+  /**
+   * A link-session message with a big binary part (a running game's state) to `slots`, over the direct link only: the
+   * bytes go as they are – no base64, no JSON, one transfer Trystero splits into chunks – and arrive as `msg.bin`.
+   * Returns true when it went out to every slot.
+   */
+  sendLinkBinary(msg, bytes, slots) {
+    if (this.stopped || !this.linkBinAct || this.status.p2p !== 'connected') return false;
+    const meta = { msg: { ...msg, from: this.slot, at: Date.now() } };
+    let all = true;
+    for (const slot of slots) {
+      const peers = this._peersOf(slot);
+      if (!peers.length) all = false;
+      for (const target of peers) this.linkBinAct.send(bytes, { target, metadata: meta })?.catch?.((e) => console.warn('link send failed', e));
+    }
+    return all;
+  }
+
   _linkIn(msg, peerId, via = 'p2p') {
     if (this.stopped || !msg || typeof msg !== 'object' || typeof msg.from !== 'string' || msg.from === this.slot) return;
     if (!this.others.includes(msg.from)) return;
@@ -627,8 +644,11 @@ export class SyncLink {
       // NATs then still get a data channel, relayed – the direct path is tried first. Without an answer in time: STUN only.
       const ice = this.getIceServers ? await Promise.race([this.getIceServers().catch(() => null), new Promise((r) => setTimeout(() => r(null), 2500))]) : null;
       if (this.stopped) return;
-      const turnConfig = Array.isArray(ice) && ice.length ? ice : undefined;
-      const room = joinRoom({ appId: APP_ID, password: this.secret, ...(turnConfig ? { turnConfig } : {}) }, this.room);
+      const servers = Array.isArray(ice) ? ice : ice?.iceServers;
+      const turnConfig = Array.isArray(servers) && servers.length ? servers : undefined;
+      // (relayOnly: the server was told to send everything through TURN – a test of the relayed path)
+      const relay = !!ice?.relayOnly && !!turnConfig;
+      const room = joinRoom({ appId: APP_ID, password: this.secret, ...(turnConfig ? { turnConfig } : {}), ...(relay ? { rtcConfig: { iceTransportPolicy: 'relay' } } : {}) }, this.room);
       this.trysteroRoom = room;
       const action = room.makeAction('ops');
       this.ops = action;
@@ -639,6 +659,15 @@ export class SyncLink {
       const link = room.makeAction('link');
       this.linkAct = link;
       link.onMessage = (data, from) => this._linkIn(data, typeof from === 'string' ? from : from?.peerId);
+      // …and their big binary parts (sendLinkBinary): the message rides along as the transfer's metadata
+      const bin = room.makeAction('linkbin');
+      this.linkBinAct = bin;
+      bin.onMessage = (data, from) => {
+        const msg = from?.metadata?.msg; // (Trystero hands the sender over as { peerId, metadata })
+        if (msg && typeof msg === 'object' && (data instanceof ArrayBuffer || ArrayBuffer.isView(data))) {
+          this._linkIn({ ...msg, bin: data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data, data.byteOffset || 0, data.byteLength) }, from.peerId);
+        }
+      };
       // One peer per other player – plus possibly the same player in a second window / on a second device. The
       // link counts as connected while any peer that may be a partner is there; ops go to all peers at once.
       room.onPeerJoin = (peerId) => {

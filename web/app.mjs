@@ -556,7 +556,7 @@ function App() {
     const link = new SyncLink({
       room: manifest.room, secret: manifest.secret, slot: me, slots: slotsOf(manifest), name: names[me].name, doc,
       // TURN for strict NATs: short-lived credentials from souldew's bot through the local server (docs/MULTIPLAYER.md)
-      getIceServers: () => api.get('/api/link/ice').then((r) => r?.iceServers || null),
+      getIceServers: () => api.get('/api/link/ice').then((r) => (r?.iceServers ? { iceServers: r.iceServers, relayOnly: !!r.relayOnly } : null)),
       onStatus: (s) => linkRef.current === link && setLinkStatus({ ...s }),
       onMessage: (msg) => {
         if (msg.payload?.type === 'ping') {
@@ -571,8 +571,8 @@ function App() {
     // this player's game of this run, running in the fast player right now (a link session starts from it – seamless)
     const nativeEmu = () => document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__emu || null;
     const ownGame = () => {
-      const t = sessionRef.current?.target;
-      return !!t && t.runId === manifest.id && !t.link && t.saveUrl === `/api/runs/${manifest.id}/save/${me}` && !!nativeEmu()?.ready;
+      const tg = sessionRef.current?.target;
+      return !!tg && tg.runId === manifest.id && !tg.link && tg.saveUrl === `/api/runs/${manifest.id}/save/${me}` && !!nativeEmu()?.ready;
     };
     const lp = new LinkSessions({
       sync: link, runId: manifest.id, me, emu: nativeEmu, ownGame,
@@ -581,7 +581,7 @@ function App() {
         lp.partyFirst = lp.partyLast = null; // the teams the link session shows first and last (the trade's log entry)
         const out = manifest.outputs?.[me];
         if (!out) return;
-        const link = { id: st.id, seats: st.seats, kind: st.kind, delay: st.delay };
+        const link = { id: st.id, seats: st.seats, kind: st.kind, delay: st.delay, model: st.models?.[me] || null };
         const cur = sessionRef.current;
         if (st.seamless && cur?.target?.runId === manifest.id) { // the running game went into the session: same player, same picture
           cur.target.link = link; // (the play view's save writer reads target.link as it goes)
@@ -619,7 +619,7 @@ function App() {
       },
     });
     linkPlayRef.current = lp;
-    window.__slLink = { sessions: lp, sync: link }; // (tests: scripts/link-e2e.mjs)
+    if (pref.get('sl-e2e', false)) window.__slLink = { sessions: lp, sync: link }; // (scripts/link-e2e.mjs sets sl-e2e)
     if (lp.state.phase !== 'idle') {
       setLinkPlay({ ...lp.state }); // (a session this page dropped out of: the bar offers to rejoin it)
       // the run's own game came up meanwhile (a reload on the play view): it waits until the link is rejoined or left

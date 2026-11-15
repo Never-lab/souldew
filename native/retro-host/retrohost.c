@@ -378,7 +378,7 @@ static int ram_n, ram_full = 1;
 /**
  * Where the bus address `addr` (`len` bytes) lives in the core's memory, from its memory map: a descriptor whose
  * address bits (`select`) match for the first and the last byte, inside its first copy (no mirrors) – a descriptor's
- * `start + len` alone may reach past its window (Gambatte's 32 KB cartridge RAM at 0xA000 "covers" 0xC000 too).
+ * `start + len` alone may reach past its window (a 32 KB cartridge RAM at 0xA000 would "cover" 0xC000 too).
  */
 static uint8_t *mem_at(uint32_t addr, uint32_t len) {
   if (!len) return NULL;
@@ -410,7 +410,7 @@ static uint8_t *ram_msg;
 static size_t ram_msg_cap;
 /** What changed since the last time (everything after RESYNC), in runs of whole blocks. */
 static void send_ram(void) {
-  resolve_ram(); // (cheap – and a core may move its memory without a new map: Gambatte after loading)
+  resolve_ram(); // (cheap – and a core may move its memory without a new map, e.g. after loading a state)
   size_t cap = 4;
   for (int i = 0; i < ram_n; i++) cap += ram[i].len + 8 * (ram[i].len / BLOCK + 1);
   if (cap > ram_msg_cap) {
@@ -474,59 +474,37 @@ static void sram_get(uint8_t **p, size_t *n) {
 }
 // The cartridge clock (Game Boy MBC3: Gold/Silver/Crystal). souldew keeps it in the battery save as the 48-byte footer
 // VBA-M, mGBA and SameBoy write (u32 seconds, minutes, hours, days, flags – the clock then latched – then the u64 Unix
-// second it was saved): the same file then carries the clock into the link host (SameBoy) and back. The cores keep it as
-// RETRO_MEMORY_RTC:
-//   SameBoy: its "rtc" save-state section (32 bytes): the clock's 5 registers, the latched 5, at 16 the u64 Unix second
-//            the clock was last brought up to (it runs on the computer's clock from there)
-//   Gambatte (older souldew): 8 bytes – the Unix second the clock read zero (the clock = now − that)
+// second it was saved): the same file then carries the clock into the link host (SameBoy) and back. SameBoy keeps it as
+// RETRO_MEMORY_RTC – its "rtc" save-state section (32 bytes): the clock's 5 registers, the latched 5, at 16 the u64 Unix
+// second the clock was last brought up to (it runs on the computer's clock from there). (Older souldew played the Game
+// Boy on Gambatte; its saves carry the same footer.)
 #define RTC_FOOTER 48
 #define SAMEBOY_RTC 32
-static uint8_t *rtc_mem(size_t *n) {
+static uint8_t *rtc_mem(void) {
   uint8_t *r = core.get_memory_data ? core.get_memory_data(RETRO_MEMORY_RTC) : NULL;
-  *n = r && core.get_memory_size ? core.get_memory_size(RETRO_MEMORY_RTC) : 0;
-  return *n == 8 || *n == SAMEBOY_RTC ? r : NULL;
+  return r && core.get_memory_size && core.get_memory_size(RETRO_MEMORY_RTC) == SAMEBOY_RTC ? r : NULL;
 }
 static int rtc_footer(uint8_t out[RTC_FOOTER]) {
-  size_t rn;
-  uint8_t *r = rtc_mem(&rn);
+  const uint8_t *r = rtc_mem();
   if (!r) return 0;
   uint32_t v[10];
-  uint64_t stamp;
-  if (rn == SAMEBOY_RTC) {
-    for (int i = 0; i < 10; i++) v[i] = r[i];
-    memcpy(&stamp, r + 16, 8);
-  } else {
-    uint64_t base;
-    memcpy(&base, r, 8);
-    stamp = (uint64_t)time(NULL);
-    uint64_t t = stamp > base ? stamp - base : 0, days = t / 86400;
-    v[0] = (uint32_t)(t % 60), v[1] = (uint32_t)(t / 60 % 60), v[2] = (uint32_t)(t / 3600 % 24), v[3] = (uint32_t)(days & 0xff);
-    v[4] = (uint32_t)((days >> 8 & 1) | (days > 511 ? 0x80 : 0));
-    memcpy(v + 5, v, 5 * sizeof *v);
-  }
+  for (int i = 0; i < 10; i++) v[i] = r[i];
   memcpy(out, v, 40);
-  memcpy(out + 40, &stamp, 8);
+  memcpy(out + 40, r + 16, 8);
   return 1;
 }
 /** A save with the clock footer: the core's clock from it (it ran on since it was saved, as a cartridge's does). */
 static void rtc_from_footer(const uint8_t *f) {
-  size_t rn;
-  uint8_t *r = rtc_mem(&rn);
+  uint8_t *r = rtc_mem();
   if (!r) return;
   uint32_t v[10];
   uint64_t saved;
   memcpy(v, f, sizeof v);
   memcpy(&saved, f + 40, 8);
+  if (saved < 852076800ull) return; // (no real clock data – before 1997: SameBoy keeps its own)
+  for (int i = 0; i < 10; i++) r[i] = (uint8_t)v[i];
+  memcpy(r + 16, &saved, 8); // (SameBoy then brings the clock up to now by itself)
   const uint64_t days = (v[3] & 0xff) | (uint64_t)(v[4] & 1) << 8;
-  if (rn == SAMEBOY_RTC) {
-    if (saved < 852076800ull) return; // (no real clock data: SameBoy keeps its own)
-    for (int i = 0; i < 10; i++) r[i] = (uint8_t)v[i];
-    memcpy(r + 16, &saved, 8); // (SameBoy then brings the clock up to now by itself)
-  } else {
-    const uint64_t t = (v[0] % 60) + (uint64_t)(v[1] % 60) * 60 + (uint64_t)(v[2] % 24) * 3600 + days * 86400;
-    const uint64_t base = saved > t ? saved - t : 0;
-    memcpy(r, &base, 8);
-  }
   logf_("cartridge clock from the save: %llu days %02u:%02u", (unsigned long long)days, v[2] % 24, v[1] % 60);
 }
 /** The battery save as souldew keeps it: the save memory, plus the clock footer for a clock cartridge. */

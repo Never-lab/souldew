@@ -25,6 +25,9 @@
 //                            before the recording's start; those k frames run in the fast player, nothing pressed.)
 //        [--disconnect <frame>]  (B's peer link goes down there; both players leave – with --seamless each goes on alone
 //                            from their own console as it is)
+//        [--relay]           (every peer connection relayed through TURN – the bot's /link/ice must answer)
+//        [--gb-look original|color] [--gb-look1 …] [--gb-look2 …]  (every / one player's Settings › Game Boy look;
+//                            default color, as the recordings were made)
 //        [--show]
 //
 // Never commit ROMs, saves or the screenshots.
@@ -83,10 +86,14 @@ async function main() {
     // (--all-roms: every player's library has every game of the session – the partners' are then found by CRC + SHA-1)
     // (a clone where the disk can – APFS: no extra space – else a copy: a DS game is 128–512 MB per player)
     for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) copyFileSync(r, join(lib, basename(r)), fsConstants.COPYFILE_FICLONE);
-    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true }));
-    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_LINK_TEST_SCRIPT: script,
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true,
+      gbLook: opt(`gb-look${'ABCD'.indexOf(id) + 1}`) || opt('gb-look', 'color') })); // (the recordings were made on Game Boy Colors)
+    const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_E2E: '1', SLS_LINK_TEST_SCRIPT: script,
       // (--seamless --desync: the states differ instead – a game in the middle of a trade may never read its clock)
-      SLS_LINK_TEST_RTC: id === 'B' && flag('desync') ? String(Number(rtc) + 86400000 * 3) : rtc };
+      SLS_LINK_TEST_RTC: id === 'B' && flag('desync') ? String(Number(rtc) + 86400000 * 3) : rtc,
+      // --relay: every peer connection through Cloudflare TURN (credentials from souldew's bot), never direct; else no
+      // TURN at all (both players are on this computer – the bot isn't asked)
+      SOULDEW_LINK_ICE: flag('relay') ? 'relay' : 'off' };
     const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stderr.on('data', (d) => process.stderr.write(`[${id}] ${d}`));
     servers.push(p);
@@ -145,6 +152,10 @@ async function main() {
     const wins = profiles.map((pr, i) => {
       const w = new BrowserWindow({ width: 1100, height: 780, x: 40 + (i % 2) * 560, y: 40 + Math.floor(i / 2) * 400, show, webPreferences: { partition: `link-e2e-${pr.id}`, backgroundThrottling: false } });
       w.webContents.setAudioMuted(true);
+      // (the pages' warnings and errors go into result.json – what a failed run needs first)
+      w.webContents.on('console-message', (e) => {
+        if (e.level === 'warning' || e.level === 'error') (result.console ||= []).push(`${pr.id}: ${String(e.message).slice(0, 300)}`);
+      });
       w.loadURL(`${pr.base}/#/soullink?run=${runId}`);
       return w;
     });
@@ -152,7 +163,8 @@ async function main() {
     // which player each computer is (an imported run otherwise guesses "p2" – fine for two players, not for four)
     for (const i of all) {
       await new Promise((r) => (wins[i].webContents.isLoading() ? wins[i].webContents.once('did-finish-load', r) : r()));
-      await ev(i, `localStorage.setItem(${JSON.stringify(`sl-me-${runId}`)}, ${JSON.stringify(JSON.stringify(SLOTS[i]))}); location.reload(); true`);
+      // (sl-e2e: the page hands its link session to this script as window.__slLink)
+      await ev(i, `localStorage.setItem(${JSON.stringify(`sl-me-${runId}`)}, ${JSON.stringify(JSON.stringify(SLOTS[i]))}); localStorage.setItem('sl-e2e', 'true'); location.reload(); true`);
     }
     await sleep(1500);
     const shot = async (name) => {
@@ -402,6 +414,14 @@ async function main() {
   } catch (e) {
     console.error(e);
     result.error = String(e?.stack || e);
+    try { // where every page's session stood
+      result.pages = [];
+      for (const w of BrowserWindow.getAllWindows()) {
+        result.pages.push(await w.webContents.executeJavaScript(`(() => { const L = window.__slLink?.sessions; if (!L) return null; const st = L.state;
+          return { phase: st.phase, ended: st.ended, saves: Object.fromEntries(Object.entries(st.saves || {}).map(([k, v]) => [k, { b64: typeof v.b64, state: v.state }])),
+            snaps: Object.fromEntries(Object.entries(st.snaps || {}).map(([k, v]) => [k, { sha1: v.sha1, z: typeof v.z, got: v.got }])), ready: st.ready, got: st.got, stats: L.stats }; })()`, true));
+      }
+    } catch { /* the windows are gone */ }
     try {
       for (const [i, w] of BrowserWindow.getAllWindows().entries()) writeFileSync(join(out, `fail-${i}.png`), (await w.webContents.capturePage()).toPNG());
     } catch { /* no windows */ }

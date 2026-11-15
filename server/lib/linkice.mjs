@@ -24,7 +24,7 @@ export function cleanIceServers(list) {
 }
 
 /**
- * { iceServers, turn, ttl } – cached until 80 % of the credentials' lifetime is over (they are valid for `ttl` s). On
+ * { iceServers, turn, ttl, relayOnly? } – cached until 80 % of the credentials' lifetime is over (they are valid for `ttl` s). On
  * any trouble: { iceServers: [], turn: false } (the page then keeps Trystero's own STUN servers).
  */
 export async function linkIceServers({ fetchImpl = fetch, env = process.env, now = Date.now() } = {}) {
@@ -38,7 +38,8 @@ export async function linkIceServers({ fetchImpl = fetch, env = process.env, now
       const iceServers = cleanIceServers(j?.iceServers);
       const turn = !!j?.turn && iceServers.some((s) => s.username);
       const ttl = Number.isFinite(j?.ttl) && j.ttl > 0 ? Math.min(j.ttl, 24 * 3600) : 0;
-      const value = { iceServers, turn, ttl };
+      // (SOULDEW_LINK_ICE=relay: every peer connection through TURN, never direct – tests of the relayed path only)
+      const value = { iceServers, turn, ttl, ...(turn && env.SOULDEW_LINK_ICE === 'relay' ? { relayOnly: true } : {}) };
       cache = { until: now + (turn ? ttl * 800 : 10 * 60_000), value };
       return value;
     } catch {

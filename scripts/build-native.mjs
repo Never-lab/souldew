@@ -255,16 +255,20 @@ function buildMelonDS() {
 /**
  * SameBoy's core for the link host's Game Boy backend (native/link-host/backend_sameboy.c): its Core/*.c without the
  * debugger, rewind, cheats and real-time pacing, the core's time() pointed at the session clock (determinism: no wall
- * clock), and its CGB boot ROM (assembled from SameBoy's source with RGBDS) as a C array. Returns objects + cflags.
+ * clock), and its CGB and DMG boot ROMs (assembled from SameBoy's source with RGBDS) as C arrays. Returns objects + cflags.
  */
 function buildSameBoy(flags) {
   const src = source('sameboy');
   const obj = join(src, `build-souldew-${plat}`);
   mkdirSync(obj, { recursive: true });
-  run('make', ['-C', src, 'build/bin/BootROMs/cgb_boot.bin', `CC=${process.env.HOST_CC || 'cc'}`]); // (pb12 is a build-time helper: host compiler)
-  const boot = readFileSync(join(src, 'build', 'bin', 'BootROMs', 'cgb_boot.bin'));
+  // (pb12 is a build-time helper: host compiler)
+  run('make', ['-C', src, 'build/bin/BootROMs/cgb_boot.bin', 'build/bin/BootROMs/dmg_boot.bin', `CC=${process.env.HOST_CC || 'cc'}`]);
   const bootC = join(obj, 'sbl_boot.c');
-  writeFileSync(bootC, `/* SameBoy's CGB boot ROM (MIT), assembled from BootROMs/cgb_boot.asm */\nconst unsigned char sbl_cgb_boot[] = {${[...boot].join(',')}};\nconst unsigned sbl_cgb_boot_length = ${boot.length};\n`);
+  const rom = (name) => {
+    const b = readFileSync(join(src, 'build', 'bin', 'BootROMs', `${name}_boot.bin`));
+    return `const unsigned char sbl_${name}_boot[] = {${[...b].join(',')}};\nconst unsigned sbl_${name}_boot_length = ${b.length};\n`;
+  };
+  writeFileSync(bootC, `/* SameBoy's boot ROMs (MIT), assembled from BootROMs/cgb_boot.asm and dmg_boot.asm */\n${rom('cgb')}${rom('dmg')}`);
   // the core's time() → the session clock: a header included first (time.h, then the macro) – not -Dtime=…, which on
   // Windows would rename MinGW's inline time() in <time.h> and leave the wall clock in place
   const timeH = join(obj, 'sbl_time.h');

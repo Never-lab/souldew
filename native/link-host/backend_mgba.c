@@ -205,6 +205,8 @@ static void m_run_frame(void) {
         seats[s].core->runLoop(seats[s].core);
         ran = 1;
       }
+      // (can't happen with the lockstep driver's own rules; if it did, the session is broken for good: the log line
+      // reaches the page, the host ends, the page sees the stream end – an abort, not a hang)
       if (!ran) { link_log("link: every console waits for another (deadlock)"); abort(); }
     }
     if (guard > 50000000) { link_log("link: a frame never ended"); abort(); }

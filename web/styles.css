@@ -771,6 +771,7 @@ details.group details.group { margin: 0 14px 8px; }
 .state-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 6px; border-radius: 10px; background: var(--shell-2); border: 1px solid #0d0c10; }
 .state-card.sel { border-color: var(--crs); box-shadow: inset 0 0 0 1px var(--crs); }
 .state-card.empty { background: transparent; border-style: dashed; border-color: var(--edge); }
+.state-note { margin: 0; line-height: 1.35; } /* why a state can't be loaded here (another core, the other Game Boy look) */
 .state-thumb { height: 92px; border-radius: 6px; background: #0b0a0e; display: grid; place-items: center; overflow: hidden; }
 .state-thumb img { display: block; max-width: 100%; max-height: 100%; image-rendering: pixelated; }
 .state-thumb .px { font-size: 22px; color: var(--ink-3); }

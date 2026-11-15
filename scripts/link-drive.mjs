@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // A remote control for the link host (native/link-host): starts it with N consoles and serves a tiny HTTP API on
 // 127.0.0.1, so a person (or a test) can walk both games to the Cable Club, look at screenshots and take the saves –
-// the spike/test harness for docs/MULTIPLAYER.md. Never commit ROMs, saves or screenshots.
+// a dev tool for making recordings and checking a backend (docs/MULTIPLAYER.md). Never commit ROMs, saves or screenshots.
 //
 //   node scripts/link-drive.mjs --host <linkhost> --port 7788 --rom a.gba --rom b.gba [--sram a.sav|-]… [--state s|-]…
 //        [--rtc <unix ms>] [--record <file>]   (--record: every frame's buttons, for scripts/link-net-test.mjs)

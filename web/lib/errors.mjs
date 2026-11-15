@@ -54,7 +54,6 @@ const TEXTS = {
   linkSeats: () => t('err.linkSeats', 'These players can’t be linked'),
   linkMissing: () => t('linkplay.missing', 'This version of souldew can’t link games yet – update it on both computers.'),
   linkRomMissing: () => t('linkplay.romMissing2', 'A player’s game isn’t on one of the computers – the link needs every player’s game on every computer.'),
-  linkRomDiffers: () => t('linkplay.romDiffers', 'The games aren’t byte-identical on both computers (another base ROM or version). Linking needs exactly the same games.'),
   linkSaveDiffers: () => t('linkplay.saveDiffers', 'A save arrived damaged. Try again.'),
   linkStateDiffers: () => t('linkplay.stateDiffers', 'A player’s game arrived damaged. Try again.'),
   linkOwnMissing: () => t('linkplay.ownMissing', 'Your own game for this run isn’t built on this computer.'),

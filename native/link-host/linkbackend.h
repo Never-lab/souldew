@@ -43,6 +43,7 @@ struct link_seat_config {
   const uint8_t *save;     // battery save bytes or NULL (a new cartridge)
   size_t save_len;
   const char *state;       // the player's running game as the fast player's core saved it (export_state's format), or NULL
+  const char *model;       // Game Boy family: "dmg" (the original Game Boy) or "cgb" (Game Boy Color, the default); NULL
 };
 
 struct link_backend {

@@ -7,6 +7,8 @@
 import * as controls from '/lib/controls.mjs';
 import { setLang, guessLang, t } from '/lib/i18n.mjs';
 import { serverErrorText } from '/lib/errors.mjs';
+import { LINK_CMD, LINK_MSG } from '/shared/link.mjs';
+import { b64 } from '/lib/bytes.mjs';
 
 const q = new URLSearchParams(location.search);
 const SYSTEM = q.get('system') || 'nds';
@@ -18,8 +20,9 @@ const SYSTEM = q.get('system') || 'nds';
 // back to the fast player started from this console's state as the link host left it (resumeSolo). The canvas stays.
 // ?link=1&session=<id>: a session the play view opened for a game that wasn't running here (it starts from the save).
 let LINK_SESSION = q.get('link') === '1' ? q.get('session') : null;
-const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, LINPUT: 12, SEATSRAM: 14, SEATSTATE: 15 };
-const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, SEATSTATE: 26 };
+// (retrohost's messages – the link host speaks the same ones plus its own, shared/link.mjs)
+const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE };
+const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, SEATSTATE: LINK_CMD.SEATSTATE };
 const post = (m) => window.parent?.postMessage(m, location.origin);
 // ?debug=1 (the ROM matrix): what arrives from the host – events, picture sizes, saves – on the console
 const DEBUG = q.get('debug') === '1';
@@ -46,6 +49,7 @@ const st = {
   id: null, core: null, ready: false, paused: false, speed: 1, volume: 1, frames: 0, hostFrame: 0, fps: 0, hostSpeed: 0,
   ram: [], ramReady: false, sram: null, bootSave: 'pending', error: null, log: [], ended: false, lr: /left/i.test(q.get('layout') || ''),
   info: null, turboAudio: 'music', switches: [],
+  model: q.get('model') || null, // a Game Boy game's console ('dmg' | 'cgb'): its save states only load into that model
 };
 const waiters = { state: [], loaded: [], stepped: [], seatState: [], seatSram: [] };
 
@@ -189,17 +193,20 @@ function onVideo(p) {
   const bpp = fmt === 0 ? 4 : 2;
   if (!w || !h || p.length < 8 + w * h * bpp) return dbg('bad picture', w, h, fmt, p.length);
   if (DEBUG && (w !== st.dbgW || h !== st.dbgH)) dbg('picture', w, h, fmt), (st.dbgW = w), (st.dbgH = h);
-  if (!pendingFrame) requestAnimationFrame(drawFrame);
-  pendingFrame = { w, h, fmt, px: p.subarray(8, 8 + w * h * bpp) };
-  st.frames++;
+  const px = p.subarray(8, 8 + w * h * bpp);
   if (st.awaitPicture) { // the first picture after a switch into / out of a link session: the game goes on
-    st.awaitPicture = false;
+    // (a console started from a state has drawn nothing yet in its first frame – a black picture there would flash
+    // between two real ones: the last picture stays a few frames longer)
+    if (st.awaitPicture++ < 8 && px.every((x) => x === 0)) return;
+    st.awaitPicture = 0;
     linking(null);
     const ms = st.switchFrom ? Math.round(performance.now() - st.switchFrom) : null;
     st.switches.push({ to: LINK_SESSION ? 'link' : 'solo', ms, at: Date.now() }); // (diagnostics / tests: how long the picture stood)
     if (st.switches.length > 20) st.switches.shift();
-    post({ type: 'emu-switched', link: LINK_SESSION, ms });
   }
+  if (!pendingFrame) requestAnimationFrame(drawFrame);
+  pendingFrame = { w, h, fmt, px };
+  st.frames++;
   if (!st.ready) {
     st.ready = true;
     window.__emu.ready = true;
@@ -460,6 +467,13 @@ async function pump() {
   ended();
   if (!st.error) fail(t('native.stopped', 'The game stopped. Close it and start it again.'));
 }
+/** Reads the current session's stream (a failure ends the game with an error over the picture). */
+function startPump() {
+  pump().catch((e) => {
+    ended();
+    fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
+  });
+}
 function ended() {
   st.ended = true;
   for (const k of ['state', 'stepped', 'seatState', 'seatSram']) waiters[k].splice(0).forEach((f) => f(null));
@@ -660,7 +674,7 @@ window.__emu = {
     tellAudio({ type: 'paused', paused: true });
     const state = await ask(waiters.state, CMD.SAVE, undefined, null, (b) => (b && b.length ? b.slice() : null));
     if (!state) this.linkSnapshotCancel();
-    return state ? { state, frame: st.hostFrame } : null;
+    return state ? { state, frame: st.hostFrame, model: st.model } : null;
   },
   /** The link didn't start after all: the game goes on (from the snapshot, if its host is gone meanwhile). */
   async linkSnapshotCancel(state = null) {
@@ -682,15 +696,12 @@ window.__emu = {
     st.paused = false;
     st.speed = 1;
     st.switching = false;
-    st.awaitPicture = true;
+    st.awaitPicture = 1;
     sentInput = ''; // (the held buttons go to the link host too)
     tellAudio('clear');
     tellAudio({ type: 'speed', ratio: 1 });
     tellAudio({ type: 'paused', paused: false });
-    pump().catch((e) => {
-      ended();
-      fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
-    });
+    startPump();
     sendInput();
     return true;
   },
@@ -718,7 +729,8 @@ window.__emu = {
       linking(null);
       return false;
     }
-    return startSolo({ state, save: save?.length ? save : st.sram });
+    // (out of step: exactly the save from before the link – none if there was none; never the session's last one)
+    return startSolo({ state, save: from ? save : save?.length ? save : st.sram });
   },
   getState() {
     if (st.ended || LINK_SESSION) return Promise.resolve(null);
@@ -836,11 +848,6 @@ async function bootSaveBytes() {
   }
   return { state: 'failed', bytes: null }; // the play view reads it again and hands it over with loadSave()
 }
-function b64(bytes) {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-  return btoa(s);
-}
 
 const BOOT_TIMEOUT_MS = Number(q.get('bootTimeout')) || 30000;
 
@@ -849,7 +856,7 @@ async function startSolo({ state, save }) {
   st.switching = true;
   const res = await fetch('/api/native/start', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-soullink': '1' },
-    body: JSON.stringify({ rom: q.get('rom'), key: q.get('key'), system: SYSTEM, save: save?.length ? b64(save) : null, saveUrl: q.get('save'), state: b64(state) }),
+    body: JSON.stringify({ rom: q.get('rom'), key: q.get('key'), system: SYSTEM, save: save?.length ? b64(save) : null, saveUrl: q.get('save'), state: b64(state), model: st.model }),
   }).catch(() => null);
   const j = await res?.json().catch(() => ({}));
   if (!res?.ok) {
@@ -861,22 +868,18 @@ async function startSolo({ state, save }) {
   LINK_SESSION = null;
   st.id = j.id;
   st.core = j.core;
+  st.model = j.model || st.model;
   st.ended = false;
   st.paused = false;
   st.speed = 1;
-  st.awaitPicture = true;
-  if (save?.length) {
-    st.sram = save.slice();
-    post({ type: 'emu-saved' }); // (the session's last battery save to disk, as the play view does with every save)
-  }
+  st.awaitPicture = 1;
+  st.sram = save?.length ? save.slice() : null; // (the game's battery save from here on – none if it had none)
+  if (st.sram) post({ type: 'emu-saved' }); // (to disk, as the play view does with every save)
   sentInput = '';
   tellAudio('clear');
   tellAudio({ type: 'paused', paused: false });
   st.switching = false;
-  pump().catch((e) => {
-    ended();
-    fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
-  });
+  startPump();
   sendInput();
   return true;
 }
@@ -903,6 +906,7 @@ async function start() {
   if (!res.ok) return fail(serverErrorText(j, res.status));
   st.id = j.id;
   st.core = j.core;
+  st.model = j.model || null;
   st.sram = save.bytes;
   st.bootSave = save.state;
   const stop = () => fetch('/api/native/stop', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json', 'x-soullink': '1' }, body: JSON.stringify({ id: st.id }) }).catch(() => {});
@@ -914,10 +918,7 @@ async function start() {
     fail(t('native.noStart', 'The game didn’t start in the fast player.'));
     stop();
   }, BOOT_TIMEOUT_MS);
-  pump().catch((e) => {
-    ended();
-    fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
-  });
+  startPump();
 }
 /** A link session the play view started (web/lib/linksession.mjs): attach to it. The server booted it with the run's save. */
 function startLinked(status, save) {
@@ -926,9 +927,6 @@ function startLinked(status, save) {
   st.sram = save.bytes;
   st.bootSave = 'loaded';
   addEventListener('pagehide', () => fetch('/api/native/stop', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json', 'x-soullink': '1' }, body: JSON.stringify({ id: st.id }) }).catch(() => {}));
-  pump().catch((e) => {
-    ended();
-    fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
-  });
+  startPump();
 }
 start();

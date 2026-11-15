@@ -130,6 +130,16 @@ for (const name of Object.keys(games)) {
   });
 }
 
+test('link host, GB: each seat on its player\'s console – an original Game Boy linked with a Game Boy Color, the same everywhere', { skip }, () => {
+  const run = () => spawnSync(host, ['--rom', rom('gb'), '--model', 'dmg', '--rom', rom('gb'), '--model', 'cgb', '--rtc', '1763200000000', '--bench', '300'], { encoding: 'utf8' });
+  const [a, b] = [run(), run()];
+  assert.equal(a.status, 0, a.stderr);
+  const hash = (r) => r.stderr.match(/hash ([0-9a-f]{16})/)?.[1];
+  assert.ok(hash(a) && hash(a) === hash(b), 'deterministic');
+  const both = spawnSync(host, ['--rom', rom('gb'), '--rom', rom('gb'), '--rtc', '1763200000000', '--bench', '300'], { encoding: 'utf8' });
+  assert.notEqual(hash(both), hash(a), 'two Game Boy Colors are another session');
+});
+
 test('link host: SEATSTATE hands the local seat\'s console over (the fast player goes on from it)', { skip }, async () => {
   const A = startHost(host, ['--rom', rom('gba'), '--rom', rom('gba'), '--rtc', '1763200000000', '--local', '1']);
   await A.loaded;

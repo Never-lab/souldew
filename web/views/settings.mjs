@@ -352,6 +352,12 @@ export function SettingsView() {
       <p class="small muted">${t('set.emuText', 'The built-in emulator plays every system up to the Nintendo 3DS and has the best live sync. 3DS games can also run in Azahar (for example when a graphics card can’t run the built-in 3DS player). External emulators are optional otherwise.')}</p>
       ${status?.native?.ok && html`<label class="check"><input type="checkbox" checked=${cfg.nativeCore !== false} onChange=${(e) => save({ nativeCore: e.target.checked })} /><span>${t('set.native', 'Fast player for DS, GBA and Game Boy')}
         <span class="hint">${t('set.nativeHint', 'Runs the game with the real emulators (melonDS, mGBA, SameBoy) directly on your computer: full speed even on weaker PCs, and fast-forward that really reaches 4× and more. Live sync, cheats, save states and the in-game save work as before. Save states from the other player can’t be loaded here (and the other way round). Off: the browser emulator as before. Applies to the next game you start.')}</span></span></label>`}
+      ${status?.native?.ok && cfg.nativeCore !== false && html`<div class="stack"><div class="grid-2"><label class="field"><span>${t('set.gbLook', 'Game Boy look')}</span>
+        <select value=${cfg.gbLook === 'color' ? 'color' : 'original'} onChange=${(e) => save({ gbLook: e.target.value })}>
+          <option value="original">${t('set.gbLookOriginal', 'Original Game Boy')}</option>
+          <option value="color">${t('set.gbLookColor', 'Game Boy Color colours')}</option>
+        </select></label></div>
+        <span class="small faint">${t('set.gbLookHint', 'Red, Blue, Yellow and the other Game Boy games in the fast player: on the original Game Boy with its green screen, or with the colours a Game Boy Color gives them. Gold, Silver and Crystal are always in colour. Applies to the next game you start; a savestate loads only with the look it was made with.')}</span></div>`}
       <table class="data"><thead><tr><th>${t('set.system', 'System')}</th><th>${t('set.useEmu', 'Play with')}</th></tr></thead><tbody>
         ${SYSTEMS.map(([sys, label]) => html`<tr><td>${label}</td><td>
           <select value=${externalOnly(sys, status) ? Object.keys(status?.emulators || {}).find((id) => status.emulators[id].systems.includes(sys)) : cfg.emulatorFor?.[sys] || 'builtin'}

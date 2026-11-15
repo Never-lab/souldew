@@ -27,9 +27,9 @@
 #include <string.h>
 #include <time.h>
 
-// the boot ROM (SameBoy's own, MIT – built from its BootROMs/ with RGBDS, embedded by scripts/build-native.mjs)
-extern const unsigned char sbl_cgb_boot[];
-extern const unsigned sbl_cgb_boot_length;
+// the boot ROMs (SameBoy's own, MIT – built from its BootROMs/ with RGBDS, embedded by scripts/build-native.mjs)
+extern const unsigned char sbl_cgb_boot[], sbl_dmg_boot[];
+extern const unsigned sbl_cgb_boot_length, sbl_dmg_boot_length;
 
 #define FRAME_TICKS (70224 * 2) // one LCD frame in GB_run's 8 MHz ticks (also in double speed: real time)
 #define CLOCK 4194304.0
@@ -57,8 +57,9 @@ time_t sbl_time(time_t *t) {
 
 static void on_log(GB_gameboy_t *gb, const char *s, GB_log_attributes_t a) { (void)gb, (void)s, (void)a; } // (stdout is the protocol)
 static void on_boot(GB_gameboy_t *gb, GB_boot_rom_t type) {
-  (void)type; // every seat is a Game Boy Color (CGB-E): DMG games get the CGB boot ROM's palettes, as on hardware
-  GB_load_boot_rom_from_buffer(gb, sbl_cgb_boot, sbl_cgb_boot_length);
+  // a seat is an original Game Boy (DMG-B) or a Game Boy Color (CGB-E: Game Boy games get its palettes, as on hardware)
+  if (type == GB_BOOT_ROM_DMG || type == GB_BOOT_ROM_DMG_0) GB_load_boot_rom_from_buffer(gb, sbl_dmg_boot, sbl_dmg_boot_length);
+  else GB_load_boot_rom_from_buffer(gb, sbl_cgb_boot, sbl_cgb_boot_length);
 }
 static uint32_t on_rgb(GB_gameboy_t *gb, uint8_t r, uint8_t g, uint8_t b) { (void)gb; return (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16; }
 static void on_vblank(GB_gameboy_t *gb, GB_vblank_type_t type) {
@@ -161,7 +162,8 @@ static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     size_t rl = 0;
     uint8_t *rom = link_read_file(cfg[s].rom, &rl);
     if (!rom) { link_log("seat %d: the game can't be read", s); return false; }
-    st->gb = GB_init(GB_alloc(), GB_MODEL_CGB_E);
+    const bool dmg = cfg[s].model && !strcmp(cfg[s].model, "dmg"); // (the seat's player's console – the same on every peer)
+    st->gb = GB_init(GB_alloc(), dmg ? GB_MODEL_DMG_B : GB_MODEL_CGB_E);
     GB_gameboy_t *gb = st->gb;
     GB_set_user_data(gb, st);
     GB_set_log_callback(gb, on_log);
@@ -170,7 +172,9 @@ static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     GB_set_boot_rom_load_callback(gb, on_boot);
     GB_set_border_mode(gb, GB_BORDER_NEVER);
     GB_set_rgb_encode_callback(gb, on_rgb);
-    GB_set_color_correction_mode(gb, GB_COLOR_CORRECTION_MODERN_BALANCED); // (the picture only: as the fast player's SameBoy shows it)
+    // (the picture only, as the fast player's SameBoy shows it: GBC colour correction, the original Game Boy's green)
+    GB_set_color_correction_mode(gb, GB_COLOR_CORRECTION_MODERN_BALANCED);
+    if (dmg) GB_set_palette(gb, &GB_PALETTE_DMG);
     GB_set_pixels_output(gb, st->back);
     GB_set_vblank_callback(gb, on_vblank);
     // sound: every seat alike (only the local seat's is played); the rate only shapes the output, not the emulation

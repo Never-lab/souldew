@@ -6,10 +6,11 @@
 //   4. a library ROM with the partner's CRC32 (plain runs only – the CRC comes with the partner's SHA-1), confirmed by
 //      its SHA-1; one inside a zip is unpacked into the run folder first.
 // Nothing here trusts a path from a page: the server resolves every seat itself and only by SHA-1.
-import { existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, statSync, readFileSync, mkdirSync } from 'node:fs';
 import { join, basename, extname } from 'node:path';
 import { createHash } from 'node:crypto';
-import { needsIdenticalRom } from '../../shared/restart.mjs';
+import { needsIdenticalRom, baseRomsFor } from '../../shared/restart.mjs';
+import { writeFileAtomic } from './fsutil.mjs';
 
 const PICKS = 'link-roms.json';
 const shaCache = new Map();
@@ -26,6 +27,14 @@ export function sha1OfFile(p, { fs = { existsSync, statSync, readFileSync } } = 
   return shaCache.get(k);
 }
 
+/** A run build's SHA-1 as the build recorded it (no hashing a DS game of hundreds of MB while a game streams), else
+ *  hashed. */
+function buildSha1(manifest, slot, path, opts) {
+  const rec = manifest?.outputs?.[slot]?.sha1;
+  if (okSha(rec) && path && (opts.fs?.existsSync || existsSync)(path)) return rec.toLowerCase();
+  return sha1OfFile(path, opts);
+}
+
 /**
  * What this computer says about its own seat `slot`: the file, its SHA-1 and – for a plain run, where the file is the
  * library ROM as it is – its CRC32 (lets partners find their copy of it in their library without hashing everything).
@@ -33,14 +42,14 @@ export function sha1OfFile(p, { fs = { existsSync, statSync, readFileSync } } = 
 export function ownSeat(manifest, slot, runFile, opts = {}) {
   const name = manifest?.outputs?.[slot]?.rom;
   const path = typeof name === 'string' ? runFile(manifest.id, name) : null;
-  const sha1 = path ? sha1OfFile(path, opts) : null;
+  const sha1 = path ? buildSha1(manifest, slot, path, opts) : null;
   if (!sha1) return { path: null, sha1: null, crc: null };
   const crc = !needsIdenticalRom(manifest) && manifest.base?.crc ? String(manifest.base.crc).toUpperCase() : null;
   return { path, sha1, crc };
 }
 
 /** The files picked for partners' games in this run: { sha1: { path } }. */
-export function loadPicks(dir, { fs = { existsSync, readFileSync } } = {}) {
+export function loadPicks(dir, { fs = { readFileSync } } = {}) {
   try {
     const j = JSON.parse(fs.readFileSync(join(dir, PICKS), 'utf8'));
     return j && typeof j === 'object' && !Array.isArray(j) ? j : {};
@@ -52,7 +61,7 @@ export function savePick(dir, sha1, path) {
   const picks = loadPicks(dir);
   picks[sha1] = { path, at: new Date().toISOString() };
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, PICKS), JSON.stringify(picks, null, 2));
+  writeFileAtomic(join(dir, PICKS), JSON.stringify(picks, null, 2));
 }
 
 const okSha = (s) => typeof s === 'string' && /^[0-9a-f]{40}$/i.test(s);
@@ -69,11 +78,11 @@ export function resolveSeat(manifest, slot, sha1, crc, deps) {
   const opts = deps.fs ? { fs: deps.fs } : {};
   const outs = manifest?.outputs || {};
   const own = outs[slot]?.rom ? runFile(manifest.id, outs[slot].rom) : null;
-  if (own && sha1OfFile(own, opts) === want) return { path: own, how: 'build' };
+  if (own && buildSha1(manifest, slot, own, opts) === want) return { path: own, how: 'build' };
   for (const [s, o] of Object.entries(outs)) {
     if (s === slot || typeof o?.rom !== 'string') continue;
     const p = runFile(manifest.id, o.rom);
-    if (p && sha1OfFile(p, opts) === want) return { path: p, how: 'same' };
+    if (p && buildSha1(manifest, s, p, opts) === want) return { path: p, how: 'same' };
   }
   const pick = dir ? loadPicks(dir, opts)[want] : null;
   if (pick?.path && sha1OfFile(pick.path, opts) === want) return { path: pick.path, how: 'picked' };
@@ -103,11 +112,13 @@ export function pickSeat(rom, sha1, { dir, extract, fs } = {}) {
   return p;
 }
 
-/** Where a zipped library ROM is unpacked for a link session (in the run folder, named by its SHA-1-free id). */
+/** Where a zipped library ROM is unpacked for a link session: in the run folder, named after its file inside the zip and
+ *  its CRC32 (two zips with a same-named entry of different games don't share one file). */
 export function extractTarget(dir, rom) {
   const ext = extname(rom.entry || rom.name || '') || `.${rom.system || 'rom'}`;
   const safe = basename(String(rom.entry || rom.name || 'game')).replace(/[^\w.-]+/g, '_').slice(0, 60);
-  return join(dir, `link-${safe.replace(/\.[^.]+$/, '')}${ext}`);
+  const crc = /^[0-9a-f]{8}$/i.test(String(rom.crc || '')) ? `-${String(rom.crc).toUpperCase()}` : '';
+  return join(dir, `link-${safe.replace(/\.[^.]+$/, '')}${crc}${ext}`);
 }
 
 /**
@@ -115,7 +126,7 @@ export function extractTarget(dir, rom) {
  * every player's game was built here): the run's own settings and seeds, only that slot. Throws (.code) when the base
  * ROM or the patch isn't in the library.
  */
-export function partnerBuildRequest(manifest, slot, { roms = [], patches = [] } = {}, baseRomsFor) {
+export function partnerBuildRequest(manifest, slot, { roms = [], patches = [] } = {}) {
   const fits = baseRomsFor(manifest, roms);
   const rom = fits.find((r) => manifest.game?.id && r.gameId === manifest.game.id) || fits[0];
   if (!rom) throw Object.assign(new Error('The game of this run is not in your library'), { code: 'no-rom' });

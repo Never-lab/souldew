@@ -104,7 +104,6 @@ std::condition_variable cv;
 int baton = -1;       // which seat runs; -1 = the caller of run_frame
 bool quitting = false;
 int lastHost = -1;    // the seat that sent the last CMD frame (LocalMP's LastHostID)
-u64 yields = 0, switches = 0;
 
 /** Pick the console that runs next (lock held). Returns -1 when the session frame is over. */
 int pick() {
@@ -129,13 +128,11 @@ int pick() {
 
 /** Hand the baton on and wait until it comes back to `me` (lock held via `lk`). */
 void yield(std::unique_lock<std::mutex> &lk, int me) {
-  yields++;
   const int next = pick();
   if (next == me) {
     seats[me].st = St::Running;
     return;
   }
-  switches++;
   baton = next;
   if (next >= 0) seats[next].st = St::Running;
   cv.notify_all();
@@ -232,10 +229,8 @@ void seatMain(Seat *s) {
     s->frames++;
     s->t = s->nds->Now();
     s->st = St::Done;
-    yields++;
-    const int next = pick();
-    switches++;
-    baton = next;
+      const int next = pick();
+      baton = next;
     if (next >= 0) seats[next].st = St::Running;
     cv.notify_all();
   }
@@ -262,16 +257,6 @@ Firmware makeFirmware(int seat) {
   return fw;
 }
 
-// The JIT: only in a build with it (scripts/build-native.mjs builds without – its timing differs from the interpreter's,
-// so every peer of a session would have to agree, and arm64 ↔ x64 sessions are untested) and SOULDEW_DS_JIT=1.
-bool jitWanted() {
-#ifdef JIT_ENABLED
-  const char *e = getenv("SOULDEW_DS_JIT");
-  return e && *e == '1';
-#else
-  return false;
-#endif
-}
 
 // ---- backend -------------------------------------------------------------------------------------------------------
 const char *d_system() { return "nds"; }
@@ -286,8 +271,6 @@ bool d_probe(const char *rom) {
   // the Nintendo logo's CRC16 in the header (0xCF56 on every licensed cartridge) and a plausible ARM9 entry
   return h[0x15C] == 0x56 && h[0x15D] == 0xCF;
 }
-
-void d_close();
 
 bool d_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
   if (n < 1 || n > LINK_MAX_SEATS) return false;
@@ -308,9 +291,6 @@ bool d_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     if (!rom) { link_log("ds: can't read %s", cfg[i].rom); return false; }
     NDSArgs args{};
     args.Firmware = makeFirmware(i);
-#ifdef JIT_ENABLED
-    if (!jitWanted()) args.JIT = std::nullopt;
-#endif
     s.nds = std::make_unique<LinkNDS>(std::move(args), &s);
     NDSCart::NDSCartArgs cart{};
     if (cfg[i].save && cfg[i].save_len) {
@@ -328,20 +308,23 @@ bool d_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     s.nds->Start();
     const u8 *sv = s.nds->GetNDSSave();
     s.sram.assign(sv, sv + s.nds->GetNDSSaveLength());
-    if (cfg[i].state) {
+    if (cfg[i].state) { // the player's running game (melonDS DS's state: melonDS's own format)
       size_t sl = 0;
       void *st = link_read_file(cfg[i].state, &sl);
+      bool ok = false;
       if (st) {
         Savestate ss(st, static_cast<u32>(sl), false);
-        if (!s.nds->DoSavestate(&ss) || ss.Error) link_log("ds: seat %d: the save state didn't load", i);
+        ok = s.nds->DoSavestate(&ss) && !ss.Error;
         free(st);
       }
+      if (!ok) { link_log("ds: seat %d: state not loadable", i); return false; }
     }
     s.t = s.nds->Now();
     s.st = St::Done;
   }
   for (int i = 0; i < n; i++) seats[i].thread = std::thread(seatMain, &seats[i]);
-  link_log("ds: %d console(s), FreeBIOS + generated firmware, %s", n, jitWanted() ? "JIT" : "interpreter");
+  // (the interpreter: melonDS is built without its JIT – the JIT's timing differs, every peer must compute the same)
+  link_log("ds: %d console(s), FreeBIOS + generated firmware, interpreter", n);
   return true;
 }
 
@@ -362,11 +345,6 @@ void d_run_frame() {
   seats[next].st = St::Running;
   cv.notify_all();
   cv.wait(lk, [&] { return baton == -1; });
-  static const bool stats = getenv("SOULDEW_DS_STATS") != nullptr;
-  static u32 n = 0;
-  if (stats && ++n % 600 == 0) {
-    fprintf(stderr, "ds: frame %u: %llu yields, %llu baton switches so far\n", n, (unsigned long long)yields, (unsigned long long)switches);
-  }
 }
 
 void d_video(int seat, const uint32_t **px, unsigned *w, unsigned *h, unsigned *stride) {
@@ -547,8 +525,6 @@ extern "C" const struct link_backend link_backend_melonds = {
     nullptr, d_export,
 };
 
-extern "C" void link_backend_melonds_stats(uint64_t *y, uint64_t *s) { *y = yields, *s = switches; }
-
 // ---- melonDS's platform layer (what the core asks of a frontend) ---------------------------------------------------
 namespace melonDS::Platform {
 
@@ -612,9 +588,7 @@ u64 FileLength(FileHandle *file) {
 }
 
 void Log(LogLevel level, const char *fmt, ...) {
-  static const bool debug = getenv("SOULDEW_DS_DEBUG") != nullptr;
-  if (level == LogLevel::Debug && !debug) return;
-  if (level == LogLevel::Info && !debug) return;
+  if (level == LogLevel::Debug || level == LogLevel::Info) return; // (melonDS's chatter: only what went wrong)
   char buf[512];
   va_list ap;
   va_start(ap, fmt);

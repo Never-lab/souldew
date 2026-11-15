@@ -13,7 +13,7 @@ import { PassThrough } from 'node:stream';
 
 const DATA = mkdtempSync(join(tmpdir(), 'sls-native-'));
 process.env.SLS_DATA_DIR = DATA;
-const { NATIVE_CORES, NCMD, nativeTools, hostArgs, checkNativeCommands, NativeSessions, nativeSaveDir, nativeDirs } = await import('../server/lib/native.mjs');
+const { NATIVE_CORES, NCMD, nativeTools, hostArgs, checkNativeCommands, NativeSessions, nativeSaveDir, nativeDirs, gbModel, nativeCoreId } = await import('../server/lib/native.mjs');
 const { command, splitMessages } = await import('../server/lib/ctr.mjs');
 test.after(() => rmSync(DATA, { recursive: true, force: true }));
 
@@ -54,6 +54,19 @@ test('the host\'s arguments: the core, the RAM the live reader needs, souldew\'s
   assert.throws(() => hostArgs({ system: '3ds', core: 'c', rom: 'r', saveDir: 's', systemDir: 'y' }), /nativer Kern/);
   // every core has its own id for save states (a browser-emulator state can't be loaded here)
   assert.equal(new Set(Object.values(NATIVE_CORES).map((c) => c.id)).size, 3);
+  // the Game Boy look: Game Boy games on the original Game Boy (green) unless "Game Boy Color colours"; GBC games on a GBC
+  const model = (args) => Object.fromEntries(args.filter((x, i, l) => l[i - 1] === '--option').map((v) => v.split('='))).sameboy_model;
+  assert.equal(gbModel('gb', undefined), 'dmg');
+  assert.equal(gbModel('gb', 'color'), 'cgb');
+  assert.equal(gbModel('gbc', 'original'), 'cgb');
+  assert.equal(gbModel('gba', 'original'), null);
+  assert.equal(model(hostArgs({ system: 'gb', core: 'c', rom: 'r', saveDir: 's', systemDir: 'y', model: 'dmg' })), 'Game Boy');
+  assert.equal(model(hostArgs({ system: 'gb', core: 'c', rom: 'r', saveDir: 's', systemDir: 'y', model: 'cgb' })), 'Game Boy Color');
+  assert.equal(model(hostArgs({ system: 'gbc', core: 'c', rom: 'r', saveDir: 's', systemDir: 'y', model: 'dmg' })), 'Game Boy Color', 'a GBC game never on a Game Boy');
+  // a state only loads into the model that made it: the model is part of the core id
+  assert.equal(nativeCoreId('gb', 'dmg'), 'sameboy-dmg-native');
+  assert.equal(nativeCoreId('gb', 'cgb'), 'sameboy-native');
+  assert.equal(nativeCoreId('gba', null), 'mgba-native');
 });
 
 test('the commands a page may send: known types, sane sizes, nothing left over', () => {

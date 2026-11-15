@@ -12,6 +12,7 @@
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { startHost } from './link-drive.mjs';
+import { linkDelay } from '../shared/link.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d = null) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : d);
@@ -19,9 +20,8 @@ const all = (n) => args.flatMap((a, i) => (a === `--${n}` ? [args[i + 1]] : []))
 const roms = all('rom'), srams = all('sram');
 const frames = Number(opt('frames', '3000'));
 const rtt = Number(opt('rtt', '80')), jitter = Number(opt('jitter', '10'));
-const FRAME_MS = 1000 / 59.7275;
 // the input delay for this round trip (linkcable's rule of thumb: half the RTT with a margin, plus 3 frames)
-const delay = opt('delay', 'auto') === 'auto' ? Math.min(60, Math.max(4, Math.ceil(((rtt / 2) * 1.25) / FRAME_MS) + 3)) : Number(opt('delay'));
+const delay = opt('delay', 'auto') === 'auto' ? linkDelay(rtt) : Number(opt('delay')); // (the app's formula)
 const speed = opt('speed', 'max') === 'max' ? 1000 : Number(opt('speed'));
 const out = opt('out');
 const N = roms.length;

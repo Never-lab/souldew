@@ -1,12 +1,13 @@
-// souldew's link host: every console of a link session in ONE process – N linked Game Boy Advance, Game Boy / Game Boy
-// Color (later DS) – stepped deterministically, the engine behind trades and battles between players
+// souldew's link host: every console of a link session in ONE process – N linked Game Boy / Game Boy Color, Game Boy
+// Advance or Nintendo DS – stepped deterministically, the engine behind trades and battles between players
 // (docs/MULTIPLAYER.md). Every peer runs ALL seats from the same ROMs (each partner's ROM rebuilt locally and checked by
 // SHA-1 – no ROM ever crosses the network), the same battery saves and the same start time, and only the buttons
 // travel. Same program + same inputs on the same frames = the same games everywhere. The system itself (and its link:
 // serial cable, SIO, local wireless) is a backend (linkbackend.h); this file is the session around it.
 //
-//   linkhost --rom <seat0> [--rom <seat1> …] [--sram <file>|-]… [--state <file>|-]… [--local k] [--net --delay D]
-//            [--rtc <unix ms>] [--ram ADDR:LEN]… [--record <file>] [--script <file>] [--bench FRAMES [--out dir]]
+//   linkhost --rom <seat0> [--rom <seat1> …] [--sram <file>|-]… [--state <file>|-]… [--model dmg|cgb]… [--local k]
+//            [--net --delay D] [--rtc <unix ms>] [--ram ADDR:LEN]… [--load <file>]
+//   tests:   [--record <file>] [--script <file>] [--bench FRAMES [--speed X] [--out dir] [--export dir]] [--backend NAME]
 //
 // Messages are { u32 type, u32 length, payload } (little-endian) both ways, as native/retro-host/retrohost.c.
 //   host → souldew   2 VIDEO  u16 width, u16 height, u32 format (2 = RGB565), pixels – the viewed seat (VIEW)
@@ -14,7 +15,7 @@
 //                    5 STATE  all seats: u32 n, n × { u32 len, state } (answer to SAVE)
 //                    6 LOG    text
 //                    7 EVENT  json: loaded | stats | stepped | hash {frame, hash} | wait {seats, frame, ms} | saved |
-//                             stateLoaded | error | ended
+//                             stateLoaded | seatState {seat, size, frame} | error | ended
 //                    8 RAM    the local seat's --ram regions that changed (retrohost's format: live tracking works)
 //                    9 SRAM   the local seat's battery save once the game saved (retrohost's format)
 //                   11 MEM    u32 seat, u32 addr, bytes (answer to READ)
@@ -26,9 +27,9 @@
 //   souldew → host   1 INPUT  u32 joypad bits (RETRO_DEVICE_ID_JOYPAD_*), s16 lx, ly, rx, ry, s16 px, py, u8 pressed (the
 //                             fast player's 17 bytes: the pointer over the whole picture is the DS touch screen) – the
 //                             local seat; exactly 8 bytes { bits, seat } in local mode: that seat (tests)
-//                    2 SPEED  f32   3 SAVE   4 LOAD (STATE's format)   6 QUIT   10 FLUSH   12 RESYNC
-//                   13 STEP   u32 n (local mode: as fast as possible; net mode: at the pace set)
-//                   20 VIEW   u32 seat (which console's picture comes out; sends it right away)
+//                    2 SPEED  f32   3 SAVE   4 LOAD (STATE's format; tests)   6 QUIT   10 FLUSH   12 RESYNC
+//                   13 STEP   u32 n (tests; local mode: as fast as possible; net mode: at the pace set)
+//                   20 VIEW   u32 seat (which console's picture comes out; sends it right away – tests)
 //                   21 RINPUT u32 seat, u32 first frame, u32 inputs[] – a peer's buttons (net mode); repeats and
 //                             frames that come early (an unordered channel) are fine
 //                   22 READ   u32 seat, u32 addr, u32 len      23 POKE u32 seat, u32 addr, bytes (tests)
@@ -41,6 +42,8 @@
 // --state <file> per seat: start that seat from the player's running game (the fast player's state, export_state's format)
 // instead of booting it from the battery save – a link session without a restart (docs/MULTIPLAYER.md › "Seamless").
 // --export <dir> (with --bench): every seat's console in that format at the end → <dir>/seat<k>.state (tests).
+// --model dmg|cgb per seat (Game Boy family): that seat's console – its player's (Settings › "Game Boy look"); every peer
+// gets the same list, so seats may differ (a Game Boy linked with a Game Boy Color, as on real hardware).
 // --load <file>: start from a whole-session state (STATE's format, see save_all) – rejoining a running session.
 //
 // Local mode (no --net): every seat's buttons come from INPUT. Net mode: the local seat's buttons for frame f are taken
@@ -602,9 +605,9 @@ int main(int argc, char **argv) {
   _setmode(_fileno(stdin), _O_BINARY); // the protocol is binary
   _setmode(_fileno(stdout), _O_BINARY);
 #endif
-  const char *roms[LINK_MAX_SEATS] = {0}, *srams[LINK_MAX_SEATS] = {0}, *states[LINK_MAX_SEATS] = {0};
+  const char *roms[LINK_MAX_SEATS] = {0}, *srams[LINK_MAX_SEATS] = {0}, *states[LINK_MAX_SEATS] = {0}, *models[LINK_MAX_SEATS] = {0};
   const char *script_path = NULL, *out_dir = NULL, *backend_name = NULL, *load_path = NULL, *export_dir = NULL;
-  int nr = 0, ns = 0, nst = 0, bench = 0;
+  int nr = 0, ns = 0, nst = 0, nm = 0, bench = 0;
   double bench_speed = 0;
   int64_t rtc_ms = 0;
   for (int i = 1; i < argc; i++) {
@@ -615,6 +618,7 @@ int main(int argc, char **argv) {
     if (!strcmp(k, "--rom") && nr < LINK_MAX_SEATS) roms[nr++] = v;
     else if (!strcmp(k, "--sram") && ns < LINK_MAX_SEATS) srams[ns++] = v;
     else if (!strcmp(k, "--state") && nst < LINK_MAX_SEATS) states[nst++] = v;
+    else if (!strcmp(k, "--model") && nm < LINK_MAX_SEATS) models[nm++] = v;
     else if (!strcmp(k, "--local")) local_seat = atoi(v);
     else if (!strcmp(k, "--delay")) delay_frames = atoi(v);
     else if (!strcmp(k, "--rtc")) rtc_ms = strtoll(v, NULL, 10);
@@ -634,7 +638,7 @@ int main(int argc, char **argv) {
   }
   nseats = nr;
   if (nseats < 1 || local_seat < 0 || local_seat >= nseats || delay_frames < 1 || delay_frames > 120) {
-    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]] [--backend sameboy|mgba|melonds] [--load state] [--export dir]\n");
+    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--model dmg|cgb]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]] [--backend sameboy|mgba|melonds] [--load state] [--export dir] [--speed x]\n");
     return 2;
   }
   if (bench) protocol = 0;
@@ -662,7 +666,7 @@ int main(int argc, char **argv) {
   for (int s = 0; s < nseats; s++) {
     size_t sl = 0;
     save_bytes[s] = s < ns && strcmp(srams[s], "-") ? link_read_file(srams[s], &sl) : NULL;
-    cfg[s] = (struct link_seat_config){roms[s], save_bytes[s], sl, s < nst && strcmp(states[s], "-") ? states[s] : NULL};
+    cfg[s] = (struct link_seat_config){roms[s], save_bytes[s], sl, s < nst && strcmp(states[s], "-") ? states[s] : NULL, s < nm ? models[s] : NULL};
   }
   if (!B->open(nseats, cfg, rtc_ms)) die("the games didn't start");
   for (int s = 0; s < nseats; s++) {

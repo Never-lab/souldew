@@ -16,7 +16,6 @@ import { cleanIceServers, linkIceServers, resetLinkIce } from '../server/lib/lin
 import { LIVE_RUNS_URL } from '../server/lib/liveruns.mjs';
 import { linkArgs, checkLinkCommands, LCMD, LINK_SYSTEMS } from '../server/lib/native.mjs';
 import { command } from '../server/lib/ctr.mjs';
-import { baseRomsFor } from '../shared/restart.mjs';
 import { readLocation } from '../shared/live/location.mjs';
 
 const ROOT = new URL('../', import.meta.url).href;
@@ -70,7 +69,7 @@ test('linkroms: a seat is found by SHA-1 – the build, another build, a pick, t
   // a zipped library ROM: unpacked (here: a stand-in) and checked
   const zipped = { id: 'z::g.gba', container: 'z.zip', entry: 'g.gba', crc: 'CAFEF00D', system: 'gba' };
   const target = extractTarget(run, zipped);
-  assert.match(target, /link-g\.gba$/);
+  assert.match(target, /link-g-CAFEF00D\.gba$/, "named with its CRC: another zip's same-named entry is another file");
   const ex = () => (writeFileSync(target, Buffer.from('zipped')), target);
   assert.equal(resolveSeat(m, 'p2', sha1(Buffer.from('zipped')), 'cafef00d', { ...deps, libraryRoms: [zipped], extract: ex }).path, target);
 });
@@ -88,11 +87,11 @@ test('linkroms: "Build Tim\'s game" – the run\'s own base, patch, settings and
   const m = { id: 'r9', name: 'Run', mode: 'soullink', players: { p1: { name: 'A' }, p2: { name: 'B' } }, base: { crc: 'AAAA0001' }, game: { id: 'pokemon-emerald', hackId: null, system: 'gba' },
     patch: { sha1: 'p'.repeat(40), hackId: 'h' }, randomizer: { enabled: true, values: { x: 1 }, seeds: { p1: '1', p2: '2' }, sharedSeed: false }, expectedOutputs: { p2: { sha1: 'e'.repeat(40) } } };
   const lib = { roms: [{ id: 'rom1', crc: 'AAAA0001', gameId: 'pokemon-emerald' }], patches: [{ id: 'pat', sha1: 'p'.repeat(40) }] };
-  const b = partnerBuildRequest(m, 'p2', lib, baseRomsFor);
+  const b = partnerBuildRequest(m, 'p2', lib);
   assert.deepEqual([b.runId, b.romId, b.patchId, b.buildFor, b.seeds, b.randomize, b.values], ['r9', 'rom1', 'pat', ['p2'], { p1: '1', p2: '2' }, true, { x: 1 }]);
   assert.deepEqual(b.expectedOutputs, m.expectedOutputs);
-  assert.throws(() => partnerBuildRequest(m, 'p2', { roms: [], patches: lib.patches }, baseRomsFor), (e) => e.code === 'no-rom');
-  assert.throws(() => partnerBuildRequest(m, 'p2', { roms: lib.roms, patches: [] }, baseRomsFor), (e) => e.code === 'no-patch');
+  assert.throws(() => partnerBuildRequest(m, 'p2', { roms: [], patches: lib.patches }), (e) => e.code === 'no-rom');
+  assert.throws(() => partnerBuildRequest(m, 'p2', { roms: lib.roms, patches: [] }), (e) => e.code === 'no-patch');
 });
 
 // ---- server/lib/linkice.mjs ------------------------------------------------------------------------------------------
@@ -139,6 +138,17 @@ test('native: link host arguments – every system incl. the DS, a rejoin\'s sta
   const b = linkArgs({ system: 'gba', roms: ['/a.gba', '/b.gba'], saves: ['/a.sav', '/b.sav'], states: ['/a.state', null], local: 0, delay: 4, rtc: 1 });
   assert.deepEqual(b.slice(0, 12), ['--rom', '/a.gba', '--sram', '/a.sav', '--state', '/a.state', '--rom', '/b.gba', '--sram', '/b.sav', '--state', '-']);
   assert.ok(!b.includes('--load'));
+  // Game Boy seats: each on its player's console (the same list on every peer); a GBC game always on a GBC
+  const gb = linkArgs({ system: 'gb', roms: ['/a.gb', '/b.gb'], saves: [], models: ['dmg', 'cgb'], local: 0, delay: 4, rtc: 1 });
+  assert.deepEqual(gb.filter((x, i, l) => l[i - 1] === '--model'), ['dmg', 'cgb']);
+  const gbc = linkArgs({ system: 'gbc', roms: ['/a.gbc', '/b.gbc'], saves: [], models: ['dmg', null], local: 0, delay: 4, rtc: 1 });
+  assert.deepEqual(gbc.filter((x, i, l) => l[i - 1] === '--model'), ['cgb', 'cgb']);
+  // the e2e's recording and fixed clock: only with SLS_E2E=1 – a stray variable never changes a real session
+  const env = { SLS_LINK_TEST_SCRIPT: '/rec', SLS_LINK_TEST_RTC: '42' };
+  const plain = linkArgs({ system: 'gba', roms: ['/a', '/b'], saves: [], local: 0, rtc: 7, env });
+  assert.ok(!plain.includes('--script') && plain[plain.indexOf('--rtc') + 1] === '7');
+  const e2e = linkArgs({ system: 'gba', roms: ['/a', '/b'], saves: [], local: 0, rtc: 7, env: { ...env, SLS_E2E: '1' } });
+  assert.ok(e2e.includes('--script') && e2e[e2e.indexOf('--rtc') + 1] === '42');
   assert.throws(() => linkArgs({ system: '3ds', roms: ['a', 'b'], saves: [], local: 0 }), /Linken/);
   assert.throws(() => linkArgs({ system: 'gba', roms: ['a'], saves: [], local: 0 }), /Plätze/);
 });
@@ -201,7 +211,7 @@ function browserGlobals() {
 }
 
 /** Two pages of one run (p1 = Marius, p2 = Tim): their channel, their servers (fetch), what reached the link hosts. */
-async function pair({ missingOnB = false, seamless = false } = {}) {
+async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200 } = {}) {
   const g = browserGlobals();
   const { LinkSessions } = await import('../web/lib/linksession.mjs');
   const roms = { p1: 'a'.repeat(40), p2: 'b'.repeat(40) };
@@ -219,6 +229,11 @@ async function pair({ missingOnB = false, seamless = false } = {}) {
     },
     linkDirect: () => true,
     linkRoute: async () => ({ route: 'relayed', rtt: 40 }),
+    // (binary: the channel's binary transfer for states, as web/lib/sync.mjs sendLinkBinary)
+    ...(binary ? { sendLinkBinary: (msg, bytes, to) => {
+      for (const t of to) { net.log.push({ from: slot, to: t, t: msg.t, bin: bytes.length }); queueMicrotask(() => peers[t]?.({ ...msg, from: slot, bin: bytes })); }
+      return true;
+    } } : {}),
   });
   const server = { p1: { cmds: [], starts: [], restores: [], missing: [] }, p2: { cmds: [], starts: [], restores: [], missing: missingOnB ? [{ slot: 'p1', canBuild: false }] : [] } };
   /** Each player's own local server. */
@@ -229,7 +244,7 @@ async function pair({ missingOnB = false, seamless = false } = {}) {
     if (url.startsWith('/api/link/check')) return json({ tool: true, supported: true, system: 'gba', slots: { [who]: { rom: true, sha1: roms[who], crc: null } } });
     if (url === '/api/link/resolve') return json({ seats: {}, missing: s.missing });
     if (url === '/api/link/pick') { s.missing = []; return json({ ok: true }); }
-    if (url.startsWith('/api/runs/')) return { ok: true, status: 200, arrayBuffer: async () => new TextEncoder().encode(`save of ${who}`).buffer };
+    if (url.startsWith('/api/runs/')) return { ok: saveStatus === 200, status: saveStatus, arrayBuffer: async () => new TextEncoder().encode(`save of ${who}`).buffer };
     if (url === '/api/link/start') { s.starts.push(body); return json({ id: `host-${who}`, local: body.seats.findIndex((x) => x.slot === who), seats: 2 }); }
     if (url === '/api/link/restore') { s.restores.push(body); return json({ ok: true, restored: true, backup: 'p.link-x.sav' }); }
     if (url.startsWith('/api/native/cmd')) { s.cmds.push(new Uint8Array(opts.body)); return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) }; }
@@ -242,7 +257,7 @@ async function pair({ missingOnB = false, seamless = false } = {}) {
   const emuFor = (slot) => ({
     linkState: async () => emuState[slot],
     ...(seamless ? {
-      linkSnapshot: async () => (emuLog[slot].push(['snapshot']), { state: new TextEncoder().encode(`running game of ${slot} `.repeat(500)), frame: 1234 }),
+      linkSnapshot: async () => (emuLog[slot].push(['snapshot']), { state: new TextEncoder().encode(`running game of ${slot} `.repeat(500)), frame: 1234, model: slot === 'p1' ? 'dmg' : 'cgb' }),
       linkSnapshotCancel: async (st) => (emuLog[slot].push(['cancel', !!st]), true),
       attachLink: (id) => (emuLog[slot].push(['attach', id]), true),
       resumeSolo: async (from) => (emuLog[slot].push(['resume', from ? new TextDecoder().decode(from.state).slice(0, 22) : null]), true),
@@ -291,6 +306,8 @@ test('linksession, seamless: the running games go into the session (every host t
     assert.ok(seat.state && /^[0-9a-f]{40}$/.test(seat.stateSha1), `${seat.slot} starts from its running game`);
   }
   assert.deepEqual(sa.seats.map((x) => [x.state, x.stateSha1]), sb.seats.map((x) => [x.state, x.stateSha1]), 'every host gets the same states');
+  assert.deepEqual(sa.seats.map((x) => x.model), ['dmg', 'cgb'], 'each seat on its running game\'s console (a Game Boy linked with a GBC)');
+  assert.deepEqual(sb.seats.map((x) => x.model), ['dmg', 'cgb']);
   assert.deepEqual(emuLog.p1, [['snapshot'], ['attach', 'host-p1']]);
   assert.deepEqual(emuLog.p2, [['snapshot'], ['attach', 'host-p2']]);
   assert.equal(A.state.seamless, true);
@@ -316,6 +333,40 @@ test('linksession, seamless: the running games go into the session (every host t
   assert.deepEqual(p.emuLog.p1.at(-1), ['resume', 'running game of p1 run']);
   assert.deepEqual(p.emuLog.p2.at(-1), ['resume', 'running game of p2 run']);
   p.A.stop(), p.B.stop();
+});
+
+test('linksession: states go as bytes when the channel can; a busy player says so; nothing of a session carries over', async () => {
+  const { A, B, server, settle, net } = await pair({ seamless: true, binary: true });
+  await A.invite('trade', ['p2']);
+  await settle(100);
+  await B.accept();
+  await settle(4000);
+  assert.equal(A.state.phase, 'running');
+  assert.ok(net.log.some((m) => m.t === 'snap' && m.bin > 0), 'the snap went as bytes');
+  assert.deepEqual(server.p1.starts[0].seats.map((x) => x.stateSha1), server.p2.starts[0].seats.map((x) => x.stateSha1));
+  // B is in this session: another invite to it is answered with "busy"
+  await B._in({ t: 'invite', sid: 'other', seats: ['p3', 'p2'], from: 'p1', kind: 'trade' });
+  assert.ok(net.log.some((m) => m.from === 'p2' && m.t === 'refuse'), 'busy');
+  assert.equal(B.state.phase, 'running', 'the running session goes on');
+  A.leave('left');
+  await settle(300);
+  // a new session starts clean: no id, models or snaps of the last one
+  await A.invite('battle', ['p2']);
+  assert.equal(A.state.id, undefined);
+  assert.deepEqual(A.state.snaps, {});
+  assert.equal(A.state.models, undefined);
+  A.stop(), B.stop();
+});
+
+test('linksession: our save that can\'t be read stops the start (a partner would boot a blank cartridge)', async () => {
+  const { A, B, settle, server } = await pair({ saveStatus: 500 });
+  await A.invite('trade', ['p2']);
+  await settle(100);
+  await B.accept();
+  await settle(3500);
+  assert.notEqual(A.state.phase, 'running');
+  assert.equal(server.p1.starts.length + server.p2.starts.length, 0, 'no host started');
+  A.stop(), B.stop();
 });
 
 test('linksession: the partner\'s game missing → "need" until picked; buttons flow; a gap is asked for and resent; hashes', async () => {

@@ -14,7 +14,7 @@ import { MusicKeyTracker } from '/shared/live/location.mjs';
 import { PlayHome } from './playhome.mjs';
 import { PartyGrid } from './party.mjs';
 import { PartnerScreen, useScreenShare } from './partnerscreen.mjs';
-import { StatePanel, SaveAge, useSaveGuard, describeState, stateInfo, slotName, SHOT, MANUAL_SLOTS, AUTO_SLOT } from './savestates.mjs';
+import { StatePanel, SaveAge, useSaveGuard, describeState, stateInfo, slotName, SHOT, MANUAL_SLOTS, AUTO_SLOT, otherCoreText } from './savestates.mjs';
 import { RunStrip, LinkedPairs, BattlePanel, RulesDrawer, useBattlePanelPrefs } from './session-info.mjs';
 import { LocationSign, readHere, nextHere, areaOfHere, musicInfo, loadRomLocations, romSpeciesNow, romDataReady, romWramNow, romMaps3Now, romOwnNow, romDataNow, resetRomData } from './location.mjs';
 import { FeatureCheck, romFeatures } from '/shared/live/features.mjs';
@@ -458,9 +458,10 @@ export function GameSession({ session, mode }) {
       }
       // a state of another core (or 3DS mode) can't be loaded – as the states panel says (and a 3DS one would stop the game)
       const info = await fetch(`/api/saves/states?id=${encodeURIComponent(target.stateId)}`).then((x) => x.json()).then((l) => l.find((x) => x.slot === slot)?.info).catch(() => null);
-      if (info && (info.core || '') !== (core || '')) {
+      const other = info ? otherCoreText(info.core, core) : null;
+      if (other) {
         armLoad(null);
-        return flash(t('states.otherCore', 'Made with another emulator core – can’t be loaded here'));
+        return flash(other);
       }
       armLoad({ slot, bytes });
     },
@@ -1176,8 +1177,17 @@ export function GameSession({ session, mode }) {
 
   // The fast player's page: the host opens the ROM itself; the battery save comes from the same place as for player.html
   // (a link session: the server started the link host already – the page attaches to it, docs/MULTIPLAYER.md)
-  // (a link session's page also gets the game itself: once the session is over it goes on alone from there, no restart)
-  const [nativeSrc] = useState(() => target.link ? `/playernative.html?system=${target.system}&link=1&session=${encodeURIComponent(target.link.id)}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.soloKey || target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}` : `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}`);
+  const [nativeSrc] = useState(() => {
+    const q = new URLSearchParams({ system: target.system, rom: target.rom, key: target.soloKey || target.key, name: target.name, save: target.saveUrl });
+    if (layout === 'lr') q.set('layout', 'left');
+    // (a link session's page also gets the game itself: once the session is over it goes on alone from there)
+    if (target.link) {
+      q.set('link', '1');
+      q.set('session', target.link.id);
+      if (target.link.model) q.set('model', target.link.model);
+    }
+    return `/playernative.html?${q}`;
+  });
   // The frame's URL is fixed for the whole session – changing it would reboot the game.
   const [wasmSrc] = useState(() => {
     // 3DS: souldew's own player page – the game runs in the native host (server/lib/ctr.mjs), its saves live in the

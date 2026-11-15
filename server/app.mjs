@@ -23,7 +23,8 @@ import { EMULATORS, detectEmulator, installEmulator, launchRom, revealInFileMana
 import { LiveBridge } from './lib/livebridge.mjs';
 import { AzaharBridge, enableRpc } from './lib/azahar.mjs';
 import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted } from './lib/ctr.mjs';
-import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, LINK_SYSTEMS, MAX_LINK_SEATS, MAX_STATE } from './lib/native.mjs';
+import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId } from './lib/native.mjs';
+import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem } from '../shared/link.mjs';
 import { ownSeat, resolveSeat, pickSeat, extractTarget, partnerBuildRequest } from './lib/linkroms.mjs';
 import { linkIceServers } from './lib/linkice.mjs';
 import { needsIdenticalRom, baseRomsFor } from '../shared/restart.mjs';
@@ -587,7 +588,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   };
   const nativeStatus = () => {
     const tl = nativeTools();
-    return { ok: tl.ok, cores: Object.fromEntries(Object.entries(tl.cores || {}).map(([k, v]) => [k, !!v])), ids: Object.fromEntries(Object.entries(NATIVE_CORES).map(([k, c]) => [k, c.id])) };
+    const look = loadConfig().gbLook;
+    return { ok: tl.ok, cores: Object.fromEntries(Object.entries(tl.cores || {}).map(([k, v]) => [k, !!v])), ids: Object.fromEntries(Object.keys(NATIVE_CORES).map((k) => [k, nativeCoreId(k, gbModel(k, look))])) };
   };
   // Azahar (3DS): polled once someone plays a 3DS game – the play view asks for its status, a launch starts it too
   let azahar = null;
@@ -850,6 +852,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         turboMax: config.turboMax === true,
         fullTurbo: config.fullTurbo !== false,
         nativeCore: config.nativeCore !== false,
+        gbLook: GB_LOOKS.includes(config.gbLook) ? config.gbLook : 'original',
         pads: config.pads || null,
         gpuBackend: validBackend(config.gpuBackend, process.platform),
         gpuFallback: fallbackNotice(config.gpuFallback),
@@ -865,7 +868,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav']) {
       if (k in body) allowed[k] = body[k];
     }
     // the joke license window (web/lib/nag.mjs): launch count + when it last showed, and its off switch
@@ -886,6 +889,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if ('turboMax' in allowed) allowed.turboMax = allowed.turboMax === true;
     if ('fullTurbo' in allowed) allowed.fullTurbo = allowed.fullTurbo !== false; // on unless switched off
     if ('nativeCore' in allowed) allowed.nativeCore = allowed.nativeCore !== false; // the fast player: on unless switched off
+    if ('gbLook' in allowed && !GB_LOOKS.includes(allowed.gbLook)) delete allowed.gbLook; // Game Boy games: original / GBC colours
     if ('padNav' in allowed) allowed.padNav = allowed.padNav !== false; // controller navigation (web/lib/padnav.mjs): on unless switched off
     // the graphics backend electron/main.mjs applies at the next start; the fallback notice can only be dismissed
     if ('gpuBackend' in allowed) {
@@ -1416,17 +1420,20 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // ---- DS / GBA / GB in the fast native player (server/lib/native.mjs) -------------------------------------------
   route('GET', /^\/api\/native\/status$/, () => ({ tools: nativeStatus(), session: native.status() }));
   route('POST', /^\/api\/native\/start$/, async (req) => {
-    const { rom, key, system, save, saveUrl, state } = await readBody(req);
+    const { rom, key, system, save, saveUrl, state, model: asked } = await readBody(req);
     if (typeof key !== 'string' || !key || key.length > 600) throw httpError(400, 'Ungültiger Spielstand-Schlüssel', 'badKey');
     if (!Object.hasOwn(NATIVE_CORES, system)) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
-    if (save != null && (typeof save !== 'string' || save.length > 6 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(save))) throw httpError(400, 'Ungültiger Spielstand', 'badSave');
+    const b64ok = (v, maxBytes) => typeof v === 'string' && v.length <= Math.ceil(maxBytes / 3) * 4 && /^[A-Za-z0-9+/]*={0,2}$/.test(v);
+    if (save != null && !b64ok(save, MAX_SAVE)) throw httpError(400, 'Ungültiger Spielstand', 'badSave');
     // (state: the save state to go on from – the player's own console as a link session left it, docs/MULTIPLAYER.md)
-    if (state != null && (typeof state !== 'string' || state.length > 30 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(state))) throw httpError(400, 'Ungültiger Zustand', 'badSave');
+    if (state != null && !b64ok(state, MAX_STATE)) throw httpError(400, 'Ungültiger Zustand', 'badSave');
     const tools = nativeTools();
     if (!tools.cores?.[system]) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
+    // a Game Boy game's console: Settings › "Game Boy look" – or the one a state to go on from was made on
+    const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, loadConfig().gbLook);
     const id = native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
-      state: state ? Buffer.from(state, 'base64') : null });
-    return { id, core: NATIVE_CORES[system].id };
+      state: state ? Buffer.from(state, 'base64') : null, model });
+    return { id, core: nativeCoreId(system, model), model };
   });
   // ---- link sessions: trades and battles between the players of a run (docs/MULTIPLAYER.md) -----------------------
   // Every seat's game must be a file on this computer (server/lib/linkroms.mjs: the run's builds, a file the player
@@ -1436,8 +1443,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const lib = scanLibrary(loadConfig());
     return {
       runFile: runPath, dir,
-      libraryRoms: lib.roms.filter((r) => r.system === manifest.game?.system || (['gb', 'gbc'].includes(r.system) && ['gb', 'gbc'].includes(manifest.game?.system))),
-      extract: (rom) => {
+      libraryRoms: lib.roms.filter((r) => sameLinkSystem(r.system, manifest.game?.system)),
+      extract: (rom) => { // (named with the entry's CRC: an existing file is that game already)
         const target = extractTarget(dir, rom);
         if (!existsSync(target)) writeFileAtomic(target, Buffer.from(loadFile(rom.id, loadConfig())));
         return target;
@@ -1459,8 +1466,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       const r = ownSeat(manifest, s, runPath);
       return [s, { rom: !!r.path, sha1: r.sha1, crc: r.crc }];
     }));
+    // model: this player's console for a Game Boy game that boots for the link (Settings › "Game Boy look")
     return { tool: !!linkTool(), system, supported: LINK_SYSTEMS.includes(system), game: manifest.game?.id || null, slots,
-      randomized: needsIdenticalRom(manifest) };
+      randomized: needsIdenticalRom(manifest), model: gbModel(system, loadConfig().gbLook) };
   });
   // Which seats' games are here: { seats: { slot: { ok, how } }, missing: [{ slot, canBuild }] }. `seats`: { slot:
   // { sha1, crc } } as each player announced their own.
@@ -1500,8 +1508,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
     let body;
     try {
-      body = partnerBuildRequest(manifest, slot, scanLibrary(loadConfig()), baseRomsFor);
+      body = partnerBuildRequest(manifest, slot, scanLibrary(loadConfig()));
     } catch (e) {
+      if (e.code !== 'no-rom' && e.code !== 'no-patch') throw e;
       throw httpError(409, 'Das Grundspiel dieses Runs fehlt in der Bibliothek', e.code === 'no-patch' ? 'linkBuildNoPatch' : 'linkBuildNoRom');
     }
     if (building.has(manifest.id)) throw httpError(409, 'Dieser Run wird gerade gebaut', 'runBuilding');
@@ -1548,12 +1557,14 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         }
         if (typeof s.stateSha1 !== 'string' || createHash('sha1').update(st).digest('hex') !== s.stateSha1.toLowerCase()) throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers', { slot: s.slot });
       }
-      return { rom: r.path, save, state: st };
+      // a Game Boy seat's console, as its player announced it (every peer gets the same list – gbModel's values)
+      const model = system === 'gb' ? (s.model === 'cgb' ? 'cgb' : 'dmg') : system === 'gbc' ? 'cgb' : null;
+      return { rom: r.path, save, state: st, model };
     });
     let stateBytes = null;
     if (typeof state === 'string' && state) {
       stateBytes = Buffer.from(state, 'base64');
-      if (stateBytes.length > 64 * 1024 * 1024) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+      if (stateBytes.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
     }
     const savePath = defaultSavePath(manifest, local);
     const id = native.startLink({
@@ -1569,17 +1580,19 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('POST', /^\/api\/link\/restore$/, async (req) => {
     const { runId, id, slot } = await readBody(req);
     const manifest = linkManifest(runId);
+    const p = slotsOf(manifest).includes(slot) ? defaultSavePath(manifest, slot) : null;
+    if (!p) throw httpError(400, 'Ungültiger Platz', 'linkSeats'); // (checked before the session is stopped)
     const sess = native.linkRestore(id);
     if (!sess) throw httpError(404, 'Keine Link-Sitzung', 'noNativeSession');
-    const p = defaultSavePath(manifest, slot);
-    if (!p || !slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
     let backup = null;
     if (existsSync(p)) {
       backup = `${p.replace(/\.[^./\\]+$/, '')}.link-${new Date().toISOString().replace(/[:.]/g, '-')}.sav`;
       writeFileAtomic(backup, readFileSync(p));
     }
+    const restored = !!sess.preLink;
     if (sess.preLink) writeFileAtomic(p, sess.preLink);
-    return { ok: true, restored: !!sess.preLink, backup: backup ? basename(backup) : null };
+    sess.preLink = null; // (done: the save isn't kept in memory any longer)
+    return { ok: true, restored, backup: backup ? basename(backup) : null };
   });
   route('POST', /^\/api\/native\/stop$/, async (req) => {
     const { id } = await readBody(req);

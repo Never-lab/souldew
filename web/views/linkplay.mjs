@@ -8,10 +8,10 @@ import { t } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
 import { players as getPlayers, rules as getRules, slotsOf } from '../lib/run.mjs';
+import { sameLinkSystem, LINK_SYSTEMS } from '/shared/link.mjs';
 
-/** Systems whose games can link in this version (the link host's backends: SameBoy, mGBA, melonDS). */
-export const LINK_SYSTEMS = ['gba', 'gb', 'gbc', 'nds'];
-const sameSystem = (a, b) => a === b || (['gb', 'gbc'].includes(a) && ['gb', 'gbc'].includes(b));
+export { LINK_SYSTEMS }; // (the board shows the link buttons for these)
+
 
 /** Does this run allow link sessions of `kind` ('trade' | 'battle')? The run rule (default: allowed). */
 export function linkAllowed(doc, manifest, kind) {
@@ -28,14 +28,15 @@ export const reasonText = (code, name) => ({
   linkSystem: t('linkplay.system', 'Linking isn’t available for this game yet.'),
   linkOwnMissing: t('linkplay.ownMissing', 'Your own game for this run isn’t built on this computer.'),
   linkRomMissing: t('linkplay.romMissing2', 'A player’s game isn’t on one of the computers – the link needs every player’s game on every computer.'),
-  linkRomDiffers: t('linkplay.romDiffers', 'The games aren’t byte-identical on both computers (another base ROM or version). Linking needs exactly the same games.'),
   linkSaveDiffers: t('linkplay.saveDiffers', 'A save arrived damaged. Try again.'),
   linkNoDirect: t('linkplay.noConnection', 'There’s no connection to {name} – check the Connection page and try again.', { name }),
   linkDesync: t('linkplay.desync2', 'The games fell out of step, so the link was stopped. To keep it fair, both of you are back at your saves from before the link – the session’s last save is kept as a backup in the run folder.'),
   linkStart: t('linkplay.startFailed', 'The linked games didn’t start.'),
   linkRejoinGone: t('linkplay.rejoinGone', 'Nobody answered – the others have left the link.'),
   linkRejoinBusy: t('linkplay.rejoinBusy', 'The others’ games are in the middle of a wireless exchange right now, so you can’t rejoin – the link has ended.'),
-}[code] || t('linkplay.left', 'The link has ended.'));
+  busy: t('linkplay.busy', '{name} is in another link right now.', { name }),
+  linkNoAnswer: t('linkplay.noAnswer', '{name} didn’t answer.', { name }),
+}[code] || serverErrorText({ code }) || t('linkplay.left', 'The link has ended.')); // (a server's code: its own text)
 
 /** Where the players meet in their games for this system. */
 const meetText = (system) => system === 'nds'
@@ -113,16 +114,18 @@ function NeedRoms({ st, names }) {
   const [pick, setPick] = useState({});
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const loadLib = () => api.get('/api/library').then((l) => setLib((l.roms || []).filter((r) => sameLinkSystem(r.system, manifest?.game?.system))));
   useEffect(() => {
-    api.get('/api/library').then((l) => setLib((l.roms || []).filter((r) => sameSystem(r.system, manifest?.game?.system)))).catch(() => setLib([]));
+    loadLib().catch(() => setLib([]));
   }, []);
   // a file that isn't in the library yet: into the library (as the Library page adds one), then found by its checksum
   const addFile = async (file) => {
     const res = await fetch(`/api/library/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'x-soullink': '1' }, body: file });
     if (!res.ok) throw Object.assign(new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`), {});
-    api.get('/api/library').then((l) => setLib((l.roms || []).filter((r) => sameSystem(r.system, manifest?.game?.system)))).catch(() => {});
-    await linkSessions._resolve();
-    if (linkSessions.state.phase === 'need') throw Object.assign(new Error('differs'), { code: 'linkPickDiffers' });
+    loadLib().catch(() => {});
+    await linkSessions.recheck();
+    // (still missing: the added file isn't that game – name the first seat still missing)
+    if (linkSessions.state.phase === 'need') throw Object.assign(new Error('differs'), { code: 'linkPickDiffers', slot: linkSessions.state.missing?.[0]?.slot });
   };
   const run = async (fn) => {
     setBusy(true);
@@ -197,7 +200,7 @@ export function LinkBar() {
   } else if (st.phase === 'ended') {
     const r = st.ended?.restored;
     body = html`<span class="grow">${reasonText(st.ended?.reason || st.error, others || host)}${r?.backup ? html` <span class="small muted">(${r.backup})</span>` : ''}</span>
-      <button class="btn small ghost" onClick=${() => linkSessions._set({ phase: 'idle', sid: null })}>${t('common.close', 'Close')}</button>`;
+      <button class="btn small ghost" onClick=${() => linkSessions.dismiss()}>${t('common.close', 'Close')}</button>`;
   }
   return html`<div class="link-bar panel row" role="status" aria-live="polite"><${Icon} name="link" size=${16} />${body}</div>`;
 }
