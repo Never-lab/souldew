@@ -831,6 +831,7 @@
   "linkplay.rejoinOffer": "Il tuo collegamento con {name} si è interrotto. Gli altri aspettano: rientrare?",
   "linkplay.rejoin": "Rientra",
   "linkplay.dropIt": "Lascia stare",
+  "linkplay.pickAdd": "Aggiungi un file …",
   "live.already": "Già condiviso – da te o da un compagno.",
   "live.alreadyShort": "Già condiviso",
   "live.attempt": "Tentativo n. {n}",

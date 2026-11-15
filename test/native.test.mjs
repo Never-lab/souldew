@@ -160,12 +160,12 @@ function testRom() {
 }
 
 /** The host on the test ROM, spoken to like the page does. */
-function startHost(dir, { sram } = {}) {
+function startHost(dir, { sram, romBytes } = {}) {
   const rom = join(dir, 'test.gb');
-  writeFileSync(rom, testRom());
+  writeFileSync(rom, romBytes || testRom());
   const args = hostArgs({ system: 'gb', core: join(toolsDir, `gambatte_libretro.${EXT}`), rom, saveDir: dir, systemDir: dir, sram });
   const p = spawn(join(toolsDir, EXE), args, { stdio: ['pipe', 'pipe', 'pipe'] });
-  const h = { p, events: [], ram: new Map(), states: [], srams: [], video: 0, waiters: [], exit: new Promise((res) => p.on('exit', (code) => res(code))) };
+  const h = { p, events: [], ram: new Map(), states: [], srams: [], logs: [], video: 0, waiters: [], exit: new Promise((res) => p.on('exit', (code) => res(code))) };
   let buf = Buffer.alloc(0);
   p.stderr.on('data', () => {});
   p.stdout.on('data', (c) => {
@@ -177,6 +177,7 @@ function startHost(dir, { sram } = {}) {
       if (m.type === 2) h.video++;
       if (m.type === 5) h.states.push(Buffer.from(m.payload));
       if (m.type === 9) h.srams.push(Buffer.from(m.payload));
+      if (m.type === 6) h.logs.push(m.payload.toString());
       if (m.type === 8) {
         const n = m.payload.readUInt32LE(0);
         let o = 4;
@@ -299,6 +300,54 @@ test('the real host: QUIT hands over the last battery save; a ROM it can\'t load
     assert.equal(code, 1);
     const ev = splitMessages(out).messages.filter((m) => m.type === 7).map((m) => JSON.parse(m.payload.toString()));
     assert.ok(ev.some((e) => e.event === 'error'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** The test ROM as an MBC3 cartridge with a clock (Gold/Silver/Crystal's kind): Gambatte keeps its clock as RTC memory. */
+function clockRom() {
+  const r = testRom();
+  r[0x147] = 0x10; // MBC3 + TIMER + RAM + BATTERY
+  let x = 0;
+  for (let i = 0x134; i <= 0x14c; i++) x = (x - r[i] - 1) & 0xff;
+  r[0x14d] = x;
+  return r;
+}
+
+test('the real host: a clock cartridge\'s save carries the clock (the 48-byte footer the link host reads too) – out and back in', { skip: !toolsDir && 'native part not built (npm run native)' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sls-native-rtc-'));
+  try {
+    let h = startHost(dir, { romBytes: clockRom() });
+    hosts.push(h.p);
+    await h.until(() => h.events.some((e) => e.event === 'loaded'));
+    h.send(NCMD.STEP, u32(10));
+    await h.until(() => h.events.some((e) => e.event === 'stepped'));
+    h.send(NCMD.QUIT);
+    assert.equal(await h.exit, 0);
+    const out = h.srams.at(-1);
+    assert.equal(out.length, 8192 + 48, 'the battery RAM + the clock footer');
+    const stamp = Number(out.readBigUInt64LE(8192 + 40));
+    assert.ok(Math.abs(stamp - Date.now() / 1000) < 120, 'the footer\'s time is now');
+    // a save whose clock read 3 days 4:05:06 when it was saved 10 minutes ago: the game's clock goes on from there
+    const save = Buffer.alloc(8192 + 48);
+    const regs = [6, 5, 4, 3, 0];
+    regs.forEach((v, i) => { save.writeUInt32LE(v, 8192 + i * 4); save.writeUInt32LE(v, 8192 + 20 + i * 4); });
+    save.writeBigUInt64LE(BigInt(Math.floor(Date.now() / 1000) - 600), 8192 + 40);
+    const file = join(dir, 'clock.srm');
+    writeFileSync(file, save);
+    h = startHost(dir, { romBytes: clockRom(), sram: file });
+    hosts.push(h.p);
+    await h.until(() => h.events.some((e) => e.event === 'loaded'));
+    assert.ok(h.logs.some((l) => /cartridge clock from the save: 3 days 04:/.test(l)), h.logs.join('\n'));
+    h.send(NCMD.STEP, u32(10));
+    await h.until(() => h.events.some((e) => e.event === 'stepped'));
+    h.send(NCMD.QUIT);
+    assert.equal(await h.exit, 0);
+    const back = h.srams.at(-1);
+    assert.equal(back.readUInt32LE(8192 + 12), 3, 'still day 3');
+    assert.equal(back.readUInt32LE(8192 + 8), 4, '4 o\'clock');
+    assert.ok(back.readUInt32LE(8192 + 4) >= 15 && back.readUInt32LE(8192 + 4) <= 17, 'ten minutes later');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

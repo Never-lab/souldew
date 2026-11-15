@@ -116,6 +116,14 @@ function NeedRoms({ st, names }) {
   useEffect(() => {
     api.get('/api/library').then((l) => setLib((l.roms || []).filter((r) => sameSystem(r.system, manifest?.game?.system)))).catch(() => setLib([]));
   }, []);
+  // a file that isn't in the library yet: into the library (as the Library page adds one), then found by its checksum
+  const addFile = async (file) => {
+    const res = await fetch(`/api/library/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'x-soullink': '1' }, body: file });
+    if (!res.ok) throw Object.assign(new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`), {});
+    api.get('/api/library').then((l) => setLib((l.roms || []).filter((r) => sameSystem(r.system, manifest?.game?.system)))).catch(() => {});
+    await linkSessions._resolve();
+    if (linkSessions.state.phase === 'need') throw Object.assign(new Error('differs'), { code: 'linkPickDiffers' });
+  };
   const run = async (fn) => {
     setBusy(true);
     setErr(null);
@@ -135,14 +143,18 @@ function NeedRoms({ st, names }) {
           <button class="btn small primary" disabled=${busy || st.building} onClick=${() => run(() => linkSessions.buildPartner(m.slot))}>
             ${st.building === m.slot ? t('linkplay.building', 'Building …') : t('linkplay.build', 'Build {name}’s game', { name })}</button></div>`;
       }
-      return html`<div class="row wrap" key=${m.slot}>
-        <span class="grow">${t('linkplay.needPick', '{name} plays another file of this game. Pick your copy of it – souldew checks it’s exactly the same (SHA-1).', { name })}</span>
-        <select class="input small" aria-label=${t('linkplay.pickLabel', 'Your copy of {name}’s game', { name })} value=${pick[m.slot] || ''}
-          onChange=${(e) => setPick({ ...pick, [m.slot]: e.target.value })}>
-          <option value="">${lib ? t('linkplay.pickOne', 'Choose a game from your library …') : t('common.loading', 'Loading …')}</option>
-          ${(lib || []).map((r) => html`<option value=${r.id}>${r.title || r.name}</option>`)}
-        </select>
-        <button class="btn small primary" disabled=${busy || !pick[m.slot]} onClick=${() => run(() => linkSessions.pickRom(m.slot, pick[m.slot]).catch((e) => { e.slot = m.slot; throw e; }))}>${t('linkplay.pickUse', 'Use this file')}</button>
+      return html`<div class="stack-s" key=${m.slot}>
+        <span>${t('linkplay.needPick', '{name} plays another file of this game. Pick your copy of it – souldew checks it’s exactly the same (SHA-1).', { name })}</span>
+        <div class="row" style="gap:8px;flex-wrap:wrap;align-items:center">
+          <select class="input small" style="flex:1 1 240px;min-width:0" aria-label=${t('linkplay.pickLabel', 'Your copy of {name}’s game', { name })} value=${pick[m.slot] || ''}
+            onChange=${(e) => setPick({ ...pick, [m.slot]: e.target.value })}>
+            <option value="">${lib ? t('linkplay.pickOne', 'Choose a game from your library …') : t('common.loading', 'Loading …')}</option>
+            ${(lib || []).map((r) => html`<option value=${r.id}>${r.title || r.name}</option>`)}
+          </select>
+          <button class="btn small primary" disabled=${busy || !pick[m.slot]} onClick=${() => run(() => linkSessions.pickRom(m.slot, pick[m.slot]).catch((e) => { e.slot = m.slot; throw e; }))}>${t('linkplay.pickUse', 'Use this file')}</button>
+          <label class="btn small ghost">${t('linkplay.pickAdd', 'Add a file …')}<input type="file" hidden accept=".gb,.gbc,.gba,.nds,.zip"
+            onChange=${(e) => { const f = e.target.files?.[0]; if (f) run(() => addFile(f)); e.target.value = ''; }} /></label>
+        </div>
       </div>`;
     })}
     ${err && html`<span class="error small" role="alert">${err}</span>`}

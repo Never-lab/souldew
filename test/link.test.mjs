@@ -161,6 +161,9 @@ test('location: the link rooms are named as such, not after the place their map 
   const hdr = (music, sec) => [...le(0x08442540), ...le(0x08539de8), ...le(0x0823b77e), 0, 0, 0, 0, music & 0xff, music >> 8, 0xde, 0, sec, 0, 0, 8];
   assert.equal(readLocation(maps, 'emerald_us', bus(at(0x02037318, hdr(0x1a6, 0x57)))).link, 'cableclub');
   assert.equal(readLocation(maps, 'emerald_us', bus(at(0x02037318, hdr(0x190, 0x57)))).link, undefined, 'a real place with that MAPSEC');
+  // Platinum: the save data (behind its pointer) says map 466 – the Union Room
+  const pt = { ...at(0x02101d40, le(0x0227e148)), ...at(0x0227e148 + 0x1294, le(466)) };
+  assert.equal(readLocation(maps, 'platinum_us', bus(pt)).link, 'union');
 });
 
 // ---- the trade's log entry --------------------------------------------------------------------------------------------

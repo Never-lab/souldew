@@ -831,6 +831,7 @@
   "linkplay.rejoinOffer": "Dein Link mit {name} wurde unterbrochen. Die anderen warten – wieder einsteigen?",
   "linkplay.rejoin": "Wieder einsteigen",
   "linkplay.dropIt": "Lieber nicht",
+  "linkplay.pickAdd": "Datei hinzufügen …",
   "live.already": "Schon geteilt – von dir oder einem Partner.",
   "live.alreadyShort": "Schon geteilt",
   "live.attempt": "Versuch #{n}",

@@ -7,7 +7,9 @@
 // recording's (--expect). Screenshots of both windows go to --out.
 //
 //   node scripts/link-e2e.mjs --rom1 <A's game> [--rom2 <B's game>] --save1 <a.sav> --save2 <b.sav> --script <rec>
-//        --data <dir> --out <dir> [--kind trade|battle] [--rtc ms] [--expect <dir with seat0.sav, seat1.sav>]
+//        --data <dir> --out <dir> [--kind trade|battle] [--rtc ms] [--expect <dir with seat0.sav, seat1.sav …>]
+//        [--players 3|4 --save3 … --save4 … [--rom3 … --rom4 …]]   (a group session: everybody linked at once)
+//        [--all-roms]        (every library has every game: the partners' are found there by CRC and SHA-1)
 //        [--speed 6] [--shots f1,f2,…] [--other-release]   (B plays another file of the game: each side must find or
 //        pick the partner's copy – decision (2), "Pick your copy", by SHA-1)
 //        [--rejoin <frame>]  (B's page reloads at that frame and rejoins from A's state)
@@ -48,20 +50,23 @@ async function main() {
   const sha = (b) => createHash('sha1').update(b).digest('hex');
   const kind = opt('kind', 'trade');
   const script = resolve(opt('script'));
-  const seats = 2;
+  const seats = Number(opt('players', '2'));
   const frames = Math.floor(readFileSync(script).length / (4 + 4 * seats));
   const rtc = opt('rtc', '1763200000000');
   const rom1 = resolve(opt('rom1'));
   const rom2 = resolve(opt('rom2') || rom1);
-  const result = { kind, frames, rom1: basename(rom1), rom2: basename(rom2), checks: {} };
+  const romOf = (i) => (i === 0 ? rom1 : i === 1 ? rom2 : resolve(opt(`rom${i + 1}`) || rom1));
+  const result = { kind, frames, players: seats, rom1: basename(rom1), rom2: basename(rom2), checks: {} };
+  const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, seats);
 
-  // ---- two servers, two scratch data folders -----------------------------------------------------------------------
+  // ---- one server and scratch data folder per player ----------------------------------------------------------------
   const servers = [];
-  const profiles = [['A', 'Marius', 7401, rom1], ['B', 'Tim', 7402, rom2]].map(([id, name, port, rom]) => {
+  const profiles = [['A', 'Marius', 7401], ['B', 'Tim', 7402], ['C', 'Robin', 7403], ['D', 'Kim', 7404]].slice(0, seats).map(([id, name, port], i) => [id, name, port, romOf(i)]).map(([id, name, port, rom]) => {
     const dir = join(data, id);
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
-    copyFileSync(rom, join(lib, basename(rom)));
+    // (--all-roms: every player's library has every game of the session – the partners' are then found by CRC + SHA-1)
+    for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) copyFileSync(r, join(lib, basename(r)));
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true }));
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_LINK_TEST_SCRIPT: script,
       SLS_LINK_TEST_RTC: id === 'B' && flag('desync') ? String(Number(rtc) + 86400000 * 3) : rtc };
@@ -85,33 +90,44 @@ async function main() {
   try {
     for (const pr of profiles) for (let i = 0; i < 100; i++) { try { await api(pr, '/api/status'); break; } catch { await sleep(200); } }
     const [A, B] = profiles;
+    const N = profiles.length;
+    const all = profiles.map((_, i) => i);
     // ---- the run: built on A, joined on B ------------------------------------------------------------------------------
     const libA = await api(A, '/api/library');
-    const rom = libA.roms[0];
+    const own = (lib, i) => lib.roms.find((r) => basename(r.file || '') === basename(romOf(i))) || lib.roms[0];
+    const rom = own(libA, 0);
     log('library', rom.name, rom.gameId, rom.system);
-    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players: { p1: { name: A.name }, p2: { name: B.name } }, buildFor: ['p1', 'p2'], gameId: rom.gameId, name: 'Link test', rules: {} });
+    // (every player builds only their own game, as a DS run does when it's joined: the others' are found by SHA-1)
+    const players = Object.fromEntries(profiles.map((pr, i) => [SLOTS[i], { name: pr.name }]));
+    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players, buildFor: ['p1'], gameId: rom.gameId, name: 'Link test', rules: {} });
     const runId = built.manifest.id;
     const run = await api(A, `/api/runs/${runId}`);
     const pack = run.manifest?.pack || run.pack;
-    const imported = await api(B, '/api/runs/import', { pack });
-    const libB = await api(B, '/api/library');
-    await api(B, '/api/runs/build', { runId: imported.id, romId: libB.roms[0].id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: rom2 === rom1 ? ['p2', 'p1'] : ['p2'], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: libB.roms[0].gameId });
-    await api(A, `/api/runs/${runId}/save/p1`, new Uint8Array(readFileSync(opt('save1'))), 'PUT');
-    await api(B, `/api/runs/${runId}/save/p2`, new Uint8Array(readFileSync(opt('save2'))), 'PUT');
-    const pre = { A: sha(readFileSync(opt('save1'))), B: sha(readFileSync(opt('save2'))) };
-    log('run', runId, 'built on both');
+    for (const [i, pr] of profiles.entries()) {
+      if (!i) continue;
+      const imported = await api(pr, '/api/runs/import', { pack });
+      const lib = await api(pr, '/api/library');
+      await api(pr, '/api/runs/build', { runId: imported.id, romId: own(lib, i).id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i]], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: own(lib, i).gameId });
+    }
+    const pre = {};
+    for (const [i, pr] of profiles.entries()) {
+      const bytes = readFileSync(opt(`save${i + 1}`));
+      await api(pr, `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(bytes), 'PUT');
+      pre[pr.id] = sha(bytes);
+    }
+    log('run', runId, 'built on', N, 'computers');
 
     // ---- the pages ---------------------------------------------------------------------------------------------------
     const show = flag('show');
     const wins = profiles.map((pr, i) => {
-      const w = new BrowserWindow({ width: 1100, height: 780, x: 40 + i * 560, y: 40, show, webPreferences: { partition: `link-e2e-${pr.id}`, backgroundThrottling: false } });
+      const w = new BrowserWindow({ width: 1100, height: 780, x: 40 + (i % 2) * 560, y: 40 + Math.floor(i / 2) * 400, show, webPreferences: { partition: `link-e2e-${pr.id}`, backgroundThrottling: false } });
       w.webContents.setAudioMuted(true);
       w.loadURL(`${pr.base}/#/soullink?run=${runId}`);
       return w;
     });
     const ev = (i, js) => wins[i].webContents.executeJavaScript(js, true);
     const shot = async (name) => {
-      for (let i = 0; i < 2; i++) writeFileSync(join(out, `${name}-${profiles[i].id}.png`), (await wins[i].webContents.capturePage()).toPNG());
+      for (let i = 0; i < N; i++) writeFileSync(join(out, `${name}-${profiles[i].id}.png`), (await wins[i].webContents.capturePage()).toPNG());
     };
     const until = async (what, fn, ms = 120000) => {
       const t = Date.now();
@@ -123,16 +139,20 @@ async function main() {
       }
     };
     const phase = (i) => ev(i, 'window.__slLink?.sessions?.state?.phase');
-    const linked = () => until('both pages and the peer link', async () => (await ev(0, 'window.__slLink?.sync?.linkDirect("p2")')) && (await ev(1, 'window.__slLink?.sync?.linkDirect("p1")')), 240000);
+    const linked = () => until('every page and the peer links', async () => {
+      for (const i of all) for (const s of SLOTS) if (s !== SLOTS[i] && !(await ev(i, `window.__slLink?.sync?.linkDirect(${JSON.stringify(s)})`))) return false;
+      return true;
+    }, 300000);
+    const everyone = async (fn) => { for (const i of all) if (!(await fn(i))) return false; return true; };
     await linked();
     log('peer link up');
     await shot('01-board');
 
     // ---- invite, join (and the partner's game, when it's another file) -------------------------------------------------
-    await ev(0, `window.__slLink.sessions.invite(${JSON.stringify(kind)}, ["p2"])`);
-    await until('invite arrives', async () => (await phase(1)) === 'invited');
+    await ev(0, `window.__slLink.sessions.invite(${JSON.stringify(kind)}, ${JSON.stringify(SLOTS.slice(1))})`);
+    await until('invite arrives', () => everyone(async (i) => !i || (await phase(i)) === 'invited'));
     await shot('02-invited');
-    await ev(1, 'window.__slLink.sessions.accept()');
+    for (const i of all.slice(1)) await ev(i, 'window.__slLink.sessions.accept()');
     if (flag('other-release')) {
       // each side lacks the other's file: the bar asks to pick it; a wrong file is refused by SHA-1, the right one taken
       await until('A asks for B\'s game', async () => (await phase(0)) === 'need', 60000);
@@ -151,20 +171,24 @@ async function main() {
       }
       result.checks.pickedBySha1 = true;
     }
-    await until('both running', async () => (await phase(0)) === 'running' && (await phase(1)) === 'running', 90000);
+    await until('everybody running', () => everyone(async (i) => (await phase(i)) === 'running'), 120000);
     const st0 = JSON.parse(await ev(0, 'JSON.stringify(window.__slLink.sessions.state)'));
     log('running: delay', st0.delay, 'rtt', st0.rtt);
     result.delay = st0.delay;
     const emu = (i, js) => ev(i, `(() => { const f = document.querySelector('iframe[src^="/playernative.html"]'); const e = f?.contentWindow?.__emu; return e ? (${js}) : null; })()`);
-    await until('pictures', async () => (await emu(0, 'e.ready')) && (await emu(1, 'e.ready')), 60000);
+    await until('pictures', () => everyone((i) => emu(i, 'e.ready')), 90000);
+    await sleep(2500); // (sound only comes at normal speed)
+    result.checks.sound = await everyone(async (i) => Number(await emu(i, 'e.perf().audioIn')) > 0);
     const speed = Number(opt('speed', '6'));
+    // faster than real time, and every host stops exactly where the recording ends (UNTIL: the same frame everywhere)
     const setSpeed = async (i) => {
       const id = await ev(i, 'window.__slLink.sessions.state.id');
-      const b = Buffer.alloc(12);
+      const b = Buffer.alloc(24);
       b.writeUInt32LE(2, 0), b.writeUInt32LE(4, 4), b.writeFloatLE(speed, 8);
+      b.writeUInt32LE(24, 12), b.writeUInt32LE(4, 16), b.writeUInt32LE(frames, 20);
       await fetch(`${profiles[i].base}/api/native/cmd?id=${id}`, { method: 'POST', headers: { 'x-soullink': '1' }, body: b });
     };
-    await setSpeed(0), await setSpeed(1);
+    for (const i of all) await setSpeed(i);
     await sleep(1500);
     await shot('04-linked');
     const route = await ev(0, 'JSON.stringify(window.__slLink.sessions.state.route)');
@@ -175,11 +199,10 @@ async function main() {
     const rejoinAt = Number(opt('rejoin', '0'));
     const frameOf = async (i) => Number(await emu(i, 'e.frames()')) || 0;
     let n = 5;
-    for (const target of [...new Set([...shots, rejoinAt, frames - 5].filter((x) => x > 0))].sort((a, b) => a - b)) {
+    for (const target of [...new Set([...shots, rejoinAt, frames].filter((x) => x > 0))].sort((a, b) => a - b)) {
       await until(`frame ${target}`, async () => {
-        const [a, b] = [await frameOf(0), await frameOf(1)];
         if (flag('desync') && (await phase(0)) === 'ended') return true;
-        return Math.min(a, b) >= target;
+        return everyone(async (i) => (await frameOf(i)) >= target);
       }, Math.max(300000, ((target - (await frameOf(0))) / 60 / Math.max(1, speed)) * 4000 + 120000));
       if (flag('desync') && (await phase(0)) === 'ended') break;
       if (target === rejoinAt) {
@@ -205,7 +228,8 @@ async function main() {
       log('frame', target, 'stats A', await ev(0, 'JSON.stringify(window.__slLink.sessions.stats)'));
       await shot(`${String(n++).padStart(2, '0')}-frame-${target}`);
     }
-    const stats = [JSON.parse(await ev(0, 'JSON.stringify(window.__slLink.sessions.stats)')), JSON.parse(await ev(1, 'JSON.stringify(window.__slLink.sessions.stats)'))];
+    const stats = [];
+    for (const i of all) stats.push(JSON.parse(await ev(i, 'JSON.stringify(window.__slLink.sessions.stats)')));
     result.stats = stats;
     log('stats', JSON.stringify(stats));
 
@@ -226,19 +250,20 @@ async function main() {
     // ---- leave: both hosts stop, the last battery saves are in the run ---------------------------------------------------
     await sleep(2500);
     await ev(0, 'window.__slLink.sessions.leave("left")');
-    await until('both ended', async () => (await phase(0)) === 'ended' && (await phase(1)) === 'ended', 60000);
+    await until('everybody ended', () => everyone(async (i) => (await phase(i)) === 'ended'), 60000);
     await sleep(4000);
     await shot(`${String(n++).padStart(2, '0')}-left`);
-    const saves = [Buffer.from(await fetch(`${A.base}/api/runs/${runId}/save/p1`).then((r) => r.arrayBuffer())), Buffer.from(await fetch(`${B.base}/api/runs/${runId}/save/p2`).then((r) => r.arrayBuffer()))];
+    const saves = [];
+    for (const [i, pr] of profiles.entries()) saves.push(Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`).then((r) => r.arrayBuffer())));
     saves.forEach((b, i) => writeFileSync(join(out, `after-${profiles[i].id}.sav`), b));
     result.checks.noMismatch = stats.every((s) => !s.mismatch);
     result.checks.hashesCompared = stats.every((s) => (s.hashes || 0) > 10);
     if (opt('expect')) {
-      const exp = [readFileSync(join(opt('expect'), 'seat0.sav')), readFileSync(join(opt('expect'), 'seat1.sav'))];
+      const exp = all.map((i) => readFileSync(join(opt('expect'), `seat${i}.sav`)));
       // (a Game Boy clock cartridge's save carries its clock footer: the battery RAM must match, the clock is real time)
       const cut = (b, e) => b.subarray(0, e.length);
-      result.checks.savesAsRecorded = cut(saves[0], exp[0]).equals(exp[0]) && cut(saves[1], exp[1]).equals(exp[1]);
-      result.checks.savesChanged = sha(saves[0]) !== pre.A && sha(saves[1]) !== pre.B;
+      result.checks.savesAsRecorded = all.every((i) => cut(saves[i], exp[i]).equals(exp[i]));
+      result.savesChanged = all.map((i) => sha(saves[i]) !== pre[profiles[i].id]);
     }
     // the run's log on both computers: the trade entry (web/lib/run.mjs logLinkTrade)
     await sleep(3000);

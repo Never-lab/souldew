@@ -1142,6 +1142,7 @@
   "linkplay.noDirect": "There’s no direct connection to {name} – linking needs one. Check the Connection page.",
   "linkplay.notNow": "Not now",
   "linkplay.ownMissing": "Your own game for this run isn’t built on this computer.",
+  "linkplay.pickAdd": "Add a file …",
   "linkplay.pickDiffers": "That file isn’t the same game as {name}’s (its SHA-1 differs) – it must be exactly the same release.",
   "linkplay.pickLabel": "Your copy of {name}’s game",
   "linkplay.pickOne": "Choose a game from your library …",

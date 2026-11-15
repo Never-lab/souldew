@@ -831,6 +831,7 @@
   "linkplay.rejoinOffer": "Tu enlace con {name} se cortó. Los demás están esperando, ¿volver?",
   "linkplay.rejoin": "Volver",
   "linkplay.dropIt": "Dejarlo",
+  "linkplay.pickAdd": "Añadir un archivo …",
   "live.already": "Ya compartido – por ti o por un compañero.",
   "live.alreadyShort": "Ya compartido",
   "live.attempt": "Intento n.º {n}",

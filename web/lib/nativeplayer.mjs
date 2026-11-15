@@ -271,6 +271,7 @@ const wake = () => audio.ctx?.state === 'suspended' && audio.ctx.resume().catch(
 addEventListener('pointerdown', wake);
 addEventListener('keydown', wake);
 function onAudio(p) {
+  st.audioIn = (st.audioIn || 0) + 1; // (diagnostics / tests: the host sends sound – link sessions too)
   if (!audio.node || st.paused) return;
   const s = new Int16Array(p.buffer.slice(p.byteOffset, p.byteOffset + (p.length & ~1)));
   const f = new Float32Array(s.length);
@@ -666,7 +667,7 @@ window.__emu = {
       setTimeout(() => res(null), 2000);
     });
   },
-  perf: () => ({ fps: st.fps, speed: st.hostSpeed, frames: st.hostFrame, shown: st.frames, core: st.core, info: st.info, error: st.error, log: st.log.slice(-20), pacing: { core: st.core, native: true } }),
+  perf: () => ({ fps: st.fps, speed: st.hostSpeed, frames: st.hostFrame, shown: st.frames, audioIn: st.audioIn || 0, audioOn: !!audio.node, core: st.core, info: st.info, error: st.error, log: st.log.slice(-20), pacing: { core: st.core, native: true } }),
   setOption(k, v) {
     if (/screens?_layout$/.test(k)) {
       st.lr = /left/i.test(v);

@@ -831,6 +831,7 @@
   "linkplay.rejoinOffer": "Ton link avec {name} a été coupé. Les autres attendent – revenir ?",
   "linkplay.rejoin": "Revenir",
   "linkplay.dropIt": "Laisser tomber",
+  "linkplay.pickAdd": "Ajouter un fichier …",
   "live.already": "Déjà partagé – par toi ou un partenaire.",
   "live.alreadyShort": "Déjà partagé",
   "live.attempt": "Tentative n° {n}",

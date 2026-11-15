@@ -34,6 +34,7 @@ export function mapEntryFor(maps, entry) {
 const linkRoom = (room, map) => ({ id: `link:${room}`, link: room, map });
 const GEN1_LINK = { 239: 'trade', 240: 'colosseum' }; // pokered TRADE_CENTER $EF, COLOSSEUM $F0 (Yellow the same)
 const GEN2_LINK = { '20.2': 'trade', '20.3': 'colosseum', '20.4': 'timecapsule' }; // the CableClub map group (G/S/C)
+const GEN4_LINK = { pt: { 466: 'union' } }; // Platinum's Union Room (measured in the link host; D/P and HG/SS: to do)
 
 function readGen1(m, read, maps) {
   const b = read(hex(m.curMapAddr), 1);
@@ -116,6 +117,7 @@ function readGen4(m, read, maps, entry, ctx = {}) {
   const b = read(save + (m?.mapIdOffset ? hex(m.mapIdOffset) : GEN4_ENGINE[fam].mapIdOffset), 4);
   if (!ok(b, 4)) return null;
   const mapId = u32le(b, 0);
+  if (GEN4_LINK[fam]?.[mapId]) return linkRoom(GEN4_LINK[fam][mapId], mapId);
   const list = ctx.rom?.gen === 4 ? ctx.rom.mapLoc : maps.tables?.gen4?.[m?.table];
   if (!Array.isArray(list) || mapId >= list.length) return null;
   const id = list[mapId];
