@@ -9,6 +9,7 @@ import { serverErrorText } from '/lib/errors.mjs';
 import { findEntry, regionsFor } from '/shared/live/parse.mjs';
 import { cheatRegions } from '/shared/live/cheats.mjs';
 import { CTR_LAYOUTS, ctrLayout, ctrTouchAt } from '/shared/ctrlayout.mjs';
+import { sharpScale } from '/lib/pixelscale.mjs';
 
 const q = new URLSearchParams(location.search);
 const MSG = { VIDEO: 2, AUDIO: 3, MEM: 4, STATE: 5, LOG: 6, EVENT: 7 };
@@ -99,14 +100,15 @@ let layoutId = CTR_LAYOUTS.includes(q.get('layout')) ? q.get('layout') : 'tb';
 // "Smooth picture" (the play view's screen layout menu): the screens scaled with linear filtering instead of crisp
 // pixels – both where the page draws a screen smaller or larger (the layouts) and where the frame scales the canvas
 let smooth = q.get('smooth') === '1';
+// (the canvas's own scaling follows in layout(): smooth then means no whole-number prescale either)
 function applyFilter() {
-  canvas.style.imageRendering = smooth ? 'auto' : 'pixelated';
   if (!gl || !tex) return;
   const f = smooth ? gl.LINEAR : gl.NEAREST;
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f);
 }
+let wholePixels = q.get('px') === 'whole'; // Settings › "Whole pixels only" (lib/pixelscale.mjs)
 function initGl() {
   const vs = '#version 300 es\nin vec2 p;in vec2 t;out vec2 uv;void main(){uv=t;gl_Position=vec4(p,0.,1.);}';
   const fs = '#version 300 es\nprecision mediump float;in vec2 uv;uniform sampler2D s;uniform bool bgra;out vec4 o;void main(){vec4 c=texture(s,uv);o=vec4(bgra?c.bgr:c.rgb,1.);}';
@@ -144,17 +146,24 @@ const arrangement = (w, h) => ctrLayout(layoutId, w, h);
 
 let pendingFrame = null;
 let lastFrame = null;
+// the arranged picture's size in the core's pixels and the whole factor it is drawn at
+const pic = { w: 0, h: 0, pre: 1 };
 function drawFrame() {
   const f = pendingFrame || lastFrame;
   pendingFrame = null;
   if (!f || !gl) return;
   lastFrame = f;
   const lay = arrangement(f.w, f.h);
-  if (canvas.width !== lay.width || canvas.height !== lay.height) {
-    canvas.width = lay.width;
-    canvas.height = lay.height;
-    gl.viewport(0, 0, lay.width, lay.height);
+  if (pic.w !== lay.width || pic.h !== lay.height) {
+    pic.w = lay.width;
+    pic.h = lay.height;
     layout();
+  }
+  // the canvas holds the arranged picture blown up by a whole number (lib/pixelscale.mjs)
+  if (canvas.width !== lay.width * pic.pre || canvas.height !== lay.height * pic.pre) {
+    canvas.width = lay.width * pic.pre;
+    canvas.height = lay.height * pic.pre;
+    gl.viewport(0, 0, canvas.width, canvas.height);
   }
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.px);
   gl.uniform1i(swizzleLoc, f.bgra ? 1 : 0);
@@ -175,6 +184,23 @@ function drawFrame() {
   gl.bufferData(gl.ARRAY_BUFFER, v, gl.DYNAMIC_DRAW);
   gl.clear(gl.COLOR_BUFFER_BIT);
   for (let i = 0; i < lay.quads.length; i++) gl.drawArrays(gl.TRIANGLE_STRIP, i * 4, 4);
+  streamFrame();
+}
+
+// The partners' video (captureStream) at the picture's own size, as before the sharp scaling: the bigger drawing buffer
+// would only cost upload and encoder time. Drawn only while someone watches.
+let streamCanvas = null;
+function streamFrame() {
+  if (!streamCanvas) return;
+  const w = pic.w || canvas.width;
+  const h = pic.h || canvas.height;
+  if (streamCanvas.width !== w || streamCanvas.height !== h) {
+    streamCanvas.width = w;
+    streamCanvas.height = h;
+  }
+  const x = streamCanvas.getContext('2d');
+  x.imageSmoothingEnabled = false; // a whole factor down: the game's pixels exactly
+  x.drawImage(canvas, 0, 0, w, h);
 }
 function onVideo(p) {
   const v = new DataView(p.buffer, p.byteOffset, 8);
@@ -196,15 +222,31 @@ function onVideo(p) {
   }
 }
 
-// keep the picture's proportions in the frame (the page decides the frame's size)
+// the picture as big as the frame allows, its proportions kept (the page decides the frame's size): pixels blown up by a
+// whole number with hard edges, the rest smoothed – or whole multiples only (Settings) – lib/pixelscale.mjs
 function layout() {
   const box = document.body.getBoundingClientRect();
-  const k = Math.min(box.width / canvas.width, box.height / canvas.height) || 1;
-  canvas.style.width = `${Math.floor(canvas.width * k)}px`;
-  canvas.style.height = `${Math.floor(canvas.height * k)}px`;
+  const src = pic.w ? pic : { w: canvas.width, h: canvas.height };
+  const sharp = sharpScale(src, { w: box.width, h: box.height }, devicePixelRatio || 1, { whole: wholePixels });
+  // "Smooth picture" (the play view's 3DS menu): linear filtering all the way – no crisp whole-number prescale
+  const s = smooth ? { ...sharp, pre: 1, smooth: true } : sharp;
+  canvas.style.width = `${s.w}px`;
+  canvas.style.height = `${s.h}px`;
+  canvas.style.imageRendering = s.smooth ? 'auto' : 'pixelated';
+  if (pic.w && s.pre !== pic.pre) {
+    pic.pre = s.pre;
+    drawFrame(); // the new buffer size, with the last picture
+  }
 }
 addEventListener('resize', layout);
 new ResizeObserver(layout).observe(document.body);
+// the window moved to a screen with another pixel density: the whole factor changes, the frame's size doesn't
+(function watchDensity() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => {
+    layout();
+    watchDensity();
+  }, { once: true });
+})();
 layout();
 
 // ---- sound: the host's samples through souldew's turbo mixer (lib/native-audio-worklet.mjs, as the fast player) -----
@@ -581,11 +623,16 @@ function startPads(pads) {
 // ---- window.__emu: what the Play view uses (see player.html) ----------------------------------------------------------
 async function snapshot({ maxW = 192, type = 'image/jpeg', quality = 0.5 } = {}) {
   if (!st.ready) return null;
-  const k = Math.min(1, maxW / canvas.width);
+  // at the arranged picture's own size at most (the canvas holds it blown up by a whole number)
+  const w0 = pic.w || canvas.width;
+  const h0 = pic.h || canvas.height;
+  const k = Math.min(1, maxW / w0);
   const c = document.createElement('canvas');
-  c.width = Math.round(canvas.width * k);
-  c.height = Math.round(canvas.height * k);
-  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  c.width = Math.round(w0 * k);
+  c.height = Math.round(h0 * k);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = k < 1;
+  x.drawImage(canvas, 0, 0, c.width, c.height);
   return new Promise((res) => c.toBlob(res, type, quality));
 }
 
@@ -651,7 +698,10 @@ window.__emu = {
   canvas: () => (st.ready ? canvas : null),
   captureStream(fps = 15) {
     try {
-      return st.ready && canvas.captureStream ? canvas.captureStream(fps) : null;
+      if (!st.ready || !canvas.captureStream) return null;
+      streamCanvas ||= document.createElement('canvas');
+      streamFrame();
+      return streamCanvas.captureStream(fps);
     } catch {
       return null;
     }
@@ -725,10 +775,16 @@ window.__emu = {
     } else if (k === 'ctr_smooth') {
       smooth = !!v;
       applyFilter();
+      layout();
       drawFrame();
     }
   },
   layout: () => layoutId,
+  /** Settings › "Whole pixels only" switched while playing. */
+  setWholePixels(on) {
+    wholePixels = !!on;
+    layout();
+  },
   /** More memory to read (at most 16 regions of 64 KB together with the game's own) – diagnostics and research. */
   watch(regions = []) {
     extraRegions = regions.filter((r) => Number.isInteger(r.addr) && Number.isInteger(r.len) && r.len > 0 && r.len <= 65536);

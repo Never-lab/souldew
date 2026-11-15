@@ -687,17 +687,14 @@ details.group details.group { margin: 0 14px 8px; }
 .main-inner.under-session { visibility: hidden; }
 .session.full { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 10px; padding: 16px 22px 14px; background: var(--shell); }
 .app-native .session.full { padding-top: 30px; }
-.session-top { display: flex; align-items: center; gap: 6px; min-height: 30px; }
-.session-top b { font-family: var(--font-pixel); font-size: 17px; font-weight: 400; }
-.session-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
-.session-body.has-left { grid-template-columns: 270px minmax(0, 1fr) 300px; }
+.session-body { flex: 1; min-height: 0; }
 .session-stage { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .session-screen { flex: 1; min-height: 0; container-type: size; display: grid; place-items: center; }
 .session .console-screen { width: min(100cqw, calc(100cqh * var(--arn))); height: min(100cqh, calc(100cqw / var(--arn))); aspect-ratio: auto; max-height: none; max-width: none; margin: 0; border-radius: 8px; }
 .session .console-screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; color-scheme: dark; }
 .session-bar { align-self: center; display: flex; align-items: center; gap: 2px; padding: 3px 6px; border-radius: 999px; background: #141318; box-shadow: inset 0 1px 2px #0008; flex-wrap: wrap; justify-content: center; }
-/* one row whenever it fits: the bar may reach into the grid's 16px gaps (a 1100px window leaves the stage a few px short) */
-.session-bar { width: max-content; max-width: calc(100% + 16px); }
+/* always one row: the stage is as wide as the bar (play.mjs --stage-w) */
+.session-bar { width: max-content; flex-wrap: nowrap; flex: none; }
 .session-bar .btn.icon { width: 28px; height: 28px; min-width: 28px; padding: 0; }
 .session-bar .sep { width: 1px; height: 16px; background: var(--edge-hi); margin: 0 5px; }
 .session-bar .spacer { flex: 0 0 10px; }
@@ -707,14 +704,13 @@ details.group details.group { margin: 0 14px 8px; }
 /* "set: 4×" when the computer can't keep up: a small tag above the number, so the bar never changes width (and wraps) */
 .session-bar .speed-real { position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); white-space: nowrap; padding: 1px 6px;
   border-radius: 999px; background: #141318; box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent), 0 4px 10px #0008; line-height: 15px; pointer-events: none; }
-/* "this computer runs the game at only about 52 %" (play.mjs SlowNotice): a calm card under the bar, in the warn colour */
-.slow-note { align-self: center; width: min(100%, 640px); display: grid; gap: 6px; padding: 10px 12px 10px 14px; border-radius: var(--r-m);
+/* "this computer runs the game at only about 52 %" (playdock.mjs SlowChip): the details, a calm card in the warn colour */
+.slow-note { display: grid; gap: 6px; padding: 10px 12px 10px 14px; border-radius: var(--r-m);
   background: var(--shell-3); border: 1px solid var(--edge); border-left: 3px solid var(--warn); color: var(--ink-2); }
 .slow-note .slow-head { gap: 8px; color: var(--ink); }
 .slow-note .slow-head svg { color: var(--warn); flex: none; }
 .slow-note .slow-head .btn.icon { width: 26px; height: 26px; min-width: 26px; padding: 0; }
 .slow-tips { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
-.session-side { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
 /* the popover hangs off the whole bar (right edge), not the button – so it never sticks out of a narrow game column */
 .sound-wrap { display: inline-flex; }
 .session-bar { position: relative; }
@@ -740,7 +736,7 @@ details.group details.group { margin: 0 14px 8px; }
 .running-banner { gap: 10px; }
 .session.mini { position: fixed; right: 18px; bottom: 18px; z-index: 40; width: 280px; display: flex; flex-direction: column; background: #141318; border: 1px solid var(--edge-hi); border-radius: 14px; box-shadow: 0 18px 40px #000a; overflow: hidden; }
 .session.mini.ds { width: 210px; }
-.session.mini .session-top, .session.mini .session-bar, .session.mini .session-side, .session.mini .session-left { display: none; }
+.session.mini .session-bar, .session.mini .dock, .session.mini .attn { display: none; }
 .session.mini .mini-head { display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 10px; font-size: 12px; color: var(--ink-2); }
 .session.mini .mini-head .btn.icon { width: 24px; height: 24px; min-width: 24px; padding: 0; }
 .session.mini .session-body { display: block; }
@@ -787,32 +783,8 @@ details.group details.group { margin: 0 14px 8px; }
 .save-age.dirty { color: var(--warn); }
 .save-age svg { flex: none; }
 .session.is-fs { position: fixed; inset: 0; z-index: 45; padding: 12px; background: #000; }
-.session.is-fs .session-top { display: none; }
-.session.is-fs .session-body { grid-template-columns: minmax(0, 1fr) 270px; padding-left: calc(270px + 16px); }
-.session.is-fs .session-body.has-left { grid-template-columns: 270px minmax(0, 1fr) 270px; padding-left: 0; } /* equal sides: the game sits in the middle */
-@media (max-width: 1100px) { .session-body { grid-template-columns: minmax(0, 1fr) 250px; } .session-body.has-left { grid-template-columns: 220px minmax(0, 1fr) 250px; } }
-/* not enough room for three columns (a narrow window, or the rail open next to the game): the left panel (place,
-   encounters, run strip) goes on top of the right one – the game keeps the width */
-@media (max-width: 1240px) {
-  .session:not(.is-fs) .session-body.has-left { grid-template-columns: minmax(0, 1fr) 250px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'stage left' 'stage side'; }
-  .session:not(.is-fs) .session-body.has-left > .session-stage { grid-area: stage; }
-  .session:not(.is-fs) .session-body.has-left > .session-left { grid-area: left; max-height: 45vh; }
-  .session:not(.is-fs) .session-body.has-left > .session-side { grid-area: side; }
-}
-/* narrow window (the rail is a top bar, the page scrolls): one column – the game first at a fixed height, the panels below it */
-@media (max-width: 860px) {
-  .main-inner.under-session { display: none; }
-  .session.full { position: relative; inset: auto; min-height: 100vh; }
-  .session.full:not(.is-fs) .session-body, .session.full:not(.is-fs) .session-body.has-left { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: none; }
-  .session.full:not(.is-fs) .session-body > .session-stage, .session.full:not(.is-fs) .session-body.has-left > .session-stage { grid-area: auto; order: -1; height: min(82vh, 760px); }
-  .session.full:not(.is-fs) .session-body.has-left > .session-left, .session.full:not(.is-fs) .session-body > .session-side, .session.full:not(.is-fs) .session-body.has-left > .session-side { grid-area: auto; max-height: none; overflow: visible; }
-}
-@media (max-width: 1000px) {
-  .session.is-fs .session-body.has-left { grid-template-columns: minmax(0, 1fr) 250px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'stage left' 'stage side'; }
-  .session.is-fs .session-body.has-left > .session-stage { grid-area: stage; }
-  .session.is-fs .session-body.has-left > .session-left { grid-area: left; max-height: 45vh; }
-  .session.is-fs .session-body.has-left > .session-side { grid-area: side; }
-}
+/* narrow window (the rail is a top bar): the page behind the game is out of the way */
+@media (max-width: 860px) { .main-inner.under-session { display: none; } }
 
 /* controls */
 button.ctl-key { cursor: pointer; min-width: 110px; padding: 2px 8px; line-height: 1.6; }
@@ -854,38 +826,49 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 .run-stats .stat-strip { flex-wrap: wrap; gap: 28px; }
 .invite-panel { border: 1px solid var(--p1); }
 
-/* partner screen */
+/* partner screens popped out of the dock (views/partnerscreen.mjs): one window per partner over the play area
+   (.session-body), moved by its header, resized from its corner grip; sizes and places come from lib/pslayout.mjs
+   (HEAD there = .ps-head height). The tiles in the dock are in playdock.css. */
+.session-body { position: relative; }
+.ps-layer { position: absolute; inset: 0; z-index: 7; pointer-events: none; } /* popovers of the game bar (8) stay above */
 .ps {
-  position: fixed; right: 18px; bottom: 18px; z-index: 35; width: min(240px, calc(100vw - 36px));
+  position: absolute; pointer-events: auto; box-sizing: border-box;
   display: flex; flex-direction: column; background: #141318; border: 1px solid var(--edge-hi); border-radius: var(--r-l);
-  box-shadow: inset 0 1px 0 #ffffff0a, 0 18px 40px #000a; overflow: hidden;
-  transition: width 0.18s ease-out; animation: ps-in 0.18s ease-out;
+  box-shadow: inset 0 1px 0 #ffffff0a, 0 18px 40px #000a; overflow: hidden; user-select: none;
+  transition: left 0.18s ease-out, top 0.18s ease-out, width 0.18s ease-out, height 0.18s ease-out, box-shadow 0.18s ease-out; animation: ps-in 0.18s ease-out;
 }
-.ps.portrait { width: min(176px, calc(100vw - 36px), calc((100vh - 96px) * 0.6667)); }
-.ps.big { width: min(480px, calc(100vw - 36px), calc((100vh - 96px) * 1.5)); }
-.ps.big.portrait { width: min(320px, calc(100vw - 36px), calc((100vh - 96px) * 0.6667)); }
-.ps.wide { width: min(340px, calc(100vw - 36px)); }
-.ps.big.wide { width: min(640px, calc(100vw - 36px)); }
-.ps-head { display: flex; align-items: center; gap: 6px; padding: 5px 5px 5px 10px; min-width: 0; color: var(--ink-2); font-size: 12px; line-height: 1; }
+.ps-layer.dragging .ps { transition: none; }
+.ps.is-dragging { z-index: 2; border-color: color-mix(in srgb, var(--tri) 55%, var(--edge-hi)); box-shadow: inset 0 1px 0 #ffffff0a, 0 24px 50px #000c, 0 0 0 3px color-mix(in srgb, var(--tri) 14%, transparent); }
+.ps:hover, .ps:focus-within { z-index: 1; }
+.ps-head { flex: none; box-sizing: border-box; height: 32px; display: flex; align-items: center; gap: 6px; padding: 5px 5px 5px 10px; min-width: 0; color: var(--ink-2); font-size: 12px; line-height: 1; cursor: grab; touch-action: none; }
+.ps.is-dragging .ps-head { cursor: grabbing; }
 .ps-name { color: var(--ink); font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .ps-age { flex: none; font-size: 11px; color: var(--ink-3); }
+/* a small window: the name gets the room (the dot still tells live from stale) */
+.ps { container-type: inline-size; }
+@container (max-width: 210px) { .ps-age { display: none; } }
 .ps-btn, .ps-x {
   flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px;
   background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .ps-btn:hover, .ps-x:hover { background: var(--shell-3); color: var(--ink); }
-.ps-screen { position: relative; margin: 0 6px 6px; border-radius: 6px; background: #000; overflow: hidden; box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #ffffff08; }
-.ps-screen img, .ps-screen video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
+.ps-screen { position: relative; flex: 1; min-height: 0; margin: 0 6px 6px; border-radius: 6px; background: #000; overflow: hidden; box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #ffffff08; }
+.ps-screen img, .ps-screen video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: #000; pointer-events: none; }
+.ps-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 10px; text-align: center; color: var(--ink-3); font-size: 12px; line-height: 1.35; }
+/* the resize grip: the bottom corner that faces into the play area */
+.ps-grip { position: absolute; bottom: 0; width: 18px; height: 18px; touch-action: none; z-index: 1; opacity: 0.55; transition: opacity 0.15s ease; }
+.ps-grip.right { right: 0; cursor: nwse-resize; background: linear-gradient(135deg, transparent 0 55%, var(--ink-3) 55% 62%, transparent 62% 72%, var(--ink-3) 72% 79%, transparent 79%); }
+.ps-grip.left { left: 0; cursor: nesw-resize; background: linear-gradient(225deg, transparent 0 55%, var(--ink-3) 55% 62%, transparent 62% 72%, var(--ink-3) 72% 79%, transparent 79%); }
+.ps:hover .ps-grip, .ps.is-dragging .ps-grip { opacity: 1; }
 .ps-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tri); box-shadow: 0 0 5px 1px color-mix(in srgb, var(--tri) 47%, transparent); }
 .ps-dot.stale { background: var(--warn); box-shadow: 0 0 5px 1px color-mix(in srgb, var(--warn) 33%, transparent); }
 .ps-dot.off { background: var(--ink-3); box-shadow: none; }
-.ps-pill, .ps-tab {
-  position: fixed; right: 18px; bottom: 18px; z-index: 35; display: flex; align-items: center; gap: 8px; max-width: calc(100vw - 36px);
-  padding: 6px 6px 6px 12px; border-radius: 999px; background: #141318; border: 1px solid var(--edge-hi); box-shadow: 0 10px 26px #0009;
-  color: var(--ink-2); font-size: 12.5px; line-height: 1.2; animation: ps-in 0.18s ease-out;
+/* in the dock: "Misty – in a window" (docks it again) */
+.ps-tab {
+  display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; height: 26px; box-sizing: border-box; padding: 0 11px 0 9px; border-radius: 999px;
+  background: #141318; border: 1px solid var(--edge-hi); box-shadow: 0 6px 16px #0007; color: var(--ink-2); font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
+  animation: ps-in 0.18s ease-out;
 }
-.ps-pill > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ps-tab { padding: 6px 12px; cursor: pointer; font: inherit; font-size: 12.5px; }
 .ps-tab:hover { color: var(--ink); background: var(--shell-2); }
 @keyframes ps-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 /* Shared World (lib/sharedworld.mjs): one quiet switch under the team – "Show partners in my game" */
@@ -897,22 +880,7 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 .world-toggle input:checked + .world-switch::after { transform: translateX(11px); background: var(--tri); }
 .world-toggle input:focus-visible + .world-switch { outline: 2px solid var(--focus); outline-offset: 2px; }
 .world-toggle:hover .world-switch { border-color: var(--edge-hi); }
-/* inside the running game the partner's picture sits at the bottom of the side column – never over the game */
-.side-partner { margin-top: auto; display: flex; justify-content: flex-end; }
-.session .side-partner .ps, .session .side-partner .ps-tab, .session .side-partner .ps-pill { position: static; }
-.session .side-partner .ps { width: 100%; }
-.session .side-partner .ps.portrait { width: min(200px, 100%); }
-.session .side-partner .ps.big.portrait { width: 100%; }
-.session-side > * { flex-shrink: 0; } /* the column scrolls – panels never get squeezed */
-/* Laptop-height windows: both teams plus the partner's picture should fit without scrolling. */
-@media (max-height: 940px) {
-  .session-side { gap: 10px; }
-  .session-side .party.compact { gap: 5px; }
-  .session-side .pp.compact { min-height: 60px; padding: 4px 7px 5px 4px; }
-  .session-side .pp.compact .pp-hp { margin-top: 3px; }
-  .session-side .pp.compact .pp-cap { display: none; } /* the route of each pair is on the board */
-  .session .side-partner .ps:not(.portrait):not(.wide) { width: min(100%, 220px); }
-}
+@media (prefers-reduced-motion: reduce) { .ps, .ps-tab { transition: none; animation: none; } }
 /* invite by code (views/invitecode.mjs) */
 .invite-code-box { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .invite-code {
@@ -929,8 +897,7 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 .power > div { min-width: 0; }
 .power b, .power .tiny { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .update-card .row b { min-width: 0; overflow-wrap: anywhere; }
-.session-top .btn, .session-top .save-age svg { flex: none; }
-.session-top .save-age { flex: 0 1 auto; }
+.dock-head .btn, .dock-title .save-age svg { flex: none; }
 .states-panel:focus { outline: none; }
 .state-team .tiny { white-space: nowrap; }
 .run-cap .live-tag { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -961,7 +928,7 @@ html, body { background: var(--bg-bottom, #0f0e13); }
 html[data-theme='contrast'] { --bg-top: #0a0a0d; --bg-mid: #050507; --bg-bottom: #000; }
 .rail { background: linear-gradient(180deg, #1f1e25 0%, #17161c 55%, #111015 100%); }
 /* Scroll areas keep room for the scroll bar, so content never jumps sideways when it appears. */
-.main, .modal-body, .rules-drawer-body, .session-side, .session-left, .run-menu { scrollbar-gutter: stable; }
+.main, .modal-body, .rules-drawer-body, .dock.right, .run-menu { scrollbar-gutter: stable; }
 
 /* brand: the app icon + the wordmark "souldew" (always lowercase) */
 .brand { gap: 10px; padding: 0 6px 8px; }

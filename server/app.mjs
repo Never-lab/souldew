@@ -875,6 +875,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         padNav: config.padNav !== false,
         ctrRenderer: validRenderer(config.ctrRenderer),
         ctrScale: validScale(config.ctrScale),
+        wholePixels: config.wholePixels === true,
       },
     };
   });
@@ -884,7 +885,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels']) {
       if (k in body) allowed[k] = body[k];
     }
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
@@ -896,6 +897,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if ('ctrScale' in allowed) allowed.ctrScale = validScale(allowed.ctrScale);
     // the joke license window (web/lib/nag.mjs): launch count + when it last showed, and its off switch
     if ('nagOff' in allowed) allowed.nagOff = allowed.nagOff === true;
+    if ('wholePixels' in allowed) allowed.wholePixels = allowed.wholePixels === true;
     if ('nag' in allowed) {
       const n = allowed.nag;
       if (!n || typeof n !== 'object' || Array.isArray(n)) delete allowed.nag;

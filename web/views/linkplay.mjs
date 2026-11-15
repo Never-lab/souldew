@@ -164,8 +164,15 @@ function NeedRoms({ st, names }) {
   </div>`;
 }
 
-/** What the link is doing: an invite to answer, the preparation, the running link (with Leave), how it ended. */
-export function LinkBar() {
+/** The phases in which the bar asks the player something (or tells how the link ended): shown even with the dock folded. */
+export const LINK_ASKS = ['invited', 'need', 'rejoinable', 'ended'];
+
+/**
+ * What the link is doing: an invite to answer, the preparation, the running link (with Leave), how it ended.
+ * Over the page at the top – or, while the game is big (views/play.mjs), `inline` in its dock, or `stage`: over the top
+ * of the game when the dock is folded and the bar asks something.
+ */
+export function LinkBar({ inline = false, stage = false } = {}) {
   const { doc, manifest, linkPlay: st, linkSessions } = useApp();
   if (!st || !linkSessions || st.phase === 'idle') return null;
   const names = getPlayers(doc, manifest);
@@ -202,5 +209,5 @@ export function LinkBar() {
     body = html`<span class="grow">${reasonText(st.ended?.reason || st.error, others || host)}${r?.backup ? html` <span class="small muted">(${r.backup})</span>` : ''}</span>
       <button class="btn small ghost" onClick=${() => linkSessions.dismiss()}>${t('common.close', 'Close')}</button>`;
   }
-  return html`<div class="link-bar panel row" role="status" aria-live="polite"><${Icon} name="link" size=${16} />${body}</div>`;
+  return html`<div class=${`link-bar panel row ${inline ? 'inline' : stage ? 'stage' : ''}`} data-phase=${st.phase} role="status" aria-live="polite"><${Icon} name="link" size=${16} />${body}</div>`;
 }
