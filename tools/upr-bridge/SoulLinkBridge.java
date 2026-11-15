@@ -316,24 +316,29 @@ public class SoulLinkBridge {
      * so Viridian / Pewter / … change too (#62).
      */
     @SuppressWarnings("unchecked")
-    private static void unlockGen3Shops(RomHandler h, Settings settings) throws Exception {
+    private static void unlockGen3Shops(RomHandler h, Settings settings) {
         if (!(h instanceof Gen3RomHandler)) return;
         if (settings.getShopItemsMod() == Settings.ShopItemsMod.UNCHANGED) return;
-        Field re = Gen3RomHandler.class.getDeclaredField("romEntry");
-        re.setAccessible(true);
-        Object entry = re.get(h);
-        Field arrays = entry.getClass().getDeclaredField("arrayEntries");
-        arrays.setAccessible(true);
-        Map<String, int[]> map = (Map<String, int[]>) arrays.get(entry);
-        int[] offsets = map.get("ShopItemOffsets");
-        if (offsets == null || offsets.length == 0) return;
-        int[] skipped = map.get("SkipShops");
-        if (skipped == null || skipped.length == 0) return;
-        int[] all = new int[offsets.length];
-        for (int i = 0; i < all.length; i++) all[i] = i;
-        map.put("SkipShops", new int[0]);
-        map.put("MainGameShops", all);
-        System.out.println("@@WARN " + json("Shop items: randomizing all Gen 3 shop tables (UPR skips most city Poké Marts by default)"));
+        try {
+            Field re = Gen3RomHandler.class.getDeclaredField("romEntry");
+            re.setAccessible(true);
+            Object entry = re.get(h);
+            Field arrays = entry.getClass().getDeclaredField("arrayEntries");
+            arrays.setAccessible(true);
+            Map<String, int[]> map = (Map<String, int[]>) arrays.get(entry);
+            int[] offsets = map.get("ShopItemOffsets");
+            if (offsets == null || offsets.length == 0) return;
+            int[] skipped = map.get("SkipShops");
+            if (skipped == null || skipped.length == 0) return;
+            int[] all = new int[offsets.length];
+            for (int i = 0; i < all.length; i++) all[i] = i;
+            map.put("SkipShops", new int[0]);
+            map.put("MainGameShops", all);
+            System.out.println("@@WARN " + json("Shop items: randomizing all Gen 3 shop tables (UPR skips most city Poké Marts by default)"));
+        } catch (ReflectiveOperationException e) {
+            // Keep UPR's SkipShops; do not abort the whole randomize for a bridge-only tweak.
+            System.out.println("@@WARN " + json("Shop items: could not unlock Gen 3 SkipShops (" + e.getClass().getSimpleName() + ")"));
+        }
     }
 
     /** A bare `new Settings()` leaves fields null that toString()/randomize() dereference. */
