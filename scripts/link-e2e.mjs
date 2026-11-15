@@ -76,6 +76,7 @@ async function main() {
   if (free < 1.2e9) { console.error(`only ${(free / 1e9).toFixed(1)} GB free – not starting`); app.exit(2); return; }
   const result = { kind, frames, players: seats, rom1: basename(rom1), rom2: basename(rom2), checks: {} };
   const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, seats);
+  const APP = { headers: { 'x-soullink': '1' } }; // (2.7.1: the server answers save reads only to the app – server/lib/guard.mjs)
 
   // ---- one server and scratch data folder per player ----------------------------------------------------------------
   const servers = [];
@@ -340,7 +341,7 @@ async function main() {
       result.ended = ended;
       await sleep(3000);
       await shot(`${String(n++).padStart(2, '0')}-desync`);
-      const saves = [Buffer.from(await fetch(`${A.base}/api/runs/${runId}/save/p1`).then((r) => r.arrayBuffer())), Buffer.from(await fetch(`${B.base}/api/runs/${runId}/save/p2`).then((r) => r.arrayBuffer()))];
+      const saves = [Buffer.from(await fetch(`${A.base}/api/runs/${runId}/save/p1`, APP).then((r) => r.arrayBuffer())), Buffer.from(await fetch(`${B.base}/api/runs/${runId}/save/p2`, APP).then((r) => r.arrayBuffer()))];
       result.checks.desyncDetected = ended.every((e) => e?.reason === 'linkDesync');
       result.checks.savesBackToBefore = sha(saves[0]) === pre.A && sha(saves[1]) === pre.B;
       result.checks.backupsKept = ended.every((e) => !!e?.restored?.backup);
@@ -378,7 +379,7 @@ async function main() {
     await sleep(4000);
     await shot(`${String(n++).padStart(2, '0')}-left`);
     const saves = [];
-    for (const [i, pr] of profiles.entries()) saves.push(Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`).then((r) => r.arrayBuffer())));
+    for (const [i, pr] of profiles.entries()) saves.push(Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer())));
     saves.forEach((b, i) => writeFileSync(join(out, `after-${profiles[i].id}.sav`), b));
     if (seamless) { // and A plays on (after the saves were taken): a few buttons – close a text box, walk – alone now
       const stripPlay = strip(0, 'play', 4000);
