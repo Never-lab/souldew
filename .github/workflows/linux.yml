@@ -85,7 +85,7 @@ jobs:
         with:
           name: native-linux-x64
           path: tools/native/linux-x64
-      - run: chmod +x tools/native/linux-x64/retrohost && node scripts/build-native.mjs --check
+      - run: chmod +x tools/native/linux-x64/retrohost tools/native/linux-x64/linkhost && node scripts/build-native.mjs --check
 
       - name: Smoke test – `npm run app` from the checkout
         run: xvfb-run -a node scripts/smoke-app.mjs --dev
