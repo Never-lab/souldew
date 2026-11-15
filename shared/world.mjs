@@ -56,6 +56,14 @@ export function worldTable(entry, rev = 0) {
     lock: hex(w.lockFieldControls),
     sprites: w.sprites ? hex(w.sprites) : 0,
     inBattle,
+    // the map's top layer (occlusion, shared/worldmap.mjs) and the map-name popup – 0 / null where unknown: off then
+    mapHeader: w.mapHeader ? hex(w.mapHeader) : 0,
+    backupMap: w.backupMapLayout ? hex(w.backupMapLayout) : 0,
+    tasks: w.tasks ? hex(w.tasks) : 0,
+    help: w.inHelpSystem ? hex(w.inHelpSystem) : 0,
+    popup: w.mapNamePopup && w.tasks && rom?.mapNamePopupTask
+      ? { task: (hex(rom.mapNamePopupTask) | 1) >>> 0, rect: w.mapNamePopup.rect, data: w.mapNamePopup.offsetData ?? null, base: w.mapNamePopup.offsetBase ?? 0 }
+      : null,
     // ROM addresses of this revision (unknown revisions: the overworld callback is learned, the tables are searched)
     overworldCb2: rom?.overworldCb2 ? (hex(rom.overworldCb2) | 1) >>> 0 : 0,
     graphicsInfo: rom?.graphicsInfo ? hex(rom.graphicsInfo) : 0,
@@ -168,6 +176,7 @@ export function readCamera(t, read) {
   const fade = read(t.paletteFade + 4, 4);
   const lock = read(t.lock, 1);
   const battle = t.inBattle ? read(t.inBattle.addr, 1) : null;
+  const help = t.help ? read(t.help, 1) : null;
   const fadeActive = ok(fade, 4) && !!(fade[3] & 0x80);
   return {
     sb1,
@@ -181,6 +190,8 @@ export function readCamera(t, read) {
     locked: ok(lock, 1) && lock[0] !== 0,
     fade: fadeActive ? (u16(fade, 0) >> 6) & 0x1f : 0,
     battle: !!(battle && battle[0] & t.inBattle.mask),
+    // FR/LG's help screen (L/R) runs over the overworld without locking it or changing the callback
+    help: !!(help && help[0]),
   };
 }
 
@@ -222,7 +233,62 @@ export function readPlayer(t, read, cam = readCamera(t, read)) {
     kind,
     gender,
     run: kind === 'walk' && !!(av[0] & 0x80),
+    // previousElevation: what the game sets the sprite's priority from – on a bridge nothing on the map covers it
+    elev: o[0x0b] >> 4,
   };
+}
+
+/**
+ * The map as the game holds it now (gMapHeader.mapLayout: the layout in the ROM, for the tilesets; gBackupMapLayout:
+ * its blocks in RAM with 7 tiles of the connected maps around them – doors that opened, trees that were cut, the
+ * generated floors of the Battle Pyramid are in there): { layout, w, h, map } or null.
+ */
+export function readMapView(t, read) {
+  if (!t?.mapHeader || !t.backupMap) return null;
+  const h = read(t.mapHeader, 4);
+  const b = read(t.backupMap, 12);
+  if (!ok(h, 4) || !ok(b, 12)) return null;
+  const layout = u32(h, 0);
+  const w = s32(b, 0);
+  const hh = s32(b, 4);
+  const map = u32(b, 8);
+  if (layout < 0x08000000 || layout >= 0x0a000000 || w <= 15 || hh <= 14 || w * hh > 0x2800 || map < 0x02000000 || map + w * hh * 2 > 0x02040000) return null;
+  return { layout, w, h: hh, map };
+}
+
+/** A reader of the metatile ids of a map view (map coordinates; −1 outside what the game holds). */
+export function blockReader(view, read) {
+  return (mx, my) => {
+    const x = mx + 7;
+    const y = my + 7;
+    if (!view || x < 0 || y < 0 || x >= view.w || y >= view.h) return -1;
+    const b = read(view.map + (y * view.w + x) * 2, 2);
+    return ok(b, 2) ? u16(b, 0) & 0x3ff : -1;
+  };
+}
+
+/**
+ * The map-name popup (it slides in at the top left when you enter a town or a route, without holding the player): its
+ * rectangle on the picture { x, y, w, h, shown, grows } while the game's popup task runs, else null. The slide offset comes
+ * from the task's data (Emerald tYOffset, Ruby data[2], FR/LG tPos; `shown`: the rows on screen by it). The tasks come
+ * from the RAM mirror, a few frames late: while the popup grows (`prev`: the last result) 12 rows more are cut away.
+ */
+export function popupRect(t, read, prev = null) {
+  const p = t?.popup;
+  if (!p) return null;
+  const b = read(t.tasks, 16 * 0x28);
+  if (!ok(b, 16 * 0x28)) return null;
+  for (let i = 0; i < 16; i++) {
+    const o = i * 0x28;
+    if (!b[o + 4] || u32(b, o) !== p.task) continue;
+    const [x, y, w, h] = p.rect;
+    const shown = p.data === null ? h : Math.min(h, Math.abs(p.base - s16(b, o + 8 + p.data * 2)));
+    // (the same reading comes back for several pictures in a row: the direction it went last holds until it changes)
+    const grows = !prev || (shown === prev.shown ? prev.grows !== false : shown > prev.shown);
+    const cut = Math.min(h, shown + (grows ? 12 : 0));
+    return cut > 0 ? { x, y, w, h: cut, shown, grows } : null;
+  }
+  return null;
 }
 
 /**
@@ -230,7 +296,7 @@ export function readPlayer(t, read, cam = readCamera(t, read)) {
  * learned while the player walked: `learned`), no battle, no menu or script holding the player, no full fade.
  */
 export function drawable(t, cam, learned = 0) {
-  if (!t || !cam || cam.battle || cam.locked || cam.fade >= 16) return false;
+  if (!t || !cam || cam.battle || cam.locked || cam.help || cam.fade >= 16) return false;
   const cb2 = t.overworldCb2 || learned;
   return cb2 ? cam.cb2 === cb2 : true;
 }
@@ -260,13 +326,14 @@ export class OverworldLearner {
 // ---- the message -------------------------------------------------------------------------------------------------
 /**
  * A player's state on the wire (~40 bytes of JSON): [v, seq, t, fam, map, x, y, flags]. flags: facing (bits 0–2),
- * kind (3–6), gender (7), run (8), hidden (9: not on the overworld – nothing to draw). `t`: the sender's clock (ms).
+ * kind (3–6), gender (7), run (8), hidden (9: not on the overworld – nothing to draw), elevation (10–13: 0 from older
+ * versions, which counts as the ground). `t`: the sender's clock (ms).
  */
 export const WIRE_V = 1;
 export function packState(st, seq, t) {
   if (!st || st.hidden) return [WIRE_V, seq >>> 0, Math.round(t), st?.fam || 0, 0, 0, 0, 1 << 9];
   const k = Math.max(0, KINDS.indexOf(st.kind));
-  const flags = (st.facing & 7) | (k << 3) | ((st.gender & 1) << 7) | (st.run ? 1 << 8 : 0);
+  const flags = (st.facing & 7) | (k << 3) | ((st.gender & 1) << 7) | (st.run ? 1 << 8 : 0) | ((st.elev & 15) << 10);
   return [WIRE_V, seq >>> 0, Math.round(t), st.fam | 0, st.map | 0, Math.round(st.x), Math.round(st.y), flags];
 }
 
@@ -277,7 +344,7 @@ export function unpackState(a) {
   if (Math.abs(x) > 0x8000 || Math.abs(y) > 0x8000 || map < 0 || map > 0xffff) return null;
   if (flags & (1 << 9)) return { seq, t, fam, hidden: true };
   const facing = flags & 7;
-  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), hidden: false };
+  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), elev: (flags >> 10) & 15, hidden: false };
 }
 
 /** How often the sender sends: while something changes up to 15 a second, else a heartbeat once a second. */
@@ -285,7 +352,7 @@ export const SEND = { minMs: 66, idleMs: 1000, relayMs: 2000 };
 /** Is `st` different enough from the last sent one to send now? */
 export function changed(a, b) {
   if (!a || !b) return a !== b;
-  return a.hidden !== b.hidden || a.map !== b.map || a.x !== b.x || a.y !== b.y || a.facing !== b.facing || a.kind !== b.kind || a.run !== b.run || a.gender !== b.gender;
+  return a.hidden !== b.hidden || a.map !== b.map || a.x !== b.x || a.y !== b.y || a.facing !== b.facing || a.kind !== b.kind || a.run !== b.run || a.gender !== b.gender || (a.elev | 0) !== (b.elev | 0);
 }
 
 // ---- interpolation -------------------------------------------------------------------------------------------------

@@ -505,21 +505,37 @@
     "paletteFade": "0x0202F388",
     "lockFieldControls": "0x030006A4",
     "sprites": "0x02020004",
+    "mapHeader": "0x0202E828",
+    "backupMapLayout": "0x03004870",
+    "tasks": "0x03004B20",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      112,
+      32
+     ],
+     "offsetData": 2,
+     "offsetBase": 32
+    },
     "rom": {
      "0": {
       "overworldCb2": "0x080543A4",
       "graphicsInfo": "0x0836DC58",
-      "spritePalettes": "0x0837377C"
+      "spritePalettes": "0x0837377C",
+      "mapNamePopupTask": "0x080A2FF4"
      },
      "1": {
       "overworldCb2": "0x080543C4",
       "graphicsInfo": "0x0836DC70",
-      "spritePalettes": "0x08373794"
+      "spritePalettes": "0x08373794",
+      "mapNamePopupTask": "0x080A3014"
      },
      "2": {
       "overworldCb2": "0x080543C4",
       "graphicsInfo": "0x0836DC70",
-      "spritePalettes": "0x08373794"
+      "spritePalettes": "0x08373794",
+      "mapNamePopupTask": "0x080A3014"
      }
     },
     "avatars": [
@@ -564,7 +580,7 @@
       192
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeruby.sym, pokeruby_rev1.sym, pokeruby_rev2.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, gBackupMapLayout, gTasks (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokeruby.sym, pokeruby_rev1.sym, pokeruby_rev2.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {
@@ -636,21 +652,37 @@
     "paletteFade": "0x0202F388",
     "lockFieldControls": "0x030006A4",
     "sprites": "0x02020004",
+    "mapHeader": "0x0202E828",
+    "backupMapLayout": "0x03004870",
+    "tasks": "0x03004B20",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      112,
+      32
+     ],
+     "offsetData": 2,
+     "offsetBase": 32
+    },
     "rom": {
      "0": {
       "overworldCb2": "0x080543A8",
       "graphicsInfo": "0x0836DBE8",
-      "spritePalettes": "0x0837370C"
+      "spritePalettes": "0x0837370C",
+      "mapNamePopupTask": "0x080A2FF4"
      },
      "1": {
       "overworldCb2": "0x080543C8",
       "graphicsInfo": "0x0836DC00",
-      "spritePalettes": "0x08373724"
+      "spritePalettes": "0x08373724",
+      "mapNamePopupTask": "0x080A3014"
      },
      "2": {
       "overworldCb2": "0x080543C8",
       "graphicsInfo": "0x0836DC00",
-      "spritePalettes": "0x08373724"
+      "spritePalettes": "0x08373724",
+      "mapNamePopupTask": "0x080A3014"
      }
     },
     "avatars": [
@@ -695,7 +727,7 @@
       192
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokesapphire.sym, pokesapphire_rev1.sym, pokesapphire_rev2.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, gBackupMapLayout, gTasks (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokesapphire.sym, pokesapphire_rev1.sym, pokesapphire_rev2.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {
@@ -766,11 +798,31 @@
     "paletteFade": "0x0202F388",
     "lockFieldControls": "0x030006A4",
     "sprites": "0x02020004",
+    "mapHeader": "0x0202E828",
+    "backupMapLayout": "0x03004880",
+    "tasks": "0x03004B30",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      112,
+      32
+     ],
+     "offsetData": 2,
+     "offsetBase": 32
+    },
     "rom": {
      "0": {
       "overworldCb2": "0x080546E4",
       "graphicsInfo": "0x08379440",
-      "spritePalettes": "0x0837EF64"
+      "spritePalettes": "0x0837EF64",
+      "mapNamePopupTask": "0x080A3144"
+     },
+     "1": {
+      "overworldCb2": "0x080546E4",
+      "graphicsInfo": "0x08379440",
+      "spritePalettes": "0x0837EF64",
+      "mapNamePopupTask": "0x080A3144"
      }
     },
     "avatars": [
@@ -815,7 +867,7 @@
       192
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeruby_de.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, gBackupMapLayout, gTasks (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokeruby_de.sym; rev 1 = pokeruby_de_rev1.sym, the same addresses). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {
@@ -944,11 +996,25 @@
     "paletteFade": "0x02037FD4",
     "lockFieldControls": "0x03000F2C",
     "sprites": "0x02020630",
+    "mapHeader": "0x02037318",
+    "backupMapLayout": "0x03005DC0",
+    "tasks": "0x03005E00",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      96,
+      40
+     ],
+     "offsetData": 2,
+     "offsetBase": 40
+    },
     "rom": {
      "0": {
       "overworldCb2": "0x08085E5C",
       "graphicsInfo": "0x08505620",
-      "spritePalettes": "0x0850BBC8"
+      "spritePalettes": "0x0850BBC8",
+      "mapNamePopupTask": "0x080D487C"
      }
     },
     "avatars": [
@@ -993,7 +1059,7 @@
       192
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeemerald.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, gBackupMapLayout, gTasks (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopUpWindow (ROM, per revision: pokeemerald.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {
@@ -1064,16 +1130,32 @@
     "paletteFade": "0x02037AB8",
     "lockFieldControls": "0x03000F9C",
     "sprites": "0x0202063C",
+    "mapHeader": "0x02036DFC",
+    "backupMapLayout": "0x03005040",
+    "tasks": "0x03005090",
+    "inHelpSystem": "0x0203F177",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      192,
+      24
+     ],
+     "offsetData": 2,
+     "offsetBase": 0
+    },
     "rom": {
      "0": {
       "overworldCb2": "0x080565B4",
       "graphicsInfo": "0x0839FDB0",
-      "spritePalettes": "0x083A5158"
+      "spritePalettes": "0x083A5158",
+      "mapNamePopupTask": "0x080981AC"
      },
      "1": {
       "overworldCb2": "0x080565C8",
       "graphicsInfo": "0x0839FE20",
-      "spritePalettes": "0x083A51C8"
+      "spritePalettes": "0x083A51C8",
+      "mapNamePopupTask": "0x080981C0"
      }
     },
     "avatars": [
@@ -1108,7 +1190,7 @@
       12
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokefirered.sym, pokefirered_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, VMap, gTasks, sInHelpSystem (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokefirered.sym, pokefirered_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {
@@ -1246,16 +1328,32 @@
     "paletteFade": "0x02037AB8",
     "lockFieldControls": "0x03000F9C",
     "sprites": "0x0202063C",
+    "mapHeader": "0x02036DFC",
+    "backupMapLayout": "0x03005040",
+    "tasks": "0x03005090",
+    "inHelpSystem": "0x0203F177",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      192,
+      24
+     ],
+     "offsetData": 2,
+     "offsetBase": 0
+    },
     "rom": {
      "0": {
       "overworldCb2": "0x080565B4",
       "graphicsInfo": "0x0839FD90",
-      "spritePalettes": "0x083A5138"
+      "spritePalettes": "0x083A5138",
+      "mapNamePopupTask": "0x08098180"
      },
      "1": {
       "overworldCb2": "0x080565C8",
       "graphicsInfo": "0x0839FE00",
-      "spritePalettes": "0x083A51A8"
+      "spritePalettes": "0x083A51A8",
+      "mapNamePopupTask": "0x08098194"
      }
     },
     "avatars": [
@@ -1290,7 +1388,7 @@
       12
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeleafgreen.sym, pokeleafgreen_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, VMap, gTasks, sInHelpSystem (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokeleafgreen.sym, pokeleafgreen_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {

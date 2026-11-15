@@ -8,9 +8,10 @@
 // page tells it the local player's state ('emu-world', ~15 a second) and what was picked in the menu ('emu-world-act').
 import {
   worldTable, watchRanges, rangeReader, chainReaders, readCamera, readPlayer, readLocalSprite, drawable, OverworldLearner,
-  Track, unpackState, screenPos, facedPartner, gfxFor, kindFor, animFor, GBA_KEY, TILE,
+  Track, unpackState, screenPos, facedPartner, gfxFor, kindFor, animFor, readMapView, blockReader, popupRect, GBA_KEY, TILE,
 } from '/shared/world.mjs';
 import { gen3Avatar, animFrame, liveFrame, avatarPalette } from '/shared/worldsprites.mjs';
+import { mapTop, coverMask, aboveTopLayer } from '/shared/worldmap.mjs';
 
 const STATE_MS = 66; // the local state to the play view (it decides what goes out)
 const WAVE_MS = 2600;
@@ -123,6 +124,14 @@ function world(host, t, rom) {
   let lastSprite = null; // the local player's sprite as last drawn
   let near = 0; // partners on the picture
   let lastLocalGfx = null; // the local player's avatar (for the head line of their bubble)
+  // occlusion (shared/worldmap.mjs): the top layer per map layout, its tilesets decoded once; per picture the blocks
+  const tops = new Map(); // layout address → mapTop | null
+  const tilesets = new Map();
+  let occ = null; // { blockAt, mask, layout } this picture, or null (unknown game, no map yet)
+  let popup = null; // the map-name popup's rectangle this picture
+  let covered = {}; // diagnostics: hidden pixels per partner slot ('me': the local player's redraw)
+  const scratch = document.createElement('canvas');
+  const sctx = scratch.getContext('2d');
 
   const toCanvas = (rgba, w, h) => {
     const c = document.createElement('canvas');
@@ -137,7 +146,7 @@ function world(host, t, rom) {
       // vtop: the first row with a pixel in any standing frame – the head, where the name and the bubble go
       let vtop = a ? a.h : 0;
       for (const f of a ? a.frames.slice(0, 3) : []) for (let i = 3; i < f.length; i += 4) if (f[i]) { vtop = Math.min(vtop, Math.floor((i >> 2) / a.w)); break; }
-      avatars.set(gfx, a ? { ...a, vtop, frames: a.frames.map((f) => toCanvas(f, a.w, a.h)) } : null);
+      avatars.set(gfx, a ? { ...a, vtop, rgba: a.frames, frames: a.frames.map((f) => toCanvas(f, a.w, a.h)) } : null);
     }
     return avatars.get(gfx);
   };
@@ -191,6 +200,60 @@ function world(host, t, rom) {
     HAND.forEach((row, j) => [...row].forEach((ch, i) => ch === '#' && ctx.fillRect(bx + 3 + i, by + 3 + j, 1, 1)));
   }
 
+  /** The top layer of the map the game shows now (built on the first picture of a map, then kept). */
+  function readOcclusion(read) {
+    const v = readMapView(t, read);
+    if (!v) return null;
+    if (!tops.has(v.layout)) {
+      if (tops.size > 32) (tops.clear(), tilesets.clear());
+      tops.set(v.layout, mapTop(rom, t.family, v.layout, tilesets));
+    }
+    const top = tops.get(v.layout);
+    return top ? { blockAt: blockReader(v, read), mask: top.mask, layout: v.layout } : null;
+  }
+
+  /**
+   * A sprite at picture pixels (x, y), minus what the map's top layer draws over it there (a tree top, a roof, the
+   * leaves of a plant) – unless it stands on a bridge (`elev`: its elevation; such sprites are drawn above BG1).
+   * `img`: the frame as a canvas, `rgba` its pixels (for the cut-out). Returns the hidden pixel count.
+   */
+  function drawSprite(img, rgba, w, h, x, y, flip, elev) {
+    const mask = occ && rgba && !aboveTopLayer(elev | 0)
+      ? coverMask({ x: x - t.anchor.x + cam.cx, y: y - t.anchor.y + cam.cy, w, h }, occ.blockAt, occ.mask)
+      : null;
+    if (mask) {
+      const out = new ImageData(w, h);
+      const d = out.data;
+      let n = 0;
+      for (let r = 0; r < h; r++) {
+        for (let c = 0; c < w; c++) {
+          const i = r * w + c;
+          if (mask[i]) {
+            n++;
+            continue;
+          }
+          const j = (r * w + (flip ? w - 1 - c : c)) * 4;
+          d[i * 4] = rgba[j];
+          d[i * 4 + 1] = rgba[j + 1];
+          d[i * 4 + 2] = rgba[j + 2];
+          d[i * 4 + 3] = rgba[j + 3];
+        }
+      }
+      if (scratch.width !== w || scratch.height !== h) (scratch.width = w, scratch.height = h);
+      sctx.putImageData(out, 0, 0);
+      ctx.drawImage(scratch, x, y);
+      return n;
+    }
+    if (flip) {
+      ctx.save();
+      ctx.translate(x + w, y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, 0, 0);
+      ctx.restore();
+    } else ctx.drawImage(img, x, y);
+    return 0;
+  }
+
   let ticks = 0;
   function frame(now) {
     raf = requestAnimationFrame(frame);
@@ -230,6 +293,17 @@ function world(host, t, rom) {
     const spr = can ? readLocalSprite(t, read) : null;
     const localFeet = spr ? spr.y + spr.h : t.anchor.y + TILE;
     const drawn = list.filter((p) => p.pos).sort((a, b) => a.pos.y - b.pos.y);
+    occ = can && drawn.length ? readOcclusion(read) : null; // (nobody here: no tilesets to decode either)
+    popup = can ? popupRect(t, read, popup) : null;
+    covered = {};
+    // the map-name popup (BG0, over everything) isn't a lock: nothing of ours is drawn on its rectangle
+    ctx.save();
+    if (popup) {
+      ctx.beginPath();
+      ctx.rect(0, 0, canvas.width, canvas.height);
+      ctx.rect(popup.x, popup.y, popup.w, popup.h);
+      ctx.clip('evenodd');
+    }
     let localDone = false;
     for (const p of drawn) {
       if (!localDone && p.pos.y + TILE > localFeet) {
@@ -240,10 +314,11 @@ function world(host, t, rom) {
     }
     if (!localDone) drawLocal(spr, drawn);
     // names and waves
+    const underPopup = (x, y) => !!popup && x >= popup.x - 4 && x < popup.x + popup.w + 4 && y >= popup.y - 4 && y < popup.y + popup.h + 4;
     for (const p of list) {
       const el = tagFor(p.slot);
       if (!el) continue;
-      const vis = !!p.pos && can;
+      const vis = !!p.pos && can && !underPopup(p.pos.x + TILE / 2, p.pos.y - 8);
       el.style.opacity = vis ? String(Math.round(shown * 100) / 100) : '0';
       el.style.pointerEvents = vis ? 'auto' : 'none';
       const until = waves.get(p.slot);
@@ -263,6 +338,7 @@ function world(host, t, rom) {
       const head = spr ? spr.y + (la?.vtop || 0) : t.anchor.y - 8;
       drawBubble(spr ? spr.x + spr.w / 2 : t.anchor.x + 8, head - 1, cfg.players[cfg.me]?.color || '#fff', now - (mine - WAVE_MS));
     }
+    ctx.restore();
     interact(now, read, can, list);
     near = drawn.length;
   }
@@ -282,16 +358,10 @@ function world(host, t, rom) {
     anim.set(p.slot, k);
     const kind = kindFor(t, s.kind);
     const c = animFrame(a, animFor({ ...s, kind }, s.speed || 0), Math.floor(k.time));
-    const img = a.frames[c.img] || a.frames[0];
+    const i = a.frames[c.img] ? c.img : 0;
     const x = Math.round(p.pos.x + TILE / 2 - a.w / 2);
     const y = Math.round(p.pos.y + TILE - a.h);
-    if (c.flip) {
-      ctx.save();
-      ctx.translate(x + a.w, y);
-      ctx.scale(-1, 1);
-      ctx.drawImage(img, 0, 0);
-      ctx.restore();
-    } else ctx.drawImage(img, x, y);
+    covered[p.slot] = drawSprite(a.frames[i], a.rgba[i], a.w, a.h, x, y, c.flip, s.elev);
     p.box = { x, y, w: a.w, h: a.h };
   }
 
@@ -307,14 +377,8 @@ function world(host, t, rom) {
     if (!px) return;
     const key = `c:${spr.images}:${spr.animNum}:${spr.cmd}`;
     if (!frameCache.has(key)) frameCache.set(key, toCanvas(px, spr.w, spr.h));
-    const img = frameCache.get(key);
-    if (spr.flip) {
-      ctx.save();
-      ctx.translate(spr.x + spr.w, spr.y);
-      ctx.scale(-1, 1);
-      ctx.drawImage(img, 0, 0);
-      ctx.restore();
-    } else ctx.drawImage(img, spr.x, spr.y);
+    // (the game hides the same pixels of the real one: drawn again in full it would stand on top of a tree top)
+    covered.me = drawSprite(frameCache.get(key), px, spr.w, spr.h, spr.x, spr.y, spr.flip, me.elev);
   }
 
   function tagFor(slot) {
@@ -555,6 +619,7 @@ function world(host, t, rom) {
       return {
         supported: true, game: t.id, enabled: cfg.enabled, cam, shown, learned: learner.cb2, perFrame: !!watched?.bytes, menu: menu ? { slot: menu.slot, sel: menu.items[menu.sel]?.act } : null,
         local: cam ? readPlayer(t, reader(), cam) : null, sprite: lastSprite,
+        occlusion: occ ? { layout: occ.layout, covered } : null, popup,
         partners: Object.fromEntries([...tracks].map(([slot, tr]) => {
           const s = tr.sample(now);
           return [slot, { s, pos: s && cam ? screenPos(t, cam, s) : null, delay: Math.round(tr.delay) }];
