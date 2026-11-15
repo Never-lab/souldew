@@ -1002,6 +1002,7 @@
   "lib.live": "Live tracking",
   "lib.liveGen12": "Party, levels and HP live",
   "lib.liveGen3": "Party live incl. catch location",
+  "lib.liveGen3FrlgPc": "Party live; PC boxes on FireRed/LeafGreen",
   "lib.liveGen45": "Party + PC boxes live incl. catch location",
   "lib.liveNo": "Not supported – enter catches by hand",
   "lib.liveNote.cfru": "Team, place, battles and catches are read live, held items by the names the game gives them, types and matchups from the ROM. No level cap is shown – the hack’s leaders can’t be told apart with confidence – and the Rare Candy cheat is off.",

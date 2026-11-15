@@ -478,7 +478,7 @@ function readGen3(entry, read, T, state = {}) {
 }
 
 /**
- * Gen 3 PC: PokemonStorage behind gPokemonStoragePtr (FRLG / Emerald). BoxPokemon is 80 bytes (no party stats);
+ * Gen 3 PC: PokemonStorage behind gPokemonStoragePtr (FRLG today). BoxPokemon is 80 bytes (no party stats);
  * applySnapshot already merges snap.boxes with the party for auto-encounters (#61).
  * Layout: pret include/pokemon.h – u8 currentBox, pad, boxes[14][30] at +4.
  */

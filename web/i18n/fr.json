@@ -691,6 +691,7 @@
   "lib.launched": "Démarrage …",
   "lib.liveGen12": "Équipe, niveaux et PV en direct",
   "lib.liveGen3": "Équipe en direct, lieu de capture inclus",
+  "lib.liveGen3FrlgPc": "Équipe en direct ; boîtes PC sur Rouge Feu/Vert Feuille",
   "lib.liveGen45": "Équipe + boîtes PC en direct, lieu de capture inclus",
   "lib.liveTracking": "Suivi en direct",
   "lib.newNuzlocke": "Nouveau Nuzlocke",

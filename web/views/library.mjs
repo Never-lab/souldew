@@ -929,7 +929,8 @@ export function liveSupportText(g) {
   const map = {
     1: t('lib.liveGen12', 'Party, levels and HP live'),
     2: t('lib.liveGen12', 'Party, levels and HP live'),
-    3: t('lib.liveGen45', 'Party + PC boxes live incl. catch location'),
+    // FRLG: PC via gPokemonStoragePtr; RSE still party-only (no storagePtrAddr yet)
+    3: t('lib.liveGen3FrlgPc', 'Party live; PC boxes on FireRed/LeafGreen'),
     4: t('lib.liveGen45', 'Party + PC boxes live incl. catch location'),
     5: t('lib.liveGen45', 'Party + PC boxes live incl. catch location'),
     // 3DS: in souldew's own player (or the Azahar app over its RPC server) – the party, no PC boxes
