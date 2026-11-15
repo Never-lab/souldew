@@ -373,6 +373,8 @@ function App() {
         d.set('rules', clean);
       }
       unsub = d.subscribe(() => setDocVersion((v) => v + 1));
+      // PROTOTYPE (feat/play-layout): the run's doc for the layout screenshots' demo data – dev flag only
+      try { if (localStorage.getItem('sl-dev-doc')) window.__slDoc = d; } catch {}
       setDoc(d);
       setRunData(rd);
       setDocVersion((v) => v + 1);
@@ -650,7 +652,10 @@ function App() {
   const [peek, setPeek] = useState(false);
   const peekTimer = useRef(0);
   const fs = winFs || docFs;
-  const folded = railHidden || fs;
+  // PROTOTYPE (feat/play-layout): with a layout option on, the rail also folds while the game fills the page (it slides
+  // in from the left edge, ⌘B shows it) – see views/playproto.mjs
+  const protoFold = (() => { try { return !!localStorage.getItem('sl-proto-layout'); } catch { return false; } })() && route.route === 'play' && !!session && route.params.home === undefined;
+  const folded = railHidden || fs || protoFold;
   const setHidden = useCallback((h) => {
     setRailHidden(h);
     setPeek(false);
@@ -664,12 +669,12 @@ function App() {
     const key = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'b') return;
       e.preventDefault();
-      if (fs) setPeek((p) => !p);
+      if (fs || protoFold) setPeek((p) => !p);
       else setHidden(!railHidden);
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
-  }, [fs, railHidden, setHidden]);
+  }, [fs, protoFold, railHidden, setHidden]);
   const playing = !!session;
   useEffect(() => { window.sls?.setPlaying?.(playing); }, [playing]);
   fxBusy.current = playing || fs || boot || showOnboarding;
@@ -705,8 +710,8 @@ function App() {
     <div class=${`frame ${native ? 'app-native' : ''} ${folded ? 'rail-folded' : ''} ${folded && peek ? 'rail-peek' : ''}`}>
       ${native && html`<div class="titlebar-drag"></div>`}
       ${folded && html`<div class="rail-edge" aria-hidden="true" onPointerEnter=${peekIn} onPointerLeave=${peekOut}></div>`}
-      ${folded && !fs && !peek && html`<${CoffeeLink} float fx=${coffee.fx} onOpen=${coffee.clicked} />`}
-      ${railHidden && !fs && !peek && html`<button class="rail-open no-drag" onClick=${() => setHidden(false)} title=${`${t('rail.show', 'Show the sidebar')} (${shortcut('Mod+B')})`} aria-label=${t('rail.show', 'Show the sidebar')}><${Icon} name="sidebar" size=${18} /></button>`}
+      ${folded && !fs && !protoFold && !peek && html`<${CoffeeLink} float fx=${coffee.fx} onOpen=${coffee.clicked} />`}
+      ${(railHidden || protoFold) && !fs && !peek && html`<button class="rail-open no-drag" onClick=${() => (protoFold ? setPeek(true) : setHidden(false))} title=${`${t('rail.show', 'Show the sidebar')} (${shortcut('Mod+B')})`} aria-label=${t('rail.show', 'Show the sidebar')}><${Icon} name="sidebar" size=${18} /></button>`}
       <aside class=${`rail ${native ? '' : 'web'} ${native ? 'drag' : ''}`} onPointerEnter=${folded ? peekIn : undefined} onPointerLeave=${folded ? peekOut : undefined}
         onfocusin=${folded ? peekIn : undefined} onfocusout=${folded ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) peekOut(); } : undefined}>
         <div class="brand no-drag"><${AppMark} size=${34} /><div class="name">souldew</div>

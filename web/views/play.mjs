@@ -29,6 +29,7 @@ import { gpuBackends } from '/shared/gpu.mjs';
 import { GPU_LABELS } from './settings.mjs';
 import { CTR_LAYOUTS, ctrLayoutAspect } from '/shared/ctrlayout.mjs';
 import { claimPad } from '../lib/padnav.mjs';
+import { protoMode, protoBattle, protoAttn, dockSide, useSize, PartnerStrip, AttentionCard, SideRail, useIdle } from './playproto.mjs';
 
 let TABLES = null;
 async function liveTables() {
@@ -281,6 +282,13 @@ export function GameSession({ session, mode }) {
   const [statesOpen, setStatesOpen] = useState(false);
   const [psReserve, setPsReserve] = useState(0); // room the partner windows stacked in the right column take (PartnerScreens)
   const closeStates = useCallback(() => setStatesOpen(false), []);
+  // PROTOTYPE (feat/play-layout, views/playproto.mjs): layout options A / B / C behind localStorage sl-proto-layout
+  const proto = protoMode(); // (read every render: the screenshots switch options without a reload)
+  const bodyRef = useRef(null);
+  const bodySize = useSize(bodyRef);
+  const [sideOpen, setSideOpenState] = useState(() => ls.get('sl-proto-side', true) !== false);
+  const setSideOpen = (v) => { setSideOpenState(v); ls.set('sl-proto-side', v); };
+  const idle = useIdle();
   const [statesVer, setStatesVer] = useState(0); // bumped after every save → the open panel reads the list again
   const [sel, setSel] = useState(() => ls.get(`sl-state-sel-${session.target.stateId}`, 1)); // F5 / F8 work on this slot
   const selRef = useRef(sel);
@@ -1238,32 +1246,14 @@ export function GameSession({ session, mode }) {
   // the battle helper: left of the game (default) or on the right above the team, folded in or not – the player's choice
   const panelSide = panelPrefs.side === 'right' ? 'right' : 'left';
   const gameGen = liveGen || GEN[target.system] || null;
-  const battlePanel = html`<${BattlePanel} battle=${battle} mine=${myParty} gen=${gameGen} isRun=${isRun}
+  const battleX = battle?.enemy ? battle : protoBattle() || battle; // (PROTOTYPE: a demo battle, dev flag sl-proto-battle)
+  const battlePanel = html`<${BattlePanel} battle=${battleX} mine=${myParty} gen=${gameGen} isRun=${isRun}
     side=${panelSide} collapsed=${panelPrefs.collapsed} onPrefs=${setPanelPrefs} noMoves=${features?.moves === 'no'} />`;
-  const hasLeft = !!(isRun || here || (battle?.enemy && panelSide === 'left'));
+  const hasLeft = !!(isRun || here || (battleX?.enemy && panelSide === 'left'));
   // the partners' games, each in a window over the play area – not with the game in the corner (it floats over other
   // pages there; the board shows the partners), and not in a solo run
   const partnersShown = !!(isRun && names && !solo && mode === 'full');
-  return html`<div class=${`session ${mode} ${fs && mode === 'full' ? 'is-fs' : ''} ${isDs ? 'ds' : ''}`} data-v=${docVersion}>
-    <div class="mini-head">
-      <${Led} on=${phase === 'running' && !paused} color="green" /><span class="grow ellipsis">${target.label}</span>
-      ${btn('close', t('play.close', 'Close game'), actions.close)}
-    </div>
-    <div class="session-top">
-      <b class="ellipsis">${target.label}</b>
-      ${phase === 'running' && html`<${SaveAge} savedAt=${guard.savedAt} hasSave=${guard.hasSave} dirty=${guard.dirty} />`}
-      <span class="spacer"></span>
-      ${isRun && html`<button class="btn small ghost" onClick=${() => navigate('soullink', { run: target.runId })}><${Icon} name="link" size=${14} />${t('play.board', 'Board')}</button>`}
-      <button class="btn small ghost" onClick=${actions.close}><${Icon} name="close" size=${14} />${t('play.close', 'Close game')}</button>
-    </div>
-    <div class=${`session-body ${hasLeft ? 'has-left' : ''}`}>
-      ${hasLeft && html`<aside class="session-left">
-        <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
-        ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}
-        ${panelSide === 'left' && battlePanel}
-      </aside>`}
-      <div class="session-stage">
-        <div class="session-screen" onClick=${focusGame}>
+  const screenEl = html`<div class="session-screen" onClick=${focusGame}>
           <div class="console-screen" style=${`--arn:${arn}`}>
             <iframe ref=${frame} src=${src} title=${t('play.screenTitle', 'Game screen')} allow="autoplay; fullscreen; gamepad"
               class=${screenShown ? 'ci-shown' : 'ci-wait'} onLoad=${focusGame}></iframe>
@@ -1287,8 +1277,8 @@ export function GameSession({ session, mode }) {
             </div>`}
             ${ctrFail && html`<${CtrFailed} fail=${ctrFail} target=${target} onClose=${actions.close} />`}
           </div>
-        </div>
-        <div class="session-bar" role="toolbar" aria-label=${t('play.controls', 'Game controls')}>
+        </div>`;
+  const barEl = html`<div class="session-bar" role="toolbar" aria-label=${t('play.controls', 'Game controls')}>
           ${btn(paused ? 'resume' : 'pause', t('keys.pause', 'Pause / resume') + ' (P)', actions.pause, { 'data-pad-first': '' })}
           ${btn('reset', t('keys.reset', 'Reset the game (asks first)') + ' (R)', actions.reset)}
           <span class="sep"></span>
@@ -1349,14 +1339,8 @@ export function GameSession({ session, mode }) {
             </div>`}
           </span>
           ${btn(fs ? 'shrink' : 'full', (fs ? t('play.exitFullscreen', 'Leave fullscreen') : t('keys.fullscreen', 'Fullscreen game')) + ' (F)', actions.fullscreen)}
-        </div>
-        ${slow && mode === 'full' && html`<${SlowNotice} slow=${slow} isDs=${isDs} native=${nativeOn} onClose=${() => { setSlow(null); focusGame(); }} />`}
-        ${statesOpen && mode === 'full' && html`<${StatePanel} id=${target.stateId} core=${core} gen=${gameGen} version=${statesVer} selected=${sel}
-          onClose=${closeStates} onSave=${(n) => actions.quicksave(n)} onLoad=${(n) => { setStatesOpen(false); actions.quickload(n); }} />`}
-      </div>
-      <aside class="session-side">
-        ${panelSide === 'right' && battlePanel}
-        <section class="screen stack" style="gap:8px">
+        </div>`;
+  const liveEl = html`<section class="screen stack" style="gap:8px">
           <div class="row"><${Led} on=${liveState.status === 'live'} color="green" blink=${liveState.status === 'searching' && phase === 'running'} />
             <b class="px">${names ? names[me].name : t('play.liveOn', 'Live tracking')}</b>
             <span class="tiny faint grow">${liveState.status === 'live' ? (names ? t('play.liveOn', 'Live tracking') : t('board.liveNow', 'live')) : liveState.status === 'unsupported' ? t('play.liveUnsupported', 'No live data for this game') : liveState.status === 'hack' ? t('play.liveHack', 'Not supported for this hack yet') : t('play.liveSearching', 'Looking for your team …')}</span>
@@ -1373,9 +1357,94 @@ export function GameSession({ session, mode }) {
             ? t('play.liveHackRun', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon. The run still works: enter catches by hand.')
             : t('play.liveHackSolo', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon.')}</span>`}
           ${isRun && names
-            ? html`<${LinkedPairs} mine=${myParty} gen=${gameGen} compact=${!!battle?.enemy} />`
+            ? html`<${LinkedPairs} mine=${myParty} gen=${gameGen} compact=${!!battleX?.enemy} />`
             : liveState.status !== 'unsupported' && liveState.status !== 'hack' && html`<${PartyGrid} party=${myParty} gen=${gameGen} compact accent="var(--p1)" label=${t('play.yourTeam', 'Your team')} noItems=${features?.items === 'no'} />`}
-        </section>
+        </section>`;
+
+  // PROTOTYPE (feat/play-layout): the three layout options – same parts as below, arranged differently
+  function protoView() {
+    const area = bodySize;
+    // C: the dock goes where the picture leaves room; B: the free space around the picture (the "gutter")
+    const side = proto === 'c' ? dockSide(area, arn) : proto === 'b' ? (area && area.w / area.h < arn ? 'bottom' : 'right') : 'right';
+    const attn = protoAttn();
+    const head = html`<div class="proto-head">
+      <div class="proto-title"><b class="ellipsis">${target.label}</b>
+        ${phase === 'running' && html`<${SaveAge} savedAt=${guard.savedAt} hasSave=${guard.hasSave} dirty=${guard.dirty} />`}</div>
+      ${isRun && html`<button class="btn small ghost" onClick=${() => navigate('soullink', { run: target.runId })}><${Icon} name="link" size=${14} />${t('play.board', 'Board')}</button>`}
+      <button class="btn icon ghost" title=${t('play.close', 'Close game')} aria-label=${t('play.close', 'Close game')} onClick=${actions.close}><${Icon} name="close" size=${14} /></button>
+      ${proto === 'a' && html`<button class="btn icon ghost" title=${t('proto.hidePanel', 'Fold the panel (I)')} onClick=${() => setSideOpen(false)}><${Icon} name="panelRight" size=${14} /></button>`}
+    </div>`;
+    const leftParts = html`
+      <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
+      ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}`;
+    // B: the free space around the picture decides how big the floating parts get
+    const gut = area ? (side === 'bottom' ? (area.h - area.w / arn) / 2 : (area.w - area.h * arn) / 2) : 0;
+    const clampN = (v, lo, hi) => Math.round(Math.min(hi, Math.max(lo, v)));
+    const stripSize = proto === 'b' ? clampN(gut - 24, 120, 190) : 168;
+    const bVars = proto === 'b' ? `--bpanel:${side === 'bottom' ? clampN(gut - 24, 150, 200) : clampN(gut - 24, 270, 340)}px;--gut:${Math.max(0, Math.round(gut))}px` : '';
+    const strip = partnersShown && html`<${PartnerStrip} link=${link} system=${target.system} dir=${side === 'bottom' ? 'row' : 'col'} max=${side === 'bottom' ? stripSize : proto === 'b' ? clampN((gut - 32) / 2, 110, 190) : 132} />`;
+    const confirms = html``;
+    const tight = proto === 'b' && (side === 'right' ? gut < 290 : gut < 150); // B: no room around the picture → the panel only shows on demand
+    const cls = `session full proto proto-${proto} side-${side} ${tight ? 'b-tight' : ''} ${proto === 'a' && !sideOpen ? 'side-folded' : ''} ${proto === 'b' && idle ? 'is-idle' : ''} ${fs ? 'is-fs' : ''} ${isDs ? 'ds' : ''}`;
+    return html`<div class=${cls} data-v=${docVersion} style=${bVars}>
+      <div class="session-body" ref=${bodyRef}>
+        <div class="session-stage" style=${`--arn:${arn}`}>
+          ${screenEl}
+          ${barEl}
+          ${slow && html`<${SlowNotice} slow=${slow} isDs=${isDs} native=${nativeOn} onClose=${() => { setSlow(null); focusGame(); }} />`}
+          ${statesOpen && html`<${StatePanel} id=${target.stateId} core=${core} gen=${gameGen} version=${statesVer} selected=${sel}
+            onClose=${closeStates} onSave=${(n) => actions.quicksave(n)} onLoad=${(n) => { setStatesOpen(false); actions.quickload(n); }} />`}
+          <${AttentionCard} attn=${attn} />
+          ${tight && html`<button class="b-chip" title=${t('proto.showPanel', 'Show the panel (I)')}><${Led} on=${liveState.status === 'live'} color="green" />
+            <span>${t('play.yourTeam', 'Your team')}</span>${battleX?.enemy && html`<span class="b-chip-dot">${t('battle.title', 'Battle')}</span>`}<${Icon} name="panelRight" size=${14} /></button>`}
+        </div>
+        ${proto === 'a' && !sideOpen
+          ? html`<${SideRail} onOpen=${() => setSideOpen(true)} names=${names} hasBattle=${!!battleX?.enemy} partners=${others.length} />`
+          : html`<aside class="session-side">
+            ${side !== 'bottom' && head}
+            <div class="side-sec side-place">${side === 'bottom' && head}${leftParts}</div>
+            ${battleX?.enemy && html`<div class="side-sec side-battle">${battlePanel}</div>`}
+            <div class="side-sec side-team">${liveEl}</div>
+            ${proto === 'c' && side === 'right' && strip && html`<div class="side-sec side-partners">${strip}</div>`}
+            ${proto === 'a' && partnersShown && psReserve > 0 && html`<div class="side-partner-space" style=${`height:${psReserve}px`} aria-hidden="true"></div>`}
+          </aside>`}
+        ${((proto === 'c' && side === 'bottom') || proto === 'b') && strip && html`<div class="proto-partners">${strip}</div>`}
+        ${proto === 'a' && sideOpen && partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} onReserve=${setPsReserve} />`}
+      </div>
+      ${confirms}
+      ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false} onDone=${() => setInserting(false)} />`}
+      <${RulesDrawer} open=${rulesOpen} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${RulesTab} />
+    </div>`;
+  }
+  if (proto && mode === 'full') return protoView();
+  return html`<div class=${`session ${mode} ${fs && mode === 'full' ? 'is-fs' : ''} ${isDs ? 'ds' : ''}`} data-v=${docVersion}>
+    <div class="mini-head">
+      <${Led} on=${phase === 'running' && !paused} color="green" /><span class="grow ellipsis">${target.label}</span>
+      ${btn('close', t('play.close', 'Close game'), actions.close)}
+    </div>
+    <div class="session-top">
+      <b class="ellipsis">${target.label}</b>
+      ${phase === 'running' && html`<${SaveAge} savedAt=${guard.savedAt} hasSave=${guard.hasSave} dirty=${guard.dirty} />`}
+      <span class="spacer"></span>
+      ${isRun && html`<button class="btn small ghost" onClick=${() => navigate('soullink', { run: target.runId })}><${Icon} name="link" size=${14} />${t('play.board', 'Board')}</button>`}
+      <button class="btn small ghost" onClick=${actions.close}><${Icon} name="close" size=${14} />${t('play.close', 'Close game')}</button>
+    </div>
+    <div class=${`session-body ${hasLeft ? 'has-left' : ''}`}>
+      ${hasLeft && html`<aside class="session-left">
+        <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
+        ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}
+        ${panelSide === 'left' && battlePanel}
+      </aside>`}
+      <div class="session-stage">
+        ${screenEl}
+        ${barEl}
+        ${slow && mode === 'full' && html`<${SlowNotice} slow=${slow} isDs=${isDs} native=${nativeOn} onClose=${() => { setSlow(null); focusGame(); }} />`}
+        ${statesOpen && mode === 'full' && html`<${StatePanel} id=${target.stateId} core=${core} gen=${gameGen} version=${statesVer} selected=${sel}
+          onClose=${closeStates} onSave=${(n) => actions.quicksave(n)} onLoad=${(n) => { setStatesOpen(false); actions.quickload(n); }} />`}
+      </div>
+      <aside class="session-side">
+        ${panelSide === 'right' && battlePanel}
+        ${liveEl}
         ${partnersShown && psReserve > 0 && html`<div class="side-partner-space" style=${`height:${psReserve}px`} aria-hidden="true"></div>`}
       </aside>
       ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} onReserve=${setPsReserve} />`}

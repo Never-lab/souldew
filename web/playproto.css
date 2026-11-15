@@ -1,0 +1,136 @@
+/* PROTOTYPE (feat/play-layout) – layout options A / B / C of the big play view (views/playproto.mjs). Everything here
+   hangs off .session.proto, so without localStorage sl-proto-layout nothing changes. */
+
+/* ---- shared ---------------------------------------------------------------------------------------------------- */
+.session.full.proto { padding: 12px 14px; gap: 0; }
+.app-native .session.full.proto:not(.is-fs) { padding-top: 34px; } /* the traffic-light strip (rail folded: its button sits there) */
+.session.proto.is-fs { padding: 10px; }
+.session.proto .session-body { grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; }
+.session.proto .session-stage { gap: 8px; }
+.session.proto .session-side { gap: 10px; }
+.session.proto .session-side > .side-sec { display: flex; flex-direction: column; gap: 10px; flex: none; }
+.proto-head { display: flex; align-items: center; gap: 2px; min-height: 30px; flex: none; }
+.proto-title { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+.proto-title b { font-family: var(--font-pixel); font-size: 15px; font-weight: 400; }
+.proto-title .save-age { margin-left: 0; font-size: 11.5px; }
+.proto-head .btn.icon { width: 28px; height: 28px; min-width: 28px; padding: 0; }
+.proto-head .btn.small { padding: 4px 9px; }
+/* the live row with four names: names wrap under the status instead of squeezing it to one word per line */
+.session.proto .session-side .screen > .row:first-child { flex-wrap: wrap; row-gap: 2px; }
+.session.proto .session-side .screen > .row:first-child .grow { flex-basis: 60%; }
+
+/* partner tiles (B, C) */
+.pstrip { display: flex; gap: 8px; min-width: 0; }
+.pstrip.row { flex-direction: row; align-items: flex-end; }
+.pstrip.col { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tw, 84px), 1fr)); gap: 6px; }
+.pstile { display: flex; flex-direction: column; box-sizing: border-box; background: #141318; border: 1px solid var(--edge-hi); border-radius: var(--r-l); overflow: hidden; box-shadow: inset 0 1px 0 #ffffff0a, 0 10px 26px #0008; flex: none; }
+.pstile header { flex: none; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 4px 0 9px; font-size: 12px; color: var(--ink); min-width: 0; }
+.pstile header b { font-weight: 400; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pstile.p2 header b { color: var(--p2); } .pstile.p3 header b { color: var(--p3); } .pstile.p4 header b { color: var(--p4); }
+.pstile .ps-btn { width: 20px; height: 20px; }
+.pstile-pic { position: relative; flex: 1; min-height: 0; margin: 0 6px 6px; border-radius: 6px; background: #000; overflow: hidden; }
+.pstrip.col .pstile-pic { flex: none; aspect-ratio: var(--ar); }
+.pstile-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+
+/* "something needs you" pop-up: over the top of the game, leaves by itself */
+.attn { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); z-index: 9; width: min(520px, calc(100% - 24px)); box-sizing: border-box;
+  display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 14px; background: color-mix(in srgb, #141318 92%, transparent);
+  border: 1px solid var(--edge-hi); border-left: 3px solid var(--cir); box-shadow: 0 18px 44px #000c; backdrop-filter: blur(10px); animation: attn-in .28s cubic-bezier(.2,.8,.2,1); }
+.attn.catch { border-left-color: var(--tri); } .attn.cap { border-left-color: var(--warn); }
+.attn-ico { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: color-mix(in srgb, var(--cir) 16%, transparent); color: var(--bad-ink); }
+.attn.catch .attn-ico { background: color-mix(in srgb, var(--tri) 16%, transparent); color: var(--ok-ink); }
+.attn-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.attn-text b { font-size: 14px; } .attn-text span { font-size: 12.5px; color: var(--ink-2); }
+@keyframes attn-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* ---- A: Theatre ---------------------------------------------------------------------------------------------------- */
+.session.proto-a.side-folded .session-body { grid-template-columns: minmax(0, 1fr) 48px; }
+.siderail { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 0; border-radius: 14px; background: #141318; box-shadow: inset 0 1px 2px #0008; align-self: start; }
+.siderail-btn, .siderail-who { position: relative; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink-2); cursor: pointer; }
+.siderail-btn:hover, .siderail-who:hover { background: var(--shell-3); color: var(--ink); }
+.siderail-btn.open { color: var(--ink); background: var(--shell-3); }
+.siderail-btn.dot-warn::after, .siderail-btn.dot-live::after { content: ''; position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); box-shadow: 0 0 0 2px #141318; }
+.siderail-btn.dot-live::after { background: var(--tri); }
+.siderail-who { font-family: var(--font-pixel); font-size: 14px; }
+.siderail-who.who-p2 { color: var(--p2); } .siderail-who.who-p3 { color: var(--p3); } .siderail-who.who-p4 { color: var(--p4); }
+.siderail-sep { width: 20px; height: 1px; background: var(--edge-hi); margin: 2px 0; }
+
+/* ---- C: Adaptive dock ---------------------------------------------------------------------------------------------- */
+.session.proto-c.side-bottom .session-body { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; gap: 10px 10px; }
+.session.proto-c.side-bottom .session-stage { grid-column: 1 / -1; }
+.session.proto-c.side-bottom .session-side { flex-direction: row; height: 200px; overflow-x: auto; overflow-y: hidden; gap: 10px; align-items: stretch; }
+.session.proto-c.side-bottom .proto-partners { height: 200px; display: flex; align-items: stretch; }
+.session.proto-c.side-bottom .proto-partners .pstrip.row { height: 100%; align-items: stretch; }
+.session.proto-c.side-bottom .proto-partners .pstile { height: 100% !important; }
+/* the dock's sections side by side: head + place | battle | team (as many as fit, it scrolls sideways) */
+
+.side-bottom .side-place { width: 270px; flex: none; justify-content: flex-start; overflow: hidden; }
+.side-bottom .side-place::before { content: ''; } 
+.side-bottom .side-battle { width: 300px; overflow: auto; }
+.side-bottom .side-team { flex: 1 1 auto; min-width: 360px; }
+.side-bottom .side-team > .screen { height: 100%; box-sizing: border-box; overflow: hidden; padding: 10px 12px; }
+.side-bottom .pairs.group { display: flex; flex-direction: row; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 8px; align-items: stretch; }
+.side-bottom .pairs.group .grp-head { display: none; }
+.side-bottom .pairs.group .grp-row { flex: none; width: 196px; align-content: start; }
+.side-bottom .loc-sign { flex: none; }
+/* the title + close live in the dock's first card when the dock is at the bottom */
+.side-bottom .side-place .dock-head { display: flex; }
+.session.proto-c.side-bottom .session-bar { order: 0; }
+
+/* ---- B: Immersive -------------------------------------------------------------------------------------------------- */
+.session.proto-b { background: #000; }
+.session.full.proto-b { padding: 0; }
+.app-native .session.full.proto-b:not(.is-fs) { padding-top: 28px; }
+.session.proto-b .session-body { display: block; position: relative; height: 100%; }
+.session.proto-b .session-stage { position: absolute; inset: 0; gap: 0; }
+.session.proto-b .session-screen { position: absolute; inset: 0; }
+.session.proto-b .console-screen { border-radius: 0; box-shadow: none; }
+/* the game bar floats over the bottom of the picture and fades out while you play */
+.session.proto-b .session-bar { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 8; background: color-mix(in srgb, #141318 88%, transparent);
+  box-shadow: 0 10px 30px #000a, inset 0 0 0 1px #ffffff12; backdrop-filter: blur(10px); transition: opacity .25s, transform .25s; }
+.session.proto-b.is-idle .session-bar { opacity: 0; transform: translate(-50%, 10px); pointer-events: none; }
+/* panels float in the free space around the picture: translucent cards, foldable */
+.session.proto-b .session-side { position: absolute; z-index: 7; padding: 12px; box-sizing: border-box; overflow: auto; gap: 10px;
+  background: color-mix(in srgb, #121116 78%, transparent); backdrop-filter: blur(14px); border: 1px solid #ffffff14; border-radius: 16px; transition: opacity .25s; }
+.session.proto-b.side-right .session-side { top: 12px; right: 12px; bottom: 12px; width: var(--bpanel, 300px); }
+.session.proto-b.side-bottom .session-side { left: 12px; right: 12px; bottom: 12px; height: var(--bpanel, 168px); flex-direction: row; overflow-x: auto; overflow-y: hidden; align-items: stretch; }
+.session.proto-b.side-bottom .session-side .side-place { width: 260px; flex: none; overflow: hidden; }
+.session.proto-b.side-bottom .session-side .side-battle { width: 290px; overflow: auto; }
+.session.proto-b.side-bottom .session-side .side-team { flex: 1 1 auto; min-width: 360px; }
+.session.proto-b.side-bottom .side-team > .screen { height: 100%; box-sizing: border-box; overflow: hidden; padding: 8px 10px; }
+.session.proto-b.side-bottom .pairs.group { display: flex; flex-direction: row; gap: 8px; overflow-x: auto; padding: 6px; }
+.session.proto-b.side-bottom .pairs.group .grp-head { display: none; }
+.session.proto-b.side-bottom .pairs.group .grp-row { flex: none; width: 190px; align-content: start; }
+
+.session.proto-b.side-bottom .session-bar { bottom: calc(var(--bpanel, 168px) + 28px); }
+.session.proto-b .proto-partners { position: absolute; z-index: 7; }
+.session.proto-b.side-right .proto-partners { top: 12px; left: 12px; width: auto; }
+.session.proto-b.side-right .proto-partners { width: max(130px, calc(var(--gut, 300px) - 24px)); }
+.session.proto-b.side-right .proto-partners .pstrip.col { grid-template-columns: repeat(auto-fill, var(--tw)); }
+.session.proto-b.side-bottom .proto-partners { top: 12px; left: 50%; transform: translateX(-50%); }
+.session.proto-b .pstile { background: color-mix(in srgb, #141318 82%, transparent); backdrop-filter: blur(10px); }
+.session.proto-b .attn { top: 18px; }
+@media (prefers-reduced-motion: reduce) { .attn, .session.proto-b .session-bar { animation: none; transition: none; } }
+
+/* A and C: the game bar hangs right under the picture (not at the bottom of a tall empty stage) */
+.session.proto:not(.proto-b) .session-stage { container-type: size; display: block; }
+.session.proto:not(.proto-b) .session-screen { position: absolute; left: 0; right: 0; top: 0; bottom: 44px; }
+.session.proto:not(.proto-b) .session-bar { position: absolute; left: 50%; transform: translateX(-50%);
+  top: calc((100cqh - 44px) / 2 + min(100cqh - 44px, 100cqw / var(--arn)) / 2 + 8px); }
+.session.proto:not(.proto-b) .slow-note { position: absolute; left: 50%; transform: translateX(-50%); top: 12px; z-index: 8; }
+.side-bottom .session-side .side-place > .proto-head { display: flex; }
+.side-bottom .side-place { overflow-y: auto !important; }
+.side-bottom .proto-title { flex-direction: row; align-items: baseline; gap: 8px; }
+.side-bottom .proto-title .save-age { display: none; }
+/* the old fullscreen grid (equal side columns, padding for the left one) doesn't apply to the options */
+.session.proto.is-fs .session-body, .session.proto.is-fs .session-body.has-left { padding-left: 0; grid-template-columns: minmax(0, 1fr) 300px; grid-template-rows: none; grid-template-areas: none; }
+.session.proto-a.is-fs.side-folded .session-body { grid-template-columns: minmax(0, 1fr) 48px; }
+.session.proto-c.is-fs.side-bottom .session-body { grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto; }
+.session.proto-b.is-fs .session-body { display: block; }
+/* B with no room around the picture: the panel fades out while you play; a small chip at the edge brings it back */
+.session.proto-b.b-tight.is-idle .session-side { opacity: 0; pointer-events: none; }
+.b-chip { display: none; }
+.session.proto-b.b-tight.is-idle .b-chip { position: absolute; z-index: 8; top: 14px; right: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px 6px 12px;
+  border-radius: 999px; border: 1px solid #ffffff1c; background: color-mix(in srgb, #121116 72%, transparent); backdrop-filter: blur(12px); color: var(--ink); font: inherit; font-size: 12.5px; cursor: pointer; box-shadow: 0 8px 22px #0008; }
+.b-chip-dot { padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--warn-ink); font-size: 11.5px; }
+.session.proto-b.b-tight.side-bottom.is-idle .b-chip { top: auto; bottom: 14px; right: 14px; }

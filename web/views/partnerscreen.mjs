@@ -81,6 +81,15 @@ function Watch({ link, slot, onView }) {
   const cb = useRef(onView);
   cb.current = onView;
   useEffect(() => {
+    // PROTOTYPE (feat/play-layout): stand-in pictures for the layout screenshots (localStorage sl-ps-demo = { p2: { url, system } })
+    let demo = null;
+    try { demo = JSON.parse(localStorage.getItem('sl-ps-demo') || 'null')?.[slot]; } catch {}
+    if (demo) {
+      const send = () => cb.current(slot, { mode: 'image', url: demo.url, active: true, known: true, at: Date.now(), system: demo.system });
+      send();
+      const id = setInterval(send, 1000);
+      return () => clearInterval(id);
+    }
     if (!link?.watchPartnerScreen) return undefined;
     return link.watchPartnerScreen((v) => cb.current(slot, v), slot);
   }, [link, slot]);
