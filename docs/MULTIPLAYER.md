@@ -36,9 +36,11 @@ Everything below was measured on an M-series Mac (darwin-arm64) with retail ROMs
 | DS | Research only, see §8 (the DS spike moved to its own agent). |
 
 | **In the app, two profiles** (`scripts/link-e2e.mjs`) | Two souldew servers with scratch data folders on this Mac, one Emerald run created on A and joined on B, both pages in Electron. A clicks "Trade" (invite over the run's peer channel), B joins. Both servers check every seat's ROM by SHA-1, the saves cross the channel (deflated, SHA-1-checked), both play views switch to the link session, and each page drives its own seat (title → Continue → Cable Club → Trade Center). **Both hosts ran at real speed (0.99–1.02×), 202 of 202 hash comparisons equal, ~12,000 inputs each way, no stall.** The local seat's battery saves (the game's link save) landed in each player's run save, and live tracking showed both teams and "Oldale Town" during the session. |
+| **Trade in the app** | Same e2e, completed: **Wurmple ↔ Poochyena traded between the two profiles**, both battery saves written back into the runs by the normal save path, and the run log on both computers says "traded Wurmple for Poochyena with Tim" (`logLinkTrade`, from the live team before and after). |
+| **3 and 4 peers** | `link-net-test.mjs --random`: 3 peers × 3 linked GBAs and 4 peers × 4 linked GBAs, mesh at 60 ± 10 ms, delay 6, real time: 59.7 fps, 30/30 hashes equal, no waits, saves equal on every peer (~1.4–2.2 KB/s per peer). The games only ran title/intro with random buttons: a real 4-player Multi Battle still needs four saves standing in a link room. |
 | Gotcha | 32-bit pictures from the link host halved the speed in the app (the page couldn't take 9 MB/s per window). The host now sends RGB565 like retrohost. |
 
-Not yet in the app: audio from a link session (the host is silent), resend on input gaps, rejoin, TURN, Windows. See §13.
+Not yet in the app: audio from a link session (the host is silent), resend on input gaps, rejoin, TURN, Windows; "You are here" shows a wrong place name inside the link rooms (the Trade Center's map id); runs joined before this branch have only the joiner's own game built (a "build the partner's game" button is missing). See §13.
 
 ## 2. Architecture
 
