@@ -6,6 +6,10 @@
 //
 //   node scripts/world-e2e.mjs --rom <emerald.gba> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] --data <dir> --out <dir> [--show]
 //                              [--browser]   (A plays in the browser player, EmulatorJS, instead of the fast player)
+//                              [--occlusion] (Emerald, three saves in the Oldale Pokémon Center 2F: instead of the walk and
+//                                             the menu, the players line up behind the potted plants, then walk out to a
+//                                             tree top in Oldale Town, then A walks into Route 101 while B stands under
+//                                             the map-name popup – crops of every player's picture side by side)
 //
 // Never commit ROMs, saves or the screenshots.
 import { spawn } from 'node:child_process';
@@ -27,6 +31,112 @@ if (!process.versions.electron) {
   app.setPath('userData', join(resolve(opt('data')), 'electron'));
   app.on('window-all-closed', () => {});
   app.whenReady().then(main);
+}
+
+/**
+ * The occlusion scenario (--occlusion): where the game draws the map's top layer over its sprites, the partners must
+ * vanish exactly like the real player – compared on the same picture (A's own sprite next to the partners) and with
+ * the partners' own pictures. Positions are Emerald's (Oldale Pokémon Center 2F → 1F → Oldale Town → Route 101).
+ */
+async function occlusion({ world, hold, shot, log, sleep, until, out, emu }) {
+  const step = async (i, dir) => { await hold(i, [dir], 150); await sleep(420); };
+  const local = async (i) => (await world(i))?.local;
+  // a straight line on one map: one axis, then the other (`yFirst`), giving up after 40 steps
+  const goto = async (i, tx, ty, yFirst = false) => {
+    for (let n = 0; n < 40; n++) {
+      const s = await local(i);
+      if (!s) { await sleep(200); continue; }
+      if (s.tx === tx && s.ty === ty) return s;
+      const moveX = s.tx !== tx && (!yFirst || s.ty === ty);
+      if (moveX) await step(i, s.tx < tx ? 'right' : 'left');
+      else await step(i, s.ty < ty ? 'down' : 'up');
+    }
+    const s = await local(i);
+    log('goto', i, 'wanted', tx, ty, 'is at', JSON.stringify(s));
+    return s;
+  };
+  // onto a warp tile (stairs, door, the exit mat – that one wants the direction once more): steps in `dir` until the
+  // map changes, then wait for the new map to settle
+  const warp = async (i, dir) => {
+    const before = (await world(i))?.cam?.map;
+    for (let n = 0; n < 6 && (await world(i))?.cam?.map === before; n++) {
+      await hold(i, [dir], 200);
+      await sleep(900);
+    }
+    await until(`warp ${i}`, async () => {
+      const w = await world(i);
+      return w?.cam && w.cam.map !== before && !w.cam.locked && w.cam.fade === 0 && w.local;
+    }, 15000);
+    await sleep(900);
+  };
+  const face = async (i, dir) => { await hold(i, [dir], 40); await sleep(300); };
+  const occ = async (i) => (await world(i))?.occlusion;
+  const all = (name) => Promise.all([0, 1, 2].map((i) => shot(name, i, true)));
+
+  // 1. behind the potted plants (2F row 8: the leaves are top layer and walkable) – A's own sprite at (6,8) shows what
+  //    the game does, B at (5,8) and C at (9,8) are drawn by souldew
+  await Promise.all([goto(0, 6, 7, true).then(() => goto(0, 6, 8)), goto(1, 5, 7, true).then(() => goto(1, 5, 8)), goto(2, 9, 7, true).then(() => goto(2, 9, 8))]);
+  await Promise.all([face(0, 'down'), face(1, 'down'), face(2, 'down')]);
+  await sleep(1200);
+  await all('10-plants');
+  log('plants: A sees', JSON.stringify(await occ(0)), 'B sees', JSON.stringify(await occ(1)));
+  // one step up: out of the leaves, nothing hidden
+  await step(1, 'up');
+  await sleep(900);
+  await shot('11-plants-B-out', 0, true);
+  log('B out of the leaves: A sees', JSON.stringify(await occ(0)));
+  // right behind A: B is drawn first, then A's own sprite again over B – still without its legs (the leaves cover them)
+  await goto(1, 6, 7);
+  await face(1, 'down');
+  await sleep(900);
+  await shot('12-behind-A', 0, true);
+  log('B behind A: A sees', JSON.stringify(await occ(0)));
+  await goto(1, 5, 7);
+
+  // 2. down the stairs (1,6) and out of the door (6,8) into Oldale Town
+  for (const i of [1, 2, 0]) {
+    await goto(i, 2, 6, true);
+    await warp(i, 'left');
+    log('1F', i, JSON.stringify(await local(i)));
+    await goto(i, 6, 7);
+    await warp(i, 'down');
+    log('Oldale', i, JSON.stringify(await local(i)));
+  }
+  // the tree tops on row 17 (x 16, 17): the canopy of the tree below covers the feet – B on (16,17), A on (17,17)
+  await goto(1, 16, 17);
+  await goto(2, 13, 17);
+  await goto(0, 17, 17, true);
+  await Promise.all([face(0, 'up'), face(1, 'up')]);
+  await sleep(1200);
+  await all('20-treetop');
+  log('tree top: A sees', JSON.stringify(await occ(0)));
+
+  // 3. the map-name popup: B waits on Route 101 (6,2) – where the popup is on A's picture once A stands on (9,5)
+  await goto(1, 9, 17);
+  await goto(1, 9, 19, true);
+  await step(1, 'down'); // (across the connection: Route 101 (9,0))
+  await sleep(600);
+  await goto(1, 9, 2, true);
+  await goto(1, 6, 2);
+  await face(1, 'down');
+  log('B on Route 101', JSON.stringify(await local(1)));
+  await goto(0, 9, 17);
+  await goto(0, 9, 19, true);
+  // A walks down into Route 101 and on to (9,5); frames while the popup shows
+  const frames = [];
+  const walking = (async () => { for (let n = 0; n < 6; n++) await step(0, 'down'); })();
+  const t0 = Date.now();
+  while (Date.now() - t0 < 4200) {
+    const w = await world(0);
+    frames.push({ t: Date.now() - t0, popup: w?.popup || null, local: w?.local, partners: w?.partners });
+    await shot(`30-popup-${String(frames.length).padStart(2, '0')}`, 0, true);
+    await sleep(150);
+  }
+  await walking;
+  writeFileSync(join(out, 'popup-frames.json'), JSON.stringify(frames, null, 1));
+  log('popup frames', frames.length, 'with a popup', frames.filter((f) => f.popup).length);
+  await shot('31-after-popup', 0, true);
+  void emu;
 }
 
 async function main() {
@@ -100,7 +210,11 @@ async function main() {
       }
     };
     // each page is the player of its slot (the join picked it; make sure)
-    for (const [i] of profiles.entries()) await until(`page ${i}`, () => ev(i, '!!window.__slLink?.sync'), 120000);
+    // (sl-e2e: the page hands its peer link to this script as window.__slLink – set once, then a reload)
+    for (const [i] of profiles.entries()) {
+      await until(`page ${i} loaded`, () => ev(i, `!!document.body && (localStorage.getItem('sl-e2e') === 'true' || (localStorage.setItem('sl-e2e', 'true'), location.reload(), false))`), 60000);
+      await until(`page ${i}`, () => ev(i, '!!window.__slLink?.sync'), 120000);
+    }
     const slotOf = async (i) => ev(i, 'window.__slLink.sync.slot');
     // a joiner's page takes p2 unless told otherwise (web/lib/restart.mjs mySlotIn): the third player is p3
     for (const [i] of profiles.entries()) {
@@ -157,6 +271,11 @@ async function main() {
     }, 30000);
     log('A sees', JSON.stringify((await world(0)).partners));
     for (const [i] of profiles.entries()) await shot('01-same-map', i);
+    if (args.includes('--occlusion')) {
+      await occlusion({ world, hold, shot, log, sleep, until, out, emu });
+      finish(0);
+      return;
+    }
 
     // B walks a little square while A's page records: a strip of frames
     const strip = [];
