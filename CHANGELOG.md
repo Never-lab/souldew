@@ -27,7 +27,8 @@ Plus a new play view that gives the game the room it deserves.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into
-  the link) or Wave – the wave shows on every player's screen. It is drawn over your game; nothing is written into
+  the link) or Wave – the wave shows on every player's screen. Like you, they walk behind trees, plants and counters,
+  and they never cover the game's text boxes or the place name. It is drawn over your game; nothing is written into
   it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald and Sapphire;
   Ruby, FireRed and LeafGreen run on the same code, with their addresses from the games' disassembly.
 - **A new play view: the game big, everything else in one dock beside it.** The sidebar folds away while you play
