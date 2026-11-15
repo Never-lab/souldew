@@ -6,7 +6,7 @@ import { SyncLink, PARTNER_TTL } from './lib/sync.mjs';
 import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
 import { detectLayout } from './lib/controls.mjs';
-import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, live as getLive, logLinkTrade, rules as getRules } from './lib/run.mjs';
+import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules } from './lib/run.mjs';
 import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal, openExternal } from './lib/ui.mjs';
 import { LINKS } from './lib/links.mjs';
@@ -502,10 +502,18 @@ function App() {
   const applySnap = useCallback((snap, { notify = true, battle = null } = {}) => {
     if (!runDoc) return null;
     const doc = runDoc;
-    // A link battle (docs/MULTIPLAYER.md › rules): the team as the battle shows it isn't the run's – losing there
-    // counts as deaths only when the run says so (rules.linkBattleDeaths); trades go on being tracked as always.
-    const lp = linkPlayRef.current?.state;
-    if (lp?.phase === 'running' && lp.kind === 'battle' && snap.source === 'live' && !getRules(doc, manifest)?.linkBattleDeaths) return null;
+    // A link session (docs/MULTIPLAYER.md › rules): what the game shows meanwhile isn't the run's – a link battle (also
+    // one fought in a "trade" session: the Colosseum is next door) would count deaths and wipes, a trade screen shuffles
+    // the party. Nothing of it is applied; the first and the last team it showed make the trade's log entry, and the run
+    // goes on from the session's in-game save. Only "Losing a link battle counts as deaths" applies a battle's team.
+    const lps = linkPlayRef.current;
+    if (lps?.state?.phase === 'running' && snap.source === 'live') {
+      if ((snap.party || []).length) {
+        lps.partyFirst ||= snap.party;
+        lps.partyLast = snap.party;
+      }
+      if (!(lps.state.kind === 'battle' && getRules(doc, manifest)?.linkBattleDeaths)) return null;
+    }
     // An ended run stays as it ended: playing on (for fun, or after a wipe) records nothing anymore.
     if (doc.get('run:status')) return null;
     const res = applySnapshot(doc, manifest, genOfRun(manifest, runData), me, snap, { rd: runData, battle });
@@ -565,7 +573,7 @@ function App() {
       emu: () => document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__emu || null,
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
       openSession: (st) => {
-        lp.partyBefore = null; // the team as the link session first reads it (the trade's log entry when it ends)
+        lp.partyFirst = lp.partyLast = null; // the teams the link session shows first and last (the trade's log entry)
         const out = manifest.outputs?.[me];
         if (!out) return;
         startSession({
@@ -583,7 +591,7 @@ function App() {
         if (st.kind === 'trade' && st.ended?.reason !== 'linkDesync') {
           const partner = (st.seats || []).find((s) => s !== me);
           try {
-            logLinkTrade(doc, manifest, me, partner, lp.partyBefore, getLive(doc, me)?.party);
+            logLinkTrade(doc, manifest, me, partner, lp.partyFirst, lp.partyLast);
           } catch (e) {
             console.warn('trade log', e);
           }
@@ -641,13 +649,6 @@ function App() {
     };
   }, []);
 
-  // A link session's team before anything happened in it: the first live read once the game is running (its log entry)
-  useEffect(() => {
-    const lp = linkPlayRef.current;
-    if (!lp || linkPlay?.phase !== 'running' || lp.partyBefore || !runDoc) return;
-    const party = getLive(runDoc, me)?.party;
-    if (party?.length) lp.partyBefore = party;
-  }, [docVersion, linkPlay?.phase]);
 
   // ---- native menu ----------------------------------------------------------------
   useEffect(() => {

@@ -29,6 +29,22 @@ local wireless in Diamond/Pearl/Platinum, HeartGold/SoulSilver, Black/White and 
   frame (or between MP exchanges). Loading a state in the middle of a Union Room session drops the link, because the
   packet queues are not part of the state. Start link sessions from battery saves, as the design already does.
 
+## In the app (feat/multiplayer, 2026-11-15)
+
+- **One link host.** The backend is linked into the same `linkhost` as mGBA and SameBoy (`scripts/build-native.mjs`:
+  melonDS fork commit `16f127d`, `core` + `teakra`, **no JIT**, no OpenGL, no GDB stub). The JIT is compiled out: every
+  peer computes with the interpreter, also arm64 ↔ x64. (`SOULDEW_DS_JIT` only works in a build with `ENABLE_JIT`.)
+- **Touch.** The fast player's pointer (INPUT bytes 12–16) over the lower half of the 256 × 384 picture becomes
+  link_input's touch bits; a tap lasts at least 4 frames (as retrohost holds it).
+- **Clock.** `--rtc` is the session's start, chosen by the inviter and the same on every peer.
+- **Session states.** A seat's state is melonDS's own plus the wireless layer's side of it: Wi-Fi on/off, the packets
+  queued for it, the last buttons, the MP host. A state loads into a fresh host and goes on identically in the middle of
+  a Union Room visit (25 / 25 hashes equal after loading at frame 12,001). It can still only be taken when every console
+  is at its frame end – otherwise "not now", and a rejoin then fails ("state-busy").
+- **Sound.** The local seat's SPU output (48 kHz) goes to the page.
+- **e2e.** Platinum ↔ Platinum Union Room trade through the whole app (invite, saves, lockstep over the peer channel):
+  both run saves equal to the recording's. The sign says "Union Room" (Platinum map 466).
+
 ## Verified (spike, Apple M1, 2026-11-15)
 
 Two Platinum (US) saves were made with the host itself (players AAAAAA / BBB, Turtwig / Chimchar, saved in the

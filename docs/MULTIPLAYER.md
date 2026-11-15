@@ -1,6 +1,6 @@
 # Multiplayer: trades, battles and a shared world
 
-Status: **phase 0 and the first slice** (November 2026, branch `feat/multiplayer`). This document is the plan for souldew 3.0: players of a run (and friends they invite) trade Pokémon and battle each other **the authentic in-game way** (Cable Club, Colosseum, Union Room), and see each other walking around in their own games.
+Status: **every generation from Gen 1 to Gen 4 links in the app** (15 November 2026, branch `feat/multiplayer`; §1). This document is the plan for souldew 3.0: players of a run (and friends they invite) trade Pokémon and battle each other **the authentic in-game way** (Cable Club, Colosseum, Union Room), and see each other walking around in their own games.
 
 There are no public lobbies. Multiplayer happens between the players of a run, over the peer channel the run already has.
 
@@ -24,24 +24,36 @@ Contents:
 
 ## 1. What works today
 
-Everything below was measured on an M-series Mac (darwin-arm64) with retail ROMs copied into a scratch folder. The ROMs and saves are not in the repo.
+Status on 15 November 2026 (branch `feat/multiplayer`, after merging the GB/GBC and DS spikes). Measured on an M-series Mac with retail ROMs copied into a scratch folder; ROMs and saves are not in the repo.
 
-| | Result |
+**The app, end to end** (`scripts/link-e2e.mjs`: two to four souldew servers with scratch data folders, one run created on the first and joined on the others, every page in Electron, muted). The real flow runs: the board's invite, join, every seat's game found by SHA-1 (or picked), saves over the run's peer channel, `go`, both play views on the link session, buttons over the mesh, hashes, write-back, log. Only the buttons come from a recording of the same trade or battle (each host plays its own seat's column, `SLS_LINK_TEST_SCRIPT`, test-only), so the outcome is known: **every check below compares each player's run save after the session with the save the recording produced, byte for byte.**
+
+| Gen | Game(s) | Trade | Battle | Notes |
+|---|---|---|---|---|
+| 1 | Red ↔ Red (SameBoy) | ✅ saves as recorded, logged | ✅ Colosseum, saves as recorded | a gap healed by NEED/resend in the trade run |
+| 2 | Crystal ↔ Silver (SameBoy) | ✅ in step (699 hashes) | ✅ (same session) | different games in one run: each picked the other's copy by SHA-1; the save check needs the end-of-recording stop (`UNTIL`), re-run below |
+| 3 | Emerald ↔ Sapphire (mGBA) | ✅ saves as recorded, logged | ✅ Colosseum single battle (Emerald wins; the battle record is in both saves) | different games: "Pick your copy" (a wrong file refused by SHA-1) |
+| 3 | 4 players, Multi Battle | | see below | |
+| 4 | Platinum ↔ Platinum (melonDS) | ✅ Union Room trade, saves as recorded | see below | sign: "Union Room" |
+| 4 | 4 players, Union Room | see below | | |
+
+| Robustness | Result |
 |---|---|
-| **GBA link host** (`native/link-host`, libmgba) | Two linked GBAs in one process, one thread, deterministic. **Emerald ↔ Sapphire Cable Club trade completed between two different saves and written to both battery saves**, then traded back. Screenshots: `gba-01…05`. |
-| Determinism | The recorded interactive session (12,638 frames, two consoles, title screen → Cable Club → trade → save) replays headless to **byte-identical battery saves** in 8.5 s. The same holds after rebuilding the host with other compile flags. |
-| **Network lockstep** (`scripts/link-net-test.mjs`) | Two link hosts, one per player, each running both consoles, exchanging only their own buttons through a relay with **80 ms RTT ± 15 ms jitter**. Input delay 6 frames. Over all 12,638 frames: **105 of 105 RAM hashes equal, the battery saves equal between peers and equal to the local session's**. At most ~150 fps at that RTT (2.5× real time), so there are no stalls at 1×. Traffic is ~1.4–2.8 KB/s per peer. |
-| CPU | 2 GBAs: **0.68 ms per frame** (4 % of one core at 60 fps). 4 GBAs: 1.4 ms. 2 GB/GBC on SameBoy: **1.4–1.9 ms CPU per frame** (Apple M1: 8–11 % of one core at 60 fps); on mGBA's GB core 0.23–0.40 ms. |
-| **GB/GBC link host** (`backend_sameboy.c`, SameBoy) | Two linked Game Boy Colors in one process, deterministic. With two different saves each: **Red ↔ Red: Cable Club trade (Bulbasaur ↔ Charmander) and Colosseum battle completed; Crystal ↔ Silver: Trade Center trade (Cyndaquil ↔ Totodile) and Colosseum battle completed** (both directions of a 2-on-2 battle to "YOU WIN / YOU LOSE"). Trades are in both battery saves. |
-| GB/GBC determinism | Recorded sessions (Red trade 6,589 frames, Red battle 7,091, Crystal/Silver trade + battle 41,838) replay headless twice to the same hash and **byte-identical saves, equal to the interactive session's**. Net lockstep (80 ms RTT ± 10 ms, delay 6): Red trade 54/54 and Crystal/Silver 348/348 hashes equal, saves equal between peers and to the local session, no waits, ~1.8 KB/s per peer. |
-| DS | Research only, see §8 (the DS spike moved to its own agent). |
+| Rejoin | Emerald ↔ Sapphire: B's page reloaded at frame 7,062 (in the Trade Center); A waited; B rejoined from A's state at 7,190; **the trade still finished with both saves as recorded**. |
+| Desync | B's host started with another clock (Emerald reads it): mismatch at frame 120 on both, **both run saves back to the pre-session save**, session's last save kept as a backup. |
+| Sound | The local seat's sound reaches the page in every run (`audioIn > 0`). |
+| Location sign | "Trade Center", "Colosseum", "Cable Club", "Union Room" instead of "Pokémon League" / "Ferry" / nothing. |
+| Direct / relayed | The bar shows "direct · 1 ms" (both on one Mac); TURN servers come from the Worker (checked against the real key). |
 
-| **In the app, two profiles** (`scripts/link-e2e.mjs`) | Two souldew servers with scratch data folders on this Mac, one Emerald run created on A and joined on B, both pages in Electron. A clicks "Trade" (invite over the run's peer channel), B joins. Both servers check every seat's ROM by SHA-1, the saves cross the channel (deflated, SHA-1-checked), both play views switch to the link session, and each page drives its own seat (title → Continue → Cable Club → Trade Center). **Both hosts ran at real speed (0.99–1.02×), 202 of 202 hash comparisons equal, ~12,000 inputs each way, no stall.** The local seat's battery saves (the game's link save) landed in each player's run save, and live tracking showed both teams and "Oldale Town" during the session. |
-| **Trade in the app** | Same e2e, completed: **Wurmple ↔ Poochyena traded between the two profiles**, both battery saves written back into the runs by the normal save path, and the run log on both computers says "traded Wurmple for Poochyena with Tim" (`logLinkTrade`, from the live team before and after). |
-| **3 and 4 peers** | `link-net-test.mjs --random`: 3 peers × 3 linked GBAs and 4 peers × 4 linked GBAs, mesh at 60 ± 10 ms, delay 6, real time: 59.7 fps, 30/30 hashes equal, no waits, saves equal on every peer (~1.4–2.2 KB/s per peer). The games only ran title/intro with random buttons: a real 4-player Multi Battle still needs four saves standing in a link room. |
-| Gotcha | 32-bit pictures from the link host halved the speed in the app (the page couldn't take 9 MB/s per window). The host now sends RGB565 like retrohost. |
+**The link host alone** (headless, `--script`/`--bench`): every recording replays to byte-identical saves (Red trade and battle, Crystal/Silver trade+battle 41,838 frames, Emerald/Sapphire trade, battle and 4-player multi battle, Platinum trade, battle and 4-console Union Room). Whole-session states load into a fresh host and go on identically (GBA at frames 3,000–11,111, GBC at 15,001 and 30,003, DS at 12,001 in the Union Room): the basis of rejoin. Network lockstep (`scripts/link-net-test.mjs`) as before: 0 mismatches.
 
-Not yet in the app: audio from a link session (the host is silent), resend on input gaps, rejoin, TURN, Windows; "You are here" shows a wrong place name inside the link rooms (the Trade Center's map id); runs joined before this branch have only the joiner's own game built (a "build the partner's game" button is missing). See §13.
+| Platform | Link host |
+|---|---|
+| macOS arm64 | built and tested (`test/linkhost.test.mjs`, all e2e runs) |
+| Windows x64 | cross-compiled and linked with MinGW here (only Windows DLLs); not run on Windows yet |
+| Linux x64 | `native.yml` builds it (RGBDS from source); in an Ubuntu 22.04 container mGBA and SameBoy built, the melonDS step stopped on a full disk on the build machine – the CI run is the check |
+
+Still open for 3.0: see §13.
 
 ## 2. Architecture
 
@@ -74,7 +86,7 @@ The design is hybrid. Players play apart, asynchronously, as they always do. **A
 | `linkbackend.h` | The **backend interface** each system implements. |
 | `backend_mgba.c` | GBA SIO (link cable: multiplayer and normal modes, 2–4 GBAs) on libmgba; GB/GBC as a fallback (`--backend mgba`). |
 | `backend_sameboy.c` | GB/GBC serial link cable (2 consoles) on SameBoy (MIT): Gen 1/2 Cable Club, the first choice for GB/GBC. |
-| *(planned)* `backend_melonds.cpp` | DS local wireless: 2 melonDS instances with a deterministic MP layer. |
+| `backend_melonds.cpp` | DS local wireless between up to 4 melonDS instances (melonDS's core library, interpreter only) with a deterministic MP layer: Gen 4/5 Union Room. Details: [MULTIPLAYER-DS.md](MULTIPLAYER-DS.md). |
 | *(later)* 3DS | Azahar rooms, or two instances. Research. |
 
 ### Backends
@@ -119,8 +131,8 @@ The page keeps sending retrohost's INPUT message (libretro joypad bits plus poin
 - **The cable.** SameBoy's bit-level serial interface, as its own two-Game-Boy mode wires it. When a console driving the clock (SC bit 0, internal) starts a bit, `bit_start` keeps the bit it shifts out. When the bit ends, `bit_end` returns the partner's outgoing bit (`GB_serial_get_data_bit`) as the master's incoming bit and shifts the master's bit into the partner (`GB_serial_set_data_bit`). The partner's SB/SC and serial interrupt then behave as on an externally clocked Game Boy. Either side can be master; Pokémon decides at run time. Bit timing is the hardware's (8 kHz internal clock; CGB fast clock included).
 - **One thread, interleaved.** The console that is behind in emulated time runs the next instruction (`GB_run`), ties to seat 0. The two are never more than one instruction apart. A session frame is a fixed slice of emulated time (70,224 clocks), not "until VBlank": a console with the LCD off can't hold the session up, and both take their buttons at the same emulated moment on every peer. The picture is the last finished frame (copied on VBlank).
 - **Clock drift on purpose.** Seat 1's clock runs 1/16384 (≈ 61 ppm) fast, within real crystals' spread. Two emulated consoles at exactly the same speed stay phase-locked. When both players talked to Gen 1's receptionist on the same frame, both sent "I'll drive the clock" at the same instant on every retry and the link never came up. With the drift it connects. It is deterministic and invisible to the games.
-- **No wall clock.** The core's `time()` is redirected at build time (`-Dtime=sbl_time`) to the session's start time plus emulated seconds. The MBC3 clock (Gold/Silver/Crystal) runs on emulated cycles (`GB_RTC_MODE_ACCURATE`). Power-on RAM comes from a fixed seed per seat. Audio is off (`sample_rate 0`).
-- **Saves.** In and out as the plain battery RAM, Gambatte's `.srm` layout, which is what souldew's runs hold. A clock cartridge's save without a clock footer gets a clock that starts at day 0 at the session time. Otherwise SameBoy would flag a reset clock and Crystal would ask for the time. A footer (VBA-M/SameBoy layout) is used as it is. **To do:** carry the fast player's Gambatte RTC (`RETRO_MEMORY_RTC`) into the session and back, so the in-game clock doesn't jump.
+- **No wall clock.** The core's `time()` is redirected at build time to the session's start time plus emulated seconds: a header included before each core file (`sbl_time.h`: `<time.h>`, then `#define time(t) sbl_time(t)`). `-Dtime=sbl_time` would have renamed MinGW's inline `time()` in `<time.h>` itself and left the wall clock in place on Windows. The MBC3 clock (Gold/Silver/Crystal) runs on emulated cycles (`GB_RTC_MODE_ACCURATE`). Power-on RAM comes from a fixed seed per seat. Sound is on for every seat alike (48 kHz; the rate only shapes the output), only the local seat's is played.
+- **Saves and the cartridge clock.** souldew keeps a clock cartridge's save as the battery RAM plus the 48-byte VBA-M clock footer (5 + 5 × u32 registers, u64 Unix second) – the format mGBA, VBA-M and SameBoy use. The fast player (retrohost on Gambatte) now writes and reads that footer through `RETRO_MEMORY_RTC` (Gambatte's 8-byte base time), so the in-game clock survives closing the game, and the link host takes it in and gives it back the same way (`battery()` in the backend interface). A save without a footer (older runs) gets a clock at day 0 at the session start; otherwise SameBoy would flag a reset clock and Crystal would ask for the time.
 - **Model.** Every seat is a Game Boy Color (CGB-E) with SameBoy's own CGB boot ROM (MIT, assembled from source with RGBDS and embedded). DMG games get the CGB boot ROM palettes, as on hardware.
 - **Memory for the live reader.** `0xC000–0xDFFF` is WRAM bank 0 + bank 1 (where the Gen 1/2 party lives, like `[0xc000, 0x2000]` in `server/lib/native.mjs`). `0xA000` is the cartridge RAM's current bank, plus VRAM and HRAM.
 - **Pinned.** SameBoy v1.0.5. Every peer must run the same build.
@@ -137,11 +149,13 @@ The page keeps sending retrohost's INPUT message (libretro joypad bits plus poin
 | → host `20 VIEW` | `u32 seat` | Show another seat (tests, spectating). |
 | → host `24 UNTIL` | `u32 frame` | Pause at an absolute frame, the same on every peer. |
 | → host `22 READ` / `23 POKE` | — | Tests only (the server never forwards POKE). |
+| → host `25 NEED` | `u32 seat, u32 from` | A peer missed a seat's buttons: this host sends what it knows (LINPUT). Any peer may answer for any seat. |
+| → host `3 SAVE` → `5 STATE` | — | A whole-session state for a partner who rejoins: every console, then `'LSES'` and the frame. Empty = "not now" (DS: a console waits mid-frame for a packet). |
+| `--load <state>` | — | Start from such a state (rejoin). mGBA's states include the lockstep driver's own state and the battery save; melonDS's include the wireless layer's queues. |
+| host → `3 AUDIO` | stereo s16 | The local seat's sound at the loaded event's `sampleRate` (only at normal speed). |
+| → host `1 INPUT` | 17 bytes | Buttons plus the pointer: over the DS's lower screen it becomes the touch bits (a tap lasts at least 4 frames). |
 
-**Not yet:**
-- Loading a whole-session save state into a *fresh* host deadlocks. The GBA lockstep driver's own serialisation needs to be restored in the right order across seats. This is needed for rejoin (§5).
-- Windows build: the host uses POSIX `write`/`clock_gettime`, so it needs `compat.h` like retrohost. About 1 day.
-- Linux has not been tried.
+**Builds.** `scripts/build-native.mjs` builds the one `linkhost` with all three backends on macOS, Linux and Windows (MinGW-w64, static: only Windows' own DLLs). libmgba is built with `LIBMGBA_ONLY` (no epoxy needed on Windows) and without LTO (slim LTO objects in a MinGW archive have no symbol index). melonDS's core without JIT, OpenGL and GDB stub. RGBDS is needed at build time for SameBoy's boot ROM; `native.yml` builds it from its tag (v1.0.4). The Windows `linkhost.exe` is cross-compiled and linked here; it has not been run on Windows yet.
 
 ## 4. Session lifecycle
 
@@ -175,10 +189,10 @@ What if a player quits mid-trade? Gen 3 saves before a trade and again after it.
 - On a mismatch: stop both hosts at once, show "The games fell out of step – the session ended, nothing was saved", and keep the pre-session saves.
 - On the same build this never happened in testing. A mismatch means different builds, a bug, or a tampered client.
 
-**Recovery and reconnect (phase 2):**
-- **Short drop** (< 30 s): inputs keep queueing and the host shows "waiting for Tim…" (`wait` events). When the channel is back, the missing frames are resent (`link-need {seat, from}` → `link-input` replay from the sender's ring of 4096 frames). Nothing else is needed.
-- **Long drop or rejoin:** a peer that is still in the session sends a whole-session save state (deflate, ~0.4 MB per GBA seat) at frame *f*. The rejoiner loads it and both continue from *f*. This needs the lockstep-driver state fix (§3).
-- **Hash mismatch recovery** (instead of ending): the same state transfer from the initiator. Offer it only once state transfer has proven reliable.
+**Recovery and reconnect (built):**
+- **Gaps.** A host that waits for a seat emits `wait {seats, frame}`; the page asks every partner `need {s, f}`, and each partner's host answers from its ring of 4096 frames (`NEED` → `LINPUT` → `in`). Any peer can answer for any seat. Seen in the e2e as one natural gap healed without anybody noticing.
+- **Rejoin.** A page that went away while its session ran (reload, crash, app restart) finds the session in `localStorage` (30 min) and offers "Rejoin". The partner with the lowest seat among those still in asks its host for the whole-session state (`SAVE`; the hosts all stand still at the first frame the missing seat's buttons are missing), deflates it and sends it in parts; the rejoiner's server starts its host with `--load`. The state carries every seat's battery save, the GBA lockstep driver's state and the DS wireless queues, so it works in the middle of a Cable Club or Union Room visit. A DS console that waits mid-frame for a wireless packet can't be written down: then the others answer `state-busy` and the link ends ("only outside a wireless exchange").
+- **Desync.** Equal hashes are compared every 120 frames. A difference ends the session for everybody, and **both players' run saves go back to what they were before the session** (`/api/link/restore`; the session's last save stays next to it as `….link-<date>.sav`), so nobody keeps a Pokémon the other didn't lose. The bar explains it.
 
 **Four players (runs have up to 4).** The session and the network layer are built for N ≤ 4 seats.
 - **Who is in a session.** Any subset of the run's players. A trade is 2 seats: any 2 of the 4 can start one while the others keep playing, since each player's own game runs on their own computer and isn't part of the session. Multi battles (Emerald, FR/LG) and Record Mixing take 3–4 seats. Several sessions in one run at the same time are fine: P1+P2 trade while P3+P4 battle, each with its own `sid` and its own link host per computer.
@@ -201,11 +215,10 @@ What if a player quits mid-trade? Gen 3 saves before a trade and again after it.
   - Messages: `link-invite / accept / refuse / save / go / input / hash / need / bye`.
   - Inputs are batched: one message per frame when the data channel is direct, four frames per message when relayed.
   - When WebRTC is down, the MQTT fallback carries everything except inputs. A session needs a data channel (direct or TURN). Without one the UI says "No direct connection – link sessions need one (TURN off)".
-- **TURN.** Strict NATs (mobile hotspots, some ISPs) need a relay. The plan, as design only (no keys or products have been created):
-  - The Cloudflare Worker (`souldew-discord`, served at `https://api.souldew.app`) gets a feature `link` with `GET /link/ice?run=<hash>`. The Worker routes features under `/<name>/`; a bare `/ice` would be one extra line in `src/index.js`.
-  - The Worker calls Cloudflare Realtime TURN `POST https://rtc.live.cloudflare.com/v1/turn/keys/<KEY_ID>/credentials/generate-ice-servers` with `{ttl: 3600}` and the API token as a Worker secret. It returns `iceServers` (STUN plus `turn:`/`turns:` on 3478/5349/443) to the app.
-  - Abuse limits: per-IP rate limit (D1 or a Durable Object counter, ~20 per hour), short TTL, `run` hash for logging only, no accounts.
-  - souldew passes them to Trystero as `rtcConfig.iceServers` and still tries direct first. The UI shows "direct" or "relayed".
+- **TURN (built).** Strict NATs (mobile hotspots, some ISPs) need a relay.
+  - The Worker (`souldew-discord`, feature `link`, `src/features/link.js`) serves `GET /link/ice[?run=<hex>]`: it calls Cloudflare Realtime TURN `…/turn/keys/<TURN_KEY_ID>/credentials/generate-ice-servers` with the `TURN_KEY_API_TOKEN` secret and answers `{ iceServers, ttl: 7200, turn: true }` (port-53 URLs dropped). 20 requests per IP per hour (the live feature's D1 counter); STUN only (`turn: false`) when the secrets are missing or Cloudflare fails. Checked against the real TURN key.
+  - The app's server proxies it (`GET /api/link/ice`, `server/lib/linkice.mjs`, cached for 80 % of the credentials' life); the page hands the entries to Trystero as `turnConfig` (added to its default STUN servers), so the direct path is still tried first.
+  - The link bar shows the route from the connection's selected ICE pair: "direct · 12 ms" or "relayed (TURN) · 80 ms" (`SyncLink.linkRoute`).
   - Costs: inputs are ~3 KB/s per peer, so a 10-minute session is ~2 MB. The free tier (1,000 GB/month, TURN and SFU combined) covers ~500,000 sessions per month. Partner video over TURN is the real cost; keep it to stills when relayed, as today.
 - **Fallback when even TURN fails:** a Durable Object WebSocket relay per session. The payload stays encrypted with the run key, so the relay sees nothing. Build it only if field data asks for it.
 
@@ -214,7 +227,9 @@ What if a player quits mid-trade? Gen 3 saves before a trade and again after it.
 - **ROMs never cross the network.** Every seat's ROM must exist locally.
   - Randomized or patched runs: `build.mjs` builds every slot (default "both of us/all of us") and records `outputs[slot].sha1`. A missing partner ROM is rebuilt with one click (same base ROM, patch and seed). The SHA-1 must equal the partner's.
   - Plain runs where both play the **same** game: the player's own copy is used for both seats if the SHA-1s match.
-  - Plain runs with **different** games (Emerald ↔ FireRed, HeartGold ↔ SoulSilver pair runs): each peer needs the other's game file, which it may not have. The UI asks "Do you have FireRed? Pick the file" and checks the SHA-1. Without it, no session (decision §14). There is no workaround that doesn't ship ROMs; split-console linking (each peer runs only its own console and the link bytes travel) would be ~1/3 speed at 50 ms RTT and isn't deterministic across peers.
+  - Plain runs with **different** games (Emerald ↔ FireRed, HeartGold ↔ SoulSilver pair runs): each peer needs the other's game file. Decided: the player picks it from their own library, souldew checks it by SHA-1.
+  - **How a seat's file is found** (`server/lib/linkroms.mjs`, every peer for every seat, only by SHA-1): the run's build for that slot → any other build of the run with that SHA-1 (both play the same file) → a file picked earlier (remembered per SHA-1 in `link-roms.json` in the run folder) → a library ROM with the partner's CRC32 (plain runs announce it with the SHA-1), confirmed by hashing; a zipped one is unpacked into the run folder. Each player announces only their own game's SHA-1 (and CRC for plain runs).
+  - When a seat's file isn't found, the bar says so before the link starts: **"Pick your copy of it"** (a library game; a file that isn't in the library can be added from there – it is then found by its checksum) or, for randomized/patched runs joined before every player's game was built, **"Build Tim's game"** (`/api/link/build`: that slot from the run's base ROM, patch, settings and seed).
 - **Saves.** The partner's save travels deflated and encrypted (128 KB GBA flash → ~20–40 KB) and is SHA-1-checked. It is used only inside the session and deleted at the end.
 - **Write-back.**
   - The session's local-seat SRAM messages go through the **existing** fast-player path (`NativeSessions.onMessage` / the page's `emu-saved` → the run's save file).
@@ -229,11 +244,11 @@ What if a player quits mid-trade? Gen 3 saves before a trade and again after it.
 
 | Gen | Games | Link | Engine | Trades | Battles | Status / effort |
 |---|---|---|---|---|---|---|
-| 1 | R/B/Y (+hacks) | GB serial | SameBoy (link host) | Cable Club trade | Colosseum | **Trade and battle work** in the host (Red ↔ Red, deterministic, net-tested). Remaining: the app flow (same as Gen 3), RTC n/a. Gen 1 has no exit from the Trade Center/Colosseum: the game saved after the trade, and the session ends by resetting, as on hardware. |
-| 2 | G/S/C, Polished Crystal, Crystal Legacy | GB serial | SameBoy (link host) | Trade Center | Colosseum | **Trade and battle work** (Crystal ↔ Silver). The Cable Club needs `EVENT_GAVE_MYSTERY_EGG_TO_ELM`, which real players have, and a trade needs a second non-egg Pokémon. RTC: emulated MBC3 clock from the session start; carrying Gambatte's RTC across is a to-do. Time Capsule (Gen 1 ↔ 2) runs in the same backend (both seats are CGBs), not tried yet. |
-| 3 | R/S/E, FR/LG, hacks (Unbound, Radical Red …) | GBA SIO link cable | mGBA (link host) | **Done** (E ↔ S, saved) | Colosseum single/double, multi (4 seats) | Battles use the same link code path as trades; a test is pending. FR/LG: the 2F Direct Corner should fall back to the cable without an adapter, as Emerald's did in the spike (to verify). The **Union Room** (FR/LG/E) needs the **wireless adapter (RFU)**, which mGBA doesn't emulate: skip it, the cable rooms cover trades and battles. Record Mixing and Berry Crush work by cable. Hacks: anything that keeps the vanilla link code should work; some big hacks changed or removed link features (check per hack in the ROM matrix). **1–2 wk to ship** (UI, channel, rules). |
-| 4 | D/P/Pt, HG/SS | DS local wireless | melonDS ×2 in one process + deterministic MP layer | Union Room, Pal Pad, Colosseum, GTS (online) | Colosseum, Union Room | The melonDS DS libretro core implements libretro netpacket (since 1.2.0), but its MP layer **busy-waits up to 25 ms per packet on a CPU clock**: not deterministic, and LAN-only in practice. Lockstep needs melonDS linked directly (not the libretro singleton), two `NDS` instances (melonDS 1.0+ supports them), JIT **off**, threaded renderer off, and an MP layer that hands packets over by emulated timestamp. **3–4 wk prototype, 8–12 wk robust** (spike agent). Quick alternative: WFC replacement (Kaeru WFC / Pokémon Classic Network) via melonDS network mode `indirect`, with **GTS and Wi-Fi Club trades/battles over the internet in days**, but third-party servers and no SoulLink control. |
-| 5 | B/W, B2/W2 (+Blaze Black/Volt White) | DS local wireless (+ C-Gear IR) | as Gen 4 | Union Room, C-Gear | Union Room, C-Gear | As Gen 4. Whether the C-Gear's IR features work in melonDS is unknown (check). Same effort after Gen 4. |
+| 1 | R/B/Y (+hacks) | GB serial | SameBoy (link host) | Cable Club trade ✅ app | Colosseum ✅ app | Gen 1 has no exit from the Trade Center/Colosseum: the game saved, the session ends by "Leave link" (on hardware: switching off). |
+| 2 | G/S/C, Polished Crystal, Crystal Legacy | GB serial | SameBoy (link host) | Trade Center ✅ app | Colosseum ✅ app | The cartridge clock travels in the save (VBA-M footer) both ways; the fast player keeps it now too. The Cable Club needs `EVENT_GAVE_MYSTERY_EGG_TO_ELM`; a trade needs a second non-egg Pokémon. Time Capsule (Gen 1 ↔ 2): both seats are CGBs in one backend – not tried yet (~1 d). |
+| 3 | R/S/E, FR/LG, hacks (Unbound, Radical Red …) | GBA SIO link cable | mGBA (link host) | Cable Club ✅ app | Colosseum single ✅ app; multi (4 seats) ✅ host, app see §1 | FR/LG: not tried (no ROM in the test set) – their Cable Club works by cable, the location sign doesn't know their link rooms yet. The Union Room needs the wireless adapter: skipped (decision). Hacks: anything with the vanilla link code should work; check per hack. |
+| 4 | D/P/Pt, HG/SS | DS local wireless | melonDS's core ×N in one process, deterministic MP layer (MULTIPLAYER-DS.md) | Union Room ✅ app (Platinum) | Union Room battle ✅ host; app see §1 | D/P and HG/SS not tried in the app (Pearl boots); the sign knows Platinum's Union Room only. Rejoin only between wireless exchanges. Interpreter only: 4 consoles ≈ 1.6× real time on an M1 – slow PCs may struggle with 4 players. |
+| 5 | B/W, B2/W2 (+Blaze Black/Volt White) | DS local wireless (+ C-Gear IR) | as Gen 4 | Union Room, C-Gear | Union Room, C-Gear | Same backend; Black and White 2 boot, their Union Rooms weren't reached yet (~2–3 d with recordings). Whether the C-Gear's IR features work in melonDS is unknown. |
 | 6–7 | X/Y, ORAS, S/M, US/UM | 3DS local wireless | Azahar rooms (libretro core has no room client) or 2 instances | Player Search System | PSS battles | Research. Azahar's network room needs a room server (souldew's Hetzner box) and a core patch. **Later.** |
 
 **Battles everywhere** use the same session as trades. The game's link battle runs on both consoles, so there is no extra work in the host. souldew adds:
@@ -272,16 +287,14 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 
 ## 10. SoulLink rules and UX
 
-- **Run rule** (new, in the rules editor; the default is the run creator's choice at creation):
-  - "Trades between partners: off / allowed / only paired Pokémon".
-  - "Link battles: off / allowed (losses don't count) / losses count as deaths".
-  - The rule lives in `manifest.rules`, so both players see it. Invites are disabled when it is off.
+- **Run rules** (built, Rules tab, every player sees them – `doc` rules): "Trades between us (link)" on/off (default on), "Battles between us (link)" on/off (default on) and, under it, "Losing a link battle counts as deaths" (default **off**: while a link battle runs, the live team isn't applied to the run at all – no deaths, no wipe). Invites are hidden when a rule is off.
 - **Tracker after a trade:** the traded Pokémon moves to the receiver's team. Its pair link follows the rule: "the pair stays linked across owners" (default), or "a traded Pokémon becomes unpaired". The log gets an entry, and the board shows a small ⇄ badge on traded mons.
 - **UX flow:**
-  - The board's partner card gets **"Trade" and "Battle"** buttons when both are online in the run and the rule allows it.
-  - The invitee sees a toast with "Join" / "Not now".
-  - Both get a short checklist modal: "✓ Tim's game is here", "✓ saves exchanged", "✓ direct connection (42 ms)", then "Go to the Pokémon Center 2F – the Cable Club is upstairs".
-  - The fast player switches to the link session (a "Linked with Tim · 42 ms · delay 5" pill and "Leave link").
+  - The board's partner card has **"Trade" and "Battle"**; with 3–4 players, the own card has **"Link all of us (n)"** (Gen 3 multi battles, the DS Union Room).
+  - The invitee sees the bar: "Tim wants to trade Pokémon with you! – Join / Not now".
+  - Preparing: "checking the games, swapping saves …", the route ("direct · 12 ms" / "relayed (TURN)"); if a partner's game isn't here: "Pick your copy of it" / "Build Tim's game".
+  - Running: "Linked with Tim · delay 4 frames · direct · Meet in the Pokémon Center, upstairs at the counter" (DS: "the Union Room counter"), "Leave link"; while a partner is missing: "waiting for Tim … (if their game dropped out, they can rejoin)".
+  - The play view hides pause, reset, speed and save states during a link (the partners' copies of every console must stay the same).
   - After leaving, normal play resumes from the new save, and the log shows the trade.
   - All texts are in EN/DE/FR/ES/IT. Wording to avoid: the word "faint".
 - **Partner windows** (3.0): the existing partner video stays and becomes movable (separate task).
@@ -325,24 +338,25 @@ M-series Mac, darwin-arm64, Release build:
 
 ## 13. Plan and effort
 
-| Phase | Content | Effort | Status |
-|---|---|---|---|
-| 0 | Research, link host, GBA spike, net test, this doc | — | **done** |
-| 1 | **GBA slice in the app:** server `/api/link/*` on `NativeSessions`; page link session over Trystero `link`; invite/accept, save exchange, ROM SHA-1 check, start/stop; hash compare; write-back; tracker trade entry; run rule; EN/DE/FR/ES/IT texts; e2e with two scratch profiles | 1–1.5 wk | **mostly done** (open: the rule switch in the rules editor, audio, polishing the bar/modal) |
-| 1b | Gen 3 battles (Colosseum single/double; multi with 4 seats), battle log entry | 2–3 d | |
-| 2 | Robustness: resend on gaps, rejoin by state transfer (lockstep state fix), TURN via the Worker, "direct/relayed" UI, Windows build | 1–1.5 wk | |
-| 3 | GB/GBC (Gen 1/2) trades and battles, Time Capsule | Host side done (SameBoy backend); app flow as Gen 3, RTC hand-over, Time Capsule test: ~3 days | spike agent |
-| 4 | DS (Gen 4/5): melonDS 2-instance backend, deterministic MP layer; or WFC opt-in first | 3–4 wk prototype | spike agent |
-| 5 | Shared World overlay, Gen 3 first, then 1/2, then 4/5 | 1.5–2 wk (Gen 3) | |
-| 6 | Rollback, spectating, partner windows | open | |
+Done in this round: one link host with all three backends (macOS built and tested, Windows cross-compiled, Linux in CI), touch, sound, the cartridge clock, rejoin by state transfer, resend, TURN (Worker + app), direct/relayed, desync safety, the partner's game by SHA-1 (pick / build), DS in the app, 3–4 player invites, the location sign, rules, tests (`test/link.test.mjs`, `test/linkhost.test.mjs`, `test/native.test.mjs` clock test) and the e2e harness for 2–4 players.
 
-**Ship order for 3.0:** Gen 3 trades and battles, then Gen 1/2 (cheap on the same host), then Shared World Gen 3, then Gen 4/5.
+What is left for 3.0, with effort:
+
+| Item | Effort |
+|---|---|
+| Run the Windows `linkhost.exe` on a real Windows PC (and a Windows ↔ Mac session: x64 ↔ arm64 determinism) | 1 d |
+| First green `native.yml` run (Linux + Windows link host; the RGBDS step is new) | ½ d |
+| Release packaging: `linkhost` + its licences in the app bundles (`npm run dist` checks it now), signing/notarising one more binary on macOS | ½–1 d |
+| A real two-computer test over the internet, once with TURN forced (relayed) | ½ d |
+| Trade log entry for Gen 2 and Gen 4 (the e2e saw the trade in the saves but no log entry – the live party's keys) and a battle result entry ("Marius won") | 1 d |
+| FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e; their link rooms on the sign | 3–4 d |
+| Gen 1 ↔ 2 Time Capsule | 1 d |
+| DS rejoin during a wireless exchange (the state can't be taken while a console waits mid-frame): retry until the exchange pauses, or make the wait state serialisable | 2–3 d |
+| UX polish from real players: the need/pick bar, a "save first" check before joining, what happens to an invite while the partner is in a menu | 2 d |
+| Shared World (§9), rollback, spectating | after 3.0 |
 
 ## 14. Decisions for the owner
 
-1. **TURN key and costs.** Create a Cloudflare Realtime TURN key and put it on the Worker as a secret (`TURN_KEY_ID`, `TURN_API_TOKEN`)? Inputs are almost free (§6); the free tier is 1,000 GB/month. Without TURN, pairs behind strict NATs can't link (a commonly quoted rough figure is 10–20 % of connections; not measured for souldew).
-2. **First generation.** Gen 3 is proven and recommended. Gen 1/2 next, on the same host and cheap.
-3. **Different games in one run** (Emerald ↔ FireRed, pair runs). Require each player to point souldew at the partner's game file (SHA-1-checked)? Or allow linking only when every seat's ROM is reproducible locally?
-4. **DS path.** Ship WFC-replacement trades (Kaeru/PCN) as an opt-in stop-gap while the deterministic melonDS backend is built? It means third-party servers and players' saves going online.
-5. **Defaults of the run rule:** trades allowed? Do link-battle losses count as deaths? (Suggestion: trades "allowed", battles "losses don't count".)
-6. **Wireless adapter (Union Room, FR/LG/E).** Skip it (cable rooms cover trades and battles), or invest ~2 wk to emulate the RFU in the link host?
+Decided (November 2026): TURN approved (Cloudflare Realtime key "souldew-link" on the Worker); different games in one run: the player picks the partner's file from their library, checked by SHA-1; no third-party WFC servers; rule defaults: trades allowed, link-battle losses don't count; up to 4 players; the GBA wireless adapter is skipped for now.
+
+Open: none for this round. Worth deciding before release: whether runs created before 3.0 should get "Build every player's game" offered once (randomized GB/GBA runs joined earlier have only the joiner's own game), and whether DS JIT may be offered for sessions where every peer is the same architecture (faster for 4 players; needs the JIT build and a session option).

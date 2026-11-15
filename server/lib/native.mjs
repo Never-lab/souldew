@@ -251,6 +251,12 @@ export class NativeSessions extends CtrSessions {
     return id;
   }
 
+  /** Stopping a link session keeps it as `lastLink` (a desync's restore may come right after the host was stopped). */
+  stop() {
+    if (this.current?.link) this.lastLink = this.current;
+    super.stop();
+  }
+
   /**
    * After a session fell out of step: its pre-session save (null when there was none) for /api/link/restore. The
    * session is stopped first – nothing it writes afterwards reaches the run.
@@ -258,10 +264,8 @@ export class NativeSessions extends CtrSessions {
   linkRestore(id) {
     const c = this.current?.id === id && this.current.link ? this.current : this.lastLink?.id === id ? this.lastLink : null;
     if (!c) return null;
-    if (this.current === c) {
-      c.saveFile = null; // (its last battery saves don't go into the run any more)
-      this.stop();
-    }
+    c.saveFile = null; // (its last battery saves don't go into the run any more)
+    if (this.current === c) this.stop();
     return c;
   }
 

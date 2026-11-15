@@ -76,8 +76,9 @@ for (const name of Object.keys(games)) {
     await A.step(130); // (the host also runs at real time meanwhile: the frame is the one the state says)
     const state = await A.saveState();
     assert.ok(state.length > 1000);
-    assert.equal(state.readUInt32LE(state.length - 8), 0x5345534c); // 'LSES'
-    const at = state.readUInt32LE(state.length - 4); // the frame it was taken at
+    const tail = state.lastIndexOf(Buffer.from('LSES', 'latin1')); // then the frame, then each seat's known buttons
+    assert.ok(tail > 0 && tail + 8 + 4 * 2 <= state.length, 'the session tail');
+    const at = state.readUInt32LE(tail + 4); // the frame it was taken at
     assert.ok(at >= 130 && at < 240, `state at frame ${at}`);
     await A.step(250 - at);
     const sa = await A.flush(2);

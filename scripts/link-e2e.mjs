@@ -18,7 +18,7 @@
 //
 // Never commit ROMs, saves or the screenshots.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, copyFileSync, linkSync, statfsSync, constants as fsConstants } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, copyFileSync, statfsSync, constants as fsConstants } from 'node:fs';
 import { join, dirname, basename, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -58,7 +58,7 @@ async function main() {
   const romOf = (i) => (i === 0 ? rom1 : i === 1 ? rom2 : resolve(opt(`rom${i + 1}`) || rom1));
   // (a full disk would hurt more than this test: stop early)
   const free = (() => { try { const f = statfsSync(resolve(opt('data'), '..')); return f.bavail * f.bsize; } catch { return Infinity; } })();
-  if (free < 2.5e9) { console.error(`only ${(free / 1e9).toFixed(1)} GB free – not starting`); app.exit(2); return; }
+  if (free < 1.2e9) { console.error(`only ${(free / 1e9).toFixed(1)} GB free – not starting`); app.exit(2); return; }
   const result = { kind, frames, players: seats, rom1: basename(rom1), rom2: basename(rom2), checks: {} };
   const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, seats);
 
@@ -69,10 +69,8 @@ async function main() {
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
     // (--all-roms: every player's library has every game of the session – the partners' are then found by CRC + SHA-1)
-    // (a hard link, else a clone, else a copy: a DS game is 128–512 MB, and four players' folders add up)
-    for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) {
-      try { linkSync(r, join(lib, basename(r))); } catch { copyFileSync(r, join(lib, basename(r)), fsConstants.COPYFILE_FICLONE); }
-    }
+    // (a clone where the disk can – APFS: no extra space – else a copy: a DS game is 128–512 MB per player)
+    for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) copyFileSync(r, join(lib, basename(r)), fsConstants.COPYFILE_FICLONE);
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true }));
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_LINK_TEST_SCRIPT: script,
       SLS_LINK_TEST_RTC: id === 'B' && flag('desync') ? String(Number(rtc) + 86400000 * 3) : rtc };
@@ -86,6 +84,8 @@ async function main() {
     for (const p of servers) p.kill();
     app.exit(code);
   };
+  // (stopped from outside: no server may outlive the test – the next run would talk to it on the same port)
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => finish(130));
   const api = async (pr, path, body, method) => {
     const r = await fetch(pr.base + path, { method: method || (body !== undefined ? 'POST' : 'GET'), headers: { 'x-soullink': '1', ...(body !== undefined && !(body instanceof Uint8Array) ? { 'content-type': 'application/json' } : {}) },
       body: body instanceof Uint8Array ? body : body !== undefined ? JSON.stringify(body) : undefined });
@@ -94,6 +94,10 @@ async function main() {
     try { return JSON.parse(t); } catch { return t; }
   };
   try {
+    for (const [i, p] of servers.entries()) {
+      const code = await Promise.race([new Promise((r) => p.once('exit', r)), sleep(2500).then(() => null)]);
+      if (code !== null) throw new Error(`server ${profiles[i].id} stopped (port ${profiles[i].port} taken by an older run?)`);
+    }
     for (const pr of profiles) for (let i = 0; i < 100; i++) { try { await api(pr, '/api/status'); break; } catch { await sleep(200); } }
     const [A, B] = profiles;
     const N = profiles.length;

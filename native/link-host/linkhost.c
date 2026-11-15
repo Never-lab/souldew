@@ -479,7 +479,20 @@ static void save_all(void) {
   }
   const uint32_t tail[2] = {SESSION_MAGIC, frame};
   memcpy(p, tail, 8);
-  send_msg(5, b, (uint32_t)total);
+  // then every seat's buttons known from that frame on (u32 count, inputs): a rejoiner's own buttons that the others
+  // already have are taken as they were, not pressed again
+  size_t extra = 0;
+  for (int s = 0; s < nseats; s++) extra += 4 + 4 * (size_t)(seats[s].have > frame ? seats[s].have - frame : 0);
+  uint8_t *nb = realloc(b, total + extra);
+  if (!nb) { send_msg(5, b, (uint32_t)total); free(b); return; }
+  b = nb;
+  uint8_t *q = b + total;
+  for (int s = 0; s < nseats; s++) {
+    const uint32_t n = seats[s].have > frame ? seats[s].have - frame : 0;
+    memcpy(q, &n, 4), q += 4;
+    for (uint32_t i = 0; i < n; i++, q += 4) memcpy(q, &seats[s].in[(frame + i) % RING], 4);
+  }
+  send_msg(5, b, (uint32_t)(total + extra));
   free(b);
 }
 /** Loads a whole-session state; returns 0 (nothing loaded) when it doesn't fit these seats. Sets the session frame. */
@@ -505,11 +518,23 @@ static int load_all(const uint8_t *b, size_t len) {
     if (!B->load_state(s, b + at + 4, l)) return 0;
     at += 4 + l;
   }
-  if (tail[0] == SESSION_MAGIC) { // the session goes on from that frame: nobody's buttons are known past it yet
+  if (tail[0] == SESSION_MAGIC) { // the session goes on from that frame, with the buttons known past it
     frame = tail[1];
+    size_t q = 4;
+    for (int s = 0; s < nseats; s++) {
+      uint32_t l;
+      memcpy(&l, b + q, 4);
+      q += 4 + l;
+    }
+    q += 8;
     for (int s = 0; s < nseats; s++) {
       seats[s].have = frame;
       memset(seats[s].early, 0, sizeof seats[s].early);
+      uint32_t n = 0;
+      if (q + 4 <= len) memcpy(&n, b + q, 4), q += 4;
+      if (n > RING - 2 || q + 4 * (size_t)n > len) n = 0;
+      for (uint32_t i = 0; i < n; i++, q += 4) memcpy(&seats[s].in[(frame + i) % RING], b + q, 4);
+      seats[s].have = frame + n;
     }
   }
   return 1;
