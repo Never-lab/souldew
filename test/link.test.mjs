@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { registerHooks } from 'node:module';
 import { ownSeat, resolveSeat, pickSeat, loadPicks, partnerBuildRequest, extractTarget } from '../server/lib/linkroms.mjs';
 import { cleanIceServers, linkIceServers, resetLinkIce } from '../server/lib/linkice.mjs';
+import { LIVE_RUNS_URL } from '../server/lib/liveruns.mjs';
 import { linkArgs, checkLinkCommands, LCMD, LINK_SYSTEMS } from '../server/lib/native.mjs';
 import { command } from '../server/lib/ctr.mjs';
 import { baseRomsFor } from '../shared/restart.mjs';
@@ -113,7 +114,7 @@ test('linkice: the bot\'s /link/ice, cached while the credentials are young; STU
   const a = await linkIceServers({ fetchImpl, env: {}, now: 1000 });
   assert.equal(a.turn, true);
   assert.equal(a.iceServers.length, 2);
-  assert.equal(calls[0], 'https://api.souldew.app/link/ice');
+  assert.equal(calls[0], `${LIVE_RUNS_URL}/link/ice`);
   await linkIceServers({ fetchImpl, env: {}, now: 1000 + 3600_000 });
   assert.equal(calls.length, 1, 'cached');
   await linkIceServers({ fetchImpl, env: {}, now: 1000 + 7000_000 });

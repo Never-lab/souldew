@@ -9,12 +9,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { linkTool } from '../server/lib/native.mjs';
-import { startHost } from '../scripts/link-drive.mjs';
+import { startHost as startLinkHost } from '../scripts/link-drive.mjs';
 
 const host = linkTool();
 const skip = !host && 'link host not built (npm run native)';
 const dir = mkdtempSync(join(tmpdir(), 'souldew-linkhost-'));
-test.after(() => rmSync(dir, { recursive: true, force: true }));
+const started = []; // every host a test starts: none outlives the file, also when a test fails halfway
+const startHost = (...a) => { const h = startLinkHost(...a); started.push(h.proc); return h; };
+test.after(() => {
+  for (const p of started) if (p.exitCode === null) p.kill('SIGKILL');
+  rmSync(dir, { recursive: true, force: true });
+});
 
 /** A 32 KB Game Boy ROM (MBC1 + battery RAM) that counts 0xC000 up forever and copies it to the cartridge RAM. */
 function gbRom() {
