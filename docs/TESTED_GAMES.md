@@ -332,7 +332,7 @@ German FireRed/LeafGreen (2.3.1, issue #16) – the memory table was right, two 
 - Moves of DS hacks that retype them (Fairy moves in Renegade Platinum / Blaze Black 2 Redux) come from souldew's move
   data (Gen 6's types for a Fairy hack); the Pokémon's types and the chart come from the ROM.
 - The battle's current types are read in GBA games only; DS and Game Boy battles use the species' types from the ROM.
-- Gen 3 PC boxes aren't read live: a catch sent to the PC (a full team) is filed once it joins the team.
+- Gen 3 FireRed/LeafGreen PC boxes are read live (gPokemonStoragePtr); a catch sent straight to the PC with a full party is filed without withdrawing it. Ruby/Sapphire/Emerald PC boxes are still party-only for now.
 - German Ruby/Sapphire: no badges are read (their RAM sits elsewhere than in the English games and no German ROM was at
   hand to check), so no level cap either.
 - The ROM's data is worked out in a background thread the first time a game is opened (a few seconds for a big ROM);

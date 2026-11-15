@@ -471,7 +471,50 @@ function readGen3(entry, read, T, state = {}) {
     party.push(m);
   }
   const badges = party.length ? gen3Badges(entry, read, T, state, party) : undefined;
-  return badges === undefined ? { party } : { party, badges };
+  const boxes = readBoxesGen3(entry, read, T, state);
+  const out = badges === undefined ? { party } : { party, badges };
+  if (boxes) out.boxes = boxes;
+  return out;
+}
+
+/**
+ * Gen 3 PC: PokemonStorage behind gPokemonStoragePtr (FRLG / Emerald). BoxPokemon is 80 bytes (no party stats);
+ * applySnapshot already merges snap.boxes with the party for auto-encounters (#61).
+ * Layout: pret include/pokemon.h – u8 currentBox, pad, boxes[14][30] at +4.
+ */
+function readBoxesGen3(entry, read, T, state) {
+  if (!entry.storagePtrAddr) return null;
+  const now = Date.now();
+  if (state.boxCache && now - state.boxCacheAt < 2500) return state.boxCache;
+  const p = read(hex(entry.storagePtrAddr), 4);
+  const base = p ? u32le(p, 0) : 0;
+  if (base < 0x02000000 || base >= 0x02040000) return null;
+  const BOXES = 14;
+  const SLOTS = 30;
+  const SIZE = 80;
+  const raw = read(base + 4, BOXES * SLOTS * SIZE);
+  if (!raw) return null;
+  const boxes = [];
+  let bad = 0;
+  for (let b = 0; b < BOXES; b++) {
+    for (let s = 0; s < SLOTS; s++) {
+      const o = (b * SLOTS + s) * SIZE;
+      const slot = raw.subarray(o, o + SIZE);
+      if (slot.every((x) => x === 0)) continue;
+      const m = parsePk3(slot, T);
+      if (!m) continue;
+      if (m.bad) {
+        bad++;
+        continue;
+      }
+      // Box mon has no level/HP block; clear whatever parsePk3 read past the 80 bytes.
+      boxes.push({ ...m, box: b, slot: s, level: null, hp: null, maxHp: null, status: 0 });
+    }
+  }
+  if (bad > 20 && boxes.length < bad) return null;
+  state.boxCache = boxes;
+  state.boxCacheAt = now;
+  return boxes;
 }
 
 /**

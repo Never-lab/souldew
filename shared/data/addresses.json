@@ -789,6 +789,7 @@
     "partyCountAddr": "pokefirered.sym:158",
     "partyAddr": "pokefirered.sym:161"
    },
+   "storagePtrAddr": "0x03005010",
    "verified": "pret symbols branch .sym"
   },
   {
@@ -856,7 +857,8 @@
     "sb1": "0x03004F58",
     "sb2": "0x03004F5C",
     "source": "pokebot-gen3 pokefirered.yml gSaveBlock1Ptr/gSaveBlock2Ptr D/F/I/S; Ironmon-Tracker Feuerrote.json gSaveBlock1ptr/gSaveBlock2ptr"
-   }
+   },
+   "storagePtrAddr": "0x03004F60"
   },
   {
    "id": "leafgreen_us",
@@ -915,6 +917,7 @@
     "partyCountAddr": "pokeleafgreen.sym:158",
     "partyAddr": "pokeleafgreen.sym:161"
    },
+   "storagePtrAddr": "0x03005010",
    "verified": "pret symbols branch .sym"
   },
   {
@@ -982,7 +985,8 @@
     "sb1": "0x03004F58",
     "sb2": "0x03004F5C",
     "source": "pokebot-gen3 pokeleafgreen.yml gSaveBlock1Ptr/gSaveBlock2Ptr D/F/I/S; Ironmon-Tracker Feuerrote.json gSaveBlock1ptr/gSaveBlock2ptr"
-   }
+   },
+   "storagePtrAddr": "0x03004F60"
   },
   {
    "id": "heartgold_us",

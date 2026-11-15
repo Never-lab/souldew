@@ -142,6 +142,7 @@ test('Gen 3 FireRed/LeafGreen in German, French, Italian and Spanish: their own 
   assert.equal(de.inBattle.addr, '0x03003479');
   assert.equal(parseInt(us.inBattle.addr, 16) - parseInt(de.inBattle.addr, 16), 0xb0);
   assert.deepEqual([de.saveBlockPtrs.sb1, de.saveBlockPtrs.sb2], ['0x03004F58', '0x03004F5C']);
+  assert.equal(parseInt(us.storagePtrAddr, 16) - parseInt(de.storagePtrAddr, 16), 0xb0);
   // the party reads like the English one
   const m = memory();
   m.write(0x02024029, [1]);
@@ -149,6 +150,29 @@ test('Gen 3 FireRed/LeafGreen in German, French, Italian and Spanish: their own 
   const r = readLiveParty(de, m.read, T);
   assert.deepEqual(r.party.map((x) => [x.species, x.nickname, x.level, x.hp, x.maxHp, x.metLocation]), [[1, 'BISASAM', 5, 20, 21, 88]]);
   assert.deepEqual(regionsFor(de), regionsFor(us));
+});
+
+test('Gen 3 FRLG: PC box mon via gPokemonStoragePtr (catch with full party, #61)', () => {
+  const de = findEntry(TABLE, { platform: 'gba', code: 'BPGD' });
+  const m = memory();
+  m.write(0x02024029, [6]);
+  const party = [];
+  for (let i = 0; i < 6; i++) {
+    party.push(...pk3({ pid: 0x1000 + i, otId: 0xbeefcafe, internal: 1 + i, nick: `P${i}`, level: 10, hp: 20, maxHp: 20, met: 88 }));
+  }
+  m.write(0x02024284, party);
+  const storage = 0x02029858;
+  m.write(0x03004F60, [0x58, 0x98, 0x02, 0x02]); // gPokemonStoragePtr (EU)
+  // Box 0 slot 0: 80-byte BoxPokemon (no party stats) – species Rattata internal 19
+  const boxMon = pk3({ pid: 0x0c0111ed, otId: 0xbeefcafe, internal: 19, nick: 'RATTE', level: 0, hp: 0, maxHp: 0, met: 101 }).subarray(0, 80);
+  m.write(storage + 4, boxMon);
+  const r = readLiveParty(de, m.read, T, {});
+  assert.equal(r.party.length, 6);
+  assert.ok(r.boxes?.length >= 1, 'PC boxes present');
+  assert.deepEqual(
+    r.boxes.filter((x) => x.nickname === 'RATTE').map((x) => [x.species, x.box, x.slot, x.level, x.metLocation]),
+    [[19, 0, 0, null, 101]],
+  );
 });
 
 test('Gen 3 expanded engines (Run & Bun): the egg flag comes from the plain header, not from bit 30 of the IVs', () => {
