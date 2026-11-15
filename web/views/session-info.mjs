@@ -216,21 +216,10 @@ function GroupMon({ slot, name, mon, enc, dead, gen }) {
 }
 
 // ---- the linked groups along the bottom dock (views/playdock.mjs) ---------------------------------------------------
-// Every group of the run in the game's order – alive, waiting for someone, dead or failed – side by side in a strip
-// that scrolls sideways; the group of the place you are at (else the latest encounter) is marked and scrolled into view.
-// Two looks for the owner to choose from (temporary: localStorage sl-groups-variant):
-//   'chain' – one card per group, the players top to bottom, a chain through their colour badges
-//   'table' – a tracker table: the players as rows (names once, on the left), the groups as columns, a link line
-//             through each column
-export const GROUP_VARIANTS = ['chain', 'table'];
-export function groupVariant() {
-  try {
-    const v = localStorage.getItem('sl-groups-variant');
-    return GROUP_VARIANTS.includes(v) ? v : 'chain';
-  } catch {
-    return 'chain';
-  }
-}
+// Every group of the run in the game's order – alive, waiting for someone, dead or failed – as a tracker table: the
+// players as rows (their names once, in a fixed column on the left), the groups as columns that scroll sideways, a link
+// line through each column. The group of the place you are at (else the latest encounter) is marked and scrolled into
+// view.
 
 /** One player's part of a group: { slot, species, nick, level, hp, maxHp, shiny, status } with status alive | fnt | boxed | dead | open | failed. */
 function memberOf(slot, mon, enc, dead) {
@@ -334,7 +323,7 @@ function MemberBody({ m, gen }) {
  * The linked groups for the bottom dock (2–4 players): every group in the game's order, readable at a glance – the
  * area, each player's Pokémon in the player's colour, the link between them and how each one is doing.
  */
-export function GroupTrack({ mine, gen, here, variant = 'chain' }) {
+export function GroupTrack({ mine, gen, here }) {
   const { doc, manifest, me } = useApp();
   const data = doc && manifest ? groupsOf(doc, manifest, me, mine, here) : { slots: [], groups: [], mark: null };
   const strip = useStrip(data.mark?.area, data.groups.length);
@@ -347,37 +336,19 @@ export function GroupTrack({ mine, gen, here, variant = 'chain' }) {
   if (!groups.length) return html`<p class="small muted gtrack-empty">${t('pairs.emptyGroup', 'Linked groups show up here as soon as you catch something.')}</p>`;
   const counts = groups.reduce((c, g) => ({ ...c, [g.state]: (c[g.state] || 0) + 1 }), {});
   const summary = html`<span class="gtrack-sum tiny">${t('grp.count', '{n} group|{n} groups', { n: groups.length, count: groups.length })}${counts.dead ? html` · <span class="dead-t">${t('grp.deadCount', '{n} dead', { n: counts.dead })}</span>` : ''}</span>`;
-  if (variant === 'table') {
-    return html`<div class=${`gtable n${slots.length}`} style=${`--n:${slots.length}`}>
-      <div class="gt-names" aria-hidden="true">
-        <span class="gt-corner">${summary}</span>
-        ${slots.map((s) => html`<span class=${`gt-name who-${s}`} title=${nameOf(s)}><${Who} slot=${s} name=${nameOf(s)} /><b class="px">${nameOf(s)}</b></span>`)}
-      </div>
-      <div class=${`gstrip-wrap ${strip.ends.l ? 'fade-l' : ''} ${strip.ends.r ? 'fade-r' : ''}`}>
-        <div class="gstrip gt-cols" ref=${strip.ref} onWheel=${strip.onWheel} tabIndex="0" role="list" aria-label=${t('pairs.titleGroup', 'Linked groups')}>
-          ${groups.map((g) => html`<div class=${`gt-col ${g.state} ${mark?.area === g.area ? 'marked' : ''}`} key=${g.area} data-area=${g.area} role="listitem"
-            aria-label=${`${g.name}: ${groupText(g.state)}`}>
-            <div class="gt-head" title=${g.name}><${Icon} name=${groupIcon(g.state)} size=${12} /><span class="gt-area">${g.name}</span>${tag(g)}</div>
-            ${g.members.map((m) => html`<div class=${`gt-cell ${m.status}`} key=${m.slot} style=${`--acc:var(--${m.slot})`} role="img" aria-label=${label(g, m)} title=${label(g, m)}>
-              <span class="gt-bead" aria-hidden="true"></span><${MemberBody} m=${m} gen=${gen} /></div>`)}
-          </div>`)}
-        </div>
-        <${StripArrows} ends=${strip.ends} page=${strip.page} />
-      </div>
-    </div>`;
-  }
-  return html`<div class="gchain-wrap">
-    <div class="gchain-top">${summary}</div>
+  return html`<div class=${`gtable n${slots.length}`} style=${`--n:${slots.length}`}>
+    <div class="gt-names" aria-hidden="true">
+      <span class="gt-corner">${summary}</span>
+      ${slots.map((s) => html`<span class=${`gt-name who-${s}`} title=${nameOf(s)}><${Who} slot=${s} name=${nameOf(s)} /><b class="px">${nameOf(s)}</b></span>`)}
+    </div>
     <div class=${`gstrip-wrap ${strip.ends.l ? 'fade-l' : ''} ${strip.ends.r ? 'fade-r' : ''}`}>
-      <div class="gstrip gcards" ref=${strip.ref} onWheel=${strip.onWheel} tabIndex="0" role="list" aria-label=${t('pairs.titleGroup', 'Linked groups')}>
-        ${groups.map((g) => html`<article class=${`gcard ${g.state} ${mark?.area === g.area ? 'marked' : ''}`} key=${g.area} data-area=${g.area} role="listitem"
+      <div class="gstrip gt-cols" ref=${strip.ref} onWheel=${strip.onWheel} tabIndex="0" role="list" aria-label=${t('pairs.titleGroup', 'Linked groups')}>
+        ${groups.map((g) => html`<div class=${`gt-col ${g.state} ${mark?.area === g.area ? 'marked' : ''}`} key=${g.area} data-area=${g.area} role="listitem"
           aria-label=${`${g.name}: ${groupText(g.state)}`}>
-          <header class="gcard-head" title=${g.name}><${Icon} name=${groupIcon(g.state)} size=${12} /><span class="gcard-area">${g.name}</span>${tag(g)}</header>
-          <ol class=${`gchain n${slots.length}`}>
-            ${g.members.map((m) => html`<li class=${`gmem ${m.status}`} key=${m.slot} style=${`--acc:var(--${m.slot})`} role="img" aria-label=${label(g, m)} title=${label(g, m)}>
-              <${Who} slot=${m.slot} name=${nameOf(m.slot)} /><${MemberBody} m=${m} gen=${gen} /></li>`)}
-          </ol>
-        </article>`)}
+          <div class="gt-head" title=${g.name}><${Icon} name=${groupIcon(g.state)} size=${12} /><span class="gt-area">${g.name}</span>${tag(g)}</div>
+          ${g.members.map((m) => html`<div class=${`gt-cell ${m.status}`} key=${m.slot} style=${`--acc:var(--${m.slot})`} role="img" aria-label=${label(g, m)} title=${label(g, m)}>
+            <span class="gt-bead" aria-hidden="true"></span><${MemberBody} m=${m} gen=${gen} /></div>`)}
+        </div>`)}
       </div>
       <${StripArrows} ends=${strip.ends} page=${strip.page} />
     </div>

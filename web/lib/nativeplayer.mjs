@@ -169,6 +169,23 @@ function drawFrame() {
   gl.uniform1i(uni.bgra, f.fmt === 0 ? 1 : 0);
   gl.uniform1i(uni.lr, lr ? 1 : 0);
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  streamFrame();
+}
+
+// The partners' video (captureStream) at the picture's own size, as before the sharp scaling: the bigger drawing buffer
+// would only cost upload and encoder time. Drawn only while someone watches.
+let streamCanvas = null;
+function streamFrame() {
+  if (!streamCanvas) return;
+  const w = pic.w || canvas.width;
+  const h = pic.h || canvas.height;
+  if (streamCanvas.width !== w || streamCanvas.height !== h) {
+    streamCanvas.width = w;
+    streamCanvas.height = h;
+  }
+  const x = streamCanvas.getContext('2d');
+  x.imageSmoothingEnabled = false; // a whole factor down: the game's pixels exactly
+  x.drawImage(canvas, 0, 0, w, h);
 }
 function onVideo(p) {
   const v = new DataView(p.buffer, p.byteOffset, 8);
@@ -626,7 +643,10 @@ window.__emu = {
   canvas: () => (st.ready ? canvas : null),
   captureStream(fps = 15) {
     try {
-      return st.ready && canvas.captureStream ? canvas.captureStream(fps) : null;
+      if (!st.ready || !canvas.captureStream) return null;
+      streamCanvas ||= document.createElement('canvas');
+      streamFrame();
+      return streamCanvas.captureStream(fps);
     } catch {
       return null;
     }

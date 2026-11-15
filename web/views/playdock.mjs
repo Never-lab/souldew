@@ -12,6 +12,7 @@ import { t, ago } from '../lib/i18n.mjs';
 import { shortcut } from '../lib/platform.mjs';
 import { live } from '../lib/run.mjs';
 import { GPU_LABELS } from './settings.mjs';
+import { initials } from '../lib/playlayout.mjs';
 
 const FOLD_KEY = 'sl-dock-folded';
 
@@ -92,6 +93,7 @@ export function Dock({ side, folded, onFold, head, sections, who = [], dockRef, 
       onFold(false);
       requestAnimationFrame(() => requestAnimationFrame(() => revealIn(dockRef.current, id)));
     };
+    const marks = initials(who.map((p) => p.name || p.slot));
     return html`<nav class=${`dock folded ${side}`} ref=${dockRef} aria-label=${t('dock.title', 'Game panel')}>
       <button class="dock-btn dock-unfold" title=${`${openLabel} (${key})`} aria-label=${openLabel} aria-expanded="false" onClick=${() => onFold(false)}>
         <${Icon} name=${side === 'bottom' ? 'chevUp' : 'panelRight'} size=${18} /></button>
@@ -99,8 +101,8 @@ export function Dock({ side, folded, onFold, head, sections, who = [], dockRef, 
       ${shown.map((s) => html`<button class=${`dock-btn ${s.dot ? `dot-${s.dot}` : ''}`} key=${s.id} title=${s.label} aria-label=${s.label} onClick=${() => open(s.id)}>
         <${Icon} name=${s.icon} size=${18} /></button>`)}
       ${who.length > 0 && html`<span class="dock-sep" aria-hidden="true"></span>`}
-      ${who.map((p) => html`<button class=${`dock-who who-${p.slot} ${p.on ? 'on' : ''}`} key=${p.slot} title=${p.name} aria-label=${p.name} onClick=${() => open('partners')}>
-        ${(p.name || p.slot).trim().slice(0, 1).toUpperCase()}</button>`)}
+      ${who.map((p, i) => html`<button class=${`dock-who who-${p.slot} ${p.on ? 'on' : ''}`} key=${p.slot} title=${p.name} aria-label=${p.name} onClick=${() => open('partners')}>
+        ${marks[i]}</button>`)}
     </nav>`;
   }
   const headEl = html`<div class="dock-head">${head}

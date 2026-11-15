@@ -78,3 +78,16 @@ export function rightDockWidth(area, stageW, max = 660) {
   if (!area?.w) return DOCK_W;
   return Math.max(DOCK_W, Math.min(max, Math.floor(area.w - stageW - DOCK_GAP)));
 }
+
+/**
+ * The partners' marks on the folded strip: the first letter of each name – two letters for names that share their first
+ * one ("Mi", "Ma"), the colour tells them apart as well.
+ */
+export function initials(names) {
+  const first = names.map((n) => String(n || '').trim().slice(0, 1).toUpperCase());
+  return names.map((n, i) => {
+    const s = String(n || '').trim();
+    if (first.filter((f) => f === first[i]).length < 2 || s.length < 2) return first[i];
+    return first[i] + s.slice(1, 2).toLowerCase();
+  });
+}

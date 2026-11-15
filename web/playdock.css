@@ -85,7 +85,7 @@ html.platform-linux .frame.rail-folded.app-native .rail-open ~ .main .session.fu
 .dock-btn.dot-live::after { background: var(--tri); }
 .dock-btn.dot-warn::after { background: var(--warn); }
 .dock-btn.dot-bad::after { background: var(--cir); }
-.dock-who { font-family: var(--font-pixel); font-size: 14px; }
+.dock-who { font-family: var(--font-pixel); font-size: 14px; letter-spacing: -0.5px; }
 .dock-who.who-p2 { color: var(--p2); } .dock-who.who-p3 { color: var(--p3); } .dock-who.who-p4 { color: var(--p4); }
 .dock-who::after { content: ''; position: absolute; bottom: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--ink-3); box-shadow: 0 0 0 2px #141318; }
 .dock-who.on::after { background: var(--tri); }
@@ -161,7 +161,7 @@ html.platform-linux .frame.rail-folded.app-native .rail-open ~ .main .session.fu
 html.platform-win32 .app-native .rail-hint { left: 6px; }
 @keyframes attn-pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 
-/* ---- the linked groups along the bottom dock (session-info.mjs GroupTrack) ---------------------------------------- */
+/* ---- the linked groups along the bottom dock (session-info.mjs GroupTrack) ----------------------------------------- */
 .gstrip-wrap { position: relative; min-width: 0; flex: 1; min-height: 0; display: flex; }
 .gstrip { display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; scroll-behavior: auto; min-width: 0; flex: 1; padding: 2px 2px 8px; scrollbar-width: thin; }
 .gstrip-wrap.fade-l .gstrip { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px); mask-image: linear-gradient(to right, transparent 0, #000 28px); }
@@ -186,48 +186,13 @@ html.platform-win32 .app-native .rail-hint { left: 6px; }
 .gtag.here { background: var(--tri); color: #0d1a14; }
 .gtag.latest { background: color-mix(in srgb, var(--crs) 80%, #000); color: #fff; }
 
-/* A – chain: one card per group, the players top to bottom, a chain through their colour badges */
-.gchain-wrap { display: flex; flex-direction: column; gap: 4px; flex: 1; min-height: 0; position: relative; z-index: 1; }
-.gchain-top { display: flex; height: 16px; align-items: center; }
-.gcard { flex: none; width: 158px; box-sizing: border-box; display: flex; flex-direction: column; gap: 5px; padding: 6px 7px 7px; border-radius: 10px; background: var(--shell-2); border: 1px solid var(--edge);
-  scroll-snap-align: start; }
-.gcard-head { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 11.5px; color: var(--ink-2); }
-.gcard-head svg { flex: none; color: var(--tri); }
-.gcard-area { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 500; }
-.gchain { position: relative; list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-/* the chain: a line through the badges, solid green while every link holds */
-.gchain::before { content: ''; position: absolute; left: 8px; top: 12px; bottom: 12px; border-left: 2px solid var(--tri); opacity: .75; }
-.gmem { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; height: 32px; padding: 0 5px 0 0; border-radius: 8px; }
-.gmem .sprite img { width: 30px; height: 30px; margin: -2px -2px -2px -3px; }
-.gmon-top .pp-st { position: static; flex: none; font-size: 8.5px; padding: 0 3px; line-height: 13px; }
-.gmem.open .gwho, .gmem.failed .gwho { opacity: .55; }
-.gmem.open .gmon-sub, .gmem.failed .gmon-sub { padding-left: 4px; }
-.gmem.open { border: 1px dashed var(--edge-hi); margin-left: 22px; padding-left: 6px; height: 30px; }
-.gmem.open .gwho { position: absolute; left: -23px; }
-.gmem.failed { margin-left: 22px; padding-left: 6px; height: 30px; background: color-mix(in srgb, var(--cir) 8%, transparent); }
-.gmem.failed .gwho { position: absolute; left: -23px; }
-.gmem.boxed .sprite, .gmem.boxed .gmon { opacity: .6; }
-.gmem.fnt { background: color-mix(in srgb, var(--cir) 12%, transparent); }
-.gmem.dead .sprite img { filter: grayscale(1) brightness(.75); }
-.gmem.dead .gmon-name { color: var(--ink-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--cir) 70%, transparent); }
-.gcard.waiting .gchain::before { border-left-style: dashed; border-color: var(--warn); }
-.gcard.waiting .gcard-head svg { color: var(--warn); }
-.gcard.dead { background: color-mix(in srgb, var(--cir) 9%, var(--shell-2)); border-color: color-mix(in srgb, var(--cir) 35%, transparent); }
-.gcard.dead .gchain::before { border-left-style: dashed; border-color: var(--cir); }
-.gcard.dead .gcard-head svg, .gcard.dead .gcard-area { color: var(--bad-ink); }
-.gcard.failed { opacity: .8; }
-.gcard.failed .gchain::before { border-left-style: dotted; border-color: var(--ink-3); }
-.gcard.failed .gcard-head svg { color: var(--ink-3); }
-.gcard.marked { border-color: color-mix(in srgb, var(--tri) 70%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--tri) 45%, transparent), 0 0 16px color-mix(in srgb, var(--tri) 18%, transparent); }
-.gcard.marked.dead { border-color: color-mix(in srgb, var(--cir) 70%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--cir) 45%, transparent); }
-
-/* B – table: players as rows (names once, on the left), groups as columns with a link line through each */
+/* the tracker table: players as rows (names once, on the left), groups as columns with a link line through each */
 .gtable { position: relative; z-index: 1; display: flex; flex: 1; min-height: 0; gap: 6px; }
 .gt-names { flex: none; display: grid; grid-template-rows: 22px repeat(var(--n), 34px); row-gap: 3px; padding-top: 2px; max-width: 120px; }
 .gt-corner { display: flex; align-items: center; }
 .gt-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 12.5px; }
 .gt-name b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
-.gt-col { position: relative; flex: none; width: 128px; display: grid; grid-template-rows: 22px repeat(var(--n), 34px); row-gap: 3px; padding: 0 5px; border-radius: 9px; background: var(--shell-2);
+.gt-col { position: relative; flex: none; width: 138px; display: grid; grid-template-rows: 22px repeat(var(--n), 34px); row-gap: 3px; padding: 0 5px; border-radius: 9px; background: var(--shell-2);
   border: 1px solid var(--edge); box-sizing: border-box; }
 .gt-head { display: flex; align-items: center; gap: 4px; min-width: 0; font-size: 11px; color: var(--ink); font-weight: 500; }
 .gt-head svg { flex: none; color: var(--tri); }

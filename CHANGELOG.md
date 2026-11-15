@@ -23,16 +23,18 @@
   area and never covers the game bar; "Back to the panel" docks it again. Which partner is in a window, where and how
   big is remembered per run on this computer. Only shown pictures are asked for: each partner sends video over a direct
   link (several videos at once work) or small stills over the relay, and with three watchers the video bitrate per
-  watcher goes down so the upload stays about the same. Tiles and windows never take the keyboard or the controller
-  from the game.
+  watcher goes down so the upload stays about the same; the video keeps the game's own resolution, so the sharper
+  scaling below costs no extra upload. Tiles and windows never take the keyboard or the controller from the game. On
+  the folded strip partners whose names start alike get two letters ("Mi", "Ma").
 - **Sharper pixels at any size.** All three players (the fast player, the 3DS player and the browser emulator) now blow
   each game pixel up by a whole number with hard edges and only smooth the last bit to the frame – no more uneven rows
   of pixels at odd sizes. Settings › Appearance › "Whole pixels only" snaps to exact multiples instead, when that costs
   at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every layout and
   size.
-- **In the linked groups along the bottom dock** every group of the run is shown in the game's order – alive, waiting,
-  dead or failed at a glance, each player's Pokémon in the player's colour, the link drawn between them, the group of
-  the place you are at (or the latest encounter) marked and scrolled into view. The right dock keeps the pair / group
+- **The linked groups along the bottom dock are a tracker table:** the players as rows (names in a fixed column on
+  the left), every group of the run as a column in the game's order – alive, waiting, dead or failed at a glance, each
+  player's Pokémon in the player's colour, a link line through the column, the group of the place you are at (or the
+  latest encounter) marked and scrolled into view; it scrolls sideways (wheel, arrows, keyboard, controller). The right dock keeps the pair / group
   view as it was. "This computer runs the game at only …" is now a small chip in the dock (details on a click) instead
   of a card under the game, and four players' names no longer squeeze the live status line.
 

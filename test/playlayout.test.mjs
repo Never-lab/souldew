@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { DOCK_W, DOCK_GAP, BAR_H, FOLDED, dockHeight, fit, pictureFor, dockSide, tileColumns, tileHeight, rightDockWidth } from '../web/lib/playlayout.mjs';
+import { DOCK_W, DOCK_GAP, BAR_H, FOLDED, dockHeight, fit, pictureFor, dockSide, tileColumns, tileHeight, rightDockWidth, initials } from '../web/lib/playlayout.mjs';
 import { sharpScale, dsTouchAt, WHOLE_MAX_LOSS } from '../web/lib/pixelscale.mjs';
 import { CTR_LAYOUTS, ctrLayout, ctrLayoutAspect, ctrTouchAt } from '../shared/ctrlayout.mjs';
 
@@ -208,4 +208,27 @@ test('the players draw with the shared scaling and the play view hands "whole pi
   assert.match(read('views/play.mjs'), /&px=whole/);
   assert.match(read('index.html'), /playdock\.css/);
   assert.doesNotMatch(read('views/play.mjs'), /proto/i, 'no prototype left');
+});
+
+test('folded strip: one letter per partner, two where names share their first letter', () => {
+  assert.deepEqual(initials(['Misty', 'Brock', 'May']), ['Mi', 'B', 'Ma']);
+  assert.deepEqual(initials(['misty', 'Brock']), ['M', 'B']);
+  assert.deepEqual(initials(['A', 'Al']), ['A', 'Al'], 'a one-letter name stays one letter');
+  assert.deepEqual(initials([' ash ', 'Amy']), ['As', 'Am']);
+});
+
+test('the partners\' video stays at the picture\'s own size (no extra upload from the sharp scaling); one group look', () => {
+  const read = (p) => readFileSync(new URL(`../web/${p}`, import.meta.url), 'utf8');
+  for (const f of ['lib/nativeplayer.mjs', 'lib/ctrplayer.mjs']) {
+    const src = read(f);
+    assert.match(src, /return streamCanvas\.captureStream\(fps\);/, `${f} streams the small canvas`);
+    assert.doesNotMatch(src, /canvas\.captureStream\(fps\) :/, `${f} no longer streams the drawing buffer`);
+    assert.match(src, /const w = pic\.w \|\| canvas\.width;/);
+  }
+  const dock = read('views/playdock.mjs');
+  assert.match(read('lib/playlayout.mjs'), /export function initials\(names\)/);
+  assert.match(dock, /\$\{marks\[i\]\}/);
+  const info = read('views/session-info.mjs');
+  assert.doesNotMatch(info, /sl-groups-variant|gchain|gcard/, 'the chain look is gone');
+  assert.match(info, /class=\$\{`gtable n\$\{slots\.length\}`\}/);
 });

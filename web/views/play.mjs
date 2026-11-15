@@ -15,7 +15,7 @@ import { PlayHome } from './playhome.mjs';
 import { PartyGrid } from './party.mjs';
 import { PartnerScreens, PartnerTiles, usePartnerLayout, useScreenShare } from './partnerscreen.mjs';
 import { StatePanel, SaveAge, useSaveGuard, describeState, stateInfo, slotName, SHOT, MANUAL_SLOTS, AUTO_SLOT } from './savestates.mjs';
-import { RunStrip, LinkedPairs, GroupTrack, groupVariant, BattlePanel, RulesDrawer, useBattlePanelPrefs } from './session-info.mjs';
+import { RunStrip, LinkedPairs, GroupTrack, BattlePanel, RulesDrawer, useBattlePanelPrefs } from './session-info.mjs';
 import { LocationSign, readHere, nextHere, areaOfHere, musicInfo, loadRomLocations, romSpeciesNow, romDataReady, romWramNow, romMaps3Now, romOwnNow, romDataNow, resetRomData } from './location.mjs';
 import { FeatureCheck, romFeatures } from '/shared/live/features.mjs';
 import { gymCapsFamily } from '/shared/routes.mjs';
@@ -1465,7 +1465,7 @@ export function GameSession({ session, mode }) {
       ? t('play.liveHackRun', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon. The run still works: enter catches by hand.')
       : t('play.liveHackSolo', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon.')}</span>`}
     ${groups && side === 'bottom'
-      ? html`<${GroupTrack} mine=${myParty} gen=${gameGen} here=${hereArea} variant=${groupVariant()} />`
+      ? html`<${GroupTrack} mine=${myParty} gen=${gameGen} here=${hereArea} />`
       : isRun && names
         ? html`<${LinkedPairs} mine=${myParty} gen=${gameGen} compact=${!!battle?.enemy} />`
         : liveState.status !== 'unsupported' && liveState.status !== 'hack' && html`<${PartyGrid} party=${myParty} gen=${gameGen} compact layout=${side === 'bottom' ? 'row' : 'grid'}
