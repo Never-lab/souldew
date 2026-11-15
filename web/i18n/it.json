@@ -832,6 +832,7 @@
   "linkplay.rejoin": "Rientra",
   "linkplay.dropIt": "Lascia stare",
   "linkplay.pickAdd": "Aggiungi un file …",
+  "linkplay.rejoinFirst": "Il tuo gioco fa ancora parte di un collegamento con gli altri. Rientra – o lascialo – prima di continuare da solo.",
   "live.already": "Già condiviso – da te o da un compagno.",
   "live.alreadyShort": "Già condiviso",
   "live.attempt": "Tentativo n. {n}",

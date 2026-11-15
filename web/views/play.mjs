@@ -159,9 +159,19 @@ function CtrFailed({ fail, target, onClose }) {
 }
 
 function StartGame({ target }) {
-  const { startSession } = useApp();
-  useEffect(() => startSession(target), [target.key]);
-  return null;
+  const { startSession, linkPlay, linkSessions } = useApp();
+  // a link session of this run this page dropped out of: rejoin (or leave it) first – the game would start from a save
+  // the link is about to replace (web/lib/linksession.mjs › rejoin)
+  const held = !target.link && linkPlay?.phase === 'rejoinable' && linkSessions?.runId === target.runId;
+  useEffect(() => {
+    if (!held) startSession(target);
+  }, [target.key, held]);
+  if (!held) return null;
+  return html`<div class="panel empty-state stack">
+    <p>${t('linkplay.rejoinFirst', 'Your game is still part of a link with the others. Rejoin it – or leave it – before you play on alone.')}</p>
+    <div class="row"><button class="btn primary" onClick=${() => linkSessions.rejoin()}>${t('linkplay.rejoin', 'Rejoin')}</button>
+      <button class="btn ghost" onClick=${() => linkSessions.leave('left')}>${t('linkplay.dropIt', 'Leave it')}</button></div>
+  </div>`;
 }
 
 /** Shown on the Play overview while a game keeps running in the corner. */

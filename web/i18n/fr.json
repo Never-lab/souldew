@@ -832,6 +832,7 @@
   "linkplay.rejoin": "Revenir",
   "linkplay.dropIt": "Laisser tomber",
   "linkplay.pickAdd": "Ajouter un fichier …",
+  "linkplay.rejoinFirst": "Ton jeu fait encore partie d’un link avec les autres. Reviens-y – ou quitte-le – avant de continuer seul.",
   "live.already": "Déjà partagé – par toi ou un partenaire.",
   "live.alreadyShort": "Déjà partagé",
   "live.attempt": "Tentative n° {n}",

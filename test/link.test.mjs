@@ -307,6 +307,10 @@ test('linksession: hashes differ → the session ends on both, each run\'s save 
   assert.equal(server.p2.restores.length, 1);
   assert.deepEqual([server.p1.restores[0].slot, server.p2.restores[0].slot], ['p1', 'p2']);
   assert.equal(A.state.ended.restored.backup, 'p.link-x.sav');
+  // both sides may see it at once: the other's bye arriving afterwards changes nothing (no second restore)
+  await A._in({ t: 'bye', reason: 'linkDesync', sid: A.state.sid, from: 'p2' });
+  assert.equal(server.p1.restores.length, 1);
+  assert.equal(A.state.ended.restored.backup, 'p.link-x.sav');
   assert.equal(closed.p1 + closed.p2, 2);
   A.stop(), B.stop();
 });

@@ -1150,6 +1150,7 @@
   "linkplay.preparing": "Getting the link ready: checking the games, swapping saves …",
   "linkplay.rejoin": "Rejoin",
   "linkplay.rejoinBusy": "The others’ games are in the middle of a wireless exchange right now, so you can’t rejoin – the link has ended.",
+  "linkplay.rejoinFirst": "Your game is still part of a link with the others. Rejoin it – or leave it – before you play on alone.",
   "linkplay.rejoinGone": "Nobody answered – the others have left the link.",
   "linkplay.rejoinOffer": "Your link with {name} was cut off. The others are waiting – rejoin?",
   "linkplay.rejoining": "Rejoining the link – getting the games from the others …",

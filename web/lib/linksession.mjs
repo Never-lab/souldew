@@ -255,6 +255,9 @@ export class LinkSessions {
   async _end(reason, mine = false) {
     const was = this.state.phase;
     const st = this.state;
+    // once per session: both sides see a desync at the same time, and the other's bye arrives while this one ends
+    if (this.endingSid && this.endingSid === st.sid) return;
+    this.endingSid = st.sid;
     store.set(REJOIN_KEY(this.runId), null);
     let restored = null;
     if (reason === 'linkDesync' && st.id && (was === 'running' || was === 'rejoining')) {

@@ -832,6 +832,7 @@
   "linkplay.rejoin": "Wieder einsteigen",
   "linkplay.dropIt": "Lieber nicht",
   "linkplay.pickAdd": "Datei hinzufügen …",
+  "linkplay.rejoinFirst": "Dein Spiel hängt noch im Link mit den anderen. Steig wieder ein – oder verlass ihn –, bevor du allein weiterspielst.",
   "live.already": "Schon geteilt – von dir oder einem Partner.",
   "live.alreadyShort": "Schon geteilt",
   "live.attempt": "Versuch #{n}",

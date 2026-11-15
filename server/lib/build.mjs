@@ -507,7 +507,7 @@ async function buildInto(opts, onLog, onProgress, bridge) {
       rmSync(dataOut, { force: true });
       rmSync(logOut, { force: true });
     } else {
-      copyFileSync(patched.path, romOut);
+      copyFileSync(patched.path, romOut, fsConstants.COPYFILE_FICLONE); // (a clone where the disk can: a DS game is up to 512 MB per player)
       rmSync(dataOut, { force: true });
       rmSync(logOut, { force: true });
     }

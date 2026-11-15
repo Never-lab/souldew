@@ -88,7 +88,8 @@ const bad = common.filter((f) => hashes.some((h) => h[f] !== hashes[0][f]));
 const seats = [...Array(N).keys()];
 const sameSaves = seats.every((p) => seats.every((s) => saves[p][s].equals(saves[0][s])));
 let expectOk = null;
-if (opt('expect')) expectOk = seats.every((s) => readFileSync(join(opt('expect'), `seat${s}.sav`)).equals(saves[0][s]));
+// (a Game Boy clock cartridge's save from the host carries the 48-byte clock footer: the battery RAM is compared)
+if (opt('expect')) expectOk = seats.every((s) => { const e = readFileSync(join(opt('expect'), `seat${s}.sav`)); return e.equals(saves[0][s].subarray(0, e.length)); });
 if (out) {
   mkdirSync(out, { recursive: true });
   for (const p of seats) for (const s of seats) writeFileSync(join(out, `peer${p}-seat${s}.sav`), saves[p][s]);

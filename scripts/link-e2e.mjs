@@ -18,7 +18,7 @@
 //
 // Never commit ROMs, saves or the screenshots.
 import { spawn } from 'node:child_process';
-import { mkdirSync, writeFileSync, readFileSync, copyFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, copyFileSync, linkSync, statfsSync, constants as fsConstants } from 'node:fs';
 import { join, dirname, basename, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -56,6 +56,9 @@ async function main() {
   const rom1 = resolve(opt('rom1'));
   const rom2 = resolve(opt('rom2') || rom1);
   const romOf = (i) => (i === 0 ? rom1 : i === 1 ? rom2 : resolve(opt(`rom${i + 1}`) || rom1));
+  // (a full disk would hurt more than this test: stop early)
+  const free = (() => { try { const f = statfsSync(resolve(opt('data'), '..')); return f.bavail * f.bsize; } catch { return Infinity; } })();
+  if (free < 2.5e9) { console.error(`only ${(free / 1e9).toFixed(1)} GB free – not starting`); app.exit(2); return; }
   const result = { kind, frames, players: seats, rom1: basename(rom1), rom2: basename(rom2), checks: {} };
   const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, seats);
 
@@ -66,7 +69,10 @@ async function main() {
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
     // (--all-roms: every player's library has every game of the session – the partners' are then found by CRC + SHA-1)
-    for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) copyFileSync(r, join(lib, basename(r)));
+    // (a hard link, else a clone, else a copy: a DS game is 128–512 MB, and four players' folders add up)
+    for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) {
+      try { linkSync(r, join(lib, basename(r))); } catch { copyFileSync(r, join(lib, basename(r)), fsConstants.COPYFILE_FICLONE); }
+    }
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true }));
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_LINK_TEST_SCRIPT: script,
       SLS_LINK_TEST_RTC: id === 'B' && flag('desync') ? String(Number(rtc) + 86400000 * 3) : rtc };

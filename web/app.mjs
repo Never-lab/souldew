@@ -593,6 +593,11 @@ function App() {
     });
     linkPlayRef.current = lp;
     window.__slLink = { sessions: lp, sync: link }; // (tests: scripts/link-e2e.mjs)
+    if (lp.state.phase !== 'idle') {
+      setLinkPlay({ ...lp.state }); // (a session this page dropped out of: the bar offers to rejoin it)
+      // the run's own game came up meanwhile (a reload on the play view): it waits until the link is rejoined or left
+      if (lp.state.phase === 'rejoinable' && sessionRef.current?.target?.runId === manifest.id && !sessionRef.current.target.link) endSession();
+    }
     await link.start();
     if (linkRef.current === link) pref.set(`sl-autolink-${manifest.id}`, true);
   }, [runDoc, manifest, me]);

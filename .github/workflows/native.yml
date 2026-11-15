@@ -54,9 +54,9 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends bison libpng-dev pkg-config
           git clone -q --depth 1 --branch v1.0.4 https://github.com/gbdev/rgbds.git "$RUNNER_TEMP/rgbds"
-          cmake -S "$RUNNER_TEMP/rgbds" -B "$RUNNER_TEMP/rgbds/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.local"
-          cmake --build "$RUNNER_TEMP/rgbds/build" --parallel
-          cmake --install "$RUNNER_TEMP/rgbds/build"
+          # (its Makefile: the CMake build wants CMake 3.24, Ubuntu 22.04 has 3.22)
+          make -C "$RUNNER_TEMP/rgbds" -j"$(nproc)" Q= CC=gcc CXX=g++
+          make -C "$RUNNER_TEMP/rgbds" install PREFIX="$HOME/.local" Q=
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Build the host and the cores
         if: steps.cache.outputs.cache-hit != 'true'
@@ -108,9 +108,9 @@ jobs:
         run: |
           sudo apt-get install -y --no-install-recommends bison libpng-dev pkg-config
           git clone -q --depth 1 --branch v1.0.4 https://github.com/gbdev/rgbds.git "$RUNNER_TEMP/rgbds"
-          cmake -S "$RUNNER_TEMP/rgbds" -B "$RUNNER_TEMP/rgbds/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$HOME/.local"
-          cmake --build "$RUNNER_TEMP/rgbds/build" --parallel
-          cmake --install "$RUNNER_TEMP/rgbds/build"
+          # (its Makefile: the CMake build wants CMake 3.24, Ubuntu 22.04 has 3.22)
+          make -C "$RUNNER_TEMP/rgbds" -j"$(nproc)" Q= CC=gcc CXX=g++
+          make -C "$RUNNER_TEMP/rgbds" install PREFIX="$HOME/.local" Q=
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Cross-compile the host and the cores (MinGW-w64, posix threads, static)
         if: steps.cache.outputs.cache-hit != 'true'
