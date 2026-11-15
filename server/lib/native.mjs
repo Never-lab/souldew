@@ -21,9 +21,10 @@ const LINK_EXE = process.platform === 'win32' ? 'linkhost.exe' : 'linkhost';
 const LIB_EXT = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
 
 /** Messages of the native host on top of the 3DS host's (MSG); LINPUT / SEATSRAM come from the link host only. */
-export const NMSG = { ...MSG, RAM: 8, SRAM: 9, MEMREAD: 11, LINPUT: 12, SEATSRAM: 14 };
+export const NMSG = { ...MSG, RAM: 8, SRAM: 9, MEMREAD: 11, LINPUT: 12, SEATSRAM: 14, WATCHED: 15 };
 /** Commands the page may send it. */
-export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13 };
+// (WATCH: a few RAM bytes with every picture – the Shared World overlay's camera, web/lib/worldoverlay.mjs)
+export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14 };
 
 /** Commands of a link session (native/link-host/linkhost.c): no states, cheats, steps or memory access from a page. */
 export const LCMD = { INPUT: 1, SPEED: 2, QUIT: 6, FLUSH: 10, RESYNC: 12, VIEW: 20, RINPUT: 21, UNTIL: 24 };
@@ -153,6 +154,7 @@ export function checkNativeCommands(body) {
   const limits = {
     [NCMD.INPUT]: [17, 32], [NCMD.SPEED]: [4, 4], [NCMD.SAVE]: [0, 0], [NCMD.LOAD]: [1, 64 * 1024 * 1024], [NCMD.QUIT]: [0, 0],
     [NCMD.RESET]: [0, 0], [NCMD.WRITE]: [5, 4 + 65536], [NCMD.FLUSH]: [0, 0], [NCMD.SRAM]: [1, MAX_SAVE], [NCMD.RESYNC]: [0, 0], [NCMD.STEP]: [4, 4],
+    [NCMD.WATCH]: [4, 4 + 8 * 16],
   };
   for (const m of messages) {
     const l = limits[m.type];

@@ -16,7 +16,7 @@ export function linkAllowed(doc, manifest, kind) {
   return kind === 'battle' ? r.linkBattles !== 'off' : r.linkTrades !== 'off';
 }
 
-const reasonText = (code, name) => ({
+export const reasonText = (code, name) => ({
   declined: t('linkplay.declined', '{name} doesn’t want to right now.', { name }),
   left: t('linkplay.left', 'The link has ended.'),
   closed: t('linkplay.left', 'The link has ended.'),

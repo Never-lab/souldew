@@ -2561,5 +2561,15 @@
   "rnd.totemPokemonMod.UNCHANGED": "Inchangé",
   "rnd.totemPokemonMod.help": "Les boss à la fin des épreuves des îles.",
   "rnd.typesFollowMegaEvolutions": "Les Méga-Évolutions gardent les types",
-  "new.progFinish": "Finalisation du nouveau fichier de jeu pour {name} …"
+  "new.progFinish": "Finalisation du nouveau fichier de jeu pour {name} …",
+  "world.trade": "Échanger",
+  "world.battle": "Combattre",
+  "world.wave": "Saluer",
+  "world.tagHint": "Échanger, combattre ou saluer",
+  "world.menuKeys": "A choisir · B retour",
+  "world.toggle": "Voir mes partenaires dans mon jeu",
+  "world.toggleHint": "Tes partenaires se promènent dans ton jeu quand vous êtes sur la même carte. Approche-toi et appuie sur A pour échanger, combattre ou saluer.",
+  "world.nearby": "{n} ici",
+  "world.linkBusy": "Un link est déjà en cours.",
+  "world.linkOff": "Les échanges et les combats sont désactivés dans les règles de ce run."
 }

@@ -2561,5 +2561,15 @@
   "upd.updatedTitle": "Updated",
   "upd.version": "Version {version}",
   "upd.whatsNew": "What’s new",
-  "upd.youHave": "You have {version}."
+  "upd.youHave": "You have {version}.",
+  "world.battle": "Battle",
+  "world.linkBusy": "A link is already running.",
+  "world.linkOff": "Trades and battles are off in this run’s rules.",
+  "world.menuKeys": "A choose · B back",
+  "world.nearby": "{n} here",
+  "world.tagHint": "Trade, battle or wave",
+  "world.toggle": "Show partners in my game",
+  "world.toggleHint": "Your partners walk in your game when you’re on the same map. Walk up to them and press A to trade, battle or wave.",
+  "world.trade": "Trade",
+  "world.wave": "Wave"
 }

@@ -246,29 +246,70 @@ What if a player quits mid-trade? Gen 3 saves before a trade and again after it.
 
 Goal: partners walk visibly in your game, on the same map, and you can walk up to them and press A to trade or battle.
 
-GBA-PK's approach injects NPC objects into game RAM per ROM revision, which breaks on randomizers and is CC BY-NC. souldew's version is an **overlay drawn by souldew** over the emulator picture, fed by RAM reads it already does.
+GBA-PK's approach injects NPC objects into game RAM per ROM revision, which breaks on randomizers and is CC BY-NC. souldew's version is an **overlay drawn by souldew** over the emulator picture, fed by RAM reads. Nothing is written into the game.
 
-1. **Read** each player's map id, tile x/y, facing, movement state and avatar (gender, bike/surf), using the per-game live-tracking tables (`shared/data/addresses.json` and the trackers).
-   - Gen 3: SaveBlock1 `pos` (+0x00) and `location` (+0x04) are already used.
-   - New per-game fields: `gObjectEvents[player]` (facing, movement direction, running/bike flags; Emerald `0x02037350`, FR/LG `0x02036E38`, Sapphire `0x030048A0`, from the pret symbol files) and the camera offset (`gTotalCameraPixelOffsetX/Y`: Emerald `0x03005DEC`, FR/LG `0x0300506C`, Sapphire `0x0300489C`), or derive the camera from the local player, who is always centred.
-   - Gen 1/2: `wXCoord/wYCoord/wMapGroup/wMapNumber`, `wPlayerDirection`, and `wSpriteStateData` for walking animation.
-   - Gen 4/5: the field-system player struct, with x/z in tiles.
-   - Randomizers keep maps, so the same addresses hold. A game without known addresses shows no overlay (the board keeps "Tim is on Route 104" as today).
-2. **Exchange** at 10–15 Hz over the run's channel: `{map, x, y, facing, moving, avatar, t}`, ~20 bytes. Interpolate to 60 fps on the receiver and snap on a map change.
-3. **Render** on a canvas over the native player and the 3DS canvas.
-   - Screen position = (partner tile − local tile) × 16 px + the screen centre, plus the local sub-tile scroll from the movement state.
-   - Clip to the game area. Hide the overlay when the partner is on another map, when the local game is in a battle or menu (the `inBattle` flag and gMain callback checks the trackers already have), and during map transitions.
-   - Sprites are the game's own player sprite sheets, **extracted from the local ROM at runtime** (Gen 3: `gObjectEventGraphicsInfoPointers` → the player graphics, decompressed and palettised). No Nintendo assets ship. Randomized ROMs keep player sprites.
-   - The draw order puts the overlay above the map. Exact occlusion behind trees or roofs would need the map's metatile layer flags; phase 2 at best.
-4. **Interact:** when the local player faces a tile with a partner on it and presses A (or the souldew button over the partner), souldew opens "Trade / Battle / Wave".
-   - Trade or Battle starts the link session (§4).
-   - Wave shows an emote bubble over both avatars. It is the cheap social layer, like linkcable's emotes.
-5. **Feasibility and effort:**
-   - Gen 3 (E, FR/LG, R/S): **1.5–2 wk** (sprite extraction 3 d, overlay and interpolation 3 d, RAM fields and tests 3 d).
-   - Gen 1/2: 1 wk (simpler sprites; metatile scroll is per pixel).
-   - Gen 4/5: 2–3 wk (3D field camera with a perspective projection; Gen 5 has a tilted camera, so derive the projection from the field camera struct).
-   - 3DS: research.
-   - Spike: not started in this phase. Gen 3 is first, because its tables are the most complete.
+**Status (branch `feat/shared-world`): Gen 3 works in the app** – Emerald and Sapphire tested end to end with two and three scratch profiles (`scripts/world-e2e.mjs`), FireRed/LeafGreen and Ruby share the code path with addresses from the pret symbol files (no FR/LG ROM was at hand to try).
+
+| Game | Status |
+|---|---|
+| Emerald (US/EU) | **Works**: partners drawn and animated, names, depth against your own player, A → menu, Wave both sides, Trade/Battle into the link flow |
+| Ruby / Sapphire (US rev 0–2, Ruby DE) | **Works** (Sapphire US tested) |
+| FireRed / LeafGreen (US rev 0–1) | Addresses from `pokefirered*.sym`/`pokeleafgreen*.sym`, same code – untested in the app |
+| Other languages, hacks with moved RAM (FR/LG DE/FR/IT/ES, Sapphire DE, CFRU/Unbound …) | No overlay (no verified RAM addresses); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM and sprite tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
+| Gen 1/2, Gen 4/5, 3DS | Not yet – see the feasibility notes below |
+
+### How it works
+
+```
+ player page (iframe)                          play view                         partner's play view
+ ┌──────────────────────────────────────┐  ┌───────────────────────────┐       ┌──────────────────────┐
+ │ nativeplayer: WATCH → a few RAM bytes │  │ lib/sharedworld.mjs        │ world │ … → their overlay     │
+ │   with every picture (camera, keys)   │  │  ≤15 msgs/s while moving,  │──────▶│                      │
+ │ lib/worldoverlay.mjs                  │──│  1/s still, relay 1/2 s    │◀──────│                      │
+ │   reads camera + player, draws        │  │  Trade/Battle → linksession│ (sync │                      │
+ │   partners (sprites from the ROM),    │◀─│  partners' states in       │ .mjs) │                      │
+ │   names, waves, the A menu            │  └───────────────────────────┘       └──────────────────────┘
+ └──────────────────────────────────────┘
+```
+
+1. **Read** (`shared/world.mjs`, tables in `shared/data/addresses.json` › `world`, from the pret symbol files per revision):
+   - the camera: `SaveBlock1.pos` (the camera's tile; Emerald/FR/LG through `gSaveBlock1Ptr`, R/S fixed) plus `gFieldCamera.x/y` (the sub-tile offset: `CameraMove()` counts the new tile when a step begins, the offset runs 1…15 toward it) → world pixels;
+   - the player: `gPlayerAvatar` (object event id, flags: running), `gObjectEvents[id]` (facing, graphics id → avatar kind and gender via the game's `sPlayerAvatarGfxIds`), the map from `SaveBlock1.location`;
+   - drawable: `gMain.callback2 == CB2_Overworld`, not `gMain.inBattle`, not `sLockFieldControls` (menus, messages, scripts), `gPaletteFade` (the overlay fades with the screen);
+   - your own sprite: `gSprites[gPlayerAvatar.spriteId]` (its OAM position, animation command and flip) – so a partner behind you is drawn behind you.
+   - **Per picture**: the native host got a `WATCH` command (`native/retro-host/retrohost.c`, cmd 14): the page names ≤16 ranges (≤512 bytes) and the host sends them (`WATCHED`, message 15) right before each picture. The overlay draws for exactly the picture on screen – no wobble against the map while walking. An older host ignores the command: the overlay then reads the 10 Hz RAM mirror (works, a little less exact while walking). The browser player reads its emulator's memory directly every animation frame.
+2. **Exchange** over the run's peer channel, a Trystero action of its own (`world`, `web/lib/sync.mjs`): `[v, seq, t, family, map, x, y, flags]` (~40 bytes of JSON; flags = facing, kind, gender, running, hidden). Up to 15 a second while something changes, a heartbeat once a second while standing still, a "hidden" message when you leave the overworld (battle, menu screens). Partners without a direct link get one message every 2 s over the encrypted MQTT relay. Measured: ~45 bytes per message, so ≤ 0.7 KB/s per partner at the 15-a-second maximum while walking, ~45 B/s standing still.
+3. **Interpolate** (`Track`): the picture runs ~1.5 message gaps behind the newest state (60–600 ms, adaptive), linear in between; past the newest it extrapolates ≤150 ms and never past the tile it was heading for; a map change or a jump of more than 3 tiles snaps.
+4. **Render** (`web/lib/worldoverlay.mjs`): a 240×160 canvas exactly over the picture, scaled by the same CSS size with `image-rendering: pixelated` (nearest neighbour, like the game). Sprites come from **this computer's ROM** at run time (`shared/worldsprites.mjs`: `gObjectEventGraphicsInfoPointers` → graphics info → 4bpp frames, palette by tag from `sObjectEventSpritePalettes`, the game's own animation tables; tables searched for when not at the known address). Animation follows the distance walked (walk, run, Mach/Acro bike, surf). Depth: partners behind your feet line are drawn first, then your own sprite again (its exact current frame from the ROM) where it covers them, then partners in front. Name tags are crisp HTML in the player's colour; the wave bubble is pixel art (original, no game graphics). Partners show only on the same map of the same game family (Ruby ↔ Sapphire, FireRed ↔ LeafGreen; Emerald ↔ Ruby are not mixed – their map numbering differs).
+5. **Interact**: standing still, facing a partner's tile, A (from the game's own `gMain.heldKeys`, or the fast player's input) → after 110 ms, if the game didn't answer the button itself (a sign, a person: field controls locked), souldew's menu opens over the game and the game pauses: **Trade / Battle / Wave / Cancel** (arrows, Enter/Space and Escape, the mapped A/B keys in the fast player, a controller, the mouse; clicking a name tag opens it too). Trade/Battle call `LinkSessions.invite(kind, [slot])` (the existing invite → Join/Not now flow) and dispatch `sl-world-action` for other integrations; they're disabled with the reason when the run's rules, the link state or a missing direct connection don't allow them. Wave shows the bubble over your avatar on every screen that sees you.
+6. **UX**: one quiet switch in the play view's side column, "Show partners in my game" (per run, this computer only, default on; shows "· 1 here" while someone is on your map). It only appears when this game is supported. Off hides the overlay; your own position still goes out so the partners can see you. Never in link sessions, solo runs or games without tables.
+
+### Limits (Gen 3)
+
+- The overlay is always above the map: partners aren't hidden behind trees, roofs or tall grass (would need the metatile layer flags), and they walk through NPCs and walls on your screen if they stand there in their game (their own game decides where they can walk).
+- Partners on a neighbouring connected map aren't shown until you're on the same map (the connection offsets aren't applied yet).
+- Surfing partners are drawn without the surf blob (a field-effect sprite with its own palette table – a follow-up); ledge jumps slide instead of hop.
+- Partners vanish while a menu, a message or a script holds your player (they would be drawn over the text box), with a short fade.
+- Pair runs with different games (Emerald ↔ FireRed) never share a map, by design.
+- No FR/LG ROM was available here: its addresses come from the symbol files and the same struct layouts; verify with `scripts/world-e2e.mjs` before shipping.
+
+### Feasibility for the other generations
+
+- **Gen 1/2 (≈ 4–6 days):** everything is in WRAM, so the 10 Hz mirror and `WATCH` both reach it. Gen 1: `wCurMap` 0xD35E, `wYCoord`/`wXCoord` 0xD361/2 (16 px steps), `wWalkCounter` 0xCFC5 (8 → 0, 2 px per frame) with `wPlayerMovingDirection` 0xD528 for the sub-step, facing `wSpritePlayerStateData1FacingDirection` 0xC109, bike/surf `wWalkBikeSurfState` 0xD700; the player sits at a fixed spot (sprite at 64, 60). Gen 2 (Crystal): `wMapGroup`/`wMapNumber` 0xDCB5/6, `wYCoord`/`wXCoord` 0xDCB7/8, `wPlayerStruct` 0xD4D6 (facing, step offsets), `wPlayerGender` 0xD472, `wPlayerState` 0xD95D (bike/surf). Sprites: 2bpp 16×16 sheets (`RedSprite` 05:4180, Crystal's Chris/Kris sprites) – trivial to decode. The hard part is the colour: Gen 1 on a Color console is coloured by the boot ROM's palette for the title, Gen 2 by its OBJ palettes in ROM (`PAL_NPC_*`) – both reproducible, but to be checked against what Gambatte shows. `hSCX`/`hSCY` are in HRAM, outside the mirror; not needed with the walk counter.
+- **Gen 4 (Platinum/HGSS, ≈ 2–3 wk):** the field is 3D with a perspective camera at a fixed pitch (Platinum, HGSS tilt differs per map). Position: the player's map object (x/z in tiles + fixed-point sub-tile) under the field system; the camera struct gives target, distance and angle, from which a projection to the top screen can be derived – an overlay is feasible but needs the projection per map type and won't match exactly where the camera eases. Sprites: the player's overworld textures are in the ROM's NARC (`data/mmodel`), BTX0 textures, decodable. Depth against 3D buildings is not possible from outside.
+- **Gen 5 (B/W, B2/W2):** like Gen 4 with a freely tilting camera on many maps: hard; best kept to the board's "Tim is on Route 4".
+- **3DS:** research only.
+
+### Effort for the rest
+
+| Item | Effort |
+|---|---|
+| FR/LG verification with a real ROM (and the e2e) | ½ day |
+| Surf blob, ledge hop, partners on connected maps | 2–3 days |
+| Occlusion behind roofs/trees (metatile layer flags from the map data) | 3–4 days |
+| More languages (verify RAM per language with pret or community tables) | ½ day per language |
+| Gen 1/2 | 4–6 days |
+| Gen 4 | 2–3 weeks |
 
 ## 10. SoulLink rules and UX
 
@@ -333,7 +374,7 @@ M-series Mac, darwin-arm64, Release build:
 | 2 | Robustness: resend on gaps, rejoin by state transfer (lockstep state fix), TURN via the Worker, "direct/relayed" UI, Windows build | 1–1.5 wk | |
 | 3 | GB/GBC (Gen 1/2) trades and battles, Time Capsule | Host side done (SameBoy backend); app flow as Gen 3, RTC hand-over, Time Capsule test: ~3 days | spike agent |
 | 4 | DS (Gen 4/5): melonDS 2-instance backend, deterministic MP layer; or WFC opt-in first | 3–4 wk prototype | spike agent |
-| 5 | Shared World overlay, Gen 3 first, then 1/2, then 4/5 | 1.5–2 wk (Gen 3) | |
+| 5 | Shared World overlay, Gen 3 first, then 1/2, then 4/5 | 1.5–2 wk (Gen 3) | **Gen 3 done** (`feat/shared-world`, §9); Gen 1/2 next |
 | 6 | Rollback, spectating, partner windows | open | |
 
 **Ship order for 3.0:** Gen 3 trades and battles, then Gen 1/2 (cheap on the same host), then Shared World Gen 3, then Gen 4/5.

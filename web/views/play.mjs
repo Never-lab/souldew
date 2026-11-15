@@ -28,6 +28,8 @@ import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
 import { gpuBackends } from '/shared/gpu.mjs';
 import { GPU_LABELS } from './settings.mjs';
 import { CTR_LAYOUTS, ctrLayoutAspect } from '/shared/ctrlayout.mjs';
+import { SharedWorld, WorldToggle, WORLD_SYSTEMS, worldEnabled, setWorldEnabled } from '../lib/sharedworld.mjs';
+import { linkAllowed, reasonText as linkReason, LINK_SYSTEMS } from './linkplay.mjs';
 import { claimPad } from '../lib/padnav.mjs';
 
 let TABLES = null;
@@ -219,7 +221,7 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
  * you open another section: `mode` "full" fills the Play page, "mini" floats in the corner.
  */
 export function GameSession({ session, mode }) {
-  const { manifest, doc, me, applySnap, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData } = useApp();
+  const { manifest, doc, me, applySnap, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus } = useApp();
   const target = session.target;
   // the module slides into the console while the game boots (Settings › animations; never with reduced motion)
   const [inserting, setInserting] = useState(() => mode === 'full' && status?.config?.bootAnimation !== false
@@ -1197,11 +1199,63 @@ export function GameSession({ session, mode }) {
   useEffect(() => claimPad(() => ({
     mode: modeRef.current,
     playing: padRef.current.phase !== 'error',
-    paused: !!emu()?.paused?.(),
+    // (Shared World's A menu pauses the game but keeps the controller in the game's page)
+    paused: !!emu()?.paused?.() && !frame.current?.contentWindow?.__world?.menuOpen?.(),
     overlay: padRef.current.overlay,
     focus: focusGame,
   })), []);
   useScreenShare(isRun ? link : null, emu, { system: target.system, enabled: isRun && phase === 'running' && status?.config?.shareScreen !== false });
+
+  // Shared World (docs/MULTIPLAYER.md › 9, lib/sharedworld.mjs): the partners walk in this game when they're on the
+  // same map – never in a link session, a solo run or a game without the tables (the player page checks the ROM)
+  const worldOk = isRun && !solo && !target.link && WORLD_SYSTEMS.includes(target.system) && !!link && others.length > 0;
+  const [worldOn, setWorldOnState] = useState(() => worldEnabled(target.runId));
+  const [worldNear, setWorldNear] = useState(0);
+  const [worldSupported, setWorldSupported] = useState(false); // the player page knows this game's memory
+  const worldRef = useRef(null);
+  const setWorldOn = (on) => {
+    setWorldOnState(on);
+    setWorldEnabled(target.runId, on);
+    focusGame();
+  };
+  const linkIdle = !linkPlay || linkPlay.phase === 'idle' || linkPlay.phase === 'ended';
+  const worldPlayers = {};
+  const worldActions = {};
+  if (worldOk && names) {
+    const css = getComputedStyle(document.documentElement);
+    for (const s of [me, ...others]) worldPlayers[s] = { name: names[s]?.name || s.toUpperCase(), color: css.getPropertyValue(`--${s}`).trim() || '#ebe6da' };
+    for (const s of others) {
+      const name = worldPlayers[s].name;
+      const can = !!linkSessions && LINK_SYSTEMS.includes(manifest?.game?.system) && linkIdle && !!onlineSlots?.has(s) && !!linkStatus?.partners?.[s]?.p2p;
+      const why = !linkSessions || !LINK_SYSTEMS.includes(manifest?.game?.system) ? t('linkplay.system', 'Linking isn’t available for this game yet.')
+        : !linkIdle ? t('world.linkBusy', 'A link is already running.')
+          : !linkStatus?.partners?.[s]?.p2p ? t('linkplay.needDirect', 'No direct connection to {name} yet', { name }) : '';
+      worldActions[s] = { trade: can && linkAllowed(doc, manifest, 'trade'), battle: can && linkAllowed(doc, manifest, 'battle'), why: why || (!linkAllowed(doc, manifest, 'trade') && !linkAllowed(doc, manifest, 'battle') ? t('world.linkOff', 'Trades and battles are off in this run’s rules.') : '') };
+    }
+  }
+  const worldKey = JSON.stringify([worldPlayers, worldActions, worldOn]);
+  useEffect(() => {
+    if (!worldOk) return undefined;
+    const w = new SharedWorld({
+      sync: link, me, frame: () => frame.current, onNear: setWorldNear, onSupported: setWorldSupported,
+      onAction: async (kind, slot) => {
+        try {
+          await linkSessions?.invite(kind, [slot]);
+        } catch (e) {
+          toast({ kind: 'death', title: t('linkplay.title', 'Link'), text: linkReason(e.code, names?.[slot]?.name || slot) });
+        }
+      },
+    });
+    worldRef.current = w;
+    window.__slWorld = w; // (tests: scripts/world-e2e.mjs)
+    return () => {
+      w.stop();
+      if (worldRef.current === w) worldRef.current = null;
+    };
+  }, [worldOk, link, me]);
+  useEffect(() => {
+    worldRef.current?.update({ players: worldPlayers, actions: worldActions, enabled: worldOn });
+  }, [worldKey, worldOk]);
   const btn = (name, title, onClick, extra = {}) => html`<button class="btn icon" title=${title} aria-label=${title} onClick=${onClick} ...${extra}><${Icon} name=${name} size=${14} /></button>`;
 
   // Cheats (Rare Candies): written straight into the bag in RAM. In a run only while its rules allow them, and every
@@ -1374,6 +1428,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
             ? html`<${LinkedPairs} mine=${myParty} gen=${gameGen} compact=${!!battle?.enemy} />`
             : liveState.status !== 'unsupported' && liveState.status !== 'hack' && html`<${PartyGrid} party=${myParty} gen=${gameGen} compact accent="var(--p1)" label=${t('play.yourTeam', 'Your team')} noItems=${features?.items === 'no'} />`}
         </section>
+        ${worldOk && worldSupported && mode === 'full' && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} />`}
         ${isRun && names && !solo && mode === 'full' && html`<div class="side-partner"><${PartnerScreen} link=${link} system=${target.system} /></div>`}
       </aside>
     </div>

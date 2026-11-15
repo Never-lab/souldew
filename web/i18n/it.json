@@ -2561,5 +2561,15 @@
   "rnd.totemPokemonMod.UNCHANGED": "Invariato",
   "rnd.totemPokemonMod.help": "I boss alla fine delle prove delle isole.",
   "rnd.typesFollowMegaEvolutions": "Le megaevoluzioni mantengono i tipi",
-  "new.progFinish": "Completamento del nuovo file di gioco per {name} …"
+  "new.progFinish": "Completamento del nuovo file di gioco per {name} …",
+  "world.trade": "Scambia",
+  "world.battle": "Lotta",
+  "world.wave": "Saluta",
+  "world.tagHint": "Scambia, lotta o saluta",
+  "world.menuKeys": "A scegli · B indietro",
+  "world.toggle": "Mostra i compagni nel mio gioco",
+  "world.toggleHint": "I tuoi compagni camminano nel tuo gioco quando siete sulla stessa mappa. Avvicinati e premi A per scambiare, lottare o salutare.",
+  "world.nearby": "{n} qui",
+  "world.linkBusy": "C’è già un link in corso.",
+  "world.linkOff": "Scambi e lotte sono disattivati nelle regole di questa run."
 }

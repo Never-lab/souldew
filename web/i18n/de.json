@@ -2561,5 +2561,15 @@
   "rnd.totemPokemonMod.UNCHANGED": "Unverändert",
   "rnd.totemPokemonMod.help": "Die Bosse am Ende der Inselprüfungen.",
   "rnd.typesFollowMegaEvolutions": "Mega-Entwicklungen behalten die Typen",
-  "new.progFinish": "Stelle die neue Spieldatei für {name} fertig …"
+  "new.progFinish": "Stelle die neue Spieldatei für {name} fertig …",
+  "world.trade": "Tauschen",
+  "world.battle": "Kämpfen",
+  "world.wave": "Winken",
+  "world.tagHint": "Tauschen, kämpfen oder winken",
+  "world.menuKeys": "A wählen · B zurück",
+  "world.toggle": "Partner in meinem Spiel zeigen",
+  "world.toggleHint": "Deine Partner laufen in deinem Spiel herum, wenn ihr auf derselben Karte seid. Geh zu ihnen und drück A, um zu tauschen, zu kämpfen oder zu winken.",
+  "world.nearby": "{n} hier",
+  "world.linkBusy": "Es läuft schon ein Link.",
+  "world.linkOff": "Tauschen und Kämpfe sind in den Regeln dieses Runs aus."
 }

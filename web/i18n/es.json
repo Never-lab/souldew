@@ -2561,5 +2561,15 @@
   "rnd.totemPokemonMod.UNCHANGED": "Sin cambios",
   "rnd.totemPokemonMod.help": "Los jefes al final de las pruebas de las islas.",
   "rnd.typesFollowMegaEvolutions": "Las megaevoluciones conservan los tipos",
-  "new.progFinish": "Terminando el nuevo archivo de juego para {name} …"
+  "new.progFinish": "Terminando el nuevo archivo de juego para {name} …",
+  "world.trade": "Intercambiar",
+  "world.battle": "Combatir",
+  "world.wave": "Saludar",
+  "world.tagHint": "Intercambiar, combatir o saludar",
+  "world.menuKeys": "A elegir · B volver",
+  "world.toggle": "Mostrar a mis compañeros en mi juego",
+  "world.toggleHint": "Tus compañeros caminan por tu juego cuando estáis en el mismo mapa. Acércate y pulsa A para intercambiar, combatir o saludar.",
+  "world.nearby": "{n} aquí",
+  "world.linkBusy": "Ya hay un link en curso.",
+  "world.linkOff": "Los intercambios y combates están desactivados en las reglas de esta partida."
 }

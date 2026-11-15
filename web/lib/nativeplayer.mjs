@@ -7,6 +7,7 @@
 import * as controls from '/lib/controls.mjs';
 import { setLang, guessLang, t } from '/lib/i18n.mjs';
 import { serverErrorText } from '/lib/errors.mjs';
+import { installWorld } from '/lib/worldoverlay.mjs';
 
 const q = new URLSearchParams(location.search);
 const SYSTEM = q.get('system') || 'nds';
@@ -15,8 +16,8 @@ const SYSTEM = q.get('system') || 'nds';
 // the same on every player's computer. The host's buttons for the partners and its hashes go to the play view
 // (web/lib/linksession.mjs sends them on).
 const LINK_SESSION = q.get('link') === '1' ? q.get('session') : null;
-const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, LINPUT: 12 };
-const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13 };
+const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, LINPUT: 12, WATCHED: 15 };
+const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14 };
 const post = (m) => window.parent?.postMessage(m, location.origin);
 // ?debug=1 (the ROM matrix): what arrives from the host – events, picture sizes, saves – on the console
 const DEBUG = q.get('debug') === '1';
@@ -147,6 +148,7 @@ if (gl) initGl();
 const sideBySide = () => SYSTEM === 'nds' && st.lr;
 let pendingFrame = null;
 let lastFrame = null;
+let nextWatched = null; // WATCHED: the bytes the host sends right before a picture (Shared World's camera)
 function drawFrame() {
   const f = pendingFrame || lastFrame;
   pendingFrame = null;
@@ -161,6 +163,7 @@ function drawFrame() {
     gl.viewport(0, 0, cw, ch);
     layout();
   }
+  if (f.watched) window.__world?.onWatched(f.watched); // (the overlay draws for exactly this picture)
   if (f.fmt === 2) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, f.w, f.h, 0, gl.RGB, gl.UNSIGNED_SHORT_5_6_5, new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h));
   else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.px);
   gl.uniform1i(uni.bgra, f.fmt === 0 ? 1 : 0);
@@ -176,7 +179,8 @@ function onVideo(p) {
   if (!w || !h || p.length < 8 + w * h * bpp) return dbg('bad picture', w, h, fmt, p.length);
   if (DEBUG && (w !== st.dbgW || h !== st.dbgH)) dbg('picture', w, h, fmt), (st.dbgW = w), (st.dbgH = h);
   if (!pendingFrame) requestAnimationFrame(drawFrame);
-  pendingFrame = { w, h, fmt, px: p.subarray(8, 8 + w * h * bpp) };
+  pendingFrame = { w, h, fmt, px: p.subarray(8, 8 + w * h * bpp), watched: nextWatched };
+  nextWatched = null;
   st.frames++;
   if (!st.ready) {
     st.ready = true;
@@ -401,6 +405,7 @@ async function pump() {
       else if (type === MSG.SRAM) onSram(p);
       else if (type === MSG.EVENT) onEvent(p);
       else if (type === MSG.LINPUT && LINK_SESSION) post({ type: 'emu-link-input', bytes: p.slice() });
+      else if (type === MSG.WATCHED) nextWatched = p.slice();
       else if (type === MSG.STATE) waiters.state.shift()?.(p.slice());
       else if (type === MSG.LOG) {
         st.log.push(new TextDecoder().decode(p));
@@ -432,6 +437,7 @@ function sendInput() {
   const sig = [buttons, inp.px, inp.py, inp.touch].join();
   if (sig === sentInput) return;
   sentInput = sig;
+  window.__world?.input(buttons);
   const b = new Uint8Array(17);
   const v = new DataView(b.buffer);
   v.setUint32(0, buttons >>> 0, true);
@@ -690,6 +696,33 @@ window.__emu = {
   /** The input as sent last (tests: the next step() runs with it). */
   flush: () => flushCommands(),
 };
+
+// Shared World (web/lib/worldoverlay.mjs): the partners over the picture – the play view turns it on for a SoulLink.
+// Never in a link session (everyone stands in the Cable Club then, and the session's consoles must stay untouched).
+if (!LINK_SESSION) {
+  installWorld({
+    system: SYSTEM,
+    romUrl: q.get('rom'),
+    read,
+    rect: () => (st.ready ? canvas.getBoundingClientRect() : null),
+    ready: () => st.ready && !st.ended,
+    /** A few RAM bytes with every picture (WATCH): ranges [[addr, len]…], [] stops it. */
+    watch(ranges) {
+      const b = new Uint8Array(4 + ranges.length * 8);
+      const v = new DataView(b.buffer);
+      v.setUint32(0, ranges.length, true);
+      ranges.forEach(([a, l], i) => (v.setUint32(4 + i * 8, a >>> 0, true), v.setUint32(8 + i * 8, l >>> 0, true)));
+      if (!st.id) return false;
+      cmd(CMD.WATCH, b);
+      return true;
+    },
+    paused: () => st.paused,
+    pause: () => window.__emu.pause(),
+    resume: () => window.__emu.resume(),
+    post,
+    keyButton: (e) => keyMap[e.keyCode],
+  });
+}
 
 // ---- start ----------------------------------------------------------------------------------------------------------
 async function bootSaveBytes() {
