@@ -1300,7 +1300,7 @@ export function GameSession({ session, mode }) {
       const can = !!linkSessions && LINK_SYSTEMS.includes(manifest?.game?.system) && linkIdle && !!onlineSlots?.has(s) && !!linkStatus?.partners?.[s]?.p2p;
       const why = !linkSessions || !LINK_SYSTEMS.includes(manifest?.game?.system) ? t('linkplay.system', 'Linking isn’t available for this game yet.')
         : !linkIdle ? t('world.linkBusy', 'A link is already running.')
-          : !linkStatus?.partners?.[s]?.p2p ? t('linkplay.needDirect', 'No direct connection to {name} yet', { name }) : '';
+          : !linkStatus?.partners?.[s]?.p2p ? t('linkplay.needConnection', 'No connection to {name} yet', { name }) : '';
       worldActions[s] = { trade: can && linkAllowed(doc, manifest, 'trade'), battle: can && linkAllowed(doc, manifest, 'battle'), why: why || (!linkAllowed(doc, manifest, 'trade') && !linkAllowed(doc, manifest, 'battle') ? t('world.linkOff', 'Trades and battles are off in this run’s rules.') : '') };
     }
   }
