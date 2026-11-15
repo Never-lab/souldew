@@ -1,11 +1,11 @@
-// Partner screens as windows: the layout math of lib/pslayout.mjs – aspect, clamping into the play area, light
-// snapping, resizing from a corner, the remembered position, the two presets and the per-run layout in localStorage.
+// Partner screens popped out into windows: the layout math of lib/pslayout.mjs – aspect, clamping into the play area,
+// staying off the game bar, light snapping, resizing from a corner, the remembered position, where new windows start
+// and the per-run layout in localStorage.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   HEAD, MIN_W, MAX_W, GAP, SNAP, SYSTEM_AR, arOf, heightFor, widthFor, maxWidth, sizeFor, defaultWidth, clampRect, snapRect,
-  gripSide, resizeRect, resizeAnchored, toStored, fromStored, columnLayout, columnHeight, cornerLayout, runLayout, winState,
-  updateRun, isCustom,
+  gripSide, resizeRect, resizeAnchored, toStored, fromStored, cornerLayout, avoidRect, runLayout, winState, updateRun,
 } from '../web/lib/pslayout.mjs';
 
 const area = { w: 1200, h: 800 };
@@ -126,29 +126,27 @@ test('a moved window is remembered relative to the free room and comes back at t
   assert.ok(inside(fromStored({ fx: 'x', fy: 7, w: -3 }, ar, area)));
 });
 
-test('column preset: stacked at the bottom of the right column, full width, never overlapping', () => {
-  const col = { x: 900, y: 0, w: 300, h: 760 };
-  const one = columnLayout([{ id: 'p2', ar: 3 / 2 }], col, area);
-  assert.equal(one.p2.w, 300, 'one GBA screen as wide as the column – like before');
-  assert.equal(one.p2.y + one.p2.h, 760, 'at the bottom');
-  const ds = columnLayout([{ id: 'p2', ar: 256 / 384 }], col, area);
-  assert.ok(ds.p2.w < 240 && ds.p2.x + ds.p2.w === 1200, `a DS stays narrow, right-aligned (${ds.p2.w})`);
-  const three = columnLayout(['p2', 'p3', 'p4'].map((id) => ({ id, ar: 3 / 2 })), col, area);
-  const list = Object.values(three);
-  assert.equal(list.length, 3);
-  for (const r of list) assert.ok(inside(r) && r.x >= col.x && r.x + r.w <= col.x + col.w, JSON.stringify(r));
-  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) assert.ok(!overlap(list[i], list[j]), 'no overlap');
-  assert.ok(columnHeight(three) <= col.h * 0.62 + 1, `fits in the share of the column (${columnHeight(three)})`);
-  assert.ok(three.p2.y < three.p3.y || three.p2.x < three.p3.x, 'first partner first');
-  // three DS screens: side by side beats tiny ones on top of each other
-  const dss = columnLayout(['p2', 'p3', 'p4'].map((id) => ({ id, ar: 256 / 384 })), col, area);
-  assert.ok(Object.values(dss).every((r) => r.w >= MIN_W && inside(r)));
-  assert.ok(Object.values(dss).some((r) => r.y === dss.p2.y && r !== dss.p2), 'two in a row');
-  assert.equal(columnHeight({}), 0);
-  assert.deepEqual(columnLayout([], col, area), {});
+test('a window never covers the game bar: moved above it, below it or beside it', () => {
+  const bar = { x: 400, y: 600, w: 500, h: 36 };
+  const w = { x: 500, y: 520, w: 240, h: 170 };
+  const up = avoidRect(w, bar, area);
+  assert.ok(!overlap(up, bar) && up.y + up.h <= bar.y - GAP + 0.5, `above: ${JSON.stringify(up)}`);
+  assert.equal(up.x, w.x, 'only moved up');
+  const low = avoidRect({ ...w, y: 610 }, { ...bar, y: 100 }, area);
+  assert.ok(!overlap(low, { ...bar, y: 100 }) && low.y >= 100 + 36 + GAP, 'below when it sits lower');
+  const tall = avoidRect({ x: 450, y: 0, w: 200, h: 700 }, { x: 400, y: 380, w: 500, h: 36 }, area);
+  assert.ok(!overlap(tall, { x: 400, y: 380, w: 500, h: 36 }) && inside(tall), `beside when neither fits: ${JSON.stringify(tall)}`);
+  assert.deepEqual(avoidRect({ x: 0, y: 0, w: 100, h: 100 }, bar, area), { x: 0, y: 0, w: 100, h: 100 }, 'far away: unchanged');
+  assert.deepEqual(avoidRect(w, null, area), w);
+  for (const y of [0, 300, 480, 560, 600, 630]) {
+    for (const x of [0, 380, 700, 960]) {
+      const r = avoidRect({ x, y, w: 240, h: 170 }, bar, area);
+      assert.ok(!overlap(r, bar) && inside(r), `${x},${y} → ${JSON.stringify(r)}`);
+    }
+  }
 });
 
-test('corner preset: small tiles down the left edge of the stage, a new column when full', () => {
+test('popped-out windows start as small tiles down the left edge of the stage, a new column when full', () => {
   const stage = { x: 270, y: 0, w: 600, h: 500 };
   const items = ['p2', 'p3', 'p4'].map((id) => ({ id, ar: 3 / 2 }));
   const c = cornerLayout(items, stage, area);
@@ -163,25 +161,19 @@ test('corner preset: small tiles down the left edge of the stage, a new column w
   assert.ok(ds.p2.h > ds.p2.w, 'a DS tile stays portrait');
 });
 
-test('the remembered layout: per run and partner, legacy hide, reset and pruning', () => {
-  let pref = { hidden: true, big: false };
-  const fresh = runLayout(pref, 'run-a');
-  assert.equal(fresh.preset, 'column');
-  assert.equal(winState(fresh, 'p2').hidden, true, 'the old "hidden" is the start for a run');
-  assert.equal(isCustom(fresh), false);
-  pref = updateRun(pref, 'run-a', (l) => ({ ...l, wins: { ...l.wins, p2: { hidden: false, fx: 1, fy: 0.5, w: 300 } } }), 1);
-  const a = runLayout(pref, 'run-a');
-  assert.deepEqual(winState(a, 'p2'), { hidden: false, stored: { fx: 1, fy: 0.5, w: 300 } });
-  assert.deepEqual(winState(a, 'p3'), { hidden: false, stored: null }, 'once the run has a layout, the old flag is gone');
-  assert.equal(isCustom(a), true);
-  assert.equal(winState(runLayout(pref, 'run-b'), 'p2').hidden, true, 'other runs are untouched');
-  pref = updateRun(pref, 'run-a', () => ({ preset: 'column', wins: {} }), 2);
-  assert.equal(isCustom(runLayout(pref, 'run-a')), false, 'reset');
-  pref = updateRun(pref, 'run-a', (l) => ({ ...l, preset: 'corner' }), 3);
-  assert.equal(runLayout(pref, 'run-a').preset, 'corner');
-  assert.equal(isCustom(runLayout(pref, 'run-a')), true);
-  assert.equal(runLayout({ runs: { x: { preset: 'nonsense', wins: 5 } } }, 'x').preset, 'column');
-  assert.deepEqual(runLayout({ runs: { x: { preset: 'nonsense', wins: 5 } } }, 'x').wins, {});
+test('the remembered layout: per run and partner, tiles by default, older layouts read as tiles, pruning', () => {
+  let pref = { hidden: true, big: false, runs: { old: { preset: 'corner', wins: { p2: { hidden: true, fx: 0.5, fy: 0, w: 300 } } } } };
+  assert.deepEqual(winState(runLayout(pref, 'run-a'), 'p2'), { popped: false, stored: null }, 'a tile in the dock to start with');
+  assert.deepEqual(winState(runLayout(pref, 'old'), 'p2'), { popped: false, stored: null }, 'the windows-only version: back in the dock');
+  pref = updateRun(pref, 'run-a', (l) => ({ wins: { ...l.wins, p2: { popped: true } } }), 1);
+  assert.deepEqual(winState(runLayout(pref, 'run-a'), 'p2'), { popped: true, stored: null }, 'popped out, not moved yet');
+  pref = updateRun(pref, 'run-a', (l) => ({ wins: { ...l.wins, p2: { ...l.wins.p2, fx: 1, fy: 0.5, w: 300 } } }), 2);
+  assert.deepEqual(winState(runLayout(pref, 'run-a'), 'p2'), { popped: true, stored: { fx: 1, fy: 0.5, w: 300 } });
+  assert.deepEqual(winState(runLayout(pref, 'run-a'), 'p3'), { popped: false, stored: null });
+  assert.equal(winState(runLayout(pref, 'run-b'), 'p2').popped, false, 'other runs are untouched');
+  pref = updateRun(pref, 'run-a', (l) => ({ wins: { ...l.wins, p2: { ...l.wins.p2, popped: false } } }), 3);
+  assert.deepEqual(winState(runLayout(pref, 'run-a'), 'p2'), { popped: false, stored: null }, 'back in the dock');
+  assert.deepEqual(runLayout({ runs: { x: { wins: 5 } } }, 'x').wins, {});
   for (let i = 0; i < 60; i++) pref = updateRun(pref, `r${i}`, (l) => l, 10 + i);
   assert.ok(Object.keys(pref.runs).length <= 40, 'old runs are dropped');
   assert.ok(pref.runs.r59 && !pref.runs['run-a'], 'the oldest go first');

@@ -123,6 +123,35 @@ function CoffeeLink({ float = false, fx = null, onOpen }) {
 
 /** The open run at the foot of the rail: who of the others is live – or, in a solo Nuzlocke, whether you play.
  * A click opens its game (back to it while it runs) – the way into the game now that the rail has no "Play" item. */
+/**
+ * The first time the sidebar folds away for the game: a small note next to its button that says how it comes back
+ * (the button, the window's left edge, ⌘B / Ctrl+B). Shown once per computer, gone after a few seconds or a click.
+ */
+function RailHint() {
+  const [shown, setShown] = useState(() => {
+    try {
+      return localStorage.getItem('sl-rail-play-hint') !== '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    if (!shown) return undefined;
+    try {
+      localStorage.setItem('sl-rail-play-hint', '1');
+    } catch {
+      // private mode: it may show again
+    }
+    const id = setTimeout(() => setShown(false), 12000);
+    return () => clearTimeout(id);
+  }, [shown]);
+  if (!shown) return null;
+  return html`<div class="rail-hint no-drag" role="status">
+    <span>${t('rail.playHint', 'The sidebar folds away while you play. This button, the left edge of the window or {key} bring it back.', { key: shortcut('Mod+B') })}</span>
+    <button class="btn small ghost" onClick=${() => setShown(false)}>${t('play.slowOk', 'Got it')}</button>
+  </div>`;
+}
+
 function RailRun({ manifest, names, me, onlineSlots, linkStatus, session, navigate }) {
   const playing = session?.target.runId === manifest.id;
   const built = !!manifest.outputs?.[me];
@@ -373,8 +402,6 @@ function App() {
         d.set('rules', clean);
       }
       unsub = d.subscribe(() => setDocVersion((v) => v + 1));
-      // PROTOTYPE (feat/play-layout): the run's doc for the layout screenshots' demo data – dev flag only
-      try { if (localStorage.getItem('sl-dev-doc')) window.__slDoc = d; } catch {}
       setDoc(d);
       setRunData(rd);
       setDocVersion((v) => v + 1);
@@ -645,17 +672,21 @@ function App() {
     document.addEventListener('fullscreenchange', doc);
     return () => { off?.(); document.removeEventListener('fullscreenchange', doc); };
   }, []);
-  // The side rail: open, or folded away by hand (remembered) – and always folded in fullscreen. Folded, it slides in
-  // over the page while the pointer is at the window's left edge (or a key moves the focus into it).
+  // The side rail: open, or folded away by hand (remembered) – and always folded in fullscreen and while the game fills
+  // the Play page (the game gets the room). Folded, it slides in over the page while the pointer is at the window's left
+  // edge (or a key moves the focus into it); the button at the top left and ⌘B / Ctrl+B show it too.
   // (onfocusin / onfocusout in lowercase: Preact would listen for a `FocusOut` event otherwise)
   const [railHidden, setRailHidden] = useState(() => { try { return localStorage.getItem('sl-rail-hidden') === '1'; } catch { return false; } });
   const [peek, setPeek] = useState(false);
   const peekTimer = useRef(0);
   const fs = winFs || docFs;
-  // PROTOTYPE (feat/play-layout): with a layout option on, the rail also folds while the game fills the page (it slides
-  // in from the left edge, ⌘B shows it) – see views/playproto.mjs
-  const protoFold = (() => { try { return !!localStorage.getItem('sl-proto-layout'); } catch { return false; } })() && route.route === 'play' && !!session && route.params.home === undefined;
-  const folded = railHidden || fs || protoFold;
+  // The game fills the Play page when that page shows it, otherwise it keeps running in the corner.
+  const sp = session?.target.params || {};
+  const rp = route.params;
+  const showsSession = route.route === 'play' && rp.home === undefined
+    && (rp.run ? rp.run === sp.run : rp.rom ? rp.rom === sp.rom && (rp.patch || '') === (sp.patch || '') : true);
+  const playFold = !!session && showsSession;
+  const folded = railHidden || fs || playFold;
   const setHidden = useCallback((h) => {
     setRailHidden(h);
     setPeek(false);
@@ -669,21 +700,16 @@ function App() {
     const key = (e) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'b') return;
       e.preventDefault();
-      if (fs || protoFold) setPeek((p) => !p);
+      if (fs || playFold) setPeek((p) => !p);
       else setHidden(!railHidden);
     };
     document.addEventListener('keydown', key);
     return () => document.removeEventListener('keydown', key);
-  }, [fs, protoFold, railHidden, setHidden]);
+  }, [fs, playFold, railHidden, setHidden]);
   const playing = !!session;
   useEffect(() => { window.sls?.setPlaying?.(playing); }, [playing]);
   fxBusy.current = playing || fs || boot || showOnboarding;
   const native = !!window.sls?.native;
-  // The game fills the Play page when that page shows it, otherwise it keeps running in the corner.
-  const sp = session?.target.params || {};
-  const rp = route.params;
-  const showsSession = route.route === 'play' && rp.home === undefined
-    && (rp.run ? rp.run === sp.run : rp.rom ? rp.rom === sp.rom && (rp.patch || '') === (sp.patch || '') : true);
   // The rail has no "Play" item: the game belongs to the section of what it plays – a run to SoulLink or Nuzlocke,
   // a game of the library (free play) to the library. That item carries the green "playing" light, and while the
   // game fills the page, it is the one marked as here.
@@ -710,8 +736,9 @@ function App() {
     <div class=${`frame ${native ? 'app-native' : ''} ${folded ? 'rail-folded' : ''} ${folded && peek ? 'rail-peek' : ''}`}>
       ${native && html`<div class="titlebar-drag"></div>`}
       ${folded && html`<div class="rail-edge" aria-hidden="true" onPointerEnter=${peekIn} onPointerLeave=${peekOut}></div>`}
-      ${folded && !fs && !protoFold && !peek && html`<${CoffeeLink} float fx=${coffee.fx} onOpen=${coffee.clicked} />`}
-      ${(railHidden || protoFold) && !fs && !peek && html`<button class="rail-open no-drag" onClick=${() => (protoFold ? setPeek(true) : setHidden(false))} title=${`${t('rail.show', 'Show the sidebar')} (${shortcut('Mod+B')})`} aria-label=${t('rail.show', 'Show the sidebar')}><${Icon} name="sidebar" size=${18} /></button>`}
+      ${folded && !fs && !playFold && !peek && html`<${CoffeeLink} float fx=${coffee.fx} onOpen=${coffee.clicked} />`}
+      ${(railHidden || playFold) && !fs && !peek && html`<button class="rail-open no-drag" onClick=${() => (playFold ? setPeek(true) : setHidden(false))} title=${`${t('rail.show', 'Show the sidebar')} (${shortcut('Mod+B')})`} aria-label=${t('rail.show', 'Show the sidebar')}><${Icon} name="sidebar" size=${18} /></button>`}
+      ${playFold && !fs && !peek && html`<${RailHint} />`}
       <aside class=${`rail ${native ? '' : 'web'} ${native ? 'drag' : ''}`} onPointerEnter=${folded ? peekIn : undefined} onPointerLeave=${folded ? peekOut : undefined}
         onfocusin=${folded ? peekIn : undefined} onfocusout=${folded ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) peekOut(); } : undefined}>
         <div class="brand no-drag"><${AppMark} size=${34} /><div class="name">souldew</div>

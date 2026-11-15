@@ -852,6 +852,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         nag: config.nag || null,
         nagOff: config.nagOff === true,
         padNav: config.padNav !== false,
+        wholePixels: config.wholePixels === true,
       },
     };
   });
@@ -861,11 +862,12 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'wholePixels']) {
       if (k in body) allowed[k] = body[k];
     }
     // the joke license window (web/lib/nag.mjs): launch count + when it last showed, and its off switch
     if ('nagOff' in allowed) allowed.nagOff = allowed.nagOff === true;
+    if ('wholePixels' in allowed) allowed.wholePixels = allowed.wholePixels === true;
     if ('nag' in allowed) {
       const n = allowed.nag;
       if (!n || typeof n !== 'object' || Array.isArray(n)) delete allowed.nag;

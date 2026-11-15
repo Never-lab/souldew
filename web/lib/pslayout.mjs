@@ -1,6 +1,6 @@
-// Partner screens as windows (views/partnerscreen.mjs): the pure layout math – sizes that keep the picture's aspect,
-// keeping a window inside the play area, light snapping to the edges and to the other windows, resizing from a
-// corner, the two presets (a stack in the right column, tiles in the game's corner) and the remembered layout per run.
+// Partner screens popped out of the dock into windows (views/partnerscreen.mjs): the pure layout math – sizes that keep
+// the picture's aspect, keeping a window inside the play area and off the game bar, light snapping to the edges and to
+// the other windows, resizing from a corner, where new windows go (the game's corner) and the remembered layout per run.
 // Everything here works on plain rectangles { x, y, w, h } relative to the play area (its top-left is 0, 0); the
 // area itself is { w, h }. Tested in test/pslayout.test.mjs.
 
@@ -14,7 +14,6 @@ export const MIN_W = 140; // the header still shows the name, the age and its bu
 export const MAX_W = 720;
 export const GAP = 8; // between windows that snap together, and to the edges in the presets
 export const SNAP = 10; // how close (px) an edge must come before it snaps – light on purpose
-const COL_MAX_H = 340; // in the column a single window is never taller than this (a DS stays about as wide as before)
 
 /** Picture aspect (width / height) by system, until the first picture says better. */
 export const SYSTEM_AR = { nds: 256 / 384, gba: 3 / 2, gbc: 10 / 9, gb: 10 / 9, '3ds': 400 / 480 };
@@ -139,55 +138,28 @@ export function fromStored(s, ar, area) {
 }
 
 /**
- * The column preset: the windows on top of each other at the bottom of `col` (a rectangle in the area – the right
- * column, its bottom already above the layout buttons), as wide as the column. When they don't fit in `maxShare` of
- * its height they get narrower – or go two (three …) side by side, whichever leaves the bigger pictures.
- * items: [{ id, ar }] top to bottom. → { [id]: rect }
+ * Keeps a window off `block` (the game bar – a window may never cover it): one that overlaps it moves up above it, or
+ * below it when there is no room above, else beside it – always inside the area. Returns the rectangle.
  */
-export function columnLayout(items, col, area, { maxShare = 0.62 } = {}) {
-  const out = {};
-  if (!items.length) return out;
-  const maxH = Math.max(heightFor(MIN_W, 3 / 2), col.h * maxShare);
-  let best = null;
-  for (let k = 1; k <= items.length; k++) {
-    const rows = [];
-    for (let i = 0; i < items.length; i += k) rows.push(items.slice(i, i + k));
-    const cellW = (col.w - (k - 1) * GAP) / k;
-    // the widest width w (≤ cellW) for which every row, at its tallest picture, fits into maxH together
-    const tall = rows.map((row) => Math.min(...row.map((it) => it.ar)));
-    let w = cellW;
-    for (const ar of tall) w = Math.min(w, widthFor(Math.min(COL_MAX_H, (maxH - (rows.length - 1) * GAP) / rows.length), ar));
-    w = Math.floor(Math.min(w, MAX_W));
-    if (!best || w > best.w + 0.5) best = { k, w, rows };
-    if (w >= cellW - 0.5) break; // full width already – more per row only makes them smaller
-  }
-  const w = Math.max(MIN_W, best.w);
-  const heights = best.rows.map((row) => Math.max(...row.map((it) => heightFor(w, it.ar))));
-  const total = heights.reduce((a, b) => a + b, 0) + (heights.length - 1) * GAP;
-  let y = col.y + col.h - total;
-  best.rows.forEach((row, ri) => {
-    // right-aligned like the column's content, the first partner leftmost
-    let x = col.x + col.w - row.length * w - (row.length - 1) * GAP;
-    for (const it of row) {
-      const h = heightFor(w, it.ar);
-      out[it.id] = clampRect({ x, y: y + heights[ri] - h, w, h }, area);
-      x += w + GAP;
-    }
-    y += heights[ri] + GAP;
-  });
-  return out;
-}
-
-/** Height the column preset takes at the bottom of the column (for the room kept free under the teams). */
-export function columnHeight(rects) {
-  const list = Object.values(rects);
-  if (!list.length) return 0;
-  return Math.max(...list.map((r) => r.y + r.h)) - Math.min(...list.map((r) => r.y));
+export function avoidRect(r, block, area, gap = GAP) {
+  if (!block || !(block.w > 0 && block.h > 0)) return r;
+  const hit = r.x < block.x + block.w + gap && block.x - gap < r.x + r.w && r.y < block.y + block.h + gap && block.y - gap < r.y + r.h;
+  if (!hit) return r;
+  const above = block.y - gap - r.h;
+  const below = block.y + block.h + gap;
+  if (above >= 0 && (r.y + r.h / 2 <= block.y + block.h / 2 || below + r.h > area.h)) return clampRect({ ...r, y: above }, area);
+  if (below + r.h <= area.h) return clampRect({ ...r, y: below }, area);
+  if (above >= 0) return clampRect({ ...r, y: above }, area);
+  const left = block.x - gap - r.w;
+  const right = block.x + block.w + gap;
+  if (left >= 0 && (r.x + r.w / 2 <= block.x + block.w / 2 || right + r.w > area.w)) return clampRect({ ...r, x: left }, area);
+  if (right + r.w <= area.w) return clampRect({ ...r, x: right }, area);
+  return clampRect({ ...r, y: above }, area);
 }
 
 /**
- * The corner preset: small windows down the left edge of `stage` from its top-left corner (next to the game, where
- * a DS or GBA picture leaves room), a new column when the next one doesn't fit. items: [{ id, ar }] → { [id]: rect }
+ * Where windows popped out of the dock start: small ones down the left edge of `stage` from its top-left corner, a new
+ * column when the next one doesn't fit. items: [{ id, ar }] → { [id]: rect }
  */
 export function cornerLayout(items, stage, area) {
   const out = {};
@@ -212,39 +184,34 @@ export function cornerLayout(items, stage, area) {
 }
 
 // ---- the remembered layout ------------------------------------------------------------------------------------------
-// localStorage 'sl-partnerscreen' (per computer): { runs: { [run id]: { at, preset, wins: { [slot]: { hidden, fx, fy,
-// w } } } } } – plus { hidden, big } from the single partner screen before, read once as the start for a run.
-export const PRESETS = ['column', 'corner'];
+// localStorage 'sl-partnerscreen' (per computer): { runs: { [run id]: { at, wins: { [slot]: { popped, fx, fy, w } } } } }
+// – a partner's screen is a tile in the dock unless it was popped out into a window. (Layouts of the windows-only
+// version before – presets, hidden windows – are read as "all in the dock".)
 const MAX_RUNS = 40;
 
-/** The layout of one run (never null): { preset, wins }. */
+/** The layout of one run (never null): { wins }. */
 export function runLayout(pref, runId) {
   const r = pref?.runs?.[runId];
-  if (r) return { preset: PRESETS.includes(r.preset) ? r.preset : 'column', wins: r.wins && typeof r.wins === 'object' ? r.wins : {} };
-  return { preset: 'column', wins: {}, legacyHidden: !!pref?.hidden };
+  return { wins: r?.wins && typeof r.wins === 'object' ? r.wins : {} };
 }
 
-/** The window's own state in a run's layout: { hidden, stored } (stored: null while it follows the preset). */
+/** A partner's own state in a run's layout: { popped, stored } (stored: null until the window was moved or resized). */
 export function winState(layout, slot) {
   const w = layout.wins[slot] || {};
-  const stored = Number.isFinite(w.w) && Number.isFinite(w.fx) && Number.isFinite(w.fy) ? { fx: w.fx, fy: w.fy, w: w.w } : null;
-  return { hidden: w.hidden ?? !!layout.legacyHidden, stored };
+  const popped = w.popped === true;
+  const stored = popped && Number.isFinite(w.w) && Number.isFinite(w.fx) && Number.isFinite(w.fy) ? { fx: w.fx, fy: w.fy, w: w.w } : null;
+  return { popped, stored };
 }
 
 /** pref with the run's layout changed by `fn(layout) → layout` (oldest runs dropped beyond MAX_RUNS). */
 export function updateRun(pref, runId, fn, now = Date.now()) {
   const runs = { ...(pref?.runs || {}) };
   const cur = runLayout(pref, runId);
-  const next = fn({ preset: cur.preset, wins: { ...cur.wins } });
-  runs[runId] = { at: now, preset: next.preset, wins: next.wins };
+  const next = fn({ wins: { ...cur.wins } });
+  runs[runId] = { at: now, wins: next.wins };
   const ids = Object.keys(runs);
   if (ids.length > MAX_RUNS) {
     for (const id of ids.sort((a, b) => (runs[a].at || 0) - (runs[b].at || 0)).slice(0, ids.length - MAX_RUNS)) delete runs[id];
   }
   return { ...pref, runs };
-}
-
-/** A run's layout differs from the start (moved, resized, hidden or the other preset) – "Reset layout" is offered. */
-export function isCustom(layout) {
-  return layout.preset !== 'column' || Object.values(layout.wins).some((w) => w && (w.hidden || Number.isFinite(w.w)));
 }

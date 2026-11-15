@@ -4,18 +4,18 @@ import { bridgeState } from '../lib/livebridge.mjs';
 import { IS_MAC, IS_WIN, PLATFORM } from '../lib/platform.mjs';
 import { diag } from '../lib/diag.mjs';
 import { Icon } from '../lib/icons.mjs';
-import { t, ago } from '../lib/i18n.mjs';
+import { t } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { gameById, gameTitle, speciesName, hackById, itemName, moveName } from '../lib/data.mjs';
-import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat } from '../lib/run.mjs';
+import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, slotsOf, levelCap, pairState, areaName } from '../lib/run.mjs';
 import { findEntry, readLiveParty, readLiveBattle, withBattleHp, inBattleFlag, LiveTables, expandedEntry } from '/shared/live/parse.mjs';
 import { addRareCandies, cheatSupported } from '/shared/live/cheats.mjs';
 import { MusicKeyTracker } from '/shared/live/location.mjs';
 import { PlayHome } from './playhome.mjs';
 import { PartyGrid } from './party.mjs';
-import { PartnerScreens, useScreenShare } from './partnerscreen.mjs';
+import { PartnerScreens, PartnerTiles, usePartnerLayout, useScreenShare } from './partnerscreen.mjs';
 import { StatePanel, SaveAge, useSaveGuard, describeState, stateInfo, slotName, SHOT, MANUAL_SLOTS, AUTO_SLOT } from './savestates.mjs';
-import { RunStrip, LinkedPairs, BattlePanel, RulesDrawer, useBattlePanelPrefs } from './session-info.mjs';
+import { RunStrip, LinkedPairs, GroupTrack, groupVariant, BattlePanel, RulesDrawer, useBattlePanelPrefs } from './session-info.mjs';
 import { LocationSign, readHere, nextHere, areaOfHere, musicInfo, loadRomLocations, romSpeciesNow, romDataReady, romWramNow, romMaps3Now, romOwnNow, romDataNow, resetRomData } from './location.mjs';
 import { FeatureCheck, romFeatures } from '/shared/live/features.mjs';
 import { gymCapsFamily } from '/shared/routes.mjs';
@@ -26,10 +26,10 @@ import { play as playCue } from '../lib/sound.mjs';
 import { addSample, typicalReach, offeredSteps, beyondReach, HELD } from '../lib/reach.mjs';
 import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
 import { gpuBackends } from '/shared/gpu.mjs';
-import { GPU_LABELS } from './settings.mjs';
 import { CTR_LAYOUTS, ctrLayoutAspect } from '/shared/ctrlayout.mjs';
 import { claimPad } from '../lib/padnav.mjs';
-import { protoMode, protoBattle, protoAttn, dockSide, useSize, PartnerStrip, AttentionCard, SideRail, useIdle } from './playproto.mjs';
+import { dockSide, dockHeight, pictureFor, rightDockWidth, BAR_H, DOCK_W } from '../lib/playlayout.mjs';
+import { Dock, LiveStatus, SlowChip, AttentionCard, useAttention, useDockFold, useSize, revealIn } from './playdock.mjs';
 
 let TABLES = null;
 async function liveTables() {
@@ -280,15 +280,17 @@ export function GameSession({ session, mode }) {
   const setLiveState = (x) => setLiveStateRaw((prev) => (prev.status === x.status && prev.entry === x.entry ? prev : x));
   const [pendingLoad, setPendingLoad] = useState(null); // { slot, bytes } – state load waiting for confirmation
   const [statesOpen, setStatesOpen] = useState(false);
-  const [psReserve, setPsReserve] = useState(0); // room the partner windows stacked in the right column take (PartnerScreens)
   const closeStates = useCallback(() => setStatesOpen(false), []);
-  // PROTOTYPE (feat/play-layout, views/playproto.mjs): layout options A / B / C behind localStorage sl-proto-layout
-  const proto = protoMode(); // (read every render: the screenshots switch options without a reload)
+  // the dock next to the game (views/playdock.mjs, lib/playlayout.mjs): measured play area, folded or not, the
+  // "something happened" card over the game, the partners' tiles and windows
   const bodyRef = useRef(null);
-  const bodySize = useSize(bodyRef);
-  const [sideOpen, setSideOpenState] = useState(() => ls.get('sl-proto-side', true) !== false);
-  const setSideOpen = (v) => { setSideOpenState(v); ls.set('sl-proto-side', v); };
-  const idle = useIdle();
+  const area = useSize(bodyRef);
+  const barRef = useRef(null);
+  const barSize = useSize(barRef);
+  const dockRef = useRef(null);
+  const [folded, setFolded] = useDockFold();
+  const attn = useAttention();
+  const pl = usePartnerLayout();
   const [statesVer, setStatesVer] = useState(0); // bumped after every save → the open panel reads the list again
   const [sel, setSel] = useState(() => ls.get(`sl-state-sel-${session.target.stateId}`, 1)); // F5 / F8 work on this slot
   const selRef = useRef(sel);
@@ -608,6 +610,18 @@ export function GameSession({ session, mode }) {
         emu()?.setSpeed(lastSpeed.current > 1 ? lastSpeed.current : 3);
         turboFlash(lastSpeed.current > 1 ? lastSpeed.current : 3);
       }
+      return true;
+    }
+    // ⌘I / Ctrl+I folds or unfolds the dock (views/playdock.mjs); ⌘B / Ctrl+B pressed in the game goes to the sidebar
+    // (app.mjs listens on the page, which doesn't see the game frame's keys)
+    const mod = (k.ctrl || k.meta) && !k.alt && !k.shift;
+    const letter = (k.key || '').toLowerCase();
+    if (mod && k.down && !k.repeat && letter === 'i' && modeRef.current === 'full') {
+      setFolded((f) => !f);
+      return true;
+    }
+    if (mod && k.down && !k.repeat && letter === 'b' && fromGame) {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', metaKey: !!k.meta, ctrlKey: !!k.ctrl, cancelable: true }));
       return true;
     }
     // Ctrl/Alt/Cmd combos belong to the browser / the app menu (Ctrl+R, Cmd+1 …), not to the game.
@@ -1048,6 +1062,11 @@ export function GameSession({ session, mode }) {
   useEffect(() => {
     if (phase === 'running') emu()?.setFullTurbo?.(fullTurbo);
   }, [phase, fullTurbo]);
+  // Settings › "Whole pixels only" (lib/pixelscale.mjs): the players scale "sharp" otherwise. With the URL, and live.
+  const wholePixels = status?.config?.wholePixels === true;
+  useEffect(() => {
+    if (phase === 'running') emu()?.setWholePixels?.(wholePixels);
+  }, [phase, wholePixels]);
 
   // A slower computer: measured every 2 s at 1×. DeSmuME first skips every other frame's rendering once it can't hold
   // 55 fps for a while (the game itself keeps its speed and timing; stays on for this session). When the game still
@@ -1171,18 +1190,18 @@ export function GameSession({ session, mode }) {
   }, [phase]);
 
   // The fast player's page: the host opens the ROM itself; the battery save comes from the same place as for player.html
-  const [nativeSrc] = useState(() => `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}`);
+  const [nativeSrc] = useState(() => `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}${wholePixels ? '&px=whole' : ''}`);
   // The frame's URL is fixed for the whole session – changing it would reboot the game.
   const [wasmSrc] = useState(() => {
     // 3DS: souldew's own player page – the game runs in the native host (server/lib/ctr.mjs), its saves live in the
     // host's folder for this game / run slot (target.key)
-    if (target.system === '3ds') return `/player3ds.html?rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&layout=${layout3ds}`;
+    if (target.system === '3ds') return `/player3ds.html?rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&layout=${layout3ds}${wholePixels ? '&px=whole' : ''}`;
     // EmulatorJS names the ROM (and its browser-side save) after the URL's last segment → make it unique per game.
     const romKey = `${hash(new TextEncoder().encode(target.key)).replace(/\D/g, '')}`;
     const romUrl = `/rom/g${romKey}.${target.system}?src=${encodeURIComponent(target.rom)}`;
     const lay = layout === 'lr' ? '&layout=Left%2FRight&dlayout=left%2Fright' : '';
     const wcore = isDs && /^(IPK|IPG|IRB|IRA|IRE|IRD)/.test(target.code || '') ? 'desmume' : '';
-    return `/player.html?system=${target.system}${wcore ? `&core=${wcore}` : ''}${lay}${fullTurbo ? '' : '&fullturbo=0'}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}&tap=${encodeURIComponent(t('play.tapToStart', 'Click to start'))}`;
+    return `/player.html?system=${target.system}${wcore ? `&core=${wcore}` : ''}${lay}${fullTurbo ? '' : '&fullturbo=0'}${wholePixels ? '&px=whole' : ''}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}&tap=${encodeURIComponent(t('play.tapToStart', 'Click to start'))}`;
   });
   const src = nativeOn && target.system !== '3ds' ? nativeSrc : wasmSrc;
   const arn = target.system === '3ds' ? ctrLayoutAspect(layout3ds) : isDs ? (layout === 'lr' ? 512 / 192 : 256 / 384) : target.system === 'gba' ? 3 / 2 : 10 / 9;
@@ -1243,16 +1262,32 @@ export function GameSession({ session, mode }) {
     focusGame();
   };
 
-  // the battle helper: left of the game (default) or on the right above the team, folded in or not – the player's choice
-  const panelSide = panelPrefs.side === 'right' ? 'right' : 'left';
   const gameGen = liveGen || GEN[target.system] || null;
-  const battleX = battle?.enemy ? battle : protoBattle() || battle; // (PROTOTYPE: a demo battle, dev flag sl-proto-battle)
-  const battlePanel = html`<${BattlePanel} battle=${battleX} mine=${myParty} gen=${gameGen} isRun=${isRun}
-    side=${panelSide} collapsed=${panelPrefs.collapsed} onPrefs=${setPanelPrefs} noMoves=${features?.moves === 'no'} />`;
-  const hasLeft = !!(isRun || here || (battleX?.enemy && panelSide === 'left'));
-  // the partners' games, each in a window over the play area – not with the game in the corner (it floats over other
-  // pages there; the board shows the partners), and not in a solo run
-  const partnersShown = !!(isRun && names && !solo && mode === 'full');
+  const full = mode === 'full';
+  const slots = isRun && manifest ? slotsOf(manifest) : [];
+  // the partners' games – tiles in the dock, or windows over the play area – not with the game in the corner (it floats
+  // over other pages there; the board shows the partners), and not in a solo run
+  const partnersShown = !!(isRun && names && !solo && full);
+  // The dock (views/playdock.mjs): right of a tall picture, under a wide one – the side where the picture comes out
+  // bigger (lib/playlayout.mjs), decided anew whenever the play area or the game's layout changes.
+  const dockH = dockHeight(Math.max(1, slots.length));
+  const side = dockSide(area, arn, { dockH });
+  const pic = full && area ? pictureFor(area, arn, side, { dockH, folded }) : null;
+  // next to a tall picture with room to spare the dock widens and the partners' games get a column of their own – sized
+  // with the dock open, so it never changes while you play (a battle, folding)
+  const open = full && area ? pictureFor(area, arn, side, { dockH }) : null;
+  const dockW = side === 'right' && partnersShown && open ? rightDockWidth(area, Math.max(open.w, barSize?.w || 0)) : DOCK_W;
+  const wide = dockW >= DOCK_W + 220;
+  // folding a dock that gives the picture nothing (it is limited the other way) leaves everything where it was
+  const keep = folded && pic && open && pic.w === open.w && pic.h === open.h;
+  const hereArea = isRun && here && doc && manifest ? areaOfHere(doc, manifest, genOfRun(manifest, runData), here) : null;
+  // the level cap against your strongest Pokémon (as RunStrip shows it) – for the strip's dot and the attention card
+  const capNow = (() => {
+    if (!isRun || !doc || !manifest || doc.get('run:status', null) || !getRules(doc, manifest).levelCaps) return null;
+    const { cap, boss } = levelCap(doc, manifest, me);
+    const top = Math.max(0, ...myParty.filter((m) => m && !m.isEgg).map((m) => m.level || 0));
+    return cap && top ? { cap, boss, top, state: top > cap ? 'over' : top >= cap ? 'at' : top >= cap - 2 ? 'near' : 'ok' } : null;
+  })();
   const screenEl = html`<div class="session-screen" onClick=${focusGame}>
           <div class="console-screen" style=${`--arn:${arn}`}>
             <iframe ref=${frame} src=${src} title=${t('play.screenTitle', 'Game screen')} allow="autoplay; fullscreen; gamepad"
@@ -1278,7 +1313,7 @@ export function GameSession({ session, mode }) {
             ${ctrFail && html`<${CtrFailed} fail=${ctrFail} target=${target} onClose=${actions.close} />`}
           </div>
         </div>`;
-  const barEl = html`<div class="session-bar" role="toolbar" aria-label=${t('play.controls', 'Game controls')}>
+  const barEl = html`<div class="session-bar" ref=${barRef} role="toolbar" aria-label=${t('play.controls', 'Game controls')}>
           ${btn(paused ? 'resume' : 'pause', t('keys.pause', 'Pause / resume') + ' (P)', actions.pause, { 'data-pad-first': '' })}
           ${btn('reset', t('keys.reset', 'Reset the game (asks first)') + ' (R)', actions.reset)}
           <span class="sep"></span>
@@ -1340,148 +1375,140 @@ export function GameSession({ session, mode }) {
           </span>
           ${btn(fs ? 'shrink' : 'full', (fs ? t('play.exitFullscreen', 'Leave fullscreen') : t('keys.fullscreen', 'Fullscreen game')) + ' (F)', actions.fullscreen)}
         </div>`;
-  const liveEl = html`<section class="screen stack" style="gap:8px">
-          <div class="row"><${Led} on=${liveState.status === 'live'} color="green" blink=${liveState.status === 'searching' && phase === 'running'} />
-            <b class="px">${names ? names[me].name : t('play.liveOn', 'Live tracking')}</b>
-            <span class="tiny faint grow">${liveState.status === 'live' ? (names ? t('play.liveOn', 'Live tracking') : t('board.liveNow', 'live')) : liveState.status === 'unsupported' ? t('play.liveUnsupported', 'No live data for this game') : liveState.status === 'hack' ? t('play.liveHack', 'Not supported for this hack yet') : t('play.liveSearching', 'Looking for your team …')}</span>
-            ${isRun && names && others.map((s) => {
-              const on = !!onlineSlots?.has(s);
-              const seen = live(doc, s);
-              return html`<${Led} on=${on} color="green" /><b class="px">${names[s]?.name || s.toUpperCase()}</b>${others.length === 1
-                && html`<span class="tiny faint">${on ? t('board.liveNow', 'live') : seen ? ago(seen.at) : t('board.offline', 'offline')}</span>`}`;
-            })}</div>
-          ${liveState.status === 'unsupported' && html`<span class="small muted">${isRun
-            ? t('play.liveUnsupportedRun', 'This ROM isn’t in the memory table (other language or a hack with a changed layout). The run still works – enter catches by hand.')
-            : t('play.liveNoneSolo', 'Live tracking reads Pokémon games – this one plays without it.')}</span>`}
-          ${liveState.status === 'hack' && html`<span class="small muted">${isRun
-            ? t('play.liveHackRun', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon. The run still works: enter catches by hand.')
-            : t('play.liveHackSolo', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon.')}</span>`}
-          ${isRun && names
-            ? html`<${LinkedPairs} mine=${myParty} gen=${gameGen} compact=${!!battleX?.enemy} />`
-            : liveState.status !== 'unsupported' && liveState.status !== 'hack' && html`<${PartyGrid} party=${myParty} gen=${gameGen} compact accent="var(--p1)" label=${t('play.yourTeam', 'Your team')} noItems=${features?.items === 'no'} />`}
-        </section>`;
+  // ---- "something happened" (views/playdock.mjs useAttention): a card over the top of the game that leaves by itself –
+  // a group died, a catch (yours, or the one that completes a group), the level cap reached, and a battle starting while
+  // the dock is folded (its helper is in there). "Show" unfolds the dock at that place.
+  const attnShow = attn.show;
+  useEffect(() => {
+    if (!doc || !manifest || !isRun || mode !== 'full') return undefined;
+    const seen = new Set();
+    return doc.subscribe((keys, remote, info) => {
+      const age = (at) => Date.now() - at - (remote ? info?.offset || 0 : 0);
+      const pn = getPlayers(doc, manifest);
+      const all = slotsOf(manifest);
+      const mon = (e) => (e?.nickname || speciesName(e?.species));
+      for (const k of keys) {
+        if (k.startsWith('pair:')) {
+          const p = doc.get(k);
+          const area = k.slice(5);
+          const id = `${k}:${p?.diedAt}`;
+          if (p?.state !== 'dead' || !p.diedAt || age(p.diedAt) > 60000 || seen.has(id)) continue;
+          seen.add(id);
+          const st = pairState(doc, area, all);
+          attnShow({ kind: 'death', section: 'team', area, title: all.length === 1 ? t('attn.deathSolo', '{mon} died', { mon: mon(st.encs[me]) })
+            : t('attn.death', '{area}: the link is broken', { area: areaName(doc, manifest, area) }),
+          text: all.map((sl) => st.encs[sl]?.species && `${pn[sl]?.name || sl}: ${mon(st.encs[sl])}`).filter(Boolean).join(' · ') });
+        } else if (k.startsWith('enc:')) {
+          const cut = k.lastIndexOf(':');
+          const area = k.slice(4, cut);
+          const slot = k.slice(cut + 1);
+          const e = doc.get(k);
+          const id = `${k}:${e?.at}`;
+          if (e?.outcome !== 'caught' || !e.at || age(e.at) > 60000 || seen.has(id)) continue;
+          seen.add(id);
+          const st = pairState(doc, area, all);
+          const where = areaName(doc, manifest, area);
+          if (all.length > 1 && st.state === 'linked') {
+            attnShow({ kind: 'catch', section: 'team', area, title: t('attn.linked', '{area}: everyone caught – linked', { area: where }),
+              text: all.map((sl) => `${pn[sl]?.name || sl}: ${mon(st.encs[sl])}`).join(' · ') });
+          } else if (slot === me) {
+            const missing = all.filter((sl) => !st.encs[sl]).map((sl) => pn[sl]?.name || sl);
+            attnShow({ kind: 'catch', section: 'team', area, title: t('attn.caught', 'Caught {mon} – {area}', { mon: mon(e), area: where }),
+              text: missing.length ? t('attn.waitingFor', 'Waiting for {names}', { names: missing.join(', ') }) : '' });
+          }
+        }
+      }
+    });
+  }, [doc, manifest, isRun, mode, me]);
+  // the level cap: once when your strongest Pokémon reaches it, once when one goes over (not for the state at the start)
+  const capSeen = useRef(undefined);
+  const capKey = capNow && (capNow.state === 'at' || capNow.state === 'over') ? `${capNow.cap}:${capNow.state}` : null;
+  useEffect(() => {
+    const first = capSeen.current === undefined;
+    const prev = capSeen.current;
+    capSeen.current = capKey;
+    if (first || !capKey || capKey === prev || mode !== 'full') return;
+    attnShow(capNow.state === 'over'
+      ? { kind: 'cap', section: 'place', title: t('attn.capOver', 'Over the level cap: Lv {lv} > {cap}', { lv: capNow.top, cap: capNow.cap }), text: t('attn.capOverText', 'Box or swap before the next boss.') }
+      : { kind: 'cap', section: 'place', title: t('attn.capAt', 'Level cap reached: Lv {cap}', { cap: capNow.cap }), text: capNow.boss?.name ? t('attn.capNext', 'Next: {boss}', { boss: capNow.boss.name }) : '' });
+  }, [capKey]);
+  // a battle starts while the dock is folded: its helper is one click away
+  const battleKey = battle?.enemy ? `${battle.kind}:${battle.enemy.species}:${battle.enemy.level}` : null;
+  const battleSeen = useRef(null);
+  useEffect(() => {
+    const prev = battleSeen.current;
+    battleSeen.current = battleKey;
+    if (!battleKey || prev || !folded || mode !== 'full') return;
+    const f = battle.enemy;
+    attnShow({ kind: 'battle', section: 'battle', title: battle.kind === 'trainer' ? t('attn.trainer', 'Trainer battle: {mon} Lv {lv}', { mon: speciesName(f.species), lv: f.level })
+      : t('attn.wild', 'Wild {mon} Lv {lv}', { mon: speciesName(f.species), lv: f.level }), text: t('attn.battleHelp', 'The battle helper is ready in the panel.') });
+  }, [battleKey]);
 
-  // PROTOTYPE (feat/play-layout): the three layout options – same parts as below, arranged differently
-  function protoView() {
-    const area = bodySize;
-    // C: the dock goes where the picture leaves room; B: the free space around the picture (the "gutter")
-    const side = proto === 'c' ? dockSide(area, arn) : proto === 'b' ? (area && area.w / area.h < arn ? 'bottom' : 'right') : 'right';
-    const attn = protoAttn();
-    const head = html`<div class="proto-head">
-      <div class="proto-title"><b class="ellipsis">${target.label}</b>
-        ${phase === 'running' && html`<${SaveAge} savedAt=${guard.savedAt} hasSave=${guard.hasSave} dirty=${guard.dirty} />`}</div>
-      ${isRun && html`<button class="btn small ghost" onClick=${() => navigate('soullink', { run: target.runId })}><${Icon} name="link" size=${14} />${t('play.board', 'Board')}</button>`}
-      <button class="btn icon ghost" title=${t('play.close', 'Close game')} aria-label=${t('play.close', 'Close game')} onClick=${actions.close}><${Icon} name="close" size=${14} /></button>
-      ${proto === 'a' && html`<button class="btn icon ghost" title=${t('proto.hidePanel', 'Fold the panel (I)')} onClick=${() => setSideOpen(false)}><${Icon} name="panelRight" size=${14} /></button>`}
-    </div>`;
-    const leftParts = html`
-      <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
-      ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}`;
-    // B: the free space around the picture decides how big the floating parts get
-    const gut = area ? (side === 'bottom' ? (area.h - area.w / arn) / 2 : (area.w - area.h * arn) / 2) : 0;
-    const clampN = (v, lo, hi) => Math.round(Math.min(hi, Math.max(lo, v)));
-    const stripSize = proto === 'b' ? clampN(gut - 24, 120, 190) : 168;
-    const bVars = proto === 'b' ? `--bpanel:${side === 'bottom' ? clampN(gut - 24, 150, 200) : clampN(gut - 24, 270, 340)}px;--gut:${Math.max(0, Math.round(gut))}px` : '';
-    const strip = partnersShown && html`<${PartnerStrip} link=${link} system=${target.system} dir=${side === 'bottom' ? 'row' : 'col'} max=${side === 'bottom' ? stripSize : proto === 'b' ? clampN((gut - 32) / 2, 110, 190) : 132} />`;
-    const confirms = html``;
-    const tight = proto === 'b' && (side === 'right' ? gut < 290 : gut < 150); // B: no room around the picture → the panel only shows on demand
-    const cls = `session full proto proto-${proto} side-${side} ${tight ? 'b-tight' : ''} ${proto === 'a' && !sideOpen ? 'side-folded' : ''} ${proto === 'b' && idle ? 'is-idle' : ''} ${fs ? 'is-fs' : ''} ${isDs ? 'ds' : ''}`;
-    return html`<div class=${cls} data-v=${docVersion} style=${bVars}>
-      <div class="session-body" ref=${bodyRef}>
-        <div class="session-stage" style=${`--arn:${arn}`}>
-          ${screenEl}
-          ${barEl}
-          ${slow && html`<${SlowNotice} slow=${slow} isDs=${isDs} native=${nativeOn} onClose=${() => { setSlow(null); focusGame(); }} />`}
-          ${statesOpen && html`<${StatePanel} id=${target.stateId} core=${core} gen=${gameGen} version=${statesVer} selected=${sel}
-            onClose=${closeStates} onSave=${(n) => actions.quicksave(n)} onLoad=${(n) => { setStatesOpen(false); actions.quickload(n); }} />`}
-          <${AttentionCard} attn=${attn} />
-          ${tight && html`<button class="b-chip" title=${t('proto.showPanel', 'Show the panel (I)')}><${Led} on=${liveState.status === 'live'} color="green" />
-            <span>${t('play.yourTeam', 'Your team')}</span>${battleX?.enemy && html`<span class="b-chip-dot">${t('battle.title', 'Battle')}</span>`}<${Icon} name="panelRight" size=${14} /></button>`}
-        </div>
-        ${proto === 'a' && !sideOpen
-          ? html`<${SideRail} onOpen=${() => setSideOpen(true)} names=${names} hasBattle=${!!battleX?.enemy} partners=${others.length} />`
-          : html`<aside class="session-side">
-            ${side !== 'bottom' && head}
-            <div class="side-sec side-place">${side === 'bottom' && head}${leftParts}</div>
-            ${battleX?.enemy && html`<div class="side-sec side-battle">${battlePanel}</div>`}
-            <div class="side-sec side-team">${liveEl}</div>
-            ${proto === 'c' && side === 'right' && strip && html`<div class="side-sec side-partners">${strip}</div>`}
-            ${proto === 'a' && partnersShown && psReserve > 0 && html`<div class="side-partner-space" style=${`height:${psReserve}px`} aria-hidden="true"></div>`}
-          </aside>`}
-        ${((proto === 'c' && side === 'bottom') || proto === 'b') && strip && html`<div class="proto-partners">${strip}</div>`}
-        ${proto === 'a' && sideOpen && partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} onReserve=${setPsReserve} />`}
-      </div>
-      ${confirms}
-      ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false} onDone=${() => setInserting(false)} />`}
-      <${RulesDrawer} open=${rulesOpen} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${RulesTab} />
-    </div>`;
-  }
-  if (proto && mode === 'full') return protoView();
-  return html`<div class=${`session ${mode} ${fs && mode === 'full' ? 'is-fs' : ''} ${isDs ? 'ds' : ''}`} data-v=${docVersion}>
+  // ---- the dock's parts ------------------------------------------------------------------------------------------------
+  const head = html`<div class="dock-title"><b class="ellipsis" title=${target.label}>${target.label}</b>
+      ${phase === 'running' && html`<${SaveAge} savedAt=${guard.savedAt} hasSave=${guard.hasSave} dirty=${guard.dirty} />`}</div>
+    ${isRun && html`<button class="btn small ghost" onClick=${() => navigate('soullink', { run: target.runId })}><${Icon} name="link" size=${14} />${t('play.board', 'Board')}</button>`}
+    <button class="btn icon ghost" title=${t('play.close', 'Close game')} aria-label=${t('play.close', 'Close game')} onClick=${actions.close}><${Icon} name="close" size=${14} /></button>`;
+  const placeEl = html`
+    ${slow && html`<${SlowChip} slow=${slow} isDs=${isDs} native=${nativeOn} onClose=${() => { setSlow(null); focusGame(); }} />`}
+    <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
+    ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}`;
+  const battleEl = battle?.enemy && html`<${BattlePanel} battle=${battle} mine=${myParty} gen=${gameGen} isRun=${isRun}
+    collapsed=${panelPrefs.collapsed} onPrefs=${setPanelPrefs} noMoves=${features?.moves === 'no'} />`;
+  const groups = isRun && names && !solo;
+  const teamEl = html`
+    <${LiveStatus} status=${liveState.status} phase=${phase} names=${names} me=${me} others=${others} />
+    ${liveState.status === 'unsupported' && html`<span class="small muted">${isRun
+      ? t('play.liveUnsupportedRun', 'This ROM isn’t in the memory table (other language or a hack with a changed layout). The run still works – enter catches by hand.')
+      : t('play.liveNoneSolo', 'Live tracking reads Pokémon games – this one plays without it.')}</span>`}
+    ${liveState.status === 'hack' && html`<span class="small muted">${isRun
+      ? t('play.liveHackRun', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon. The run still works: enter catches by hand.')
+      : t('play.liveHackSolo', 'This ROM hack runs on an expanded engine (new Pokémon numbers and a different memory layout) that souldew can’t read reliably yet – so it shows nothing rather than wrong Pokémon.')}</span>`}
+    ${groups && side === 'bottom'
+      ? html`<${GroupTrack} mine=${myParty} gen=${gameGen} here=${hereArea} variant=${groupVariant()} />`
+      : isRun && names
+        ? html`<${LinkedPairs} mine=${myParty} gen=${gameGen} compact=${!!battle?.enemy} />`
+        : liveState.status !== 'unsupported' && liveState.status !== 'hack' && html`<${PartyGrid} party=${myParty} gen=${gameGen} compact layout=${side === 'bottom' ? 'row' : 'grid'}
+          accent="var(--p1)" label=${t('play.yourTeam', 'Your team')} noItems=${features?.items === 'no'} />`}`;
+  const sections = [
+    { id: 'place', label: t('dock.place', 'Place and rules'), icon: 'map', node: placeEl,
+      dot: capNow?.state === 'over' ? 'bad' : capNow?.state === 'at' || capNow?.state === 'near' || slow ? 'warn' : '' },
+    battleEl && { id: 'battle', label: t('battle.title', 'Battle'), icon: 'bolt', node: battleEl, dot: 'live' },
+    { id: 'team', label: groups ? t('pairs.titleGroup', 'Linked groups') : t('play.yourTeam', 'Your team'), icon: groups ? 'link' : 'ball',
+      node: html`<div class="screen dock-screen">${teamEl}</div>` },
+    partnersShown && { id: 'partners', label: t('ps.screens', 'Partner screens'), icon: 'eye',
+      node: html`<${PartnerTiles} link=${link} system=${target.system} side=${side} pl=${pl}
+        box=${wide ? { w: dockW - DOCK_W - 12, h: (area?.h || 600) - 40 } : { w: DOCK_W, h: 380 }} />` },
+  ].filter(Boolean);
+  const who = partnersShown ? others.map((s) => ({ slot: s, name: names[s]?.name || s.toUpperCase(), on: !!onlineSlots?.has(s) })) : [];
+  const showAttn = (item) => {
+    setFolded(false);
+    requestAnimationFrame(() => requestAnimationFrame(() => revealIn(dockRef.current, item.section, item.area)));
+  };
+  // the stage is as wide as the picture (or the game bar, when that is wider), the dock right next to it
+  const stageW = pic ? Math.max(pic.w, barSize?.w || 0) : 0;
+  const sizes = pic ? `--pic-w:${pic.w}px;--pic-h:${pic.h}px;--stage-w:${stageW}px;--dock-w:${dockW}px;--dock-h:${dockH}px;--bar-h:${BAR_H}px` : '';
+  return html`<div class=${`session ${mode} ${full ? `dock-${side} ${folded ? 'dock-folded' : ''} ${keep ? 'dock-keep' : ''} ${pic ? 'sized' : ''}` : ''} ${fs && full ? 'is-fs' : ''} ${isDs ? 'ds' : ''}`} data-v=${docVersion} style=${sizes}>
     <div class="mini-head">
       <${Led} on=${phase === 'running' && !paused} color="green" /><span class="grow ellipsis">${target.label}</span>
       ${btn('close', t('play.close', 'Close game'), actions.close)}
     </div>
-    <div class="session-top">
-      <b class="ellipsis">${target.label}</b>
-      ${phase === 'running' && html`<${SaveAge} savedAt=${guard.savedAt} hasSave=${guard.hasSave} dirty=${guard.dirty} />`}
-      <span class="spacer"></span>
-      ${isRun && html`<button class="btn small ghost" onClick=${() => navigate('soullink', { run: target.runId })}><${Icon} name="link" size=${14} />${t('play.board', 'Board')}</button>`}
-      <button class="btn small ghost" onClick=${actions.close}><${Icon} name="close" size=${14} />${t('play.close', 'Close game')}</button>
-    </div>
-    <div class=${`session-body ${hasLeft ? 'has-left' : ''}`}>
-      ${hasLeft && html`<aside class="session-left">
-        <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
-        ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}
-        ${panelSide === 'left' && battlePanel}
-      </aside>`}
+    <div class="session-body" ref=${bodyRef}>
       <div class="session-stage">
         ${screenEl}
         ${barEl}
-        ${slow && mode === 'full' && html`<${SlowNotice} slow=${slow} isDs=${isDs} native=${nativeOn} onClose=${() => { setSlow(null); focusGame(); }} />`}
-        ${statesOpen && mode === 'full' && html`<${StatePanel} id=${target.stateId} core=${core} gen=${gameGen} version=${statesVer} selected=${sel}
+        ${statesOpen && full && html`<${StatePanel} id=${target.stateId} core=${core} gen=${gameGen} version=${statesVer} selected=${sel}
           onClose=${closeStates} onSave=${(n) => actions.quicksave(n)} onLoad=${(n) => { setStatesOpen(false); actions.quickload(n); }} />`}
+        ${full && html`<${AttentionCard} attn=${attn} onShow=${showAttn} />`}
       </div>
-      <aside class="session-side">
-        ${panelSide === 'right' && battlePanel}
-        ${liveEl}
-        ${partnersShown && psReserve > 0 && html`<div class="side-partner-space" style=${`height:${psReserve}px`} aria-hidden="true"></div>`}
-      </aside>
-      ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} onReserve=${setPsReserve} />`}
+      ${full && html`<${Dock} side=${side} folded=${folded} onFold=${setFolded} head=${head} sections=${sections} who=${who} dockRef=${dockRef} wide=${wide} />`}
+      ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} pl=${pl} />`}
     </div>
     ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false}
       onDone=${() => setInserting(false)} />`}
-    <${RulesDrawer} open=${rulesOpen && mode === 'full'} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${RulesTab} />
+    <${RulesDrawer} open=${rulesOpen && full} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${RulesTab} />
     ${mode === 'mini' && html`<button class="mini-open" onClick=${(e) => { e.currentTarget.blur(); actions.expand(); }} aria-label=${t('play.backToGameNamed', 'Back to the game: {name}', { name: target.label })}>
       <span class="mini-open-label"><${Icon} name="play" size=${14} />${t('play.backToGame', 'Back to the game')}</span></button>`}
-  </div>`;
-}
-
-/**
- * The game runs clearly below full speed at 1× on this computer (lib/slowdown.mjs): how fast it really runs, why it
- * stutters and crackles, and what helps – the melonDS app for DS games, another graphics backend, power settings.
- */
-function SlowNotice({ slow, isDs, native, onClose }) {
-  const { navigate, status } = useApp();
-  const backend = GPU_LABELS()[status?.config?.gpuBackend || 'auto'] || status?.config?.gpuBackend;
-  const melon = status?.emulators?.melonds;
-  const tip = {
-    native: t('play.slowNative', 'Turn on the fast player (Settings › Emulators): it runs this game with the real emulator directly on your computer – far faster, and live sync stays.'),
-    external: melon?.installed
-      ? t('play.slowExternalReady', 'Play with the melonDS app (installed): it runs DS games at full speed on much weaker computers. Pick it under Settings › Emulators – your run syncs on every in-game save.')
-      : t('play.slowExternal', 'Play with the melonDS app: it runs DS games at full speed on much weaker computers. Settings › Emulators installs it with one click – your run syncs on every in-game save.'),
-    graphics: t('play.slowGraphics', 'Try another graphics backend in Settings › General (now: {backend}) – on some PCs the emulator only runs smoothly with one of them.', { backend }),
-    power: t('play.slowPower', 'On a laptop: plug it in and choose the best-performance power mode. Close other programs that keep the computer busy.'),
-  };
-  const pct = Math.round((slow.reached || 0) * 100);
-  return html`<div class="note slow-note" role="status">
-    <div class="row nowrap slow-head"><${Icon} name="signal" size=${16} /><b class="grow">${t('play.slowTitle', 'This computer runs the game at only about {pct} % of its speed', { pct })}</b>
-      <button class="btn icon ghost" title=${t('common.close', 'Close')} aria-label=${t('common.close', 'Close')} onClick=${onClose}><${Icon} name="close" size=${14} /></button></div>
-    <span class="small">${native ? t('play.slowWhyNative', 'That’s why it stutters and the sound crackles. The game already runs in the fast player – here your computer is the limit, not a setting.') : isDs ? t('play.slowWhyDs', 'That’s why it stutters and the sound crackles. The built-in emulator runs the whole DS on one processor core and can’t go faster here – your computer is the limit, not a setting.')
-      : t('play.slowWhy', 'That’s why it stutters and the sound crackles. The built-in emulator runs the console on one processor core and can’t go faster here.')}</span>
-    <ul class="small slow-tips">${slow.tips.map((k) => html`<li>${tip[k]}</li>`)}</ul>
-    <div class="row">${(slow.tips.includes('external') || slow.tips.includes('graphics') || slow.tips.includes('native')) && html`<button class="btn small" onClick=${() => navigate('settings')}><${Icon} name="gear" size=${14} />${t('play.slowSettings', 'Open Settings')}</button>`}
-      <button class="btn small ghost" onClick=${onClose}>${t('play.slowOk', 'Got it')}</button></div>
   </div>`;
 }
 

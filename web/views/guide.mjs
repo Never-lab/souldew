@@ -18,11 +18,12 @@ export const SHORTCUTS = () => [
   ['+ / –', t('keys.volume', 'Louder / quieter')],
   ['F', t('keys.fullscreen', 'Fullscreen game')],
   ['R', t('keys.reset', 'Reset the game (asks first)')],
+  [shortcut('Mod+I', { space: true }), t('keys.dock', 'Fold / unfold the game panel next to the game')],
   // menu accelerators (electron/main.mjs) – only exist in the desktop app; ⌘ on a Mac, Ctrl on Windows
   ...(window.sls?.native ? [
     [shortcut('Mod+1–5', { space: true }), t('keys.sectionsNavStream', 'Library · SoulLink · Nuzlocke · Connection · Stream')],
     [shortcut('Mod+O', { space: true }), t('keys.add', 'Add games')],
-    [shortcut('Mod+B', { space: true }), t('keys.sidebar', 'Show / hide the sidebar')],
+    [shortcut('Mod+B', { space: true }), t('keys.sidebarPlay', 'Show / hide the sidebar (while playing it slides in over the game)')],
   ] : []),
 ];
 

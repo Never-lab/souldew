@@ -687,17 +687,14 @@ details.group details.group { margin: 0 14px 8px; }
 .main-inner.under-session { visibility: hidden; }
 .session.full { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; gap: 10px; padding: 16px 22px 14px; background: var(--shell); }
 .app-native .session.full { padding-top: 30px; }
-.session-top { display: flex; align-items: center; gap: 6px; min-height: 30px; }
-.session-top b { font-family: var(--font-pixel); font-size: 17px; font-weight: 400; }
-.session-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
-.session-body.has-left { grid-template-columns: 270px minmax(0, 1fr) 300px; }
+.session-body { flex: 1; min-height: 0; }
 .session-stage { min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .session-screen { flex: 1; min-height: 0; container-type: size; display: grid; place-items: center; }
 .session .console-screen { width: min(100cqw, calc(100cqh * var(--arn))); height: min(100cqh, calc(100cqw / var(--arn))); aspect-ratio: auto; max-height: none; max-width: none; margin: 0; border-radius: 8px; }
 .session .console-screen iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #000; color-scheme: dark; }
 .session-bar { align-self: center; display: flex; align-items: center; gap: 2px; padding: 3px 6px; border-radius: 999px; background: #141318; box-shadow: inset 0 1px 2px #0008; flex-wrap: wrap; justify-content: center; }
-/* one row whenever it fits: the bar may reach into the grid's 16px gaps (a 1100px window leaves the stage a few px short) */
-.session-bar { width: max-content; max-width: calc(100% + 16px); }
+/* always one row: the stage is as wide as the bar (play.mjs --stage-w) */
+.session-bar { width: max-content; flex-wrap: nowrap; flex: none; }
 .session-bar .btn.icon { width: 28px; height: 28px; min-width: 28px; padding: 0; }
 .session-bar .sep { width: 1px; height: 16px; background: var(--edge-hi); margin: 0 5px; }
 .session-bar .spacer { flex: 0 0 10px; }
@@ -707,14 +704,13 @@ details.group details.group { margin: 0 14px 8px; }
 /* "set: 4×" when the computer can't keep up: a small tag above the number, so the bar never changes width (and wraps) */
 .session-bar .speed-real { position: absolute; left: 50%; bottom: calc(100% + 7px); transform: translateX(-50%); white-space: nowrap; padding: 1px 6px;
   border-radius: 999px; background: #141318; box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent), 0 4px 10px #0008; line-height: 15px; pointer-events: none; }
-/* "this computer runs the game at only about 52 %" (play.mjs SlowNotice): a calm card under the bar, in the warn colour */
-.slow-note { align-self: center; width: min(100%, 640px); display: grid; gap: 6px; padding: 10px 12px 10px 14px; border-radius: var(--r-m);
+/* "this computer runs the game at only about 52 %" (playdock.mjs SlowChip): the details, a calm card in the warn colour */
+.slow-note { display: grid; gap: 6px; padding: 10px 12px 10px 14px; border-radius: var(--r-m);
   background: var(--shell-3); border: 1px solid var(--edge); border-left: 3px solid var(--warn); color: var(--ink-2); }
 .slow-note .slow-head { gap: 8px; color: var(--ink); }
 .slow-note .slow-head svg { color: var(--warn); flex: none; }
 .slow-note .slow-head .btn.icon { width: 26px; height: 26px; min-width: 26px; padding: 0; }
 .slow-tips { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
-.session-side { min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
 /* the popover hangs off the whole bar (right edge), not the button – so it never sticks out of a narrow game column */
 .sound-wrap { display: inline-flex; }
 .session-bar { position: relative; }
@@ -740,7 +736,7 @@ details.group details.group { margin: 0 14px 8px; }
 .running-banner { gap: 10px; }
 .session.mini { position: fixed; right: 18px; bottom: 18px; z-index: 40; width: 280px; display: flex; flex-direction: column; background: #141318; border: 1px solid var(--edge-hi); border-radius: 14px; box-shadow: 0 18px 40px #000a; overflow: hidden; }
 .session.mini.ds { width: 210px; }
-.session.mini .session-top, .session.mini .session-bar, .session.mini .session-side, .session.mini .session-left { display: none; }
+.session.mini .session-bar, .session.mini .dock, .session.mini .attn { display: none; }
 .session.mini .mini-head { display: flex; align-items: center; gap: 4px; padding: 5px 6px 5px 10px; font-size: 12px; color: var(--ink-2); }
 .session.mini .mini-head .btn.icon { width: 24px; height: 24px; min-width: 24px; padding: 0; }
 .session.mini .session-body { display: block; }
@@ -786,32 +782,8 @@ details.group details.group { margin: 0 14px 8px; }
 .save-age.dirty { color: var(--warn); }
 .save-age svg { flex: none; }
 .session.is-fs { position: fixed; inset: 0; z-index: 45; padding: 12px; background: #000; }
-.session.is-fs .session-top { display: none; }
-.session.is-fs .session-body { grid-template-columns: minmax(0, 1fr) 270px; padding-left: calc(270px + 16px); }
-.session.is-fs .session-body.has-left { grid-template-columns: 270px minmax(0, 1fr) 270px; padding-left: 0; } /* equal sides: the game sits in the middle */
-@media (max-width: 1100px) { .session-body { grid-template-columns: minmax(0, 1fr) 250px; } .session-body.has-left { grid-template-columns: 220px minmax(0, 1fr) 250px; } }
-/* not enough room for three columns (a narrow window, or the rail open next to the game): the left panel (place,
-   encounters, run strip) goes on top of the right one – the game keeps the width */
-@media (max-width: 1240px) {
-  .session:not(.is-fs) .session-body.has-left { grid-template-columns: minmax(0, 1fr) 250px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'stage left' 'stage side'; }
-  .session:not(.is-fs) .session-body.has-left > .session-stage { grid-area: stage; }
-  .session:not(.is-fs) .session-body.has-left > .session-left { grid-area: left; max-height: 45vh; }
-  .session:not(.is-fs) .session-body.has-left > .session-side { grid-area: side; }
-}
-/* narrow window (the rail is a top bar, the page scrolls): one column – the game first at a fixed height, the panels below it */
-@media (max-width: 860px) {
-  .main-inner.under-session { display: none; }
-  .session.full { position: relative; inset: auto; min-height: 100vh; }
-  .session.full:not(.is-fs) .session-body, .session.full:not(.is-fs) .session-body.has-left { flex: none; grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: none; }
-  .session.full:not(.is-fs) .session-body > .session-stage, .session.full:not(.is-fs) .session-body.has-left > .session-stage { grid-area: auto; order: -1; height: min(82vh, 760px); }
-  .session.full:not(.is-fs) .session-body.has-left > .session-left, .session.full:not(.is-fs) .session-body > .session-side, .session.full:not(.is-fs) .session-body.has-left > .session-side { grid-area: auto; max-height: none; overflow: visible; }
-}
-@media (max-width: 1000px) {
-  .session.is-fs .session-body.has-left { grid-template-columns: minmax(0, 1fr) 250px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'stage left' 'stage side'; }
-  .session.is-fs .session-body.has-left > .session-stage { grid-area: stage; }
-  .session.is-fs .session-body.has-left > .session-left { grid-area: left; max-height: 45vh; }
-  .session.is-fs .session-body.has-left > .session-side { grid-area: side; }
-}
+/* narrow window (the rail is a top bar): the page behind the game is out of the way */
+@media (max-width: 860px) { .main-inner.under-session { display: none; } }
 
 /* controls */
 button.ctl-key { cursor: pointer; min-width: 110px; padding: 2px 8px; line-height: 1.6; }
@@ -853,8 +825,9 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 .run-stats .stat-strip { flex-wrap: wrap; gap: 28px; }
 .invite-panel { border: 1px solid var(--p1); }
 
-/* partner screens (views/partnerscreen.mjs): one window per partner over the play area (.session-body), moved by its
-   header, resized from its corner grip; sizes and places come from lib/pslayout.mjs (HEAD there = .ps-head height) */
+/* partner screens popped out of the dock (views/partnerscreen.mjs): one window per partner over the play area
+   (.session-body), moved by its header, resized from its corner grip; sizes and places come from lib/pslayout.mjs
+   (HEAD there = .ps-head height). The tiles in the dock are in playdock.css. */
 .session-body { position: relative; }
 .ps-layer { position: absolute; inset: 0; z-index: 7; pointer-events: none; } /* popovers of the game bar (8) stay above */
 .ps {
@@ -889,11 +862,7 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 .ps-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--tri); box-shadow: 0 0 5px 1px color-mix(in srgb, var(--tri) 47%, transparent); }
 .ps-dot.stale { background: var(--warn); box-shadow: 0 0 5px 1px color-mix(in srgb, var(--warn) 33%, transparent); }
 .ps-dot.off { background: var(--ink-3); box-shadow: none; }
-/* below the right column: tabs of hidden windows, the layout preset and "Reset layout" */
-.ps-dock { position: absolute; z-index: 3; pointer-events: auto; box-sizing: border-box; height: 30px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-width: 0; }
-.ps-dock .spacer { flex: 1; }
-.ps-dock .ps-btn { width: 26px; height: 26px; border-radius: 8px; background: #141318; box-shadow: 0 0 0 1px var(--edge-hi); }
-.ps-dock .ps-btn:hover { background: var(--shell-3); }
+/* in the dock: "Misty – in a window" (docks it again) */
 .ps-tab {
   display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 100%; height: 26px; box-sizing: border-box; padding: 0 11px 0 9px; border-radius: 999px;
   background: #141318; border: 1px solid var(--edge-hi); box-shadow: 0 6px 16px #0007; color: var(--ink-2); font: inherit; font-size: 12px; line-height: 1; cursor: pointer;
@@ -901,18 +870,7 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 }
 .ps-tab:hover { color: var(--ink); background: var(--shell-2); }
 @keyframes ps-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-/* the room the windows stacked in the right column take (play.mjs): the column's content scrolls into view above them */
-.side-partner-space { flex: none; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .ps, .ps-tab { transition: none; animation: none; } }
-.session-side > * { flex-shrink: 0; } /* the column scrolls – panels never get squeezed */
-/* Laptop-height windows: both teams plus the partner's picture should fit without scrolling. */
-@media (max-height: 940px) {
-  .session-side { gap: 10px; }
-  .session-side .party.compact { gap: 5px; }
-  .session-side .pp.compact { min-height: 60px; padding: 4px 7px 5px 4px; }
-  .session-side .pp.compact .pp-hp { margin-top: 3px; }
-  .session-side .pp.compact .pp-cap { display: none; } /* the route of each pair is on the board */
-}
 /* invite by code (views/invitecode.mjs) */
 .invite-code-box { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .invite-code {
@@ -929,8 +887,7 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 .power > div { min-width: 0; }
 .power b, .power .tiny { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .update-card .row b { min-width: 0; overflow-wrap: anywhere; }
-.session-top .btn, .session-top .save-age svg { flex: none; }
-.session-top .save-age { flex: 0 1 auto; }
+.dock-head .btn, .dock-title .save-age svg { flex: none; }
 .states-panel:focus { outline: none; }
 .state-team .tiny { white-space: nowrap; }
 .run-cap .live-tag { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -961,7 +918,7 @@ html, body { background: var(--bg-bottom, #0f0e13); }
 html[data-theme='contrast'] { --bg-top: #0a0a0d; --bg-mid: #050507; --bg-bottom: #000; }
 .rail { background: linear-gradient(180deg, #1f1e25 0%, #17161c 55%, #111015 100%); }
 /* Scroll areas keep room for the scroll bar, so content never jumps sideways when it appears. */
-.main, .modal-body, .rules-drawer-body, .session-side, .session-left, .run-menu { scrollbar-gutter: stable; }
+.main, .modal-body, .rules-drawer-body, .dock.right, .run-menu { scrollbar-gutter: stable; }
 
 /* brand: the app icon + the wordmark "souldew" (always lowercase) */
 .brand { gap: 10px; padding: 0 6px 8px; }

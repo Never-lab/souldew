@@ -7,6 +7,7 @@
 import * as controls from '/lib/controls.mjs';
 import { setLang, guessLang, t } from '/lib/i18n.mjs';
 import { serverErrorText } from '/lib/errors.mjs';
+import { sharpScale, dsTouchAt } from '/lib/pixelscale.mjs';
 
 const q = new URLSearchParams(location.search);
 const SYSTEM = q.get('system') || 'nds';
@@ -26,7 +27,7 @@ if (DEBUG) {
 const st = {
   id: null, core: null, ready: false, paused: false, speed: 1, volume: 1, frames: 0, hostFrame: 0, fps: 0, hostSpeed: 0,
   ram: [], ramReady: false, sram: null, bootSave: 'pending', error: null, log: [], ended: false, lr: /left/i.test(q.get('layout') || ''),
-  info: null, turboAudio: 'music',
+  info: null, turboAudio: 'music', whole: q.get('px') === 'whole',
 };
 const waiters = { state: [], loaded: [], stepped: [] };
 
@@ -142,6 +143,9 @@ if (gl) initGl();
 const sideBySide = () => SYSTEM === 'nds' && st.lr;
 let pendingFrame = null;
 let lastFrame = null;
+// the game's picture in game pixels (the DS side by side: both screens next to each other) and the whole factor it is
+// drawn at (lib/pixelscale.mjs) – the canvas holds pic × pre
+const pic = { w: 0, h: 0, pre: 1 };
 function drawFrame() {
   const f = pendingFrame || lastFrame;
   pendingFrame = null;
@@ -150,11 +154,15 @@ function drawFrame() {
   const lr = sideBySide();
   const cw = lr ? f.w * 2 : f.w;
   const ch = lr ? f.h / 2 : f.h;
-  if (canvas.width !== cw || canvas.height !== ch) {
-    canvas.width = cw;
-    canvas.height = ch;
-    gl.viewport(0, 0, cw, ch);
+  if (pic.w !== cw || pic.h !== ch) {
+    pic.w = cw;
+    pic.h = ch;
     layout();
+  }
+  if (canvas.width !== cw * pic.pre || canvas.height !== ch * pic.pre) {
+    canvas.width = cw * pic.pre;
+    canvas.height = ch * pic.pre;
+    gl.viewport(0, 0, canvas.width, canvas.height);
   }
   if (f.fmt === 2) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, f.w, f.h, 0, gl.RGB, gl.UNSIGNED_SHORT_5_6_5, new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h));
   else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.px);
@@ -182,15 +190,29 @@ function onVideo(p) {
   }
 }
 
-// keep the picture's proportions in the frame (the page decides the frame's size)
+// the picture as big as the frame allows, its proportions kept (the page decides the frame's size): game pixels blown
+// up by a whole number with hard edges, the rest smoothed – or whole multiples only (Settings) – lib/pixelscale.mjs
 function layout() {
   const box = document.body.getBoundingClientRect();
-  const k = Math.min(box.width / canvas.width, box.height / canvas.height) || 1;
-  canvas.style.width = `${Math.floor(canvas.width * k)}px`;
-  canvas.style.height = `${Math.floor(canvas.height * k)}px`;
+  const src = pic.w ? pic : { w: canvas.width, h: canvas.height };
+  const s = sharpScale(src, { w: box.width, h: box.height }, devicePixelRatio || 1, { whole: st.whole });
+  canvas.style.width = `${s.w}px`;
+  canvas.style.height = `${s.h}px`;
+  canvas.style.imageRendering = s.smooth ? 'auto' : 'pixelated';
+  if (pic.w && s.pre !== pic.pre) {
+    pic.pre = s.pre;
+    drawFrame(); // the new buffer size, with the last picture
+  }
 }
 addEventListener('resize', layout);
 new ResizeObserver(layout).observe(document.body);
+// the window moved to a screen with another pixel density: the whole factor changes, the frame's size doesn't
+(function watchDensity() {
+  matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener('change', () => {
+    layout();
+    watchDensity();
+  }, { once: true });
+})();
 layout();
 
 // ---- sound: the host's samples through souldew's turbo mixer (lib/native-audio-worklet.mjs) ------------------------
@@ -461,14 +483,10 @@ addEventListener('blur', () => {
 });
 
 // touch (DS): the mouse on the bottom screen – the core takes a pointer over its whole picture (-0x7fff…0x7fff), the
-// two screens on top of each other; side by side the click is mapped back onto that picture
-function toPicture(x, y) {
-  if (!sideBySide()) return [x, y];
-  return x < 0.5 ? [x * 2, y * 0.5] : [(x - 0.5) * 2, 0.5 + y * 0.5];
-}
+// two screens on top of each other; side by side the click is mapped back onto that picture (lib/pixelscale.mjs)
 function pointer(e) {
   const r = canvas.getBoundingClientRect();
-  const [x, y] = toPicture(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)));
+  const { x, y } = dsTouchAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, sideBySide());
   inp.px = Math.round(x * 0xfffe - 0x7fff);
   inp.py = Math.round(y * 0xfffe - 0x7fff);
 }
@@ -534,11 +552,16 @@ function startPads(pads) {
 async function snapshot({ maxW = 192, type = 'image/jpeg', quality = 0.5 } = {}) {
   if (!st.ready) return null;
   drawFrame(); // (the last picture again: the canvas may be cleared after a resize)
-  const k = Math.min(1, maxW / canvas.width);
+  // at the game's own size at most (the canvas holds it blown up by a whole number, lib/pixelscale.mjs)
+  const w0 = pic.w || canvas.width;
+  const h0 = pic.h || canvas.height;
+  const k = Math.min(1, maxW / w0);
   const c = document.createElement('canvas');
-  c.width = Math.round(canvas.width * k);
-  c.height = Math.round(canvas.height * k);
-  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  c.width = Math.round(w0 * k);
+  c.height = Math.round(h0 * k);
+  const x = c.getContext('2d');
+  x.imageSmoothingEnabled = k < 1;
+  x.drawImage(canvas, 0, 0, c.width, c.height);
   return new Promise((res) => c.toBlob(res, type, quality));
 }
 const speedValue = () => (st.speed === Infinity ? 1000 : st.speed);
@@ -657,6 +680,11 @@ window.__emu = {
       st.lr = /left/i.test(v);
       drawFrame();
     }
+  },
+  /** Settings › "Whole pixels only" switched while playing. */
+  setWholePixels(on) {
+    st.whole = !!on;
+    layout();
   },
   fullscreen: () => document.documentElement.requestFullscreen?.(),
   /** Tests / diagnostics: hold buttons by name (["a"], ["up", "b"] …) – what a controller would do. */

@@ -341,6 +341,8 @@ export function SettingsView() {
       <h2>${t('set.appearance', 'Appearance')}</h2>
       <p class="small muted">${t('set.themeText', 'Colour scheme of the whole app. The colour-blind schemes replace the green/red signals (alive, dead, warnings) with colours that stay apart with that colour vision.')}</p>
       <${ThemePicker} value=${cfg.theme} onPick=${(id) => save({ theme: id })} />
+      <label class="check"><input type="checkbox" checked=${cfg.wholePixels === true} onChange=${(e) => save({ wholePixels: e.target.checked })} /><span>${t('set.wholePixels', 'Whole pixels only')}
+        <span class="hint">${t('set.wholePixelsHint', 'Every game pixel exactly 2, 3, 4 … screen pixels big – the crispest picture, with a slim black border when the game doesn’t fill the space exactly. Only when that costs at most about 15 % of the picture; otherwise, and with this off, the picture fills the space with sharp pixels that are smoothed only at their edges.')}</span></span></label>
     </section>
 
     <${ControlsSection} saved=${cfg.controls || null} save=${(p) => save(p).catch((e) => toast({ kind: 'death', title: t('set.controls', 'Controls'), text: e.message }))} />

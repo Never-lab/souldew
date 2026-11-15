@@ -1,31 +1,30 @@
-// Partner screens: the other players' games, live, while you play – each partner in a window of its own over the
-// play area (two players: one window, three or four: one per partner at once). A window moves by its header and
-// resizes from its corner grip (the picture keeps its aspect), snaps lightly to the edges and to the other windows,
-// never leaves the play area and is remembered per run and partner (position, size, hidden) on this computer. The
-// layout button below the right column switches between a stack in that column (the start) and small tiles in the
-// game's corner; "Reset layout" brings back the start. A hidden window leaves a tab there to bring it back.
-// The layout math lives in lib/pslayout.mjs.
+// Partner screens: the other players' games, live, while you play. Each partner is a tile in the play view's dock
+// (views/playdock.mjs) – two players: one tile, three or four: one per partner at once. A tile can be popped out into a
+// window over the play area: it moves by its header and resizes from its corner grip (the picture keeps its aspect),
+// snaps lightly to the edges and to the other windows, never leaves the play area and never covers the game bar, and
+// is remembered per run and partner on this computer (popped out or not, position, size). "Back to the panel" docks it
+// again. The layout math lives in lib/pslayout.mjs.
 //
 // Picture transport lives in SyncLink (lib/sync.mjs): WebRTC video when the direct link to that partner is up, small
-// encrypted stills every ~1.5 s over the relay otherwise. Only shown windows watch – a hidden one costs nothing, as
+// encrypted stills every ~1.5 s over the relay otherwise. Only shown pictures watch – a folded dock costs nothing, as
 // does the game in the corner (this view isn't there then).
 //
 // Nothing here takes the keyboard or the controller from the game: presses keep the focus in the game frame
 // (keepFocus) and the windows are plain page content, not dialogs – the controller reaches their buttons only when
 // it is the app's anyway (lib/padnav.mjs: game paused, a menu open …).
-import { html, useState, useEffect, useLayoutEffect, useRef } from '/vendor/htm-preact.mjs';
+import { html, useState, useEffect, useLayoutEffect, useRef, useCallback } from '/vendor/htm-preact.mjs';
 import { useApp } from '../lib/ui.mjs';
 import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
 import { othersOf, players as getPlayers } from '../lib/run.mjs';
 import {
-  GAP, arOf, defaultWidth, snapRect, resizeRect, resizeAnchored, gripSide, toStored, fromStored, columnLayout, columnHeight,
-  cornerLayout, runLayout, winState, updateRun, isCustom,
+  arOf, defaultWidth, snapRect, resizeRect, resizeAnchored, gripSide, toStored, fromStored, cornerLayout, avoidRect,
+  runLayout, winState, updateRun,
 } from '../lib/pslayout.mjs';
+import { tileColumns } from '../lib/playlayout.mjs';
 
 const PREF = 'sl-partnerscreen'; // per computer – see lib/pslayout.mjs (runLayout)
 const STALE_MS = 20000; // a still picture older than this means the partner stopped sending
-const DOCK_H = 30; // the row with the layout buttons and the tabs of hidden windows (.ps-dock)
 
 function loadPref() {
   try {
@@ -81,15 +80,6 @@ function Watch({ link, slot, onView }) {
   const cb = useRef(onView);
   cb.current = onView;
   useEffect(() => {
-    // PROTOTYPE (feat/play-layout): stand-in pictures for the layout screenshots (localStorage sl-ps-demo = { p2: { url, system } })
-    let demo = null;
-    try { demo = JSON.parse(localStorage.getItem('sl-ps-demo') || 'null')?.[slot]; } catch {}
-    if (demo) {
-      const send = () => cb.current(slot, { mode: 'image', url: demo.url, active: true, known: true, at: Date.now(), system: demo.system });
-      send();
-      const id = setInterval(send, 1000);
-      return () => clearInterval(id);
-    }
     if (!link?.watchPartnerScreen) return undefined;
     return link.watchPartnerScreen((v) => cb.current(slot, v), slot);
   }, [link, slot]);
@@ -106,122 +96,192 @@ function relRect(el, base) {
 }
 
 /**
- * All partner windows of the run, over the play area (mount it as a child of .session-body).
- *   link      – the current SyncLink (useApp().link)
- *   system    – our own system: the aspect of a window until its first picture arrives
- *   onReserve – (px) room the windows stacked in the right column take at its bottom: the column keeps that much free
- *               space under its content, so everything in it can be scrolled into view above them
+ * The run's partner layout on this computer (lib/pslayout.mjs) – shared by the tiles and the windows:
+ * { others, nameOf, popped(slot), stored(slot), pop(slot), dock(slot), store(slot, stored) }.
  */
-export function PartnerScreens({ link, system, onReserve }) {
-  const { manifest, doc, me } = useApp() || {};
+export function usePartnerLayout() {
+  const { manifest, doc, me, link } = useApp() || {};
   const [pref, setPref] = useState(loadPref);
-  const [views, setViews] = useState({});
-  const [measured, setMeasured] = useState({}); // slot → width / height of the picture actually received
-  const [zones, setZones] = useState(null);
-  const [drag, setDrag] = useState(null);
-  const [, tick] = useState(0);
-  const layer = useRef(null);
-
   const runId = manifest?.id;
   const others = manifest && me ? othersOf(me, manifest) : link?.others || [];
   const names = manifest && doc ? getPlayers(doc, manifest) : manifest?.players || {};
-  const nameOf = (slot) => names[slot]?.name || slot.toUpperCase();
   const layout = runLayout(pref, runId);
-  const change = (fn) => {
-    const next = updateRun(pref, runId, fn);
-    setPref(next);
+  const setWin = useCallback((slot, patch) => setPref((cur) => {
+    const next = updateRun(cur, runId, (l) => ({ wins: { ...l.wins, [slot]: { ...(l.wins[slot] || {}), ...patch } } }));
     savePref(next);
+    return next;
+  }), [runId]);
+  return {
+    others,
+    nameOf: (slot) => names[slot]?.name || slot.toUpperCase(),
+    popped: (slot) => winState(layout, slot).popped,
+    stored: (slot) => winState(layout, slot).stored,
+    pop: (slot) => setWin(slot, { popped: true }),
+    dock: (slot) => setWin(slot, { popped: false, fx: undefined, fy: undefined, w: undefined }),
+    store: (slot, st) => setWin(slot, st),
   };
-  const setWin = (slot, patch) => change((l) => ({ ...l, wins: { ...l.wins, [slot]: { ...(l.wins[slot] || {}), ...patch } } }));
+}
 
-  // The play area and the parts of it the presets use, measured whenever any of them changes size.
-  useLayoutEffect(() => {
-    const el = layer.current;
-    const body = el?.parentElement;
-    if (!body) return undefined;
-    const measure = () => {
-      const base = el.getBoundingClientRect();
-      const side = body.querySelector(':scope > .session-side');
-      const stage = body.querySelector(':scope > .session-stage');
-      const area = { w: Math.round(base.width), h: Math.round(base.height) };
-      if (!area.w || !area.h) return;
-      const col = side ? relRect(side, base) : { x: area.w - 260, y: 0, w: 260, h: area.h };
-      const st = stage ? relRect(stage, base) : { x: 0, y: 0, w: area.w, h: area.h };
-      const next = { area, col, stage: st };
-      setZones((z) => (JSON.stringify(z) === JSON.stringify(next) ? z : next));
-    };
-    measure();
-    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    if (ro) for (const x of [el, body.querySelector(':scope > .session-side'), body.querySelector(':scope > .session-stage')]) if (x) ro.observe(x);
-    addEventListener('resize', measure);
-    return () => {
-      ro?.disconnect();
-      removeEventListener('resize', measure);
-    };
-  }, []);
+/** What a partner's view shows now: { view, stream, imageMode, age, live, ar } – null while nothing is known. */
+function viewInfo(view, system, measured, now) {
+  const stream = view?.mode === 'stream' ? view.stream : null;
+  const imageMode = view?.mode === 'image' && !!view.url;
+  const age = imageMode ? now - view.at : 0;
+  const live = !!view?.active && (!!stream || (imageMode && age < STALE_MS));
+  return { view, stream, imageMode, age, live, ar: arOf(view?.system || system, measured) };
+}
 
-  const onView = (slot, v) => setViews((all) => ({ ...all, [slot]: v }));
-  const state = Object.fromEntries(others.map((s) => [s, winState(layout, s)]));
-  const shownSlots = others.filter((s) => !state[s].hidden);
+function message(view, name) {
+  return !view?.known
+    ? t('ps.noPicture', 'No picture from {name} right now', { name })
+    : view.active
+      ? t('ps.connecting', 'Connecting to {name}’s picture …', { name })
+      : view.paused
+        ? t('ps.paused', '{name}’s game is in a background tab – no picture right now', { name })
+        : t('ps.notPlaying', '{name} isn’t playing right now', { name });
+}
 
-  // what each shown window shows
-  const now = Date.now();
-  const info = {};
-  for (const slot of shownSlots) {
-    const view = views[slot];
-    const stream = view?.mode === 'stream' ? view.stream : null;
-    const imageMode = view?.mode === 'image' && !!view.url;
-    const age = imageMode ? now - view.at : 0;
-    const live = !!view?.active && (!!stream || (imageMode && age < STALE_MS));
-    // only claim anything when the partner's app can share at all (it told us its state once)
-    if (!live && !view?.known) continue;
-    info[slot] = { view, stream, imageMode, age, live, ar: arOf(view?.system || system, measured[slot]) };
-  }
-  const windows = shownSlots.filter((s) => info[s]);
+/** The picture: video, still or why there is none. */
+function Picture({ info, name, onMeasure }) {
+  const { stream, imageMode, live, view } = info;
+  const video = useRef(null);
+  useEffect(() => {
+    const el = video.current;
+    if (!el) return;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    if (stream) el.play?.().catch(() => {});
+  }, [stream, live]);
+  const measure = (w, h) => w && h && onMeasure?.(w / h);
+  return html`
+    ${live && stream && html`<video ref=${video} autoplay muted playsinline disablepictureinpicture
+      onLoadedMetadata=${(e) => measure(e.target.videoWidth, e.target.videoHeight)} onResize=${(e) => measure(e.target.videoWidth, e.target.videoHeight)}></video>`}
+    ${live && !stream && imageMode && html`<img src=${view.url} alt=${t('ps.alt', 'What {name} sees right now', { name })} onLoad=${(e) => measure(e.target.naturalWidth, e.target.naturalHeight)} />`}
+    ${!live && html`<span class="ps-msg" role="status">${message(view, name)}</span>`}`;
+}
 
-  // Still pictures: the age label ticks (and notices when they stop coming).
-  const anyImages = windows.some((s) => info[s].imageMode);
+/** Name, live dot and age of a picture – the header of a tile and of a window. */
+function Label({ slot, name, info }) {
+  const secs = Math.round((info?.age || 0) / 1000);
+  const fresh = !!info?.stream || secs < 4;
+  return html`<span class=${`ps-dot ${!info?.live ? 'off' : fresh ? '' : 'stale'}`} aria-hidden="true"></span>
+    <b class=${`px ps-name who-${slot}`}>${name}</b>
+    ${info?.live && html`<span class="ps-age mono">${fresh ? t('ps.live', 'live') : t('ps.ago', '{n} s ago', { n: secs })}</span>`}`;
+}
+
+/** Views of the given partners (one subscription each) and the ticking age of still pictures. */
+function useViews(link, slots) {
+  const [views, setViews] = useState({});
+  const [measured, setMeasured] = useState({});
+  const [, tick] = useState(0);
+  const onView = useCallback((slot, v) => setViews((all) => ({ ...all, [slot]: v })), []);
+  const anyImages = slots.some((s) => views[s]?.mode === 'image');
   useEffect(() => {
     if (!anyImages) return undefined;
     const id = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [anyImages]);
+  const measure = (slot) => (ar) => setMeasured((m) => (Math.abs((m[slot] || 0) - ar) > 0.01 ? { ...m, [slot]: ar } : m));
+  const watchers = link ? slots.map((slot) => html`<${Watch} key=${slot} link=${link} slot=${slot} onView=${onView} />`) : null;
+  return { views, measured, measure, watchers };
+}
 
-  // Where every window is: dragged → where the pointer has it; moved before → remembered; else the preset.
+/**
+ * The partners' games as tiles in the dock: a column of tiles on the right (side by side when there are several), a
+ * row along the bottom. A popped-out partner leaves a small button that docks the window again.
+ *   pl – usePartnerLayout()
+ */
+export function PartnerTiles({ link, system, side, pl, box = null }) {
+  const docked = pl.others.filter((s) => !pl.popped(s));
+  const away = pl.others.filter((s) => pl.popped(s));
+  const { views, measured, measure, watchers } = useViews(link, docked);
+  const now = Date.now();
+  if (!pl.others.length) return null;
+  const infos = Object.fromEntries(docked.map((s) => [s, viewInfo(views[s], system, measured[s], now)]));
+  // on the right as many side by side as leave the biggest pictures that still fit (box: the room they have)
+  const ar = docked.length ? Math.min(...docked.map((s) => infos[s].ar)) : 1;
+  const cols = side === 'bottom' ? docked.length : tileColumns(docked.length, ar, box || { w: 300, h: Infinity });
+  const popLabel = t('ps.popOut', 'Open in a window');
+  return html`<div class=${`ptiles ${side}`} style=${`--cols:${cols}`} role="group" aria-label=${t('ps.screens', 'Partner screens')}>
+    ${watchers}
+    ${docked.map((slot) => {
+      const name = pl.nameOf(slot);
+      const info = infos[slot];
+      return html`<section class="pt" key=${slot} style=${`--ar:${info.ar}`} aria-label=${t('ps.title', '{name}’s game', { name })} onMouseDown=${keepFocus}>
+        <header class="pt-head"><${Label} slot=${slot} name=${name} info=${info} /><span class="spacer"></span>
+          <button class="ps-btn" onMouseDown=${keepFocus} onClick=${() => pl.pop(slot)} title=${popLabel} aria-label=${`${popLabel}: ${name}`}><${Icon} name="external" size=${12} /></button></header>
+        <div class="pt-screen"><${Picture} info=${info} name=${name} onMeasure=${measure(slot)} /></div>
+      </section>`;
+    })}
+    ${away.length > 0 && html`<div class="pt-away">${away.map((slot) => html`<button class="ps-tab" key=${slot} onMouseDown=${keepFocus} onClick=${() => pl.dock(slot)}
+      title=${t('ps.dock', 'Back to the panel')}><span class="ps-dot" aria-hidden="true"></span><span class="ellipsis">${t('ps.inWindow', '{name} – in a window', { name: pl.nameOf(slot) })}</span>
+      <${Icon} name="panelRight" size=${12} /></button>`)}</div>`}
+  </div>`;
+}
+
+/**
+ * The partners popped out of the dock, each in a window over the play area (mount it as a child of .session-body).
+ *   pl    – usePartnerLayout()
+ *   avoid – CSS selector of what a window may never cover (the game bar), inside .session-body
+ */
+export function PartnerScreens({ link, system, pl, avoid = '.session-bar' }) {
+  const shown = pl.others.filter((s) => pl.popped(s));
+  const { views, measured, measure, watchers } = useViews(link, shown);
+  const [zones, setZones] = useState(null);
+  const [drag, setDrag] = useState(null);
+  const layer = useRef(null);
+
+  // The play area, the stage (where new windows start) and the game bar, measured whenever any of them changes.
+  useLayoutEffect(() => {
+    const el = layer.current;
+    const body = el?.parentElement;
+    if (!body) return undefined;
+    const measureAll = () => {
+      const base = el.getBoundingClientRect();
+      const stage = body.querySelector(':scope > .session-stage');
+      const bar = body.querySelector(avoid);
+      const area = { w: Math.round(base.width), h: Math.round(base.height) };
+      if (!area.w || !area.h) return;
+      const st = stage ? relRect(stage, base) : { x: 0, y: 0, w: area.w, h: area.h };
+      const block = bar ? relRect(bar, base) : null;
+      const next = { area, stage: st, block };
+      setZones((z) => (JSON.stringify(z) === JSON.stringify(next) ? z : next));
+    };
+    measureAll();
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(measureAll) : null;
+    if (ro) for (const x of [el, body.querySelector(':scope > .session-stage'), body.querySelector(avoid)]) if (x) ro.observe(x);
+    addEventListener('resize', measureAll);
+    const id = setInterval(measureAll, 1000); // the bar moves with the picture (no size change to observe)
+    return () => {
+      ro?.disconnect();
+      removeEventListener('resize', measureAll);
+      clearInterval(id);
+    };
+  }, [shown.length > 0]);
+
+  const now = Date.now();
+  const info = Object.fromEntries(shown.map((s) => [s, viewInfo(views[s], system, measured[s], now)]));
+  // Where every window is: dragged → where the pointer has it; moved before → remembered; else the stage's corner.
+  // Never on the game bar.
   const rects = {};
-  let reserve = 0;
-  const dockShown = windows.length > 0 || others.some((s) => state[s].hidden);
   if (zones) {
-    const { area, col, stage } = zones;
-    const colZone = { ...col, h: Math.max(0, col.h - DOCK_H - GAP) };
-    const follow = windows.filter((s) => !state[s].stored && drag?.slot !== s).map((id) => ({ id, ar: info[id].ar }));
-    const preset = layout.preset === 'corner' ? cornerLayout(follow, stage, area) : columnLayout(follow, colZone, area);
-    for (const slot of windows) {
-      if (drag?.slot === slot) rects[slot] = drag.rect;
-      else if (state[slot].stored) rects[slot] = fromStored(state[slot].stored, info[slot].ar, area);
-      else rects[slot] = preset[slot];
+    const { area, stage, block } = zones;
+    const follow = shown.filter((s) => !pl.stored(s) && drag?.slot !== s).map((id) => ({ id, ar: info[id].ar }));
+    const start = cornerLayout(follow, stage, area);
+    for (const slot of shown) {
+      const r = drag?.slot === slot ? drag.rect : pl.stored(slot) ? fromStored(pl.stored(slot), info[slot].ar, area) : start[slot];
+      rects[slot] = r && avoidRect(r, block, area);
     }
-    if (layout.preset === 'column' && follow.length) reserve += columnHeight(preset) + GAP;
-    if (dockShown) reserve += DOCK_H + GAP;
   }
-  const reserveRef = useRef(-1);
-  useEffect(() => {
-    if (reserveRef.current === reserve) return;
-    reserveRef.current = reserve;
-    onReserve?.(reserve);
-  });
-  useEffect(() => () => onReserve?.(0), []);
 
   /** Pointer down on a window's header (move) or its grip (resize): follows the pointer until it is let go. */
   const startDrag = (e, slot, kind) => {
     if (e.button !== 0 || !zones || !rects[slot]) return;
     if (kind === 'move' && e.target.closest('button')) return;
     const el = e.currentTarget;
-    const { area, col } = zones;
+    const { area, block } = zones;
     const start = rects[slot];
     const ar = info[slot].ar;
-    const others0 = windows.filter((s) => s !== slot).map((s) => rects[s]);
-    const guides = { x: [col.x], y: [col.y + col.h - DOCK_H - GAP] };
+    const others0 = shown.filter((s) => s !== slot).map((s) => rects[s]);
     const d = { slot, kind, start, rect: start, side: gripSide(start, area), moved: false };
     try {
       el.setPointerCapture(e.pointerId);
@@ -234,7 +294,8 @@ export function PartnerScreens({ link, system, onReserve }) {
       const dy = ev.clientY - e.clientY;
       if (!d.moved && Math.hypot(dx, dy) < 3) return; // a click, not a drag
       d.moved = true;
-      d.rect = kind === 'move' ? snapRect({ ...start, x: start.x + dx, y: start.y + dy }, others0, area, { guides }) : resizeRect(start, dx, dy, ar, area, d.side);
+      const r = kind === 'move' ? snapRect({ ...start, x: start.x + dx, y: start.y + dy }, others0, area) : resizeRect(start, dx, dy, ar, area, d.side);
+      d.rect = avoidRect(r, block, area);
       setDrag({ ...d });
     };
     const up = (ev) => {
@@ -243,7 +304,7 @@ export function PartnerScreens({ link, system, onReserve }) {
       el.removeEventListener('pointerup', up);
       el.removeEventListener('pointercancel', up);
       el.removeEventListener('lostpointercapture', up);
-      if (d.moved) setWin(slot, toStored(d.rect, area));
+      if (d.moved) pl.store(slot, toStored(d.rect, area));
       setDrag(null);
     };
     el.addEventListener('pointermove', move);
@@ -252,74 +313,33 @@ export function PartnerScreens({ link, system, onReserve }) {
     el.addEventListener('lostpointercapture', up);
   };
 
-  // (the layer stays even without a link: it is measured once when it mounts)
-  const custom = isCustom(layout);
-  const toCorner = layout.preset !== 'corner';
-  const presetLabel = toCorner ? t('ps.layoutCorner', 'Tile the screens in the corner of the game') : t('ps.layoutColumn', 'Stack the screens in the right column');
-  const hiddenSlots = others.filter((s) => state[s].hidden);
-  const col = zones?.col;
+  // (the layer stays even without a window: it is measured once when it mounts)
   return html`<div class=${`ps-layer ${drag ? 'dragging' : ''}`} ref=${layer}>
-    ${link && shownSlots.map((slot) => html`<${Watch} key=${slot} link=${link} slot=${slot} onView=${onView} />`)}
-    ${zones && windows.map((slot) => html`<${PartnerWindow} key=${slot} slot=${slot} name=${nameOf(slot)} info=${info[slot]} rect=${rects[slot]}
-      area=${zones.area} dragging=${drag?.slot === slot} grip=${gripSide(rects[slot], zones.area)} system=${system}
-      onMeasure=${(ar) => setMeasured((m) => (Math.abs((m[slot] || 0) - ar) > 0.01 ? { ...m, [slot]: ar } : m))}
+    ${watchers}
+    ${zones && shown.map((slot) => rects[slot] && html`<${PartnerWindow} key=${slot} slot=${slot} name=${pl.nameOf(slot)} info=${info[slot]} rect=${rects[slot]}
+      area=${zones.area} dragging=${drag?.slot === slot} grip=${gripSide(rects[slot], zones.area)} onMeasure=${measure(slot)}
       onDrag=${(e, kind) => startDrag(e, slot, kind)}
-      onSize=${(r) => setWin(slot, toStored(r, zones.area))}
-      onHide=${() => setWin(slot, { hidden: true })} />`)}
-    ${zones && dockShown && html`<div class="ps-dock" role="group" aria-label=${t('ps.screens', 'Partner screens')}
-      style=${`right:${Math.max(0, zones.area.w - (col.x + col.w))}px;bottom:${Math.max(0, zones.area.h - (col.y + col.h))}px;max-width:${Math.max(120, col.w)}px`}>
-      ${hiddenSlots.map((slot) => html`<button class="ps-tab" onMouseDown=${keepFocus} onClick=${() => setWin(slot, { hidden: false })}
-        title=${t('ps.show', 'Show {name}’s screen', { name: nameOf(slot) })}><span class="ps-dot" aria-hidden="true"></span><span class="ellipsis">${t('ps.showShort', '{name}’s screen', { name: nameOf(slot) })}</span></button>`)}
-      <span class="spacer"></span>
-      ${windows.length > 0 && html`<button class="ps-btn" onMouseDown=${keepFocus} title=${presetLabel} aria-label=${presetLabel}
-        onClick=${() => change((l) => ({ preset: toCorner ? 'corner' : 'column', wins: Object.fromEntries(Object.entries(l.wins).map(([s, w]) => [s, { hidden: !!w?.hidden }])) }))}>
-        <${Icon} name=${toCorner ? 'tiles' : 'stack'} size=${12} /></button>`}
-      ${custom && html`<button class="ps-btn" onMouseDown=${keepFocus} title=${t('ps.reset', 'Reset layout')} aria-label=${t('ps.reset', 'Reset layout')}
-        onClick=${() => change(() => ({ preset: 'column', wins: {} }))}><${Icon} name="reset" size=${12} /></button>`}
-    </div>`}
+      onSize=${(r) => pl.store(slot, toStored(avoidRect(r, zones.block, zones.area), zones.area))}
+      onDock=${() => pl.dock(slot)} />`)}
   </div>`;
 }
 
-/** One partner's window: header (drag to move, Bigger / Smaller, Hide), the picture, and the resize grip. */
-function PartnerWindow({ name, info, rect, area, dragging, grip, onMeasure, onDrag, onSize, onHide }) {
-  const { view, stream, imageMode, age, live, ar } = info;
-  const video = useRef(null);
-  useEffect(() => {
-    const el = video.current;
-    if (!el) return;
-    if (el.srcObject !== stream) el.srcObject = stream;
-    if (stream) el.play?.().catch(() => {});
-  }, [stream, live]);
-
-  const measure = (w, h) => w && h && onMeasure(w / h);
-  const secs = Math.round(age / 1000);
-  const fresh = !!stream || secs < 4;
+/** One partner's window: header (drag to move, Bigger / Smaller, back to the panel), the picture, the resize grip. */
+function PartnerWindow({ slot, name, info, rect, area, dragging, grip, onMeasure, onDrag, onSize, onDock }) {
+  const { ar } = info;
   const big = rect.w >= defaultWidth(ar, true) - 1;
   const sizeLabel = big ? t('ps.smaller', 'Smaller') : t('ps.bigger', 'Bigger');
-  const message = !view?.known
-    ? t('ps.noPicture', 'No picture from {name} right now', { name })
-    : view.active
-      ? t('ps.connecting', 'Connecting to {name}’s picture …', { name })
-      : view.paused
-        ? t('ps.paused', '{name}’s game is in a background tab – no picture right now', { name })
-        : t('ps.notPlaying', '{name} isn’t playing right now', { name });
+  const dockLabel = t('ps.dock', 'Back to the panel');
   return html`<section class=${`ps ${dragging ? 'is-dragging' : ''}`} aria-label=${t('ps.title', '{name}’s game', { name })} onMouseDown=${keepFocus}
     style=${`left:${rect.x}px;top:${rect.y}px;width:${rect.w}px;height:${rect.h}px`}>
     <header class="ps-head" title=${t('ps.moveHint', 'Drag to move')} onPointerDown=${(e) => onDrag(e, 'move')}>
-      <span class=${`ps-dot ${!live ? 'off' : fresh ? '' : 'stale'}`} aria-hidden="true"></span>
-      <b class="px ps-name">${name}</b>
-      ${live && html`<span class="ps-age mono">${fresh ? t('ps.live', 'live') : t('ps.ago', '{n} s ago', { n: secs })}</span>`}
+      <${Label} slot=${slot} name=${name} info=${info} />
       <span class="spacer"></span>
       <button class="ps-btn" onMouseDown=${keepFocus} onClick=${() => onSize(resizeAnchored(rect, defaultWidth(ar, !big), ar, area))} aria-pressed=${big}
         title=${sizeLabel} aria-label=${sizeLabel}><${Icon} name=${big ? 'shrink' : 'full'} size=${12} /></button>
-      <button class="ps-btn" onMouseDown=${keepFocus} onClick=${onHide} title=${t('ps.hide', 'Hide')} aria-label=${t('ps.hide', 'Hide')}><${Icon} name="close" size=${12} /></button>
+      <button class="ps-btn" onMouseDown=${keepFocus} onClick=${onDock} title=${dockLabel} aria-label=${dockLabel}><${Icon} name="panelRight" size=${12} /></button>
     </header>
-    <div class="ps-screen">
-      ${live && stream && html`<video ref=${video} autoplay muted playsinline disablepictureinpicture
-        onLoadedMetadata=${(e) => measure(e.target.videoWidth, e.target.videoHeight)} onResize=${(e) => measure(e.target.videoWidth, e.target.videoHeight)}></video>`}
-      ${live && !stream && imageMode && html`<img src=${view.url} alt=${t('ps.alt', 'What {name} sees right now', { name })} onLoad=${(e) => measure(e.target.naturalWidth, e.target.naturalHeight)} />`}
-      ${!live && html`<span class="ps-msg" role="status">${message}</span>`}
-    </div>
+    <div class="ps-screen"><${Picture} info=${info} name=${name} onMeasure=${onMeasure} /></div>
     <span class=${`ps-grip ${grip}`} title=${t('ps.resize', 'Drag to resize')} aria-hidden="true" onPointerDown=${(e) => onDrag(e, 'resize')}></span>
   </section>`;
 }

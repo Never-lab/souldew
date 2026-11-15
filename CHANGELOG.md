@@ -4,16 +4,37 @@
 
 ## Unreleased
 
-- **Every partner's game at once, in windows you can move.** In a run with three or four players the play view now
-  shows each partner's game in a window of its own instead of one at a time. Drag a window by its header, resize it
-  from the corner (the picture keeps its shape), and it snaps lightly to the edges and to the other windows without
-  ever leaving the play area. Where each window sits, its size and whether it is hidden are remembered per run on this
-  computer. The buttons under the right column stack the windows in that column (the start) or tile them small in the
-  game's corner, bring back hidden windows and reset the layout. Two-player runs keep their single window – now movable
-  and resizable too. Only shown windows ask for pictures: a hidden one costs nothing, each partner sends video over a
-  direct link (several videos at once work) or small stills over the relay, and with three watchers the video bitrate
-  per watcher goes down so the upload stays about the same. The windows never take the keyboard or the controller from
-  the game; the controller reaches their buttons when it is in souldew's menus anyway (game paused, a menu open).
+- **A new play view: the game big, everything else in one dock beside it.** The sidebar folds away while you play
+  (its button at the top left, the window's left edge or ⌘B / Ctrl+B bring it back – a note says so the first time)
+  and the game gets the room. Title, place and level cap, the battle helper, your team or the linked groups and the
+  partners' games now sit in one dock that goes where the picture leaves room: right of tall pictures (Game Boy, GBA,
+  DS and 3DS screens on top of each other), under wide ones (DS and 3DS side by side, 3DS large) – whichever side gives
+  the bigger picture, decided again when the window, the screen layout or fullscreen changes. With room to spare next
+  to a tall picture the dock widens and the partners' games get a column of their own. Nothing covers the game and
+  nothing hides by itself; fold the dock to a slim strip with its button or ⌘I / Ctrl+I (remembered) – the strip
+  still shows a battle, the level cap and who is online. At 1440×900 a GBA picture is about 3.6× bigger than before,
+  DS / 3DS screens side by side about 6×, and the game bar always stays on one row.
+- **Something happened? A card over the top of the game says so** – a group died, a catch (yours, or the one that
+  links a group), the level cap reached, a battle starting while the dock is folded. It leaves by itself (not while
+  the pointer is on it), never takes the keyboard, and "Show" opens the dock at that place.
+- **Every partner's game at once.** In a run with three or four players each partner's game is a tile in the dock,
+  live (two players: the one partner). Any tile opens in a window of its own: drag it by its header, resize it from the
+  corner (the picture keeps its shape), it snaps lightly to the edges and to the other windows, never leaves the play
+  area and never covers the game bar; "Back to the panel" docks it again. Which partner is in a window, where and how
+  big is remembered per run on this computer. Only shown pictures are asked for: each partner sends video over a direct
+  link (several videos at once work) or small stills over the relay, and with three watchers the video bitrate per
+  watcher goes down so the upload stays about the same. Tiles and windows never take the keyboard or the controller
+  from the game.
+- **Sharper pixels at any size.** All three players (the fast player, the 3DS player and the browser emulator) now blow
+  each game pixel up by a whole number with hard edges and only smooth the last bit to the frame – no more uneven rows
+  of pixels at odd sizes. Settings › Appearance › "Whole pixels only" snaps to exact multiples instead, when that costs
+  at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every layout and
+  size.
+- **In the linked groups along the bottom dock** every group of the run is shown in the game's order – alive, waiting,
+  dead or failed at a glance, each player's Pokémon in the player's colour, the link drawn between them, the group of
+  the place you are at (or the latest encounter) marked and scrolled into view. The right dock keeps the pair / group
+  view as it was. "This computer runs the game at only …" is now a small chip in the dock (details on a click) instead
+  of a card under the game, and four players' names no longer squeeze the live status line.
 
 ## 2.7.0
 
