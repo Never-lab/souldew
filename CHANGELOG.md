@@ -2,41 +2,78 @@
 
 `npm run release` takes the release notes from the section of the version being released.
 
-## Unreleased
+## 3.0.0
 
+souldew 3.0 brings multiplayer: the players of a run trade Pokémon and battle each other the way the games meant it –
+in the Cable Club, the Colosseum and the Union Room – and in the Gen 3 games your partners walk around in your game.
+Plus a new play view that gives the game the room it deserves.
+
+- **Trade and battle with your partners – Gen 1 to Gen 4, no restart.** On the board, each partner's card has Trade
+  and Battle; your partner gets the invite, presses Join, and both games go into the link right from where you are –
+  in the middle of a route, a text box, a menu. No reboot, no title screen: walk to the Cable Club (Gen 1–3) or the
+  Union Room (Gen 4), trade or battle as on real hardware, press “Leave link”, and each game goes on alone from where
+  the link left it. Every player's computer runs all linked consoles in lockstep and only the buttons travel, so it
+  feels like a cable even between two homes; when no direct connection can be made, it goes through a relay server.
+  Tested end to end with Red, Crystal with Silver (cartridge clock included),
+  Emerald with Sapphire and Platinum; different games of a generation link too – souldew finds your partner's game in
+  your library or lets you pick it, checked byte for byte.
+- **Up to four players where the game has it:** the Gen 3 Multi Battle (two against two) and the Gen 4 Union Room,
+  where all four of you see each other and trade in pairs. “Link all of us” on the board starts it.
+- **Made to be safe for your run.** A trade goes into the run's log. Before the link souldew keeps your save; if the
+  linked games ever fall out of step, both go back to exactly where they were before the link, and the session's
+  last save is kept next to it. In the Game Boy and GBA games a player whose game dropped out can rejoin while the
+  others wait. Nothing a link session shows counts for the run – a battle there never files a death. The run's rules
+  decide whether trades and link battles are allowed.
+- **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
+  same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
+  running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into
+  the link) or Wave – the wave shows on every player's screen. It is drawn over your game; nothing is written into
+  it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald and Sapphire;
+  Ruby, FireRed and LeafGreen run on the same code, with their addresses from the games' disassembly.
 - **A new play view: the game big, everything else in one dock beside it.** The sidebar folds away while you play
   (its button at the top left, the window's left edge or ⌘B / Ctrl+B bring it back – a note says so the first time)
-  and the game gets the room. Title, place and level cap, the battle helper, your team or the linked groups and the
-  partners' games now sit in one dock that goes where the picture leaves room: right of tall pictures (Game Boy, GBA,
-  DS and 3DS screens on top of each other), under wide ones (DS and 3DS side by side, 3DS large) – whichever side gives
-  the bigger picture, decided again when the window, the screen layout or fullscreen changes. With room to spare next
-  to a tall picture the dock widens and the partners' games get a column of their own. Nothing covers the game and
-  nothing hides by itself; fold the dock to a slim strip with its button or ⌘I / Ctrl+I (remembered) – the strip
-  still shows a battle, the level cap and who is online. At 1440×900 a GBA picture is about 3.6× bigger than before,
-  DS / 3DS screens side by side about 6×, and the game bar always stays on one row.
+  and the game gets the room. Title, place and level cap, the battle helper, the link with your partners, your team or
+  the linked groups and the partners' games now sit in one dock that goes where the picture leaves room: right of tall
+  pictures (Game Boy, GBA, DS and 3DS screens on top of each other), under wide ones (DS and 3DS side by side, 3DS
+  large) – whichever side gives the bigger picture, decided again when the window, the screen layout or fullscreen
+  changes. With room to spare next to a tall picture the dock widens and the partners' games get a column of their
+  own. Nothing covers the game and nothing hides by itself; fold the dock to a slim strip with its button or ⌘I /
+  Ctrl+I (remembered) – the strip still shows a battle, the level cap, the link and who is online, and an invite still
+  shows over the game. At 1440×900 a GBA picture is about 3.6× bigger than before, DS / 3DS screens side by side about
+  6×, and the game bar always stays on one row.
 - **Something happened? A card over the top of the game says so** – a group died, a catch (yours, or the one that
   links a group), the level cap reached, a battle starting while the dock is folded. It leaves by itself (not while
-  the pointer is on it), never takes the keyboard, and "Show" opens the dock at that place.
-- **Every partner's game at once.** In a run with three or four players each partner's game is a tile in the dock,
-  live (two players: the one partner). Any tile opens in a window of its own: drag it by its header, resize it from the
-  corner (the picture keeps its shape), it snaps lightly to the edges and to the other windows, never leaves the play
-  area and never covers the game bar; "Back to the panel" docks it again. Which partner is in a window, where and how
-  big is remembered per run on this computer. Only shown pictures are asked for: each partner sends video over a direct
-  link (several videos at once work) or small stills over the relay, and with three watchers the video bitrate per
-  watcher goes down so the upload stays about the same; the video keeps the game's own resolution, so the sharper
-  scaling below costs no extra upload. Tiles and windows never take the keyboard or the controller from the game. On
-  the folded strip partners whose names start alike get two letters ("Mi", "Ma").
-- **Sharper pixels at any size.** All three players (the fast player, the 3DS player and the browser emulator) now blow
-  each game pixel up by a whole number with hard edges and only smooth the last bit to the frame – no more uneven rows
-  of pixels at odd sizes. Settings › Appearance › "Whole pixels only" snaps to exact multiples instead, when that costs
-  at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every layout and
-  size.
-- **The linked groups along the bottom dock are a tracker table:** the players as rows (names in a fixed column on
-  the left), every group of the run as a column in the game's order – alive, waiting, dead or failed at a glance, each
-  player's Pokémon in the player's colour, a link line through the column, the group of the place you are at (or the
-  latest encounter) marked and scrolled into view; it scrolls sideways (wheel, arrows, keyboard, controller). The right dock keeps the pair / group
-  view as it was. "This computer runs the game at only …" is now a small chip in the dock (details on a click) instead
-  of a card under the game, and four players' names no longer squeeze the live status line.
+  the pointer is on it), never takes the keyboard, and “Show” opens the dock at that place.
+- **Every partner's game at once, in windows you can move.** In a run with three or four players each partner's game
+  is a tile in the dock, live (two players: the one partner). Any tile opens in a window of its own: drag it by its
+  header, resize it from the corner (the picture keeps its shape), it snaps lightly to the edges and to the other
+  windows, never leaves the play area and never covers the game bar; “Back to the panel” docks it again. Which partner
+  is in a window, where and how big is remembered per run on this computer. Each partner sends video over a direct
+  link (several videos at once work) or small stills over the relay; with three watchers the video bitrate per watcher
+  goes down so the upload stays about the same. Tiles and windows never take the keyboard or the controller from the
+  game. On the folded strip partners whose names start alike get two letters (“Mi”, “Ma”).
+- **The linked groups along the bottom dock are a tracker table:** the players as rows, every group of the run as a
+  column in the game's order – alive, waiting, dead or failed at a glance, each player's Pokémon in the player's
+  colour, a link line through the column, the group of the place you are at (or the latest encounter) marked and
+  scrolled into view. The right dock keeps the pair / group view. “This computer runs the game at only …” is now a
+  small chip in the dock (details on a click), and four players' names no longer squeeze the live status line.
+- **Sharper pixels at any size.** All three players (the fast player, the 3DS player and the browser emulator) blow
+  each game pixel up by a whole number with hard edges and only smooth the last bit to the frame – no more uneven
+  rows of pixels at odd sizes. Settings › Appearance › “Whole pixels only” snaps to exact multiples instead, when that
+  costs at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every
+  layout and size; the 3DS menu's “Smooth picture” still smooths everything.
+- **The Game Boy look.** The fast player now runs Game Boy and Game Boy Color games on SameBoy – the emulator the link
+  sessions use. New in Settings › Emulators › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
+  original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver
+  and Crystal are always in colour. The cartridge clock of Gold, Silver and Crystal carries over.
+
+Good to know:
+- Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Emulators, on by
+  default); a game in the browser emulator joins the link from its last in-game save.
+- Save states made for Game Boy / Game Boy Color games in the fast player before 3.0 (on the old Gambatte emulator)
+  can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the
+  other Game Boy look load once you switch back to it.
+- Gen 2 and Gen 4 trades work, but don't appear in the run's log yet. Gen 5 (Black/White) links come later.
 
 ## 2.7.3
 
