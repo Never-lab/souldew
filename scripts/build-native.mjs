@@ -183,7 +183,7 @@ function buildGb() {
   for (const r of roms) rmSync(join(src, 'libretro', `${r}_boot.c`), { force: true }); // (made from the .bin files above: never an older one)
   const bin = join(src, `build-libretro-${plat}`);
   mkdirSync(bin, { recursive: true });
-  const extra = os === 'darwin' ? [`ARCHFLAGS=-arch ${arch === 'arm64' ? 'arm64' : 'x86_64'} -mmacosx-version-min=11.0`] : os === 'linux' ? ['LDFLAGS=-static-libgcc'] : [];
+  const extra = os === 'darwin' ? [`ARCHFLAGS=-arch ${arch === 'arm64' ? 'arm64' : 'x86_64'} -mmacosx-version-min=11.0`] : os === 'linux' ? ['LDFLAGS=-static-libgcc -lm'] : []; // (a LDFLAGS on make's command line replaces the Makefile's, -lm included)
   const mk = ['-C', join(src, 'libretro'), `platform=${platform}`, `BOOTROMS_DIR=${boot}`, `BIN=${bin}`, `CC=${cc}`, 'GIT_VERSION=" souldew"', ...extra];
   run('make', [...mk, 'clean'], { stdio: 'ignore' }); // (its objects sit next to the sources: none of another platform's)
   run('make', [...mk, `-j${jobs}`]);
