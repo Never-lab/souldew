@@ -101,5 +101,21 @@ DS adds nothing over GBA link sessions.
     internet.
 - **Upstream melonDS LAN** (ENet, UDP 7063/7064, local network only) and **Netplay** (unfinished, many TODOs): the
   same real-time limits.
-- **Online (GTS, Wi-Fi Club) through a Nintendo WFC replacement**: see the research notes in the spike report. It
-  is not a substitute for partner-to-partner trades in a SoulLink.
+- **Online (GTS, Wi-Fi Club) through a Nintendo WFC replacement.** Researched 2026-11-15 from secondary sources:
+  wiimmfi.de refuses automated fetches, so Wiimmfi's own rules are unverified.
+  - **Kaeru WFC** (DNS `178.62.43.212`, [kaeru.world](https://kaeru.world/projects/wfc)) proxies Wiimmfi
+    authentication. It needs no ROM patch, because it exploits the DS's "nds-constraint" SSL bug.
+  - **Poké Classic Network** ([pkmnclassic.net](https://pkmnclassic.net/)) serves the Gen 4/5 GTS, Battle Videos and
+    Battle Tower/Subway. Wi-Fi Club trades and battles run through Wiimmfi.
+  - **Not working:** Game Sync / Dream World / Global Link, ranked battles, and BW Random Matchup
+    ([Poképédia](https://www.pokepedia.fr/Wiimmfi)).
+  - **Self-hosting is not an option.** PKCN's server code is "all rights reserved", for private use only. The
+    open-source [dwc_network_server_emulator](https://github.com/barronwaffles/dwc_network_server_emulator) (AGPL-3.0,
+    Python 2.7) is dormant.
+  - **Emulator use** reportedly works (melonDS has a built-in access point). The services' emulator and bundling
+    rules are unverified: ask Wiimmfi and Kaeru before shipping a default DNS.
+  - **Every user would share melonDS's default MAC** unless souldew randomises it per install. Bans are per
+    identifier.
+  - **The core needs network mode.** souldew's retrohost sets `melonds_network_mode=disabled`. An opt-in would turn
+    on indirect (libslirp) mode for that session only.
+  - It is not a substitute for partner-to-partner trades in a SoulLink: it is a different feature (the GTS, strangers).
