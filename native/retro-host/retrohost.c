@@ -18,6 +18,8 @@
 //                    8 RAM    u32 count, count × { u32 addr, u32 len, bytes }  what changed in the --ram regions since
 //                             the last RAM message (all of it after RESYNC), between two frames – never torn
 //                    9 SRAM   the battery save, whole – when the game saved (and it settled), and on FLUSH / QUIT
+//                   16 WATCHED u32 frame, the WATCH ranges' bytes one after another (0 outside the --ram regions) –
+//                             right before each VIDEO, so the page knows them for exactly that picture
 //   souldew → host   1 INPUT  u32 joypad bits (RETRO_DEVICE_ID_JOYPAD_*), s16 lx, ly, rx, ry, s16 px, py (pointer,
 //                             -0x7fff…0x7fff over the whole picture), u8 pressed
 //                    2 SPEED  f32 (1 = normal, 0 = paused, ≥ 100 = as fast as possible)
@@ -27,6 +29,8 @@
 //                   11 SRAM   bytes: this battery save instead, then a restart (the save souldew had, given late)
 //                   12 RESYNC –  (send all of the RAM next time)
 //                   13 STEP   u32 n: run exactly n frames, then pause (tests: a plan's input lands on its frame)
+//                   14 WATCH  u32 count (≤ 16), count × { u32 addr, u32 len } (≤ 512 bytes in all; count 0: off) – a
+//                             few bytes the page needs with every picture (souldew's Shared World overlay: the camera)
 // Events: 'stats' { fps, speed, frame }, 'stepped' { frame } after STEP, 'saved' { size } with each SRAM message.
 // Builds on macOS, Linux and Windows (../ctr-host/compat.h); scripts/build-native.mjs builds it.
 #include "libretro.h"
@@ -290,8 +294,10 @@ static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch
   frame_w = (int)w, frame_h = (int)h, frame_fmt = bpp == 4 ? 0 : 2, frame_new = 1;
 }
 
+static void send_watched(void);
 static void send_frame(void) {
   if (!frame_new) return;
+  send_watched();
   frame_new = 0;
   frames_shown++;
   uint16_t ww = (uint16_t)frame_w, hh = (uint16_t)frame_h;
@@ -458,6 +464,30 @@ static int ram_write(uint32_t addr, const uint8_t *b, uint32_t len) {
     return 1;
   }
   return 0;
+}
+
+// ---- watched bytes: a few addresses the page wants with every picture (WATCH / WATCHED) ---------------------------
+#define MAX_WATCH 16
+#define MAX_WATCH_BYTES 512
+static struct watch_range { uint32_t addr, len; } watch[MAX_WATCH], watch_next[MAX_WATCH];
+static int watch_n, watch_next_n = -1; // watch_next_n: a new list from the reader (-1: none)
+static uint8_t watch_buf[4 + MAX_WATCH_BYTES];
+static void send_watched(void) {
+  if (!watch_n) return;
+  const uint32_t f = (uint32_t)frame_no;
+  memcpy(watch_buf, &f, 4);
+  uint8_t *p = watch_buf + 4;
+  for (int i = 0; i < watch_n; i++) {
+    const uint8_t *src = NULL;
+    for (int j = 0; j < ram_n && !src; j++) {
+      const struct ram_region *r = &ram[j];
+      if (r->ptr && watch[i].addr >= r->addr && (uint64_t)watch[i].addr + watch[i].len <= (uint64_t)r->addr + r->len) src = r->ptr + (watch[i].addr - r->addr);
+    }
+    if (src) memcpy(p, src, watch[i].len);
+    else memset(p, 0, watch[i].len);
+    p += watch[i].len;
+  }
+  send_msg(16, watch_buf, (uint32_t)(p - watch_buf));
 }
 
 // ---- the battery save -------------------------------------------------------------------------------------------
@@ -639,6 +669,22 @@ static void *reader(void *arg) {
         memcpy(&n, p, 4);
         step_left = n > 100000 ? 100000 : n;
         speed = step_left ? 1000.0f : 0.0f; // as fast as it goes, then paused
+      }
+      break;
+    case 14:
+      if (h[1] >= 4) {
+        uint32_t n, total = 0;
+        memcpy(&n, p, 4);
+        if (n <= MAX_WATCH && h[1] >= 4 + 8 * n) {
+          int ok = 1;
+          for (uint32_t i = 0; i < n; i++) {
+            memcpy(&watch_next[i].addr, p + 4 + 8 * i, 4);
+            memcpy(&watch_next[i].len, p + 8 + 8 * i, 4);
+            if (!watch_next[i].len || watch_next[i].len > MAX_WATCH_BYTES) ok = 0;
+            else total += watch_next[i].len;
+          }
+          if (ok && total <= MAX_WATCH_BYTES) watch_next_n = (int)n;
+        }
       }
       break;
     }
@@ -853,6 +899,11 @@ int main(int argc, char **argv) {
     size_t ll = load_len, sl = sram_len;
     want_save = want_reset = want_flush = want_resync = 0;
     load_data = sram_data = NULL;
+    if (watch_next_n >= 0) {
+      memcpy(watch, watch_next, sizeof watch);
+      watch_n = watch_next_n;
+      watch_next_n = -1;
+    }
     int nw = writes_n;
     writes_n = 0;
     for (int i = 0; i < nw; i++) {

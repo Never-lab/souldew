@@ -192,6 +192,7 @@ export class SyncLink {
     this.clockOffsets = {}; // slot → our clock minus theirs, from their live messages
     this.clockOffset = 0; // the same for whoever spoke last (older callers)
     this.linkListeners = new Set(); // link sessions (web/lib/linksession.mjs): fn(msg) per message
+    this.worldListeners = new Set(); // Shared World (web/lib/sharedworld.mjs): fn(msg, via) per presence message
   }
 
   /** The other slots of the run (all four when the caller didn't say). */
@@ -293,6 +294,7 @@ export class SyncLink {
       this.trysteroRoom = null;
       this.ops = null;
       this.linkAct = this.linkBinAct = null;
+      this.worldAct = null;
       this.peers.clear();
       this.peerId = null;
       this._set({ p2p: 'connecting' }); // no direct link to anybody until the room is joined again
@@ -524,6 +526,7 @@ export class SyncLink {
     }
     if (this._dup(msg.mid)) return null; // same chat / screen message over P2P and the relay (or two brokers)
     if (msg.kind === 'msg' && msg.payload?.link) this._linkIn(msg.payload.link, null, 'relay');
+    else if (msg.kind === 'msg' && msg.payload?.world) this._worldIn(msg.payload.world, null, 'relay');
     else if (msg.kind === 'msg') this.onMessage?.(msg);
     else if (typeof msg.kind === 'string' && msg.kind.startsWith('screen-')) this._screenIn(msg);
     return null;
@@ -624,6 +627,51 @@ export class SyncLink {
     }
   }
 
+  // --- Shared World (docs/MULTIPLAYER.md › 9) ---------------------------------------------------------------
+  /** Presence messages of the partners (where they walk in their game): fn(msg, via). Returns the unsubscribe. */
+  onWorld(fn) {
+    this.worldListeners.add(fn);
+    return () => this.worldListeners.delete(fn);
+  }
+
+  /**
+   * A presence message to every other player over the direct link (its own action: never mixed with a link session's
+   * buttons). Returns the slots it reached directly – the caller sends the rest over the relay, much less often
+   * (`relay: true` – a few words through the encrypted relay, see web/lib/sharedworld.mjs SEND).
+   */
+  sendWorld(msg, { relay = false } = {}) {
+    if (this.stopped) return new Set();
+    const m = { ...msg, from: this.slot };
+    const reached = new Set();
+    if (this.worldAct && this.status.p2p === 'connected') {
+      for (const slot of this.others) {
+        for (const target of this._peersOf(slot)) {
+          try {
+            this.worldAct.send(m, { target })?.catch?.(() => {});
+            reached.add(slot);
+          } catch (e) {
+            console.warn('world send failed', e);
+          }
+        }
+      }
+    }
+    if (relay) this.sendMessage({ world: m });
+    return reached;
+  }
+
+  _worldIn(msg, peerId, via = 'p2p') {
+    if (this.stopped || !msg || typeof msg !== 'object' || typeof msg.from !== 'string' || msg.from === this.slot) return;
+    if (!this.others.includes(msg.from)) return;
+    if (peerId) this._peerSlot(peerId, msg.from);
+    for (const fn of this.worldListeners) {
+      try {
+        fn(msg, via);
+      } catch (e) {
+        console.warn('world listener failed', e);
+      }
+    }
+  }
+
   _offset(slot, ms) {
     if (typeof slot !== 'string' || !Number.isFinite(ms)) return;
     this.clockOffsets[slot] = ms;
@@ -668,6 +716,10 @@ export class SyncLink {
           this._linkIn({ ...msg, bin: data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data, data.byteOffset || 0, data.byteLength) }, from.peerId);
         }
       };
+      // Shared World: the partners' positions, 10–15 a second while they walk (web/lib/sharedworld.mjs)
+      const world = room.makeAction('world');
+      this.worldAct = world;
+      world.onMessage = (data, from) => this._worldIn(data, typeof from === 'string' ? from : from?.peerId);
       // One peer per other player – plus possibly the same player in a second window / on a second device. The
       // link counts as connected while any peer that may be a partner is there; ops go to all peers at once.
       room.onPeerJoin = (peerId) => {

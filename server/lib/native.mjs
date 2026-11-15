@@ -22,10 +22,12 @@ const EXE = process.platform === 'win32' ? 'retrohost.exe' : 'retrohost';
 const LINK_EXE = process.platform === 'win32' ? 'linkhost.exe' : 'linkhost';
 const LIB_EXT = process.platform === 'win32' ? 'dll' : process.platform === 'darwin' ? 'dylib' : 'so';
 
-/** Messages of the native host on top of the 3DS host's (MSG); LINPUT, SEATSRAM, SEATSTATE come from the link host only. */
-export const NMSG = { ...MSG, RAM: LINK_MSG.RAM, SRAM: LINK_MSG.SRAM, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE };
+/** Messages of the native host on top of the 3DS host's (MSG); LINPUT, SEATSRAM, SEATSTATE come from the link host only,
+ *  WATCHED from retrohost only (16: the link host's SEATSTATE is 15). */
+export const NMSG = { ...MSG, RAM: LINK_MSG.RAM, SRAM: LINK_MSG.SRAM, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE, WATCHED: 16 };
 /** Commands the page may send it. */
-export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13 };
+// (WATCH: a few RAM bytes with every picture – the Shared World overlay's camera, web/lib/worldoverlay.mjs)
+export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14 };
 
 /** Commands a page may send a link session (native/link-host/linkhost.c): no states, cheats, steps or memory access.
  *  SEATSTATE: the player's own console for the fast player once the session is over (it goes on alone from there). */
@@ -203,6 +205,7 @@ export function checkNativeCommands(body) {
   const limits = {
     [NCMD.INPUT]: [17, 32], [NCMD.SPEED]: [4, 4], [NCMD.SAVE]: [0, 0], [NCMD.LOAD]: [1, 64 * 1024 * 1024], [NCMD.QUIT]: [0, 0],
     [NCMD.RESET]: [0, 0], [NCMD.WRITE]: [5, 4 + 65536], [NCMD.FLUSH]: [0, 0], [NCMD.SRAM]: [1, MAX_SAVE], [NCMD.RESYNC]: [0, 0], [NCMD.STEP]: [4, 4],
+    [NCMD.WATCH]: [4, 4 + 8 * 16],
   };
   for (const m of messages) {
     const l = limits[m.type];

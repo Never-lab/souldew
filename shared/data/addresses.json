@@ -494,7 +494,78 @@
     "partyCountAddr": "pokeruby.sym:613",
     "partyAddr": "pokeruby.sym:614"
    },
-   "verified": "pret symbols branch .sym"
+   "verified": "pret symbols branch .sym",
+   "world": {
+    "family": "rs",
+    "objectEvents": "0x030048A0",
+    "playerAvatar": "0x0202E858",
+    "fieldCamera": "0x03004880",
+    "saveBlock1": "0x02025734",
+    "main": "0x03001770",
+    "paletteFade": "0x0202F388",
+    "lockFieldControls": "0x030006A4",
+    "sprites": "0x02020004",
+    "rom": {
+     "0": {
+      "overworldCb2": "0x080543A4",
+      "graphicsInfo": "0x0836DC58",
+      "spritePalettes": "0x0837377C"
+     },
+     "1": {
+      "overworldCb2": "0x080543C4",
+      "graphicsInfo": "0x0836DC70",
+      "spritePalettes": "0x08373794"
+     },
+     "2": {
+      "overworldCb2": "0x080543C4",
+      "graphicsInfo": "0x0836DC70",
+      "spritePalettes": "0x08373794"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      89
+     ],
+     [
+      "mach",
+      1,
+      90
+     ],
+     [
+      "acro",
+      63,
+      91
+     ],
+     [
+      "surf",
+      2,
+      92
+     ],
+     [
+      "dive",
+      111,
+      112
+     ],
+     [
+      "fieldmove",
+      3,
+      93
+     ],
+     [
+      "fish",
+      137,
+      138
+     ],
+     [
+      "water",
+      191,
+      192
+     ]
+    ],
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeruby.sym, pokeruby_rev1.sym, pokeruby_rev2.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+   }
   },
   {
    "id": "sapphire_us",
@@ -554,7 +625,78 @@
     "partyCountAddr": "pokesapphire.sym:613",
     "partyAddr": "pokesapphire.sym:614"
    },
-   "verified": "pret symbols branch .sym"
+   "verified": "pret symbols branch .sym",
+   "world": {
+    "family": "rs",
+    "objectEvents": "0x030048A0",
+    "playerAvatar": "0x0202E858",
+    "fieldCamera": "0x03004880",
+    "saveBlock1": "0x02025734",
+    "main": "0x03001770",
+    "paletteFade": "0x0202F388",
+    "lockFieldControls": "0x030006A4",
+    "sprites": "0x02020004",
+    "rom": {
+     "0": {
+      "overworldCb2": "0x080543A8",
+      "graphicsInfo": "0x0836DBE8",
+      "spritePalettes": "0x0837370C"
+     },
+     "1": {
+      "overworldCb2": "0x080543C8",
+      "graphicsInfo": "0x0836DC00",
+      "spritePalettes": "0x08373724"
+     },
+     "2": {
+      "overworldCb2": "0x080543C8",
+      "graphicsInfo": "0x0836DC00",
+      "spritePalettes": "0x08373724"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      89
+     ],
+     [
+      "mach",
+      1,
+      90
+     ],
+     [
+      "acro",
+      63,
+      91
+     ],
+     [
+      "surf",
+      2,
+      92
+     ],
+     [
+      "dive",
+      111,
+      112
+     ],
+     [
+      "fieldmove",
+      3,
+      93
+     ],
+     [
+      "fish",
+      137,
+      138
+     ],
+     [
+      "water",
+      191,
+      192
+     ]
+    ],
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokesapphire.sym, pokesapphire_rev1.sym, pokesapphire_rev2.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+   }
   },
   {
    "id": "ruby_de",
@@ -613,7 +755,68 @@
     "partyCountAddr": "pokeruby_de.sym:615",
     "partyAddr": "pokeruby_de.sym:616"
    },
-   "verified": "pret symbols branch .sym"
+   "verified": "pret symbols branch .sym",
+   "world": {
+    "family": "rs",
+    "objectEvents": "0x030048B0",
+    "playerAvatar": "0x0202E858",
+    "fieldCamera": "0x03004890",
+    "saveBlock1": "0x02025734",
+    "main": "0x03001770",
+    "paletteFade": "0x0202F388",
+    "lockFieldControls": "0x030006A4",
+    "sprites": "0x02020004",
+    "rom": {
+     "0": {
+      "overworldCb2": "0x080546E4",
+      "graphicsInfo": "0x08379440",
+      "spritePalettes": "0x0837EF64"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      89
+     ],
+     [
+      "mach",
+      1,
+      90
+     ],
+     [
+      "acro",
+      63,
+      91
+     ],
+     [
+      "surf",
+      2,
+      92
+     ],
+     [
+      "dive",
+      111,
+      112
+     ],
+     [
+      "fieldmove",
+      3,
+      93
+     ],
+     [
+      "fish",
+      137,
+      138
+     ],
+     [
+      "water",
+      191,
+      192
+     ]
+    ],
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeruby_de.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+   }
   },
   {
    "id": "sapphire_de",
@@ -730,7 +933,68 @@
     "partyCountAddr": "pokeemerald.sym:200",
     "partyAddr": "pokeemerald.sym:202"
    },
-   "verified": "pret symbols branch .sym"
+   "verified": "pret symbols branch .sym",
+   "world": {
+    "family": "e",
+    "objectEvents": "0x02037350",
+    "playerAvatar": "0x02037590",
+    "fieldCamera": "0x03005DD0",
+    "saveBlock1Ptr": "0x03005D8C",
+    "main": "0x030022C0",
+    "paletteFade": "0x02037FD4",
+    "lockFieldControls": "0x03000F2C",
+    "sprites": "0x02020630",
+    "rom": {
+     "0": {
+      "overworldCb2": "0x08085E5C",
+      "graphicsInfo": "0x08505620",
+      "spritePalettes": "0x0850BBC8"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      89
+     ],
+     [
+      "mach",
+      1,
+      90
+     ],
+     [
+      "acro",
+      63,
+      91
+     ],
+     [
+      "surf",
+      2,
+      92
+     ],
+     [
+      "dive",
+      111,
+      112
+     ],
+     [
+      "fieldmove",
+      3,
+      93
+     ],
+     [
+      "fish",
+      137,
+      138
+     ],
+     [
+      "water",
+      191,
+      192
+     ]
+    ],
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeemerald.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+   }
   },
   {
    "id": "firered_us",
@@ -789,7 +1053,63 @@
     "partyCountAddr": "pokefirered.sym:158",
     "partyAddr": "pokefirered.sym:161"
    },
-   "verified": "pret symbols branch .sym"
+   "verified": "pret symbols branch .sym",
+   "world": {
+    "family": "frlg",
+    "objectEvents": "0x02036E38",
+    "playerAvatar": "0x02037078",
+    "fieldCamera": "0x03005050",
+    "saveBlock1Ptr": "0x03005008",
+    "main": "0x030030F0",
+    "paletteFade": "0x02037AB8",
+    "lockFieldControls": "0x03000F9C",
+    "sprites": "0x0202063C",
+    "rom": {
+     "0": {
+      "overworldCb2": "0x080565B4",
+      "graphicsInfo": "0x0839FDB0",
+      "spritePalettes": "0x083A5158"
+     },
+     "1": {
+      "overworldCb2": "0x080565C8",
+      "graphicsInfo": "0x0839FE20",
+      "spritePalettes": "0x083A51C8"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      7
+     ],
+     [
+      "bike",
+      1,
+      8
+     ],
+     [
+      "surf",
+      2,
+      9
+     ],
+     [
+      "fieldmove",
+      3,
+      10
+     ],
+     [
+      "fish",
+      4,
+      11
+     ],
+     [
+      "vsseeker",
+      5,
+      12
+     ]
+    ],
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokefirered.sym, pokefirered_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+   }
   },
   {
    "id": "firered_eu",
@@ -915,7 +1235,63 @@
     "partyCountAddr": "pokeleafgreen.sym:158",
     "partyAddr": "pokeleafgreen.sym:161"
    },
-   "verified": "pret symbols branch .sym"
+   "verified": "pret symbols branch .sym",
+   "world": {
+    "family": "frlg",
+    "objectEvents": "0x02036E38",
+    "playerAvatar": "0x02037078",
+    "fieldCamera": "0x03005050",
+    "saveBlock1Ptr": "0x03005008",
+    "main": "0x030030F0",
+    "paletteFade": "0x02037AB8",
+    "lockFieldControls": "0x03000F9C",
+    "sprites": "0x0202063C",
+    "rom": {
+     "0": {
+      "overworldCb2": "0x080565B4",
+      "graphicsInfo": "0x0839FD90",
+      "spritePalettes": "0x083A5138"
+     },
+     "1": {
+      "overworldCb2": "0x080565C8",
+      "graphicsInfo": "0x0839FE00",
+      "spritePalettes": "0x083A51A8"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      7
+     ],
+     [
+      "bike",
+      1,
+      8
+     ],
+     [
+      "surf",
+      2,
+      9
+     ],
+     [
+      "fieldmove",
+      3,
+      10
+     ],
+     [
+      "fish",
+      4,
+      11
+     ],
+     [
+      "vsseeker",
+      5,
+      12
+     ]
+    ],
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes (ROM, per revision: pokeleafgreen.sym, pokeleafgreen_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id)"
+   }
   },
   {
    "id": "leafgreen_eu",

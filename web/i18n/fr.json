@@ -2653,5 +2653,15 @@
   "hof.tag": "Hall of Fame",
   "hof.text": "Montre votre équipe gagnante dans #hall-of-fame sur le Discord de souldew – visible par tous. Rien n’est publié tant que tu n’appuies pas sur le bouton.",
   "hof.title": "Hall of Fame",
-  "live.explain2": "Partage les grands moments – une mort, un wipe – sous forme de carte avec vos équipes dans #live-runs sur le Discord de souldew, et un run gagné avec votre équipe finale dans #hall-of-fame. Rien n’est publié tant que tu n’appuies pas sur le bouton."
+  "live.explain2": "Partage les grands moments – une mort, un wipe – sous forme de carte avec vos équipes dans #live-runs sur le Discord de souldew, et un run gagné avec votre équipe finale dans #hall-of-fame. Rien n’est publié tant que tu n’appuies pas sur le bouton.",
+  "world.trade": "Échanger",
+  "world.battle": "Combattre",
+  "world.wave": "Saluer",
+  "world.tagHint": "Échanger, combattre ou saluer",
+  "world.menuKeys": "A choisir · B retour",
+  "world.toggle": "Voir mes partenaires dans mon jeu",
+  "world.toggleHint": "Tes partenaires se promènent dans ton jeu quand vous êtes sur la même carte. Approche-toi et appuie sur A pour échanger, combattre ou saluer.",
+  "world.nearby": "{n} ici",
+  "world.linkBusy": "Un link est déjà en cours.",
+  "world.linkOff": "Les échanges et les combats sont désactivés dans les règles de ce run."
 }

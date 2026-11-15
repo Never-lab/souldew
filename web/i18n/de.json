@@ -2653,5 +2653,15 @@
   "hof.tag": "Hall of Fame",
   "hof.text": "Zeig euer Siegerteam in #hall-of-fame im souldew-Discord – für alle sichtbar. Es wird erst gepostet, wenn du den Knopf drückst.",
   "hof.title": "Hall of Fame",
-  "live.explain2": "Teile große Momente – einen Tod, einen Wipe – als Karte mit euren Teams in #live-runs im souldew-Discord, und einen gewonnenen Run mit eurem finalen Team in #hall-of-fame. Es wird nur gepostet, wenn du den Knopf drückst."
+  "live.explain2": "Teile große Momente – einen Tod, einen Wipe – als Karte mit euren Teams in #live-runs im souldew-Discord, und einen gewonnenen Run mit eurem finalen Team in #hall-of-fame. Es wird nur gepostet, wenn du den Knopf drückst.",
+  "world.trade": "Tauschen",
+  "world.battle": "Kämpfen",
+  "world.wave": "Winken",
+  "world.tagHint": "Tauschen, kämpfen oder winken",
+  "world.menuKeys": "A wählen · B zurück",
+  "world.toggle": "Partner in meinem Spiel zeigen",
+  "world.toggleHint": "Deine Partner laufen in deinem Spiel herum, wenn ihr auf derselben Karte seid. Geh zu ihnen und drück A, um zu tauschen, zu kämpfen oder zu winken.",
+  "world.nearby": "{n} hier",
+  "world.linkBusy": "Es läuft schon ein Link.",
+  "world.linkOff": "Tauschen und Kämpfe sind in den Regeln dieses Runs aus."
 }
