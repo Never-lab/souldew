@@ -289,11 +289,19 @@ function buildSameBoy(flags) {
   return { objects, cflags: ['-I', src, '-DGB_DISABLE_REWIND', '-DGB_DISABLE_DEBUGGER', '-DGB_DISABLE_CHEATS', '-DGB_DISABLE_CHEAT_SEARCH'] };
 }
 
+/**
+ * native/common: what both hosts share – IPC (hostio), the RAM stream for live tracking (ramstream), the fast-forward
+ * sound (ffaudio) and the frame loop's rhythm (cadence). Plain C, its OS calls from native/ctr-host/compat.h.
+ */
+const COMMON = ['hostio.c', 'ramstream.c', 'ffaudio.c', 'cadence.c'].map((f) => join(root, 'native', 'common', f));
+// (compat.h's Windows crash-report helpers are unused by the common files: no warnings for them)
+const COMMON_FLAGS = ['-Wno-unused-function'];
+
 function buildHost() {
   const exe = join(out, HOST);
   const libs = os === 'linux' ? ['-ldl', '-lpthread', '-lm'] : win ? ['-static', '-lm'] : [];
   const flags = os === 'darwin' ? [`-arch`, arch === 'arm64' ? 'arm64' : 'x86_64', '-mmacosx-version-min=11.0'] : [];
-  run(cc, ['-O2', '-Wall', ...flags, '-I', join(root, 'native', 'ctr-host'), '-o', exe, join(root, 'native', 'retro-host', 'retrohost.c'), ...libs]);
+  run(cc, ['-O2', '-Wall', ...COMMON_FLAGS, ...flags, '-I', join(root, 'native', 'ctr-host'), '-o', exe, join(root, 'native', 'retro-host', 'retrohost.c'), ...COMMON, ...libs]);
   if (!win) chmodSync(exe, 0o755);
 }
 
