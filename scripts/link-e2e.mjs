@@ -127,7 +127,7 @@ async function main() {
         const p = await pos(i);
         const d = target - p[axis];
         if (!d) return p;
-        await hold(i, [axis === 'x' ? (d > 0 ? 'right' : 'left') : d > 0 ? 'down' : 'up'], 280);
+        await hold(i, [axis === 'x' ? (d > 0 ? 'right' : 'left') : d > 0 ? 'down' : 'up'], 210); // (one tile: a longer hold walks on)
         await sleep(150);
       }
       return pos(i);
@@ -155,15 +155,23 @@ async function main() {
     await shot('08-trade-center');
     await go(0, 'y', 6); await go(0, 'x', 4); await go(0, 'y', 5);
     await go(1, 'y', 6); await go(1, 'x', 7); await go(1, 'y', 5);
-    await sleep(35000); // "Communication standby…", then the trade screen
+    // gMain.callback2 (Emerald US): the trade menu is CB2_TradeMenu (0x0807825C, a Thumb function)
+    const cb2 = async (i) => { const b = await emu(i, 'Array.from(e.read(0x030022c4, 4) || [])'); return b && b.length === 4 ? ((b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24) >>> 0) : 0; };
+    const inMenu = async () => (await cb2(0)) === 0x0807825d && (await cb2(1)) === 0x0807825d;
+    await until('the trade menu', inMenu, 240000);
+    await sleep(1500);
     await shot('09-trade-screen');
-    for (const i of [0, 1]) { await press(i, 'right', 500); await press(i, 'a', 900); await press(i, 'down', 500); await press(i, 'a', 4000); }
+    for (const i of [0, 1]) { await press(i, 'right', 500); await press(i, 'a', 900); await press(i, 'down', 500); await press(i, 'a', 3000); }
     await shot('10-confirm');
     for (const i of [0, 1]) await press(i, 'a', 300);
-    await sleep(40000); // the trade animation, then the game saves
-    // back on the trade screen: cancel and leave the table (B on both until the cancel prompt, then yes)
-    for (const i of [0, 1]) { await press(i, 'up', 400); await press(i, 'a', 1200); await press(i, 'a', 1500); }
+    await sleep(10000);
+    await shot('11-trading');
+    await until('the trade (animation, save) done', inMenu, 240000);
+    await sleep(1500);
     await shot('11-traded');
+    // cancel on both: up to CANCEL, A, yes
+    for (const i of [0, 1]) { await press(i, 'up', 400); await press(i, 'a', 1200); await press(i, 'a', 1500); }
+    await sleep(5000);
     const stats = [JSON.parse(await ev(0, 'JSON.stringify(window.__slLink.sessions.stats)')), JSON.parse(await ev(1, 'JSON.stringify(window.__slLink.sessions.stats)'))];
     log('stats', JSON.stringify(stats));
     // leave: both hosts stop, the last battery saves are in the run
@@ -174,7 +182,16 @@ async function main() {
     saves.forEach((b, i) => writeFileSync(join(out, `after-${profiles[i].id}.sav`), Buffer.from(b)));
     const ended = [await ev(0, 'window.__slLink.sessions.state.phase'), await ev(1, 'JSON.stringify(window.__slLink.sessions.state.ended)')];
     log('ended', JSON.stringify(ended));
-    writeFileSync(join(out, 'result.json'), JSON.stringify({ runId, stats, ended }, null, 2));
+    // the run's log on both computers: the trade entry (web/lib/run.mjs logLinkTrade)
+    await sleep(3000);
+    const trades = [];
+    for (const pr of profiles) {
+      const doc = await api(pr, `/api/runs/${runId}/doc`).catch(() => null);
+      const entries = doc?.entries || doc || {};
+      for (const [k, v] of Object.entries(entries)) if (k.startsWith('feed:') && JSON.stringify(v).includes('"trade"')) trades.push({ on: pr.id, entry: v.v ?? v });
+    }
+    log('trade log entries', JSON.stringify(trades).slice(0, 600));
+    writeFileSync(join(out, 'result.json'), JSON.stringify({ runId, stats, ended, trades }, null, 2));
     finish(0);
   } catch (e) {
     console.error(e);

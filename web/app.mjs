@@ -558,7 +558,7 @@ function App() {
       sync: link, runId: manifest.id, me,
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
       openSession: (st) => {
-        lp.partyBefore = getLive(doc, me)?.party || null; // (for the trade's log entry when the link ends)
+        lp.partyBefore = null; // the team as the link session first reads it (the trade's log entry when it ends)
         const out = manifest.outputs?.[me];
         if (!out) return;
         startSession({
@@ -625,6 +625,14 @@ function App() {
       removeEventListener('pageshow', show);
     };
   }, []);
+
+  // A link session's team before anything happened in it: the first live read once the game is running (its log entry)
+  useEffect(() => {
+    const lp = linkPlayRef.current;
+    if (!lp || linkPlay?.phase !== 'running' || lp.partyBefore || !runDoc) return;
+    const party = getLive(runDoc, me)?.party;
+    if (party?.length) lp.partyBefore = party;
+  }, [docVersion, linkPlay?.phase]);
 
   // ---- native menu ----------------------------------------------------------------
   useEffect(() => {
