@@ -136,6 +136,12 @@ async function main() {
       return w;
     });
     const ev = (i, js) => wins[i].webContents.executeJavaScript(js, true);
+    // which player each computer is (an imported run otherwise guesses "p2" – fine for two players, not for four)
+    for (const i of all) {
+      await new Promise((r) => (wins[i].webContents.isLoading() ? wins[i].webContents.once('did-finish-load', r) : r()));
+      await ev(i, `localStorage.setItem(${JSON.stringify(`sl-me-${runId}`)}, ${JSON.stringify(JSON.stringify(SLOTS[i]))}); location.reload(); true`);
+    }
+    await sleep(1500);
     const shot = async (name) => {
       for (let i = 0; i < N; i++) writeFileSync(join(out, `${name}-${profiles[i].id}.png`), (await wins[i].webContents.capturePage()).toPNG());
     };

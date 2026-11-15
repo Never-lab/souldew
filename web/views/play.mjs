@@ -1057,7 +1057,8 @@ export function GameSession({ session, mode }) {
   // runs clearly below full speed for ~10 s, the play view says so and what helps (lib/slowdown.mjs, issue #4: Platinum
   // at half speed with crackling sound on a player's PC – the core itself was too slow there, ~30 ms per frame).
   useEffect(() => {
-    if (phase !== 'running') return undefined;
+    // (a link session's pace is the slowest partner's and stands still while one is missing – not this computer's)
+    if (phase !== 'running' || target.link) return undefined;
     let last = null;
     let skipSlow = 0;
     let skipped = false;

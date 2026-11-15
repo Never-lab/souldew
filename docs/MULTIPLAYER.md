@@ -28,13 +28,13 @@ Status on 15 November 2026 (branch `feat/multiplayer`, after merging the GB/GBC 
 
 **The app, end to end** (`scripts/link-e2e.mjs`: two to four souldew servers with scratch data folders, one run created on the first and joined on the others, every page in Electron, muted). The real flow runs: the board's invite, join, every seat's game found by SHA-1 (or picked), saves over the run's peer channel, `go`, both play views on the link session, buttons over the mesh, hashes, write-back, log. Only the buttons come from a recording of the same trade or battle (each host plays its own seat's column, `SLS_LINK_TEST_SCRIPT`, test-only), so the outcome is known: **every check below compares each player's run save after the session with the save the recording produced, byte for byte.**
 
-| Gen | Game(s) | Trade | Battle | Notes |
+| Gen | Game(s) | Trade | Battle | Notes (all with sound reaching the page) |
 |---|---|---|---|---|
 | 1 | Red ↔ Red (SameBoy) | ✅ saves as recorded, logged | ✅ Colosseum, saves as recorded | a gap healed by NEED/resend in the trade run |
-| 2 | Crystal ↔ Silver (SameBoy) | ✅ in step (699 hashes) | ✅ (same session) | different games in one run: each picked the other's copy by SHA-1; the save check needs the end-of-recording stop (`UNTIL`), re-run below |
+| 2 | Crystal ↔ Silver (SameBoy) | ✅ saves as recorded | ✅ Colosseum in the same session, saves as recorded | different games in one run: each picked the other's copy by SHA-1; this run found that a battle in a "trade" session counted deaths and failed the run – fixed: nothing a link session shows is applied to the run |
 | 3 | Emerald ↔ Sapphire (mGBA) | ✅ saves as recorded, logged | ✅ Colosseum single battle (Emerald wins; the battle record is in both saves) | different games: "Pick your copy" (a wrong file refused by SHA-1) |
 | 3 | 4 players, Multi Battle | | see below | |
-| 4 | Platinum ↔ Platinum (melonDS) | ✅ Union Room trade, saves as recorded | see below | sign: "Union Room" |
+| 4 | Platinum ↔ Platinum (melonDS) | ✅ Union Room trade, saves as recorded | ✅ Union Room 2-vs-2 battle, saves as recorded | sign: "Union Room" |
 | 4 | 4 players, Union Room | see below | | |
 
 | Robustness | Result |

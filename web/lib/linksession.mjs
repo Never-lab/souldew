@@ -324,7 +324,7 @@ export class LinkSessions {
     if (m.t === 'hash' && st.phase === 'running') return this._hash(m.from, m.f, m.h);
     if (m.t === 'rejoin' && st.phase === 'running') return this._donate(m.from);
     if (m.t === 'state' && st.phase === 'rejoining') return this._stateIn(m);
-    if (m.t === 'state-busy' && st.phase === 'rejoining') return this._end('linkRejoinBusy', true);
+    if (m.t === 'state-busy' && st.phase === 'rejoining') return this._fail('linkRejoinBusy'); // (the others stop waiting too)
   }
 
   /** Inviter: once every seat's save is here and every player has every game, measure the round trip and say go. */
@@ -383,7 +383,7 @@ export class LinkSessions {
     this._set({ phase: 'rejoining', stateBox: {}, ended: null });
     this._send({ t: 'rejoin' }, { relayToo: true });
     clearTimeout(this.rejoinTimer);
-    this.rejoinTimer = setTimeout(() => this.state.phase === 'rejoining' && !this.state.stateBox?.got && this._end('linkRejoinGone', true), 15000);
+    this.rejoinTimer = setTimeout(() => this.state.phase === 'rejoining' && !this.state.stateBox?.got && this._fail('linkRejoinGone'), 15000);
     this.rejoinTimer?.unref?.();
   }
 
