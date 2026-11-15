@@ -846,6 +846,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         turboMax: config.turboMax === true,
         fullTurbo: config.fullTurbo !== false,
         nativeCore: config.nativeCore !== false,
+        ctrScale: [1, 2, 3, 4].includes(config.ctrScale) ? config.ctrScale : 1,
+        ctrSmooth: config.ctrSmooth === true,
         pads: config.pads || null,
         gpuBackend: validBackend(config.gpuBackend, process.platform),
         gpuFallback: fallbackNotice(config.gpuFallback),
@@ -861,7 +863,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'ctrScale', 'ctrSmooth', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav']) {
       if (k in body) allowed[k] = body[k];
     }
     // the joke license window (web/lib/nag.mjs): launch count + when it last showed, and its off switch
@@ -882,6 +884,11 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if ('turboMax' in allowed) allowed.turboMax = allowed.turboMax === true;
     if ('fullTurbo' in allowed) allowed.fullTurbo = allowed.fullTurbo !== false; // on unless switched off
     if ('nativeCore' in allowed) allowed.nativeCore = allowed.nativeCore !== false; // the fast player: on unless switched off
+    if ('ctrScale' in allowed) {
+      // built-in 3DS internal resolution (native/ctr-host --scale → citra_resolution_factor); applies on next host start
+      if (![1, 2, 3, 4].includes(allowed.ctrScale)) delete allowed.ctrScale;
+    }
+    if ('ctrSmooth' in allowed) allowed.ctrSmooth = allowed.ctrSmooth === true; // WebGL LINEAR upscale; crisp (NEAREST) is default
     if ('padNav' in allowed) allowed.padNav = allowed.padNav !== false; // controller navigation (web/lib/padnav.mjs): on unless switched off
     // the graphics backend electron/main.mjs applies at the next start; the fallback notice can only be dismissed
     if ('gpuBackend' in allowed) {
@@ -1399,7 +1406,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const romPath = romPathFromUrl(rom);
     // an encrypted cartridge dump: Azahar's core plays decrypted games only – say so instead of "couldn't load the game"
     if (ctrEncrypted(romPath)) throw httpError(409, 'Die 3DS-Spieldatei ist verschlüsselt', 'ctrEncrypted');
-    const id = ctr.start({ rom: romPath, key, tools, scale: [1, 2, 3].includes(scale) ? scale : 1 });
+    const id = ctr.start({ rom: romPath, key, tools, scale: [1, 2, 3, 4].includes(scale) ? scale : 1 });
     return { id, liveMemory: tools.souldewCore };
   });
   // the game's own saves changed? (a fingerprint – see saveStamp)

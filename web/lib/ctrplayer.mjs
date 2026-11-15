@@ -95,6 +95,17 @@ let tex = null;
 let swizzleLoc = null;
 let quadBuf = null;
 let layoutId = CTR_LAYOUTS.includes(q.get('layout')) ? q.get('layout') : 'tb';
+let smooth = q.get('smooth') === '1'; // LINEAR filter + CSS auto; default NEAREST / pixelated (crisp)
+function applySmooth(on) {
+  smooth = !!on;
+  canvas.style.imageRendering = smooth ? 'auto' : 'pixelated';
+  if (!gl || !tex) return;
+  const f = smooth ? gl.LINEAR : gl.NEAREST;
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f);
+  drawFrame();
+}
 function initGl() {
   const vs = '#version 300 es\nin vec2 p;in vec2 t;out vec2 uv;void main(){uv=t;gl_Position=vec4(p,0.,1.);}';
   const fs = '#version 300 es\nprecision mediump float;in vec2 uv;uniform sampler2D s;uniform bool bgra;out vec4 o;void main(){vec4 c=texture(s,uv);o=vec4(bgra?c.bgr:c.rgb,1.);}';
@@ -119,12 +130,14 @@ function initGl() {
   gl.vertexAttribPointer(tloc, 2, gl.FLOAT, false, 16, 8);
   tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  const f = smooth ? gl.LINEAR : gl.NEAREST;
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, f);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, f);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   swizzleLoc = gl.getUniformLocation(prog, 'bgra');
   gl.clearColor(0, 0, 0, 1);
+  canvas.style.imageRendering = smooth ? 'auto' : 'pixelated';
 }
 if (gl) initGl();
 
@@ -594,6 +607,7 @@ window.__emu = {
       if (inp.touch) lift();
       drawFrame();
     }
+    if (k === 'ctr_smooth') applySmooth(!!v);
   },
   layout: () => layoutId,
   /** More memory to read (at most 16 regions of 64 KB together with the game's own) – diagnostics and research. */

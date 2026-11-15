@@ -352,6 +352,13 @@ export function SettingsView() {
       <p class="small muted">${t('set.emuText', 'The built-in emulator plays every system up to the Nintendo 3DS and has the best live sync. 3DS games can also run in Azahar (for example when a graphics card can’t run the built-in 3DS player). External emulators are optional otherwise.')}</p>
       ${status?.native?.ok && html`<label class="check"><input type="checkbox" checked=${cfg.nativeCore !== false} onChange=${(e) => save({ nativeCore: e.target.checked })} /><span>${t('set.native', 'Fast player for DS, GBA and Game Boy')}
         <span class="hint">${t('set.nativeHint', 'Runs the game with the real emulators (melonDS, mGBA, Gambatte) directly on your computer: full speed even on weaker PCs, and fast-forward that really reaches 4× and more. Live sync, cheats, save states and the in-game save work as before. Save states from the other player can’t be loaded here (and the other way round). Off: the browser emulator as before. Applies to the next game you start.')}</span></span></label>`}
+      ${status?.ctr?.ok && html`<label class="field"><span>${t('set.ctrScale', 'Built-in 3DS: internal resolution')}</span>
+        <select value=${[1, 2, 3, 4].includes(cfg.ctrScale) ? cfg.ctrScale : 1} onChange=${(e) => save({ ctrScale: Number(e.target.value) })}>
+          ${[1, 2, 3, 4].map((n) => html`<option value=${n}>${n}×</option>`)}
+        </select>
+        <span class="hint">${t('set.ctrScaleHint', 'Renders 3D sharper (2D UI stays native 3DS size). Higher values need more GPU power. Applies the next time you start a 3DS game in the built-in player.')}</span></label>
+        <label class="check"><input type="checkbox" checked=${cfg.ctrSmooth === true} onChange=${(e) => save({ ctrSmooth: e.target.checked })} /><span>${t('set.ctrSmooth', 'Built-in 3DS: smooth scaling')}
+          <span class="hint">${t('set.ctrSmoothHint', 'Softer upscale instead of crisp pixels. Text and UI can look blurry. Off by default. While a 3DS game runs you can also toggle it from the game bar.')}</span></span></label>`}
       <table class="data"><thead><tr><th>${t('set.system', 'System')}</th><th>${t('set.useEmu', 'Play with')}</th></tr></thead><tbody>
         ${SYSTEMS.map(([sys, label]) => html`<tr><td>${label}</td><td>
           <select value=${externalOnly(sys, status) ? Object.keys(status?.emulators || {}).find((id) => status.emulators[id].systems.includes(sys)) : cfg.emulatorFor?.[sys] || 'builtin'}

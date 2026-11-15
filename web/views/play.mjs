@@ -218,7 +218,7 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
  * you open another section: `mode` "full" fills the Play page, "mini" floats in the corner.
  */
 export function GameSession({ session, mode }) {
-  const { manifest, doc, me, applySnap, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData } = useApp();
+  const { manifest, doc, me, applySnap, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, reloadStatus } = useApp();
   const target = session.target;
   // the module slides into the console while the game boots (Settings › animations; never with reduced motion)
   const [inserting, setInserting] = useState(() => mode === 'full' && status?.config?.bootAnimation !== false
@@ -257,6 +257,8 @@ export function GameSession({ session, mode }) {
   // 3DS screens (shared/ctrlayout.mjs): the player page arranges them, switchable while playing
   const [layout3ds, setLayout3dsState] = useState(() => (CTR_LAYOUTS.includes(ls.get('sl-3ds-layout', 'tb')) ? ls.get('sl-3ds-layout', 'tb') : 'tb'));
   const [layoutOpen, setLayoutOpen] = useState(false);
+  // built-in 3DS display: smooth = LINEAR filter (Settings › Emulators); scale is URL-only (host restart)
+  const [ctrSmooth, setCtrSmoothState] = useState(() => status?.config?.ctrSmooth === true);
   const [ctrFail, setCtrFail] = useState(null); // the 3DS player stopped: { message } – offers Azahar instead
   const [fs, setFs] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -347,6 +349,13 @@ export function GameSession({ session, mode }) {
   const snapRef = useRef(applySnap);
   snapRef.current = applySnap;
   const emu = () => frame.current?.contentWindow?.__emu;
+  // Settings › Emulators can flip smooth while the mini player still runs – keep texture filter in sync
+  useEffect(() => {
+    if (target.system !== '3ds') return;
+    const on = status?.config?.ctrSmooth === true;
+    setCtrSmoothState(on);
+    emu()?.setOption?.('ctr_smooth', on);
+  }, [status?.config?.ctrSmooth, target.system]);
   const isRun = target.kind === 'run';
   const solo = isRun && runMode(manifest) === 'nuzlocke';
   // Where you are and whom you fight, for the stream overlays (shared/overlay.mjs "where:<slot>"): written only
@@ -509,6 +518,12 @@ export function GameSession({ session, mode }) {
       setLayout3dsState(id);
       ls.set('sl-3ds-layout', id);
       emu()?.setOption?.('ctr_layout', id);
+    },
+    ctrSmooth: (on) => {
+      const next = !!on;
+      setCtrSmoothState(next);
+      emu()?.setOption?.('ctr_smooth', next);
+      api.post('/api/config', { ctrSmooth: next }).then(() => reloadStatus()).catch(() => {});
     },
     layout: () => {
       if (target.system === '3ds') {
@@ -1167,7 +1182,11 @@ export function GameSession({ session, mode }) {
   const [wasmSrc] = useState(() => {
     // 3DS: souldew's own player page – the game runs in the native host (server/lib/ctr.mjs), its saves live in the
     // host's folder for this game / run slot (target.key)
-    if (target.system === '3ds') return `/player3ds.html?rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&layout=${layout3ds}`;
+    if (target.system === '3ds') {
+      const scale = [1, 2, 3, 4].includes(status?.config?.ctrScale) ? status.config.ctrScale : 1;
+      const smooth = status?.config?.ctrSmooth === true ? '&smooth=1' : '';
+      return `/player3ds.html?rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&layout=${layout3ds}&scale=${scale}${smooth}`;
+    }
     // EmulatorJS names the ROM (and its browser-side save) after the URL's last segment → make it unique per game.
     const romKey = `${hash(new TextEncoder().encode(target.key)).replace(/\D/g, '')}`;
     const romUrl = `/rom/g${romKey}.${target.system}?src=${encodeURIComponent(target.rom)}`;
@@ -1306,6 +1325,9 @@ export function GameSession({ session, mode }) {
                 onClick=${() => { actions.layout3ds(id); setLayoutOpen(false); focusGame(); }}>${ctrLayoutLabel(id)}</button>`)}
               <span class="tiny faint">${layout3ds === 'top' ? t('play.layout3dsNoTouch', 'The touch screen is hidden in this layout – switch back to tap it.') : t('play.layout3dsHint', 'Click the bottom screen to touch it, wherever it is. Switches right away, without restarting the game.')}</span>
             </div>`}
+            <button class=${`btn icon ${ctrSmooth ? 'on' : ''}`} title=${ctrSmooth ? t('play.ctrCrisp', 'Crisp pixels') : t('play.ctrSmooth', 'Smooth scaling')}
+              aria-label=${ctrSmooth ? t('play.ctrCrisp', 'Crisp pixels') : t('play.ctrSmooth', 'Smooth scaling')} aria-pressed=${ctrSmooth}
+              onClick=${() => { actions.ctrSmooth(!ctrSmooth); focusGame(); }}><${Icon} name="star" size=${14} /></button>
           </span>`}
           ${isDs && btn(layout === 'lr' ? 'layoutTb' : 'layoutLr', layout === 'lr' ? t('play.layoutTb', 'Screens on top of each other') : t('play.layoutLr', 'Screens side by side'), actions.layout)}
           ${btn('camera', t('keys.screenshot', 'Screenshot') + ' (F12)', actions.screenshot)}

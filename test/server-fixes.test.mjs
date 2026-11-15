@@ -238,6 +238,16 @@ test('config: theme and controller settings are stored only in a valid shape', a
     assert.deepEqual(c.pads, { preset: 'xbox', device: ps5 }, 'control characters are refused');
     c = await post({ pads: { preset: 'xbox' } });
     assert.deepEqual(c.pads, { preset: 'xbox' }, '"Automatic" forgets the device');
+    // built-in 3DS display (issue #59): internal resolution 1–4, smooth scaling off unless true
+    c = await post({ ctrScale: 3, ctrSmooth: true });
+    assert.equal(c.ctrScale, 3);
+    assert.equal(c.ctrSmooth, true);
+    c = await post({ ctrScale: 5, ctrSmooth: 'yes' });
+    assert.equal(c.ctrScale, 3, 'scale outside 1–4 is ignored');
+    assert.equal(c.ctrSmooth, false, 'only a real true keeps smooth on');
+    c = await post({ ctrScale: 4, ctrSmooth: false });
+    assert.equal(c.ctrScale, 4);
+    assert.equal(c.ctrSmooth, false);
   } finally {
     server.closeAllConnections(); // fetch keeps the connection alive – close() alone would wait for it
     server.close();
