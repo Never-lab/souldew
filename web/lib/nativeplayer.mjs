@@ -596,6 +596,11 @@ window.__emu = {
   frames: () => st.hostFrame,
   fastForward: () => st.speed > 1,
   ffRatio: () => (st.speed > 1 ? st.speed : 3),
+  /** A link session's whole state (every console, the frame) for a partner who rejoins; null when not now. */
+  linkState() {
+    if (st.ended || !LINK_SESSION) return Promise.resolve(null);
+    return ask(waiters.state, CMD.SAVE, undefined, null, (b) => (b && b.length ? b.slice() : null));
+  },
   getState() {
     if (st.ended || LINK_SESSION) return Promise.resolve(null);
     return ask(waiters.state, CMD.SAVE, undefined, null, (b) => (b && b.length ? b : null));

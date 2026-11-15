@@ -11,6 +11,7 @@
 // When the host or a core is missing, the play view uses the built-in browser emulator (player.html) as before.
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { BUNDLED_TOOLS, TOOLS_DIR, DATA_DIR, DEV, APP_ROOT } from './paths.mjs';
 import { httpError } from './fsutil.mjs';
@@ -26,9 +27,9 @@ export const NMSG = { ...MSG, RAM: 8, SRAM: 9, MEMREAD: 11, LINPUT: 12, SEATSRAM
 export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13 };
 
 /** Commands of a link session (native/link-host/linkhost.c): no states, cheats, steps or memory access from a page. */
-export const LCMD = { INPUT: 1, SPEED: 2, QUIT: 6, FLUSH: 10, RESYNC: 12, VIEW: 20, RINPUT: 21, UNTIL: 24 };
-/** Systems the link host plays (its mGBA backend); the DS backend comes later (docs/MULTIPLAYER.md). */
-export const LINK_SYSTEMS = ['gba', 'gb', 'gbc'];
+export const LCMD = { INPUT: 1, SPEED: 2, SAVE: 3, QUIT: 6, FLUSH: 10, RESYNC: 12, VIEW: 20, RINPUT: 21, UNTIL: 24, NEED: 25 };
+/** Systems the link host plays: GB/GBC (SameBoy), GBA (mGBA), DS (melonDS) – docs/MULTIPLAYER.md. */
+export const LINK_SYSTEMS = ['gba', 'gb', 'gbc', 'nds'];
 export const MAX_LINK_SEATS = 4;
 
 const MAX_SAVE = 4 * 1024 * 1024; // the biggest battery save of a DS game is 8 Mbit; GBA / GB far less
@@ -104,7 +105,7 @@ export function linkTool({ dirs = nativeDirs(), exists = existsSync } = {}) {
  * The link host's arguments: every seat's ROM and battery save (paths – the server's own), the local seat, net mode
  * with the input delay, the shared clock start, and the local seat's memory for live tracking.
  */
-export function linkArgs({ system, roms, saves, local, delay, rtc }) {
+export function linkArgs({ system, roms, saves, local, delay, rtc, state = null }) {
   const c = NATIVE_CORES[system];
   if (!c || !LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
   if (!Array.isArray(roms) || roms.length < 2 || roms.length > MAX_LINK_SEATS) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
@@ -112,18 +113,25 @@ export function linkArgs({ system, roms, saves, local, delay, rtc }) {
   const d = Math.max(1, Math.min(60, Math.round(Number(delay) || 4)));
   const args = [];
   roms.forEach((r, i) => args.push('--rom', r, '--sram', saves[i] || '-'));
-  args.push('--local', String(local), '--net', '--delay', String(d), '--rtc', String(Math.round(Number(rtc) || Date.now())));
+  const clock = Number(process.env.SLS_LINK_TEST_RTC) || Math.round(Number(rtc) || Date.now()); // (the env: tests only)
+  args.push('--local', String(local), '--net', '--delay', String(d), '--rtc', String(clock));
   for (const [addr, len] of c.ram) args.push('--ram', `0x${addr.toString(16)}:0x${len.toString(16)}`);
+  if (state) args.push('--load', state);
+  // tests only (scripts/link-e2e.mjs): the local seat's buttons from a recording, a fixed clock – never set by the app
+  if (process.env.SLS_LINK_TEST_SCRIPT) args.push('--script', process.env.SLS_LINK_TEST_SCRIPT);
   return args;
 }
 
-/** Commands a page may send a link session: input, speed, flush, resync, view, a peer's buttons, the end frame. */
+/**
+ * Commands a page may send a link session: input, speed, flush, resync, view, a peer's buttons, the end frame, a
+ * session state (for a partner who rejoins – never LOAD, POKE or READ) and a peer's request for buttons it missed.
+ */
 export function checkLinkCommands(body) {
   const { messages, rest } = splitMessages(body);
   if (rest.length || !messages.length) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
   const limits = {
     [LCMD.INPUT]: [17, 32], [LCMD.SPEED]: [4, 4], [LCMD.QUIT]: [0, 0], [LCMD.FLUSH]: [0, 0], [LCMD.RESYNC]: [0, 0], [LCMD.VIEW]: [4, 4],
-    [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4],
+    [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4], [LCMD.SAVE]: [0, 0], [LCMD.NEED]: [8, 8],
   };
   for (const m of messages) {
     const l = limits[m.type];
@@ -219,7 +227,7 @@ export class NativeSessions extends CtrSessions {
    * seat. Every seat's ROM is a file on this computer (verified by the caller), the partners' saves came over the run's
    * channel. The local seat's battery save goes where the run keeps it (`saveFile`), as in single play.
    */
-  startLink({ host, system, seats, local, delay, rtc, key, saveFile = null }) {
+  startLink({ host, system, seats, local, delay, rtc, key, saveFile = null, state = null }) {
     if (!host) throw httpError(409, 'Der Link-Teil fehlt in dieser Version', 'linkMissing');
     this.stop();
     const dir = join(nativeSaveDir(`link:${key}`), 'link');
@@ -231,11 +239,30 @@ export class NativeSessions extends CtrSessions {
       writeFileSync(f, s.save);
       return f;
     });
-    const id = this.launch(host, linkArgs({ system, roms: seats.map((s) => s.rom), saves, local, delay, rtc }), dir);
+    let stateFile = null;
+    if (state?.length) { // a rejoin: the session as the partners who stayed had it (every console, the frame)
+      stateFile = join(dir, 'session.state');
+      writeFileSync(stateFile, inflateRawSync(state, { maxOutputLength: 256 * 1024 * 1024 }));
+    }
+    const id = this.launch(host, linkArgs({ system, roms: seats.map((s) => s.rom), saves, local, delay, rtc, state: stateFile }), dir);
     this.current.saveFile = saveFile;
     this.current.rom = seats[local].rom;
     this.current.link = { seats: seats.length, local, system };
     return id;
+  }
+
+  /**
+   * After a session fell out of step: its pre-session save (null when there was none) for /api/link/restore. The
+   * session is stopped first – nothing it writes afterwards reaches the run.
+   */
+  linkRestore(id) {
+    const c = this.current?.id === id && this.current.link ? this.current : this.lastLink?.id === id ? this.lastLink : null;
+    if (!c) return null;
+    if (this.current === c) {
+      c.saveFile = null; // (its last battery saves don't go into the run any more)
+      this.stop();
+    }
+    return c;
   }
 
   /** The host gets only what it needs from the environment (no tokens or the like the app was started with). */

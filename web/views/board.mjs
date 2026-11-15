@@ -17,7 +17,7 @@ import { useStreamer } from '../lib/streamer.mjs';
 import { NuzlockeRules, Choice, TypeHelpRule } from './nuzrules.mjs';
 import { ShareButton } from './liveshare.mjs';
 import { deathEvent } from '../lib/liveshare.mjs';
-import { LinkButtons, LINK_SYSTEMS } from './linkplay.mjs';
+import { LinkButtons, LinkGroupButton, LINK_SYSTEMS } from './linkplay.mjs';
 
 
 /** Is `slot` connected right now? Per player once the app tracks it (`onlineSlots`), before that "any partner". */
@@ -94,7 +94,7 @@ function PlayerTag({ slot, right }) {
         : playingHere ? t('board.playingNoTeam', 'playing – no team yet')
           : slot === me ? t('board.startPlaying', 'Start the game to go live')
             : online ? t('board.partnerOnline', 'online – no team yet') : linkStatus ? t('board.notPlaying', 'not playing yet') : t('rail.offline', 'Not connected')}</span>
-      ${slot !== me && html`<${LinkButtons} slot=${slot} />`}
+      ${slot !== me ? html`<${LinkButtons} slot=${slot} />` : html`<${LinkGroupButton} />`}
     </div>
   </div>`;
 }
@@ -887,7 +887,8 @@ export function RulesTab() {
         : t('rules.cheatsHint', 'From the play screen. Every use shows up in the log for both of you.')}</span></span></label>
       ${LINK_SYSTEMS.includes(manifest.game?.system) && html`
         <label class="check"><input type="checkbox" checked=${r.linkTrades !== 'off'} onChange=${(e) => set({ linkTrades: e.target.checked ? 'on' : 'off' })} /><span>${t('rules.linkTrades', 'Trades between us (link)')}<span class="hint">${t('rules.linkTradesHint', 'The real in-game trade in the Pokémon Center – a traded Pokémon keeps its link.')}</span></span></label>
-        <label class="check"><input type="checkbox" checked=${r.linkBattles !== 'off'} onChange=${(e) => set({ linkBattles: e.target.checked ? 'on' : 'off' })} /><span>${t('rules.linkBattles', 'Battles between us (link)')}<span class="hint">${t('rules.linkBattlesHint', 'A link battle in the Colosseum – losses there don’t count for the run.')}</span></span></label>`}
+        <label class="check"><input type="checkbox" checked=${r.linkBattles !== 'off'} onChange=${(e) => set({ linkBattles: e.target.checked ? 'on' : 'off' })} /><span>${t('rules.linkBattles', 'Battles between us (link)')}<span class="hint">${t('rules.linkBattlesHint2', 'A link battle in the Colosseum or the Union Room.')}</span></span></label>
+        ${r.linkBattles !== 'off' && html`<label class="check"><input type="checkbox" checked=${!!r.linkBattleDeaths} onChange=${(e) => set({ linkBattleDeaths: e.target.checked })} /><span>${t('rules.linkBattleDeaths', 'Losing a link battle counts as deaths')}<span class="hint">${t('rules.linkBattleDeathsHint', 'Off: a link battle is just for fun – Pokémon that go down there are fine afterwards.')}</span></span></label>`}`}
     </section>`}
     <section class="panel stack">
       <h2>${t('rules.battleHelp', 'Battle help')}</h2>

@@ -6,8 +6,8 @@
 // bit-identical consoles on every peer. No threads that race the emulation, no wall clock, no uninitialised memory.
 //
 // Backends today: backend_sameboy.c (Game Boy / Game Boy Color serial link, on SameBoy – the first choice for GB/GBC),
-// backend_mgba.c (Game Boy Advance SIO, and GB/GBC as a fallback, on libmgba).
-// Planned: a DS backend (two melonDS instances with a deterministic local-wireless MP layer), 3DS later.
+// backend_mgba.c (Game Boy Advance SIO, and GB/GBC as a fallback, on libmgba), backend_melonds.cpp (Nintendo DS local
+// wireless between N melonDS instances with a deterministic MP layer). 3DS later.
 #ifndef LINKBACKEND_H
 #define LINKBACKEND_H
 
@@ -75,11 +75,24 @@ struct link_backend {
   /** Whole-session save states (every seat and the link between them): rejoin / desync recovery. */
   size_t (*state_size)(int seat);
   bool (*save_state)(int seat, void *out);
-  bool (*load_state)(int seat, const void *in);
+  bool (*load_state)(int seat, const void *in, size_t len);
+  /**
+   * Sound: the output rate (stereo frames per second; 0 = silent) and the seat's sound since the last call – up to
+   * `max` interleaved stereo s16 frames into `out`, returns how many. Every seat makes its sound the same way on every
+   * peer (it must not change what the consoles compute); souldew plays only the local seat's.
+   */
+  double (*sample_rate)(void);
+  size_t (*audio)(int seat, int16_t *out, size_t max);
+  /**
+   * Optional: the battery save as souldew keeps it on disk, when that is more than `sram` (a Game Boy clock cartridge:
+   * the save memory + the 48-byte clock footer). `sram` stays what tells whether the game saved.
+   */
+  size_t (*battery)(int seat, void **out);
 };
 
 extern const struct link_backend link_backend_mgba;
 extern const struct link_backend link_backend_sameboy;
+extern const struct link_backend link_backend_melonds;
 
 /** Shared helpers from linkhost.c */
 void link_log(const char *fmt, ...);

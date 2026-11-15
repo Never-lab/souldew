@@ -542,6 +542,35 @@ export class SyncLink {
   }
 
   /**
+   * How the data channel to `slot` runs: 'direct' (peer to peer, also through a NAT) or 'relayed' (through a TURN
+   * server – still end-to-end encrypted, a little slower), from the connection's selected ICE candidate pair; null when
+   * unknown (no peer, no stats yet).
+   */
+  async linkRoute(slot) {
+    const pcs = this.trysteroRoom?.getPeers?.() || {};
+    for (const peer of this._peersOf(slot)) {
+      const pc = pcs[peer];
+      if (!pc?.getStats) continue;
+      try {
+        const stats = await pc.getStats();
+        const byId = new Map();
+        stats.forEach((r) => byId.set(r.id, r));
+        let pair = null;
+        stats.forEach((r) => {
+          if (r.type === 'transport' && r.selectedCandidatePairId) pair = byId.get(r.selectedCandidatePairId) || pair;
+        });
+        if (!pair) stats.forEach((r) => { if (r.type === 'candidate-pair' && r.state === 'succeeded' && (r.nominated || r.selected)) pair = pair || r; });
+        if (!pair) continue;
+        const types = [byId.get(pair.localCandidateId)?.candidateType, byId.get(pair.remoteCandidateId)?.candidateType];
+        return { route: types.includes('relay') ? 'relayed' : 'direct', rtt: Number.isFinite(pair.currentRoundTripTime) ? Math.round(pair.currentRoundTripTime * 1000) : null };
+      } catch {
+        // a closing connection
+      }
+    }
+    return null;
+  }
+
+  /**
    * A link-session message to `slots` over the direct link (each peer of each slot). `relayToo`: control messages
    * (invite, answer, bye) also go over the relay when there is no direct link; buttons never do (60 a second).
    * Returns true when it went out directly to every slot.
@@ -594,7 +623,12 @@ export class SyncLink {
       if (this.stopped) return;
       this.trysteroMod = mod;
       const { joinRoom } = mod;
-      const room = joinRoom({ appId: APP_ID, password: this.secret }, this.room);
+      // TURN (souldew's bot hands out short-lived credentials, docs/MULTIPLAYER.md › "Transport"): players behind strict
+      // NATs then still get a data channel, relayed – the direct path is tried first. Without an answer in time: STUN only.
+      const ice = this.getIceServers ? await Promise.race([this.getIceServers().catch(() => null), new Promise((r) => setTimeout(() => r(null), 2500))]) : null;
+      if (this.stopped) return;
+      const turnConfig = Array.isArray(ice) && ice.length ? ice : undefined;
+      const room = joinRoom({ appId: APP_ID, password: this.secret, ...(turnConfig ? { turnConfig } : {}) }, this.room);
       this.trysteroRoom = room;
       const action = room.makeAction('ops');
       this.ops = action;

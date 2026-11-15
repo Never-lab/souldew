@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { WEB_DIR, SHARED_DIR, CACHE_DIR, DATA_DIR, CONFIG_PATH, NODE_MODULES, DEV, LIBRARY_DIR } from './lib/paths.mjs';
 import { writeFileAtomic, httpError, safeFileName, safeJoin, realInside } from './lib/fsutil.mjs';
 import { detectJava, uprStatus, installUpr, runBridge } from './lib/toolchain.mjs';
-import { preparePatchedRom, KNOWN_PATCHES, fileSha1 } from './lib/roms.mjs';
+import { preparePatchedRom, KNOWN_PATCHES } from './lib/roms.mjs';
 import { ROM_EXTENSIONS, PATCH_EXTENSIONS, isCtrExt } from '../shared/romid.mjs';
 import { ALL_SLOTS, slotsOf, runMode } from '../shared/slots.mjs';
 import { scanLibrary, catalog, loadFile, importFiles, uploadTarget, resolveId, discoverRoms, approvedFolder, placeUploadedZip, unpackLibraryZip, MAX_CTR_BYTES, setRomHack } from './lib/library.mjs';
@@ -23,6 +23,9 @@ import { LiveBridge } from './lib/livebridge.mjs';
 import { AzaharBridge, enableRpc } from './lib/azahar.mjs';
 import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted } from './lib/ctr.mjs';
 import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, LINK_SYSTEMS, MAX_LINK_SEATS } from './lib/native.mjs';
+import { ownSeat, resolveSeat, pickSeat, extractTarget, partnerBuildRequest } from './lib/linkroms.mjs';
+import { linkIceServers } from './lib/linkice.mjs';
+import { needsIdenticalRom, baseRomsFor } from '../shared/restart.mjs';
 import { moveToGraveyard, parseHgssSave } from '../shared/gen4save.mjs';
 import { listPresets, savePreset, deletePreset } from './lib/presets.mjs';
 import { pageHeaders } from './lib/csp.mjs';
@@ -1422,32 +1425,94 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     return { id, core: NATIVE_CORES[system].id };
   });
   // ---- link sessions: trades and battles between the players of a run (docs/MULTIPLAYER.md) -----------------------
-  // Every seat's ROM must be a file of this run on this computer (a partner's is rebuilt from the same base, patch and
-  // seed – ROMs never travel); its SHA-1 has to be what the partner says theirs is. SHA-1s are cached by size + mtime.
-  const romShaCache = new Map();
-  const runRomSha = (manifest, slot) => {
-    const name = manifest?.outputs?.[slot]?.rom;
-    const p = typeof name === 'string' ? runPath(manifest.id, name) : null;
-    if (!p || !existsSync(p)) return { path: null, sha1: null };
-    const st = statSync(p);
-    const k = `${p}\0${st.size}\0${st.mtimeMs}`;
-    if (!romShaCache.has(k)) romShaCache.set(k, fileSha1(p));
-    return { path: p, sha1: romShaCache.get(k) };
+  // Every seat's game must be a file on this computer (server/lib/linkroms.mjs: the run's builds, a file the player
+  // picked, or the library – ROMs never travel), byte-identical to the one its player plays: by SHA-1, never by name.
+  const linkDeps = (manifest) => {
+    const dir = runDir(manifest.id);
+    const lib = scanLibrary(loadConfig());
+    return {
+      runFile: runPath, dir,
+      libraryRoms: lib.roms.filter((r) => r.system === manifest.game?.system || (['gb', 'gbc'].includes(r.system) && ['gb', 'gbc'].includes(manifest.game?.system))),
+      extract: (rom) => {
+        const target = extractTarget(dir, rom);
+        if (!existsSync(target)) writeFileAtomic(target, Buffer.from(loadFile(rom.id, loadConfig())));
+        return target;
+      },
+      lib,
+    };
   };
-  route('GET', /^\/api\/link\/check$/, (req, m, url) => {
-    const manifest = readManifest(url.searchParams.get('runId') || '');
-    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
-    const system = manifest.game?.system || null;
-    const slots = Object.fromEntries(slotsOf(manifest).map((s) => {
-      const r = runRomSha(manifest, s);
-      return [s, { rom: !!r.path, sha1: r.sha1 }];
-    }));
-    return { tool: !!linkTool(), system, supported: LINK_SYSTEMS.includes(system), slots };
-  });
-  route('POST', /^\/api\/link\/start$/, async (req) => {
-    const { runId, local, seats, delay, rtc } = await readBody(req);
+  const linkManifest = (runId) => {
     const manifest = readManifest(String(runId || ''));
     if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    return manifest;
+  };
+  // the run's peer connections: STUN + short-lived TURN credentials from souldew's bot (server/lib/linkice.mjs)
+  route('GET', /^\/api\/link\/ice$/, () => linkIceServers());
+  route('GET', /^\/api\/link\/check$/, (req, m, url) => {
+    const manifest = linkManifest(url.searchParams.get('runId'));
+    const system = manifest.game?.system || null;
+    const slots = Object.fromEntries(slotsOf(manifest).map((s) => {
+      const r = ownSeat(manifest, s, runPath);
+      return [s, { rom: !!r.path, sha1: r.sha1, crc: r.crc }];
+    }));
+    return { tool: !!linkTool(), system, supported: LINK_SYSTEMS.includes(system), game: manifest.game?.id || null, slots,
+      randomized: needsIdenticalRom(manifest) };
+  });
+  // Which seats' games are here: { seats: { slot: { ok, how } }, missing: [{ slot, canBuild }] }. `seats`: { slot:
+  // { sha1, crc } } as each player announced their own.
+  route('POST', /^\/api\/link\/resolve$/, async (req) => {
+    const { runId, seats } = await readBody(req);
+    const manifest = linkManifest(runId);
+    if (!seats || typeof seats !== 'object') throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    const runSlots = slotsOf(manifest);
+    const deps = linkDeps(manifest);
+    const out = {};
+    const missing = [];
+    for (const [slot, v] of Object.entries(seats)) {
+      if (!runSlots.includes(slot)) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+      const r = resolveSeat(manifest, slot, v?.sha1, v?.crc, deps);
+      out[slot] = { ok: !!r, how: r?.how || null };
+      if (!r) missing.push({ slot, canBuild: needsIdenticalRom(manifest) && !!(baseRomsFor(manifest, deps.lib.roms).length) });
+    }
+    return { seats: out, missing };
+  });
+  // "Pick your copy of FireRed": a library ROM for a partner's seat – taken only when its SHA-1 is the partner's.
+  route('POST', /^\/api\/link\/pick$/, async (req) => {
+    const { runId, slot, sha1, romId } = await readBody(req);
+    const manifest = linkManifest(runId);
+    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    const deps = linkDeps(manifest);
+    const rom = deps.lib.roms.find((r) => r.id === romId);
+    if (!rom) throw httpError(404, 'Datei nicht gefunden', 'noFile');
+    const p = pickSeat(rom, sha1, { dir: deps.dir, extract: deps.extract });
+    if (!p) throw httpError(409, 'Das ist eine andere Fassung des Spiels', 'linkPickDiffers', { slot });
+    return { ok: true };
+  });
+  // "Build Tim's game": a randomized / patched run joined before every player's game was built here – that slot only,
+  // from the run's own base ROM, patch, settings and seed.
+  route('POST', /^\/api\/link\/build$/, async (req) => {
+    const { runId, slot } = await readBody(req);
+    const manifest = linkManifest(runId);
+    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    let body;
+    try {
+      body = partnerBuildRequest(manifest, slot, scanLibrary(loadConfig()), baseRomsFor);
+    } catch (e) {
+      throw httpError(409, 'Das Grundspiel dieses Runs fehlt in der Bibliothek', e.code === 'no-patch' ? 'linkBuildNoPatch' : 'linkBuildNoRom');
+    }
+    if (building.has(manifest.id)) throw httpError(409, 'Dieser Run wird gerade gebaut', 'runBuilding');
+    building.add(manifest.id);
+    try {
+      const log = [];
+      const built = await buildRun({ ...body, identity: { id: manifest.id, room: manifest.room, secret: manifest.secret }, config: loadConfig() }, (l) => log.push(l));
+      return { ok: true, sha1: built.outputs?.[slot]?.sha1 || null, log };
+    } finally {
+      building.delete(manifest.id);
+    }
+  });
+  route('POST', /^\/api\/link\/start$/, async (req) => {
+    const { runId, local, seats, delay, rtc, state } = await readBody(req);
+    const manifest = linkManifest(runId);
     const system = manifest.game?.system;
     if (!LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
     const runSlots = slotsOf(manifest);
@@ -1455,25 +1520,51 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if (new Set(seats.map((s) => s?.slot)).size !== seats.length || !seats.every((s) => runSlots.includes(s?.slot))) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
     const localIndex = seats.findIndex((s) => s.slot === local);
     if (localIndex < 0) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    const deps = linkDeps(manifest);
     const out = seats.map((s, i) => {
-      const r = runRomSha(manifest, s.slot);
-      if (!r.path) throw httpError(409, 'Das Spiel dieses Spielers fehlt hier', 'linkRomMissing', { slot: s.slot });
-      if (typeof s.sha1 !== 'string' || s.sha1.toLowerCase() !== r.sha1) throw httpError(409, 'Das Spiel dieses Spielers ist hier ein anderes', 'linkRomDiffers', { slot: s.slot });
+      const r = resolveSeat(manifest, s.slot, s.sha1, s.crc, deps);
+      if (!r) throw httpError(409, 'Das Spiel dieses Spielers fehlt hier', 'linkRomMissing', { slot: s.slot });
       let save = null;
       if (i === localIndex) { // our own save: from disk, never from the page
         const p = defaultSavePath(manifest, s.slot);
         save = p && existsSync(p) ? readFileSync(p) : null;
       } else if (typeof s.save === 'string' && s.save) save = Buffer.from(s.save, 'base64');
-      if (save && typeof s.saveSha1 === 'string' && createHash('sha1').update(save).digest('hex') !== s.saveSha1.toLowerCase()) {
+      // (a rejoin starts from the session's state – the saves are inside it; the local one is still checked)
+      if (save && typeof s.saveSha1 === 'string' && s.saveSha1 && createHash('sha1').update(save).digest('hex') !== s.saveSha1.toLowerCase()) {
         throw httpError(409, 'Spielstand beschädigt', 'linkSaveDiffers', { slot: s.slot });
       }
       return { rom: r.path, save };
     });
+    let stateBytes = null;
+    if (typeof state === 'string' && state) {
+      stateBytes = Buffer.from(state, 'base64');
+      if (stateBytes.length > 64 * 1024 * 1024) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+    }
+    const savePath = defaultSavePath(manifest, local);
     const id = native.startLink({
-      host: linkTool(), system, seats: out, local: localIndex, delay, rtc, key: `${manifest.id}:${local}`,
-      saveFile: defaultSavePath(manifest, local) ? { path: defaultSavePath(manifest, local), runId: manifest.id } : null,
+      host: linkTool(), system, seats: out, local: localIndex, delay, rtc, key: `${manifest.id}:${local}`, state: stateBytes,
+      saveFile: savePath ? { path: savePath, runId: manifest.id } : null,
     });
+    // the save as it was before the session: what a session that fell out of step goes back to (/api/link/restore)
+    native.current.preLink = savePath && existsSync(savePath) ? readFileSync(savePath) : null;
     return { id, system, local: localIndex, seats: seats.length };
+  });
+  // A session that fell out of step: the run's save goes back to what it was before the session (both players do it,
+  // so nobody keeps a Pokémon the other didn't lose); the session's last save stays next to it as a backup.
+  route('POST', /^\/api\/link\/restore$/, async (req) => {
+    const { runId, id, slot } = await readBody(req);
+    const manifest = linkManifest(runId);
+    const sess = native.linkRestore(id);
+    if (!sess) throw httpError(404, 'Keine Link-Sitzung', 'noNativeSession');
+    const p = defaultSavePath(manifest, slot);
+    if (!p || !slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    let backup = null;
+    if (existsSync(p)) {
+      backup = `${p.replace(/\.[^./\\]+$/, '')}.link-${new Date().toISOString().replace(/[:.]/g, '-')}.sav`;
+      writeFileAtomic(backup, readFileSync(p));
+    }
+    if (sess.preLink) writeFileAtomic(p, sess.preLink);
+    return { ok: true, restored: !!sess.preLink, backup: backup ? basename(backup) : null };
   });
   route('POST', /^\/api\/native\/stop$/, async (req) => {
     const { id } = await readBody(req);

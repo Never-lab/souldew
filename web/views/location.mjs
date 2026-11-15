@@ -89,10 +89,22 @@ export function readHere(entry, read, state = null) {
   const rom = ROMLOC.data;
   const r = readLocation(MAPS, entry, read, { rom, state });
   if (!r) return null;
+  if (r.link) return { gen: r.gen, id: r.id, name: linkRoomName(r.link), link: r.link }; // (a link room: no area)
   const lang = currentLang();
   const table = locationLabel(r.gen, r.id, { maps: MAPS, ...LOC, gen4: gen4data() }, lang === 'de' ? 'de' : 'en');
   const name = placeName(r, { rom, table, lang });
   return name ? { gen: r.gen, id: r.id, name } : null;
+}
+
+/** The sign's name for a link room (shared/live/location.mjs linkRoom). */
+export function linkRoomName(room) {
+  return {
+    trade: t('loc.linkTrade', 'Trade Center'),
+    colosseum: t('loc.linkColosseum', 'Colosseum'),
+    timecapsule: t('loc.linkTimeCapsule', 'Time Capsule'),
+    cableclub: t('loc.linkCableClub', 'Cable Club'),
+    union: t('loc.linkUnion', 'Union Room'),
+  }[room] || t('loc.linkCableClub', 'Cable Club');
 }
 
 /** What the music is right now (readMusicInfo, for a MusicKeyTracker), or null – cheap, read every few frames. */

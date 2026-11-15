@@ -7,6 +7,7 @@
 //        [--rtc <unix ms>] [--record <file>]   (--record: every frame's buttons, for scripts/link-net-test.mjs)
 //
 //   GET /press?seat=0&keys=A,UP&hold=8&gap=8&times=1   hold the keys for `hold` frames, release for `gap`, `times` times
+//                                                     (&touch=x,y: touch the DS touch screen there meanwhile)
 //   GET /both?keys=A&hold=8&gap=8&times=1               the same on every seat at once
 //   GET /step?n=60          run n frames (buttons as they are)
 //   GET /shot?file=x.png    a picture of every seat side by side (PNG)
@@ -99,9 +100,10 @@ export function startHost(hostPath, argv, { onEvent = () => {}, onMessage = () =
     return b;
   };
   const wait = (test, ms = 600000) => new Promise((resolve, reject) => {
-    const w = { test, resolve };
+    const timer = setTimeout(() => { const i = waiters.indexOf(w); if (i >= 0) { waiters.splice(i, 1); reject(new Error('host timeout')); } }, ms);
+    timer.unref?.(); // (a pending wait doesn't keep the process alive)
+    const w = { test, resolve: (v) => { clearTimeout(timer); resolve(v); } };
     waiters.push(w);
-    setTimeout(() => { const i = waiters.indexOf(w); if (i >= 0) { waiters.splice(i, 1); reject(new Error('host timeout')); } }, ms);
   });
   const api = {
     proc: p, send, u32, wait, frames,
@@ -163,7 +165,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         if (u.pathname === '/press' || u.pathname === '/both') {
           const hold = Number(q.hold || 8), gap = Number(q.gap || 8), times = Number(q.times || 1);
           for (let t = 0; t < times; t++) {
-            for (const s of seats) h.hold(s, bits(q.keys));
+            // touch=x,y (DS): link_input's touch bits (linkhost passes bits 12–31 of a test's 8-byte INPUT through)
+            const tb = q.touch ? ((1 << 12) | (Number(q.touch.split(',')[0]) << 16) | (Number(q.touch.split(',')[1]) << 24)) >>> 0 : 0;
+            for (const s of seats) h.hold(s, (bits(q.keys) | tb) >>> 0);
             await h.step(hold);
             for (const s of seats) h.hold(s, 0);
             if (gap) await h.step(gap);

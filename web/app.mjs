@@ -6,7 +6,7 @@ import { SyncLink, PARTNER_TTL } from './lib/sync.mjs';
 import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
 import { detectLayout } from './lib/controls.mjs';
-import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, live as getLive, logLinkTrade } from './lib/run.mjs';
+import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, live as getLive, logLinkTrade, rules as getRules } from './lib/run.mjs';
 import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal, openExternal } from './lib/ui.mjs';
 import { LINKS } from './lib/links.mjs';
@@ -502,6 +502,10 @@ function App() {
   const applySnap = useCallback((snap, { notify = true, battle = null } = {}) => {
     if (!runDoc) return null;
     const doc = runDoc;
+    // A link battle (docs/MULTIPLAYER.md › rules): the team as the battle shows it isn't the run's – losing there
+    // counts as deaths only when the run says so (rules.linkBattleDeaths); trades go on being tracked as always.
+    const lp = linkPlayRef.current?.state;
+    if (lp?.phase === 'running' && lp.kind === 'battle' && snap.source === 'live' && !getRules(doc, manifest)?.linkBattleDeaths) return null;
     // An ended run stays as it ended: playing on (for fun, or after a wipe) records nothing anymore.
     if (doc.get('run:status')) return null;
     const res = applySnapshot(doc, manifest, genOfRun(manifest, runData), me, snap, { rd: runData, battle });
@@ -543,6 +547,8 @@ function App() {
     const names = getPlayers(doc, manifest);
     const link = new SyncLink({
       room: manifest.room, secret: manifest.secret, slot: me, slots: slotsOf(manifest), name: names[me].name, doc,
+      // TURN for strict NATs: short-lived credentials from souldew's bot through the local server (docs/MULTIPLAYER.md)
+      getIceServers: () => api.get('/api/link/ice').then((r) => r?.iceServers || null),
       onStatus: (s) => linkRef.current === link && setLinkStatus({ ...s }),
       onMessage: (msg) => {
         if (msg.payload?.type === 'ping') {
@@ -556,6 +562,7 @@ function App() {
     // a link session: the play view shows the local seat (target.link); its end closes it
     const lp = new LinkSessions({
       sync: link, runId: manifest.id, me,
+      emu: () => document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__emu || null,
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
       openSession: (st) => {
         lp.partyBefore = null; // the team as the link session first reads it (the trade's log entry when it ends)
@@ -570,7 +577,10 @@ function App() {
         navigate('play', { run: manifest.id });
       },
       closeSession: (st) => {
-        if (st.kind === 'trade') {
+        // fell out of step: the run's save went back to before the session – the play view writes no last save of it
+        const tl = sessionRef.current?.target?.link;
+        if (st.ended?.reason === 'linkDesync' && tl) tl.discard = true;
+        if (st.kind === 'trade' && st.ended?.reason !== 'linkDesync') {
           const partner = (st.seats || []).find((s) => s !== me);
           try {
             logLinkTrade(doc, manifest, me, partner, lp.partyBefore, getLive(doc, me)?.party);

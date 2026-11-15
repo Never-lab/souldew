@@ -117,6 +117,38 @@ static uint8_t *with_clock(struct sseat *st, const uint8_t *save, size_t len, si
   return b;
 }
 
+#define SAMPLE_RATE 48000
+#define AUDIO_RING 8192 // stereo frames (a frame is ~800; more than that waits only while nobody reads – then it drops)
+static struct { int16_t s[AUDIO_RING * 2]; uint32_t w, r; } audio_ring[2];
+static void on_sample(GB_gameboy_t *gb, GB_sample_t *sample) {
+  struct sseat *st = GB_get_user_data(gb);
+  typeof(audio_ring[0]) *a = &audio_ring[st->index];
+  if (a->w - a->r >= AUDIO_RING) return; // full: drop
+  a->s[(a->w % AUDIO_RING) * 2] = sample->left, a->s[(a->w % AUDIO_RING) * 2 + 1] = sample->right;
+  a->w++;
+}
+static double s_sample_rate(void) { return SAMPLE_RATE; }
+/** A clock cartridge's save as souldew keeps it: the battery RAM + the 48-byte VBA-M clock footer (its time: the
+ *  session clock, sbl_time) – retrohost (Gambatte) reads that footer back into the fast player's clock. */
+static size_t s_battery(int seat, void **out) {
+  struct sseat *st = &seats[seat];
+  *out = NULL;
+  if (!st->has_rtc) return 0;
+  const int n = GB_save_battery_size(st->gb);
+  if (n <= 0 || (size_t)n != st->ram_size + 48 || !(*out = malloc((size_t)n))) return 0;
+  if (GB_save_battery_to_buffer(st->gb, *out, (size_t)n)) { free(*out); *out = NULL; return 0; }
+  return (size_t)n;
+}
+static size_t s_audio(int seat, int16_t *out, size_t max) {
+  typeof(audio_ring[0]) *a = &audio_ring[seat];
+  size_t n = 0;
+  while (n < max && a->r != a->w) {
+    out[n * 2] = a->s[(a->r % AUDIO_RING) * 2], out[n * 2 + 1] = a->s[(a->r % AUDIO_RING) * 2 + 1];
+    a->r++, n++;
+  }
+  return n;
+}
+
 static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
   if (n > 2) { link_log("a Game Boy link cable joins two consoles"); return false; }
   nseats = n;
@@ -140,7 +172,9 @@ static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     GB_set_rgb_encode_callback(gb, on_rgb);
     GB_set_pixels_output(gb, st->back);
     GB_set_vblank_callback(gb, on_vblank);
-    GB_set_sample_rate(gb, 0); // no sound (the link host is silent; the player hears nothing from here)
+    // sound: every seat alike (only the local seat's is played); the rate only shapes the output, not the emulation
+    GB_set_sample_rate(gb, SAMPLE_RATE);
+    GB_apu_set_sample_callback(gb, on_sample);
     GB_set_rtc_mode(gb, GB_RTC_MODE_ACCURATE);
     GB_set_emulate_joypad_bouncing(gb, false);
     GB_load_rom_from_buffer(gb, rom, rl);
@@ -290,9 +324,10 @@ static bool s_save_state(int seat, void *out) {
   x[8] = st->bit_out;
   return true;
 }
-static bool s_load_state(int seat, const void *in) {
+static bool s_load_state(int seat, const void *in, size_t len) {
   struct sseat *st = &seats[seat];
   size_t n = GB_get_save_state_size(st->gb);
+  if (len != n + EXTRA) return false;
   if (GB_load_state_from_buffer(st->gb, in, n)) return false;
   const uint8_t *x = (const uint8_t *)in + n;
   memcpy(&st->ticks, x, 8);
@@ -307,5 +342,5 @@ static bool s_load_state(int seat, const void *in) {
 const struct link_backend link_backend_sameboy = {
   .name = "sameboy", .system = s_system, .probe = s_probe, .open = s_open, .set_input = s_set_input, .run_frame = s_run_frame,
   .video = s_video, .fps = s_fps, .sram = s_sram, .hash = s_hash, .mem = s_mem, .read8 = s_read8, .write8 = s_write8,
-  .state_size = s_state_size, .save_state = s_save_state, .load_state = s_load_state,
+  .state_size = s_state_size, .save_state = s_save_state, .load_state = s_load_state, .sample_rate = s_sample_rate, .audio = s_audio, .battery = s_battery,
 };

@@ -262,9 +262,15 @@ Firmware makeFirmware(int seat) {
   return fw;
 }
 
+// The JIT: only in a build with it (scripts/build-native.mjs builds without – its timing differs from the interpreter's,
+// so every peer of a session would have to agree, and arm64 ↔ x64 sessions are untested) and SOULDEW_DS_JIT=1.
 bool jitWanted() {
+#ifdef JIT_ENABLED
   const char *e = getenv("SOULDEW_DS_JIT");
   return e && *e == '1';
+#else
+  return false;
+#endif
 }
 
 // ---- backend -------------------------------------------------------------------------------------------------------
@@ -288,7 +294,11 @@ bool d_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
   nseats = n;
   const time_t secs = static_cast<time_t>(rtc_ms / 1000);
   struct tm tm;
+#ifdef _WIN32
+  gmtime_s(&tm, &secs);
+#else
   gmtime_r(&secs, &tm);
+#endif
   for (int i = 0; i < n; i++) {
     Seat &s = seats[i];
     s.index = i;
@@ -298,7 +308,9 @@ bool d_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     if (!rom) { link_log("ds: can't read %s", cfg[i].rom); return false; }
     NDSArgs args{};
     args.Firmware = makeFirmware(i);
+#ifdef JIT_ENABLED
     if (!jitWanted()) args.JIT = std::nullopt;
+#endif
     s.nds = std::make_unique<LinkNDS>(std::move(args), &s);
     NDSCart::NDSCartArgs cart{};
     if (cfg[i].save && cfg[i].save_len) {
@@ -405,19 +417,65 @@ void d_write8(int seat, uint32_t addr, uint8_t v) {
   if (p) *p = v;
 }
 
-// Save states: only at a session frame boundary with every console at its frame end (no MP exchange in flight –
-// a console waiting mid-frame lives on its thread's stack and can't be written down).
+// Save states: only at a session frame boundary with every console at its frame end (a console waiting mid-frame for a
+// packet lives on its thread's stack and can't be written down – then state_size is 0: "not now, try a later frame").
+// A seat's state is melonDS's own, then its side of the wireless layer: whether its Wi-Fi is on, the packets queued for
+// it (sent, not yet taken), the last buttons and who hosts the MP exchange – so a session can go on from a state in a
+// fresh host (rejoin) in the middle of a Union Room visit, the same as on the peers that never stopped.
+namespace mpstate {
+void put(std::vector<u8> &b, const void *p, size_t n) { b.insert(b.end(), static_cast<const u8 *>(p), static_cast<const u8 *>(p) + n); }
+template <class T> void put(std::vector<u8> &b, T v) { put(b, &v, sizeof v); }
+void putQueue(std::vector<u8> &b, const std::deque<Packet> &q) {
+  put<u32>(b, static_cast<u32>(q.size()));
+  for (const Packet &p : q) {
+    put<s32>(b, p.sender), put<u32>(b, p.type), put<u64>(b, p.sent), put<u64>(b, p.wifiTs), put<u32>(b, static_cast<u32>(p.data.size()));
+    put(b, p.data.data(), p.data.size());
+  }
+}
+struct Reader {
+  const u8 *p, *end;
+  bool ok = true;
+  template <class T> T get() {
+    T v{};
+    if (end - p < static_cast<ptrdiff_t>(sizeof v)) { ok = false; return v; }
+    memcpy(&v, p, sizeof v), p += sizeof v;
+    return v;
+  }
+  bool queue(std::deque<Packet> &q) {
+    q.clear();
+    const u32 n = get<u32>();
+    for (u32 i = 0; ok && i < n && i < 4096; i++) {
+      Packet k;
+      k.sender = get<s32>(), k.type = get<u32>(), k.sent = get<u64>(), k.wifiTs = get<u64>();
+      const u32 len = get<u32>();
+      if (!ok || len > 65536 || end - p < static_cast<ptrdiff_t>(len)) return ok = false;
+      k.data.assign(p, p + len), p += len;
+      q.push_back(std::move(k));
+    }
+    return ok;
+  }
+};
+} // namespace mpstate
+
 size_t d_state_size(int seat) {
   std::lock_guard<std::mutex> g(lock);
-  seats[seat].stateCache.clear();
+  Seat &me = seats[seat];
+  me.stateCache.clear();
   for (int i = 0; i < nseats; i++)
     if (seats[i].st != St::Done) return 0; // a console waits mid-frame for a packet: no state now
   Savestate ss;
-  if (!seats[seat].nds->DoSavestate(&ss) || ss.Error) return 0;
+  if (!me.nds->DoSavestate(&ss) || ss.Error) return 0;
   ss.Finish();
   const u8 *b = static_cast<const u8 *>(ss.Buffer());
-  seats[seat].stateCache.assign(b, b + ss.Length());
-  return seats[seat].stateCache.size();
+  me.stateCache.assign(b, b + ss.Length());
+  using namespace mpstate;
+  put(me.stateCache, "LMP1", 4);
+  put<u8>(me.stateCache, me.connected ? 1 : 0);
+  put<u32>(me.stateCache, me.cur);
+  put<s32>(me.stateCache, lastHost);
+  putQueue(me.stateCache, me.rx);
+  putQueue(me.stateCache, me.replies);
+  return me.stateCache.size();
 }
 bool d_save_state(int seat, void *out) {
   std::lock_guard<std::mutex> g(lock);
@@ -425,24 +483,53 @@ bool d_save_state(int seat, void *out) {
   memcpy(out, seats[seat].stateCache.data(), seats[seat].stateCache.size());
   return true;
 }
-bool d_load_state(int seat, const void *in) {
+bool d_load_state(int seat, const void *in, size_t have) {
   std::lock_guard<std::mutex> g(lock);
+  const u8 *b = static_cast<const u8 *>(in);
   u32 len = 0;
-  memcpy(&len, static_cast<const u8 *>(in) + 8, 4); // melonDS state header: "MELN", u16 major, u16 minor, u32 length
-  if (memcmp(in, "MELN", 4) || len < 16) return false;
-  std::vector<u8> copy(static_cast<const u8 *>(in), static_cast<const u8 *>(in) + len);
+  if (have < 16) return false;
+  memcpy(&len, b + 8, 4); // melonDS state header: "MELN", u16 major, u16 minor, u32 length
+  if (memcmp(b, "MELN", 4) || len < 16 || len > have) return false;
+  for (int i = 0; i < nseats; i++)
+    if (seats[i].st != St::Done) return false; // (a console mid-frame: only between frames)
+  Seat &me = seats[seat];
+  std::vector<u8> copy(b, b + len);
   Savestate ss(copy.data(), len, false);
-  const bool ok = seats[seat].nds->DoSavestate(&ss) && !ss.Error;
-  seats[seat].t = seats[seat].nds->Now();
-  for (int i = 0; i < nseats; i++) seats[i].rx.clear(), seats[i].replies.clear();
-  return ok;
+  if (!me.nds->DoSavestate(&ss) || ss.Error) return false;
+  me.t = me.nds->Now();
+  const u8 *sv = me.nds->GetNDSSave(); // (the battery save came back with the cartridge's state)
+  if (sv) me.sram.assign(sv, sv + me.nds->GetNDSSaveLength());
+  me.inputs.clear();
+  mpstate::Reader r{b + len, b + have};
+  if (have - len >= 4 && !memcmp(b + len, "LMP1", 4)) {
+    r.p += 4;
+    me.connected = r.get<u8>() != 0;
+    me.cur = r.get<u32>();
+    const s32 host = r.get<s32>();
+    if (seat == 0) lastHost = host >= -1 && host < nseats ? host : -1;
+    if (!r.queue(me.rx) || !r.queue(me.replies)) return false;
+    return r.ok;
+  }
+  me.rx.clear(), me.replies.clear(); // (an older state without the wireless part: the link drops)
+  return true;
 }
 
 } // namespace
 
+// Sound: melonDS's SPU output (48 kHz, resampled – the emulation is the same whether or not anyone reads it), read
+// between frames when no console runs.
+double d_sample_rate() { return 48000.0; }
+size_t d_audio(int seat, int16_t *out, size_t max) {
+  std::lock_guard<std::mutex> g(lock);
+  SPU &spu = seats[seat].nds->SPU;
+  const int avail = spu.GetOutputSize();
+  const int n = avail < static_cast<int>(max) ? avail : static_cast<int>(max);
+  return n > 0 ? static_cast<size_t>(spu.ReadOutput(out, n)) : 0;
+}
+
 extern "C" const struct link_backend link_backend_melonds = {
     "melonds", d_system, d_probe, d_open, d_set_input, d_run_frame, d_video, d_fps, d_sram, d_hash,
-    d_mem, d_read8, d_write8, d_state_size, d_save_state, d_load_state,
+    d_mem, d_read8, d_write8, d_state_size, d_save_state, d_load_state, d_sample_rate, d_audio,
 };
 
 extern "C" void link_backend_melonds_stats(uint64_t *y, uint64_t *s) { *y = yields, *s = switches; }

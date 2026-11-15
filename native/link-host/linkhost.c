@@ -10,6 +10,7 @@
 //
 // Messages are { u32 type, u32 length, payload } (little-endian) both ways, as native/retro-host/retrohost.c.
 //   host → souldew   2 VIDEO  u16 width, u16 height, u32 format (2 = RGB565), pixels – the viewed seat (VIEW)
+//                    3 AUDIO  the local seat's sound of the frame: interleaved stereo s16 at the loaded event's sampleRate
 //                    5 STATE  all seats: u32 n, n × { u32 len, state } (answer to SAVE)
 //                    6 LOG    text
 //                    7 EVENT  json: loaded | stats | stepped | hash {frame, hash} | wait {seats, frame, ms} | saved |
@@ -20,8 +21,9 @@
 //                   12 LINPUT u32 seat, u32 first frame, u32 inputs[] (linkbackend.h link_input) – the local seat's
 //                             buttons, for the peers
 //                   14 SEATSRAM u32 seat, bytes (every seat's battery save, on FLUSH)
-//   souldew → host   1 INPUT  u32 joypad bits (RETRO_DEVICE_ID_JOYPAD_*) … (the fast player's 17 bytes) – the local
-//                             seat; exactly 8 bytes { bits, seat } in local mode: that seat (tests)
+//   souldew → host   1 INPUT  u32 joypad bits (RETRO_DEVICE_ID_JOYPAD_*), s16 lx, ly, rx, ry, s16 px, py, u8 pressed (the
+//                             fast player's 17 bytes: the pointer over the whole picture is the DS touch screen) – the
+//                             local seat; exactly 8 bytes { bits, seat } in local mode: that seat (tests)
 //                    2 SPEED  f32   3 SAVE   4 LOAD (STATE's format)   6 QUIT   10 FLUSH   12 RESYNC
 //                   13 STEP   u32 n (local mode: as fast as possible; net mode: at the pace set)
 //                   20 VIEW   u32 seat (which console's picture comes out; sends it right away)
@@ -29,6 +31,9 @@
 //                             frames that come early (an unordered channel) are fine
 //                   22 READ   u32 seat, u32 addr, u32 len      23 POKE u32 seat, u32 addr, bytes (tests)
 //                   24 UNTIL  u32 frame: run until the session reaches this frame, then pause (every peer the same)
+//                   25 NEED   u32 seat, u32 from: send that seat's buttons from frame `from` on as LINPUT (a peer missed
+//                             some; any peer may answer for any seat – every host keeps every seat's buttons)
+// --load <file>: start from a whole-session state (STATE's format, see save_all) – rejoining a running session.
 //
 // Local mode (no --net): every seat's buttons come from INPUT. Net mode: the local seat's buttons for frame f are taken
 // at frame f − D and sent as LINPUT; frame f runs only when every seat's buttons for it are known (input-delay
@@ -45,12 +50,16 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#ifdef _WIN32 // (MinGW-w64 with POSIX threads: pthread, clock_gettime and nanosleep come from winpthreads)
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 #define RING 4096 // frames of buttons kept per seat
 #define HASH_EVERY 120
 
 // in order of preference: the first whose probe takes every seat's game runs the session (--backend NAME: that one)
-static const struct link_backend *backends[] = {&link_backend_sameboy, &link_backend_mgba};
+static const struct link_backend *backends[] = {&link_backend_sameboy, &link_backend_mgba, &link_backend_melonds};
 static const struct link_backend *B;
 
 // ---- output --------------------------------------------------------------------------------------------------------
@@ -144,7 +153,9 @@ static struct seat {
   link_input in[RING]; // buttons per frame
   uint8_t early[RING]; // a peer's buttons that came ahead of a gap: kept until the gap fills
   uint32_t have;       // buttons known for frames < have
-  link_input held;     // local mode / the local seat: the buttons held now
+  link_input held;     // local mode / the local seat: the buttons held now (touch included)
+  link_input touch_last; // where the last touch was (with LINK_TOUCH)
+  int touch_latch;     // a quick tap still counts as held for this many frames
   uint64_t sram_sent, sram_seen;
 } seats[LINK_MAX_SEATS];
 static uint32_t frame; // the session's frame: every console started this many frames
@@ -162,6 +173,47 @@ static link_input retro_to_input(uint32_t r) {
   link_input k = 0;
   for (int i = 0; i < 12; i++) if (r >> i & 1) k |= map[i];
   return k;
+}
+
+/**
+ * The touch bits (link_input: bit 12, x in 16–23, y in 24–31) from the fast player's pointer (INPUT bytes 12–16: s16 px,
+ * py over the whole picture, −0x7fff…0x7fff, u8 pressed). The DS picture is the top screen above the touch screen
+ * (256 × 384): only the lower half touches. Returns 0 when the pointer isn't on the touch screen.
+ */
+static int screen_h = 384; // the picture the pointer is relative to (from the backend once it runs)
+static link_input touch_from_pointer(const uint8_t *p) {
+  int16_t px, py;
+  memcpy(&px, p + 12, 2), memcpy(&py, p + 14, 2);
+  if (!p[16] || screen_h < 384) return 0;
+  const int x = (int)((px + 0x7fff) * (int64_t)256 / 0xffff), y = (int)((py + 0x7fff) * (int64_t)screen_h / 0xffff) - (screen_h - 192);
+  if (y < 0) return 0; // the top screen
+  return LINK_TOUCH | (link_input)(x < 0 ? 0 : x > 255 ? 255 : x) << 16 | (link_input)(y > 191 ? 191 : y) << 24;
+}
+/**
+ * A seat's buttons for the next frame (cmd_lock held). A tap shorter than TOUCH_MIN_FRAMES still lasts that long – the
+ * games poll the touch screen slowly (as retrohost does it). Called once per frame of that seat.
+ */
+#define TOUCH_MIN_FRAMES 4
+static link_input sample_input(struct seat *st) {
+  link_input k = st->held;
+  if (!(k & LINK_TOUCH) && st->touch_latch > 0) k |= st->touch_last;
+  if (st->touch_latch > 0) st->touch_latch--;
+  return k;
+}
+
+// ---- sound: the local seat's, as retrohost's AUDIO (interleaved stereo s16 at the loaded event's sampleRate) --------
+static int16_t audio_buf[4096 * 2];
+/** After a frame: the local seat's sound out (`play`: at normal speed – fast-forward and tests drop it); the other seats'
+ *  is drained so nothing piles up. */
+static void pump_audio(int play) {
+  if (!B->audio) return;
+  for (int s = 0; s < nseats; s++) {
+    size_t n;
+    while ((n = B->audio(s, audio_buf, 4096)) > 0) {
+      if (play && s == local_seat && protocol) send_msg(3, audio_buf, (uint32_t)(n * 4));
+      if (n < 4096) break;
+    }
+  }
 }
 
 static void run_frame(void) {
@@ -217,7 +269,13 @@ static void *reader(void *arg) {
         uint32_t bits, seat = (uint32_t)local_seat;
         memcpy(&bits, p, 4);
         if (h[1] == 8 && !net_mode) memcpy(&seat, p + 4, 4);
-        if (seat < (uint32_t)nseats) seats[seat].held = retro_to_input(bits);
+        if (seat < (uint32_t)nseats) {
+          struct seat *st = &seats[seat];
+          const link_input t = h[1] >= 17 ? touch_from_pointer(p) : 0; // (the fast player's pointer: the DS touch screen)
+          if (t && !(st->held & LINK_TOUCH)) st->touch_latch = TOUCH_MIN_FRAMES;
+          if (t) st->touch_last = t;
+          st->held = retro_to_input(bits) | t | (h[1] == 8 ? bits & 0xFFFF1000u : 0); // (tests: link_input touch bits as they are)
+        }
       }
       break;
     case 2:
@@ -246,7 +304,7 @@ static void *reader(void *arg) {
     case 24:
       if (h[1] >= 4) { memcpy(&until_frame, p, 4); if (speed <= 0) speed = 1000.0f; }
       break;
-    case 21: case 22: case 23:
+    case 21: case 22: case 23: case 25:
       if (pending_n < MAX_PENDING) pending[pending_n++] = (struct pending){h[0], h[1], p}, p = NULL;
       break;
     }
@@ -378,7 +436,11 @@ static void check_sram(int force) {
   st->sram_seen = h;
   if (h != st->sram_sent && (force || settled)) {
     st->sram_sent = h;
-    send_msg(9, p, (uint32_t)n);
+    void *full = NULL;
+    const size_t fn = B->battery ? B->battery(local_seat, &full) : 0;
+    if (full && fn) send_msg(9, full, (uint32_t)fn);
+    else send_msg(9, p, (uint32_t)n);
+    free(full);
     send_event("{\"event\":\"saved\",\"seat\":%d,\"size\":%zu}", local_seat, n);
   }
   free(p);
@@ -386,29 +448,41 @@ static void check_sram(int force) {
 static void send_all_sram(void) {
   for (int s = 0; s < nseats; s++) {
     void *p = NULL;
-    const size_t n = B->sram(s, &p);
+    size_t n = B->battery ? B->battery(s, &p) : 0;
+    if (!p || !n) free(p), p = NULL, n = B->sram(s, &p);
     const uint32_t seat = (uint32_t)s;
     send_msg2(14, &seat, 4, p, (uint32_t)n);
     free(p);
   }
 }
 
+// A whole-session state (STATE / LOAD, --load): u32 n, n × { u32 len, state }, then u32 'LSES', u32 frame – every
+// console and the session frame it was taken at (rejoin: the peers that stayed send it to the one coming back). An empty
+// STATE means "not now" (the DS backend can't write a console down while it waits mid-frame for a wireless packet).
+#define SESSION_MAGIC 0x5345534cu
 static void save_all(void) {
-  size_t total = 4;
-  for (int s = 0; s < nseats; s++) total += 4 + B->state_size(s);
+  size_t total = 4 + 8, sizes[LINK_MAX_SEATS];
+  for (int s = 0; s < nseats; s++) {
+    sizes[s] = B->state_size(s);
+    if (!sizes[s]) { send_msg(5, NULL, 0); return; }
+    total += 4 + sizes[s];
+  }
   uint8_t *b = malloc(total), *p = b + 4;
   if (!b) { send_msg(5, NULL, 0); return; }
   const uint32_t n = (uint32_t)nseats;
   memcpy(b, &n, 4);
   for (int s = 0; s < nseats; s++) {
-    const uint32_t len = (uint32_t)B->state_size(s);
+    const uint32_t len = (uint32_t)sizes[s];
     memcpy(p, &len, 4);
-    B->save_state(s, p + 4);
+    if (B->state_size(s) != sizes[s] || !B->save_state(s, p + 4)) { free(b); send_msg(5, NULL, 0); return; }
     p += 4 + len;
   }
+  const uint32_t tail[2] = {SESSION_MAGIC, frame};
+  memcpy(p, tail, 8);
   send_msg(5, b, (uint32_t)total);
   free(b);
 }
+/** Loads a whole-session state; returns 0 (nothing loaded) when it doesn't fit these seats. Sets the session frame. */
 static int load_all(const uint8_t *b, size_t len) {
   uint32_t n;
   if (len < 4) return 0;
@@ -419,23 +493,56 @@ static int load_all(const uint8_t *b, size_t len) {
     uint32_t l;
     if (at + 4 > len) return 0;
     memcpy(&l, b + at, 4);
-    if (l != B->state_size(s) || at + 4 + l > len) return 0;
+    if (!l || at + 4 + l > len) return 0;
     at += 4 + l;
   }
+  uint32_t tail[2] = {0, 0};
+  if (at + 8 <= len) memcpy(tail, b + at, 8);
   at = 4;
   for (int s = 0; s < nseats; s++) {
     uint32_t l;
     memcpy(&l, b + at, 4);
-    B->load_state(s, b + at + 4);
+    if (!B->load_state(s, b + at + 4, l)) return 0;
     at += 4 + l;
+  }
+  if (tail[0] == SESSION_MAGIC) { // the session goes on from that frame: nobody's buttons are known past it yet
+    frame = tail[1];
+    for (int s = 0; s < nseats; s++) {
+      seats[s].have = frame;
+      memset(seats[s].early, 0, sizeof seats[s].early);
+    }
   }
   return 1;
 }
 
+/** A peer asks for a seat's buttons from frame `from` on (it missed some – NEED): what this host knows, as LINPUT. */
+static void do_need(const uint8_t *p, uint32_t len) {
+  if (len < 8) return;
+  uint32_t seat, from;
+  memcpy(&seat, p, 4), memcpy(&from, p + 4, 4);
+  if (seat >= (uint32_t)nseats) return;
+  struct seat *st = &seats[seat];
+  const uint32_t lo = st->have > RING - 2 ? st->have - (RING - 2) : 0;
+  if (from < lo) from = lo; // (older than the ring: gone)
+  if (from >= st->have) return;
+  uint32_t n = st->have - from;
+  if (n > 1024) n = 1024;
+  uint32_t *m = malloc(8 + 4 * (size_t)n);
+  if (!m) return;
+  m[0] = seat, m[1] = from;
+  for (uint32_t i = 0; i < n; i++) m[2 + i] = st->in[(from + i) % RING];
+  send_msg(12, m, 8 + 4 * n);
+  free(m);
+}
+
 // ---- main ----------------------------------------------------------------------------------------------------------
 int main(int argc, char **argv) {
+#ifdef _WIN32
+  _setmode(_fileno(stdin), _O_BINARY); // the protocol is binary
+  _setmode(_fileno(stdout), _O_BINARY);
+#endif
   const char *roms[LINK_MAX_SEATS] = {0}, *srams[LINK_MAX_SEATS] = {0}, *states[LINK_MAX_SEATS] = {0};
-  const char *script_path = NULL, *out_dir = NULL, *backend_name = NULL;
+  const char *script_path = NULL, *out_dir = NULL, *backend_name = NULL, *load_path = NULL;
   int nr = 0, ns = 0, nst = 0, bench = 0;
   double bench_speed = 0;
   int64_t rtc_ms = 0;
@@ -456,6 +563,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(k, "--script")) script_path = v;
     else if (!strcmp(k, "--out")) out_dir = v;
     else if (!strcmp(k, "--backend")) backend_name = v;
+    else if (!strcmp(k, "--load")) load_path = v;
     else if (!strcmp(k, "--ram") && ram_n < MAX_RAM) {
       char *end = NULL;
       const unsigned long a = strtoul(v, &end, 0), n = end && *end == ':' ? strtoul(end + 1, NULL, 0) : 0;
@@ -464,7 +572,7 @@ int main(int argc, char **argv) {
   }
   nseats = nr;
   if (nseats < 1 || local_seat < 0 || local_seat >= nseats || delay_frames < 1 || delay_frames > 120) {
-    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]] [--backend sameboy|mgba]\n");
+    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]] [--backend sameboy|mgba|melonds] [--load state]\n");
     return 2;
   }
   if (bench) protocol = 0;
@@ -503,8 +611,21 @@ int main(int argc, char **argv) {
     free(p);
     seats[s].have = net_mode ? (uint32_t)delay_frames : 0; // the first frames: nothing pressed, known to everybody
   }
+  if (load_path) { // a whole-session state (rejoin): every console, and the frame the session goes on from
+    size_t n = 0;
+    uint8_t *b = link_read_file(load_path, &n);
+    if (!b || !load_all(b, n)) die("--load: not a session state of these games");
+    free(b);
+    if (!net_mode) for (int s = 0; s < nseats; s++) seats[s].have = 0;
+  }
   view_seat = local_seat;
   const double fps = B->fps();
+  {
+    const uint32_t *px;
+    unsigned w, h, stride;
+    B->video(local_seat, &px, &w, &h, &stride);
+    screen_h = (int)h;
+  }
 
   if (bench) {
     double t0 = now_s(), next = t0, worst = 0;
@@ -512,6 +633,7 @@ int main(int argc, char **argv) {
       const double a = now_s();
       if (script) for (int s = 0; s < nseats; s++) seats[s].in[frame % RING] = script_input(frame, s);
       run_frame();
+      pump_audio(0);
       const double d = now_s() - a;
       if (d > worst) worst = d;
       if (bench_speed > 0) { next += 1.0 / (fps * bench_speed); sleep_s(next - now_s()); }
@@ -541,8 +663,8 @@ int main(int argc, char **argv) {
     size_t o = 0;
     for (int i = 0; i < ram_n && o < sizeof regions - 48; i++)
       o += (size_t)snprintf(regions + o, sizeof regions - o, "%s{\"addr\":%u,\"len\":%u,\"ok\":%s}", i ? "," : "", ram[i].addr, ram[i].len, B->mem(local_seat, ram[i].addr, ram[i].len) ? "true" : "false");
-    send_event("{\"event\":\"loaded\",\"core\":\"souldew link (%s)\",\"system\":\"%s\",\"seats\":%d,\"local\":%d,\"net\":%s,\"delay\":%d,\"width\":%u,\"height\":%u,\"fps\":%.4f,\"sampleRate\":0,\"ram\":[%s]}",
-               B->name, B->system(), nseats, local_seat, net_mode ? "true" : "false", delay_frames, w, h, fps, regions);
+    send_event("{\"event\":\"loaded\",\"core\":\"souldew link (%s)\",\"system\":\"%s\",\"seats\":%d,\"local\":%d,\"net\":%s,\"delay\":%d,\"width\":%u,\"height\":%u,\"fps\":%.4f,\"sampleRate\":%.1f,\"frame\":%u,\"ram\":[%s]}",
+               B->name, B->system(), nseats, local_seat, net_mode ? "true" : "false", delay_frames, w, h, fps, B->sample_rate ? B->sample_rate() : 0.0, frame, regions);
   }
   pthread_t th;
   pthread_create(&th, NULL, reader, NULL);
@@ -560,8 +682,6 @@ int main(int argc, char **argv) {
     const int np = pending_n;
     memcpy(pend, pending, sizeof *pend * (size_t)np);
     pending_n = 0;
-    link_input held[LINK_MAX_SEATS];
-    for (int s = 0; s < nseats; s++) held[s] = seats[s].held;
     pthread_mutex_unlock(&cmd_lock);
     if (quit) break;
     if (view_now) send_frame(view); // (the picture right away, paused or not)
@@ -569,6 +689,7 @@ int main(int argc, char **argv) {
       if (pend[i].type == 21) take_remote(pend[i].p, pend[i].len);
       else if (pend[i].type == 22) do_read(pend[i].p, pend[i].len);
       else if (pend[i].type == 23) do_poke(pend[i].p, pend[i].len);
+      else if (pend[i].type == 25) do_need(pend[i].p, pend[i].len);
       free(pend[i].p);
     }
     if (ld) {
@@ -598,7 +719,9 @@ int main(int argc, char **argv) {
       struct seat *me = &seats[local_seat];
       while (me->have <= frame + (uint32_t)delay_frames) { // the local buttons, D frames ahead, out to the peers
         const uint32_t f = me->have;
-        const link_input k = script ? script_input(f, local_seat) : held[local_seat];
+        pthread_mutex_lock(&cmd_lock);
+        const link_input k = script ? script_input(f, local_seat) : sample_input(me);
+        pthread_mutex_unlock(&cmd_lock);
         me->in[f % RING] = k;
         me->have = f + 1;
         uint32_t m[3] = {(uint32_t)local_seat, f, k};
@@ -626,7 +749,9 @@ int main(int argc, char **argv) {
       }
       wait_since = 0;
     } else {
-      for (int s = 0; s < nseats; s++) seats[s].in[frame % RING] = script ? script_input(frame, s) : held[s];
+      pthread_mutex_lock(&cmd_lock);
+      for (int s = 0; s < nseats; s++) seats[s].in[frame % RING] = script ? script_input(frame, s) : sample_input(&seats[s]);
+      pthread_mutex_unlock(&cmd_lock);
     }
     run_frame();
     stat_frames++;
@@ -638,6 +763,7 @@ int main(int argc, char **argv) {
     pthread_mutex_unlock(&cmd_lock);
     t = now_s();
     const int turbo = spd > 1.01f;
+    pump_audio(!turbo);
     if (stepped || !turbo || t - last_frame >= 1.0 / 62) last_frame = t, send_frame(view);
     if (stepped) {
       send_ram();

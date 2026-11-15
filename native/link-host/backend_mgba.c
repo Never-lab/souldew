@@ -16,6 +16,7 @@
 #include <mgba/internal/gba/sio/lockstep.h>
 #include <mgba/internal/gb/gb.h>
 #include <mgba/internal/gb/sio/lockstep.h>
+#include <mgba-util/audio-buffer.h>
 #include <mgba-util/vfs.h>
 
 #include <fcntl.h>
@@ -123,7 +124,8 @@ static bool m_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     else if (st->core->platform(st->core) != platform) { link_log("seat %d: another system than seat 0", s); return false; }
     if (!st->core->init(st->core)) { link_log("seat %d: the core didn't start", s); return false; }
     mCoreInitConfig(st->core, NULL);
-    struct mCoreOptions opts = {.useBios = false, .skipBios = true, .volume = 0, .mute = true};
+    // (sound on for every seat alike – only the local seat's is played; volume only scales the output)
+    struct mCoreOptions opts = {.useBios = false, .skipBios = true, .volume = 0x100, .mute = false};
     mCoreConfigLoadDefaults(&st->core->config, &opts);
     mCoreConfigSetDefaultValue(&st->core->config, "idleOptimization", "remove");
     mCoreLoadConfig(st->core);
@@ -131,6 +133,7 @@ static bool m_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     st->video = calloc((size_t)st->w * st->h, sizeof *st->video);
     st->core->setVideoBuffer(st->core, (void *)st->video, st->w);
     if (!mCoreLoadFile(st->core, cfg[s].rom)) { link_log("seat %d: the game didn't load", s); return false; }
+    st->core->setAudioBufferSize(st->core, 4096);
     // the battery save in memory only – souldew gets it back through SRAM / SEATSRAM, nothing is written here
     st->core->loadSave(st->core, VFileMemChunk(cfg[s].save, cfg[s].save_len));
     // the cartridge clock: one shared start, then emulated time only (a real clock would differ between peers)
@@ -250,13 +253,82 @@ static uint8_t *m_mem(int seat, uint32_t addr, uint32_t len) {
 }
 static uint8_t m_read8(int seat, uint32_t addr) { return (uint8_t)seats[seat].core->busRead8(seats[seat].core, addr); }
 static void m_write8(int seat, uint32_t addr, uint8_t v) { seats[seat].core->busWrite8(seats[seat].core, addr, v); }
-static size_t m_state_size(int seat) { return seats[seat].core->stateSize(seats[seat].core); }
-static bool m_save_state(int seat, void *out) { return seats[seat].core->saveState(seats[seat].core, out); }
-static bool m_load_state(int seat, const void *in) { return seats[seat].core->loadState(seats[seat].core, in); }
+// Session states: the console's own state, then (GBA, linked) the lockstep driver's – its player, the events in flight
+// and, for player 0, the coordinator – then the battery save's contents. mCore's plain saveState leaves the driver out
+// (it is "extra" state) and the flash / EEPROM contents too, so a state loaded into a fresh host (a player rejoining)
+// would meet a driver that knows nothing of the transfer in progress and wait forever, and an old battery save.
+#define SIO_STATE_MAX 0x400
+static bool linked_gba(void) { return platform == mPLATFORM_GBA && nseats > 1; }
+static size_t save_size(int seat) {
+  void *p = NULL;
+  const size_t n = seats[seat].core->savedataClone(seats[seat].core, &p);
+  free(p);
+  return n;
+}
+static size_t m_state_size(int seat) {
+  size_t n = seats[seat].core->stateSize(seats[seat].core);
+  return n + (linked_gba() ? 4 + SIO_STATE_MAX : 0) + 4 + save_size(seat);
+}
+static bool m_save_state(int seat, void *out) {
+  struct mCore *c = seats[seat].core;
+  const size_t n = c->stateSize(c);
+  if (!c->saveState(c, out)) return false;
+  uint8_t *x = (uint8_t *)out + n;
+  if (linked_gba()) {
+    memset(x, 0, 4 + SIO_STATE_MAX);
+    struct GBASIODriver *d = &gba_drv[seat].d;
+    void *buf = NULL;
+    size_t size = 0;
+    d->saveState(d, &buf, &size);
+    if (!buf || size > SIO_STATE_MAX) { free(buf); return false; }
+    const uint32_t len = (uint32_t)size;
+    memcpy(x, &len, 4);
+    memcpy(x + 4, buf, size);
+    free(buf);
+    x += 4 + SIO_STATE_MAX;
+  }
+  void *sv = NULL;
+  const uint32_t sn = (uint32_t)c->savedataClone(c, &sv);
+  memcpy(x, &sn, 4);
+  if (sn) memcpy(x + 4, sv, sn);
+  free(sv);
+  return true;
+}
+static bool m_load_state(int seat, const void *in, size_t len) {
+  struct mCore *c = seats[seat].core;
+  const size_t n = c->stateSize(c);
+  if (len < n + 4) return false;
+  const uint8_t *x = (const uint8_t *)in + n, *end = (const uint8_t *)in + len;
+  const uint8_t *sio = NULL;
+  uint32_t sio_len = 0;
+  if (linked_gba()) {
+    if (end - x < 4 + SIO_STATE_MAX) return false;
+    memcpy(&sio_len, x, 4);
+    if (!sio_len || sio_len > SIO_STATE_MAX) return false;
+    sio = x + 4;
+    x += 4 + SIO_STATE_MAX;
+  }
+  uint32_t sn;
+  if (end - x < 4) return false;
+  memcpy(&sn, x, 4);
+  if ((size_t)(end - x - 4) != sn) return false;
+  if (sn && !c->savedataRestore(c, x + 4, sn, false)) return false; // (the battery save first: loadState keeps it)
+  if (!c->loadState(c, in)) return false;
+  if (sio) {
+    struct GBASIODriver *d = &gba_drv[seat].d;
+    return d->loadState(d, sio, sio_len);
+  }
+  return true;
+}
 
+static double m_sample_rate(void) { return seats[0].core->audioSampleRate(seats[0].core); }
+static size_t m_audio(int seat, int16_t *out, size_t max) {
+  struct mAudioBuffer *b = seats[seat].core->getAudioBuffer(seats[seat].core);
+  return b ? mAudioBufferRead(b, out, max) : 0;
+}
 
 const struct link_backend link_backend_mgba = {
   .name = "mgba", .system = m_system, .probe = m_probe, .open = m_open, .set_input = m_set_input, .run_frame = m_run_frame,
   .video = m_video, .fps = m_fps, .sram = m_sram, .hash = m_hash, .mem = m_mem, .read8 = m_read8, .write8 = m_write8,
-  .state_size = m_state_size, .save_state = m_save_state, .load_state = m_load_state,
+  .state_size = m_state_size, .save_state = m_save_state, .load_state = m_load_state, .sample_rate = m_sample_rate, .audio = m_audio,
 };

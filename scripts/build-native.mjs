@@ -5,9 +5,9 @@
 //   mgba_libretro.*              GBA: mGBA
 //   gambatte_libretro.*          Game Boy / Game Boy Color: Gambatte (libretro's port)
 //   SOURCES.txt                  which source each file was built from (GPL: the same tags/commits are public)
-//   linkhost                     native/link-host/linkhost.c – link sessions: N linked consoles in one process, lockstep
+//   linkhost[.exe]               native/link-host/linkhost.c – link sessions: N linked consoles in one process, lockstep
 //                                (trades and battles between players, docs/MULTIPLAYER.md); GBA on libmgba, GB/GBC on
-//                                SameBoy (needs RGBDS for SameBoy's boot ROM)
+//                                SameBoy (needs RGBDS for SameBoy's boot ROM), DS on melonDS's core library
 //
 //   node scripts/build-native.mjs [--platform win32-x64] [--only nds,gba,gb,link] [--host-only] [--jobs n]
 //   node scripts/build-native.mjs --check      (npm run dist: fails when the part is missing; SLS_NO_NATIVE=1 builds
@@ -36,7 +36,7 @@ const win = os === 'win32';
 const ext = win ? 'dll' : os === 'darwin' ? 'dylib' : 'so';
 const out = join(root, 'tools', 'native', plat);
 const jobs = String(opt('jobs', Math.max(2, cpus().length)));
-const only = new Set(String(opt('only', win ? 'nds,gba,gb' : 'nds,gba,gb,link')).split(','));
+const only = new Set(String(opt('only', 'nds,gba,gb,link')).split(','));
 
 /** The sources, at fixed versions (bump them here; SOURCES.txt in the build says which ones went in). */
 export const SOURCES = {
@@ -49,12 +49,16 @@ export const SOURCES = {
   // GB/GBC link sessions run on SameBoy (MIT): bit-level serial cable between two consoles, cycle-interleaved. Its boot
   // ROM is built from source with RGBDS (rgbasm/rgblink: brew install rgbds; apt install rgbds; Windows: the release zip)
   sameboy: { name: 'SameBoy (link host, Game Boy / Game Boy Color)', repo: 'https://github.com/LIJI32/SameBoy.git', ref: 'v1.0.5', file: null, license: ['LICENSE', 'LICENSE-sameboy-MIT.txt'] },
+  // DS link sessions run melonDS's core library directly (several NDS instances in one process, a deterministic local-
+  // wireless layer in native/link-host/backend_melonds.cpp): the melonDS fork melonDS DS v1.4.0 builds, at the commit its
+  // branch jtg/fix-uninitialized-opengl had then. Interpreter only (no JIT: the same results on arm64 and x64 peers).
+  melonds: { name: 'melonDS (link host, DS)', repo: 'https://github.com/JesseTG/melonDS.git', ref: '16f127dbb587a73371827ce79689c5d237c4b59b', file: null, license: ['LICENSE', 'LICENSE-melonds-GPL-3.0.txt'] },
   link: { name: 'mGBA (libmgba, link host)', repo: 'https://github.com/mgba-emu/mgba.git', ref: 'd58ea8a86f30598fbf3958585de3d33028535072', file: win ? 'linkhost.exe' : 'linkhost', license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
 };
 const HOST = win ? 'retrohost.exe' : 'retrohost';
 
 if (has('check')) {
-  const need = [HOST, ...Object.entries(SOURCES).filter(([k]) => k !== 'link' && k !== 'sameboy').map(([, s]) => s.file)]; // (the link host: optional for now)
+  const need = [HOST, ...Object.values(SOURCES).map((s) => s.file).filter(Boolean)]; // (the link host included: trades and battles)
   const missing = need.filter((f) => !existsSync(join(out, f)));
   if (!missing.length) {
     console.log(`fast player part: ${out} ✓`);
@@ -162,25 +166,65 @@ function buildGb() {
   license('gb', src);
 }
 
-/** The link host: native/link-host (the session + its backends) on libmgba (static, no frontends). */
+/**
+ * The link host: native/link-host (the session + its backends) – libmgba (static, no frontends) for the GBA, SameBoy for
+ * GB/GBC, melonDS's core for the DS – one executable, statically linked (Windows: nothing but Windows' own DLLs).
+ */
 function buildLink() {
   const src = source('link');
   const build = join(src, `build-static-${plat}`);
   const off = ['QT', 'SDL', 'GL', 'GLES2', 'GLES3', 'LIBRETRO', 'SHARED'].map((x) => `-DBUILD_${x}=OFF`);
   const no = ['FFMPEG', 'ZLIB', 'LIBZIP', 'MINIZIP', 'PNG', 'SQLITE3', 'ELF', 'LUA', 'EDITLINE', 'DISCORD_RPC', 'EPOXY', 'JSON_C'].map((x) => `-DUSE_${x}=OFF`);
-  run('cmake', [...cmakeTarget(), '-DBUILD_STATIC=ON', '-DENABLE_SCRIPTING=OFF', ...off, ...no, '-S', src, '-B', build]);
+  // (LIBMGBA_ONLY: the library alone – no frontends, and on Windows no epoxy/OpenGL requirement)
+  run('cmake', [...cmakeTarget(), '-DBUILD_STATIC=ON', '-DLIBMGBA_ONLY=ON', '-DBUILD_LTO=OFF', '-DENABLE_SCRIPTING=OFF', '-DENABLE_DEBUGGERS=OFF', '-DENABLE_GDB_STUB=OFF', ...off, ...no, '-S', src, '-B', build]);
   run('cmake', ['--build', build, '--parallel', jobs, '--target', 'mgba']);
   // the compile definitions libmgba was built with (its structs change shape with them)
-  const ninja = readFileSync(join(build, 'build.ninja'), 'utf8');
-  const defs = (ninja.match(/build CMakeFiles\/mgba\.dir\/src\/core\/core\.c\.o[\s\S]*?DEFINES = ([^\n]*)/)?.[1] || '').split(/\s+/).filter((d) => d.startsWith('-D'));
+  const defs = ninjaDefines(build, /build CMakeFiles\/mgba\.dir\/src\/core\/core\.c\.o[\s\S]*?DEFINES = ([^\n]*)/);
   const flags = os === 'darwin' ? ['-arch', arch === 'arm64' ? 'arm64' : 'x86_64', '-mmacosx-version-min=11.0'] : [];
-  const libs = os === 'darwin' ? ['-framework', 'CoreFoundation'] : os === 'linux' ? ['-lpthread', '-lm'] : ['-static', '-lm'];
+  const libs = os === 'darwin' ? ['-framework', 'CoreFoundation'] : os === 'linux' ? ['-static-libgcc', '-static-libstdc++', '-lpthread', '-lm']
+    : ['-static', '-static-libgcc', '-static-libstdc++', '-lshlwapi', '-lshell32', '-luuid', '-lws2_32', '-lole32', '-lwinmm', '-lm'];
   const sb = buildSameBoy(flags);
+  const ds = buildMelonDS();
+  const obj = join(build, 'souldew');
+  mkdirSync(obj, { recursive: true });
+  const objects = [];
+  for (const f of ['linkhost.c', 'backend_mgba.c', 'backend_sameboy.c']) {
+    const o = join(obj, f.replace(/\.c$/, '.o'));
+    run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), ...sb.cflags, '-c', join(root, 'native', 'link-host', f), '-o', o]);
+    objects.push(o);
+  }
+  const dso = join(obj, 'backend_melonds.o');
+  run(cxx, ['-O2', '-std=c++17', '-Wall', '-Wno-unused-function', ...flags, ...ds.cflags, '-c', join(root, 'native', 'link-host', 'backend_melonds.cpp'), '-o', dso]);
+  objects.push(dso);
   const exe = join(out, SOURCES.link.file);
-  run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), ...sb.cflags, '-o', exe,
-    ...['linkhost.c', 'backend_mgba.c', 'backend_sameboy.c'].map((f) => join(root, 'native', 'link-host', f)), ...sb.objects, join(build, 'libmgba.a'), ...libs]);
+  run(cxx, [...flags, '-o', exe, ...objects, ...sb.objects, join(build, 'libmgba.a'), ...ds.libs, ...libs]);
   if (!win) chmodSync(exe, 0o755);
   license('link', src);
+}
+
+/** The -D flags a target's object was compiled with (from a Ninja build file). */
+function ninjaDefines(build, re) {
+  const ninja = readFileSync(join(build, 'build.ninja'), 'utf8');
+  return (ninja.match(re)?.[1] || '').split(/\s+/).filter((d) => d.startsWith('-D'));
+}
+
+/**
+ * melonDS's core library for the link host's DS backend (native/link-host/backend_melonds.cpp): no frontend, no OpenGL,
+ * no GDB stub and no JIT (its timing differs from the interpreter's, and every peer must compute the same). Returns the
+ * flags to compile against it (the same definitions – its classes change shape with them) and the static libraries.
+ */
+function buildMelonDS() {
+  const src = source('melonds');
+  const build = join(src, `build-core-${plat}`);
+  run('cmake', [...cmakeTarget(), '-DBUILD_QT_SDL=OFF', '-DENABLE_OGLRENDERER=OFF', '-DENABLE_GDBSTUB=OFF', '-DENABLE_JIT=OFF', '-DENABLE_LTO_RELEASE=OFF', '-DENABLE_LTO=OFF',
+    '-DUSE_VCPKG=OFF', '-DMELONDS_EMBED_BUILD_INFO=OFF', '-S', src, '-B', build]);
+  run('cmake', ['--build', build, '--parallel', jobs, '--target', 'core']);
+  const defs = ninjaDefines(build, /build src\/CMakeFiles\/core\.dir\/NDS\.cpp\.o[\s\S]*?DEFINES = ([^\n]*)/);
+  license('melonds', src);
+  return {
+    cflags: [...defs, '-I', join(src, 'src'), '-I', join(build, 'src')],
+    libs: [join(build, 'src', `libcore.a`), join(build, 'src', 'teakra', 'src', 'libteakra.a')],
+  };
 }
 
 /**
@@ -196,13 +240,17 @@ function buildSameBoy(flags) {
   const boot = readFileSync(join(src, 'build', 'bin', 'BootROMs', 'cgb_boot.bin'));
   const bootC = join(obj, 'sbl_boot.c');
   writeFileSync(bootC, `/* SameBoy's CGB boot ROM (MIT), assembled from BootROMs/cgb_boot.asm */\nconst unsigned char sbl_cgb_boot[] = {${[...boot].join(',')}};\nconst unsigned sbl_cgb_boot_length = ${boot.length};\n`);
+  // the core's time() → the session clock: a header included first (time.h, then the macro) – not -Dtime=…, which on
+  // Windows would rename MinGW's inline time() in <time.h> and leave the wall clock in place
+  const timeH = join(obj, 'sbl_time.h');
+  writeFileSync(timeH, '/* souldew: SameBoy\'s clock is the link session\'s (backend_sameboy.c) */\n#include <time.h>\ntime_t sbl_time(time_t *t);\n#define time(t) sbl_time(t)\n');
   const defs = ['-DGB_INTERNAL', '-DGB_DISABLE_TIMEKEEPING', '-DGB_DISABLE_REWIND', '-DGB_DISABLE_DEBUGGER', '-DGB_DISABLE_CHEATS', '-DGB_DISABLE_CHEAT_SEARCH',
     '-D_GNU_SOURCE', '-D_USE_MATH_DEFINES', '-DNDEBUG', `-DGB_VERSION="${SOURCES.sameboy.ref.replace(/^v/, '')}"`];
   const files = ['gb', 'sgb', 'apu', 'memory', 'mbc', 'timing', 'display', 'camera', 'sm83_cpu', 'joypad', 'save_state', 'random', 'rumble'];
   const objects = [];
   for (const f of files) {
     const o = join(obj, `${f}.o`);
-    run(cc, ['-O2', '-std=gnu11', '-w', ...flags, ...defs, '-Dtime=sbl_time', '-I', src, '-c', join(src, 'Core', `${f}.c`), '-o', o]);
+    run(cc, ['-O2', '-std=gnu11', '-w', ...flags, ...defs, '-include', timeH, '-I', src, '-c', join(src, 'Core', `${f}.c`), '-o', o]);
     objects.push(o);
   }
   const bo = join(obj, 'sbl_boot.o');

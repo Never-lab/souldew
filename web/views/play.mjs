@@ -694,8 +694,9 @@ export function GameSession({ session, mode }) {
     // All uploads run one after another, so an older body can never land after a newer one.
     // `given` = bytes read synchronously by the caller (e.g. while the frame is being torn down).
     const persist = (given) => {
+      if (target.link?.discard) return chain; // (a link session that fell out of step: its saves don't count)
       chain = chain.then(async () => {
-        if (!loadedOk) return;
+        if (!loadedOk || target.link?.discard) return;
         const bytes = given || readSave();
         if (!bytes) return;
         const h = saveHash(bytes);
@@ -747,7 +748,7 @@ export function GameSession({ session, mode }) {
     // Page is going away (tab closed, reload, desktop window closed): no time to queue – send now.
     // keepalive bodies are capped at 64 KB, so bigger saves (NDS: 512 KB) are a plain best-effort fetch.
     const onPageHide = () => {
-      if (!loadedOk) return;
+      if (!loadedOk || target.link?.discard) return;
       const bytes = readSave();
       if (!bytes || saveHash(bytes) === lastSave) return;
       try {
@@ -979,7 +980,7 @@ export function GameSession({ session, mode }) {
       window.removeEventListener('beforeunload', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
       // final flush: read now (the frame is about to go), upload after whatever is still in flight
-      const bytes = loadedOk ? readSave() : null;
+      const bytes = loadedOk && !target.link?.discard ? readSave() : null;
       if (bytes) persist(bytes);
       saveAuto(loadedOk ? grabState() : null);
     };

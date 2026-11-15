@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "compat.h"
+#include <time.h>
 
 #define EXP RETRO_ENVIRONMENT_EXPERIMENTAL
 #define IS(cmd, k) (((cmd) & ~EXP) == ((k) & ~EXP))
@@ -467,6 +468,54 @@ static void sram_get(uint8_t **p, size_t *n) {
   *n = *p && core.get_memory_size ? core.get_memory_size(RETRO_MEMORY_SAVE_RAM) : 0;
   if (!*n) *p = NULL;
 }
+// The cartridge clock (Game Boy MBC3: Gold/Silver/Crystal): Gambatte keeps it as RETRO_MEMORY_RTC, 8 bytes – the Unix
+// second the clock read zero (the clock = now − that). souldew keeps it in the battery save as the 48-byte footer
+// VBA-M, mGBA and SameBoy write (u32 seconds, minutes, hours, days, flags – the clock then latched – then the u64 Unix
+// second it was saved): the same file then carries the clock into the link host (SameBoy) and back.
+#define RTC_FOOTER 48
+static int rtc_footer(uint8_t out[RTC_FOOTER]) {
+  uint8_t *r = core.get_memory_data ? core.get_memory_data(RETRO_MEMORY_RTC) : NULL;
+  if (!r || !core.get_memory_size || core.get_memory_size(RETRO_MEMORY_RTC) != 8) return 0;
+  uint64_t base;
+  memcpy(&base, r, 8);
+  const uint64_t now = (uint64_t)time(NULL);
+  uint64_t t = now > base ? now - base : 0, days = t / 86400;
+  uint32_t v[10] = {(uint32_t)(t % 60), (uint32_t)(t / 60 % 60), (uint32_t)(t / 3600 % 24), (uint32_t)(days & 0xff),
+                    (uint32_t)((days >> 8 & 1) | (days > 511 ? 0x80 : 0))};
+  memcpy(v + 5, v, 5 * sizeof *v);
+  memcpy(out, v, 40);
+  memcpy(out + 40, &now, 8);
+  return 1;
+}
+/** A save with the clock footer: Gambatte's clock from it (it ran on since it was saved, as a cartridge's does). */
+static void rtc_from_footer(const uint8_t *f) {
+  uint8_t *r = core.get_memory_data ? core.get_memory_data(RETRO_MEMORY_RTC) : NULL;
+  if (!r || !core.get_memory_size || core.get_memory_size(RETRO_MEMORY_RTC) != 8) return;
+  uint32_t v[5];
+  uint64_t saved;
+  memcpy(v, f, sizeof v);
+  memcpy(&saved, f + 40, 8);
+  const uint64_t days = (v[3] & 0xff) | (uint64_t)(v[4] & 1) << 8;
+  const uint64_t t = (v[0] % 60) + (uint64_t)(v[1] % 60) * 60 + (uint64_t)(v[2] % 24) * 3600 + days * 86400;
+  const uint64_t base = saved > t ? saved - t : 0;
+  memcpy(r, &base, 8);
+  logf_("cartridge clock from the save: %llu days %02u:%02u", (unsigned long long)days, v[2] % 24, v[1] % 60);
+}
+/** The battery save as souldew keeps it: the save memory, plus the clock footer for a clock cartridge. */
+static void send_sram(const uint8_t *p, size_t n) {
+  uint8_t f[RTC_FOOTER];
+  if (rtc_footer(f)) {
+    uint8_t *b = malloc(n + RTC_FOOTER);
+    if (b) {
+      memcpy(b, p, n), memcpy(b + n, f, RTC_FOOTER);
+      send_msg(9, b, (uint32_t)(n + RTC_FOOTER));
+      free(b);
+      return;
+    }
+  }
+  send_msg(9, p, (uint32_t)n);
+}
+
 /** Send the battery save when it changed: `force` now, else once it stopped changing (the game writes it in steps). */
 static void check_sram(int force) {
   uint8_t *p;
@@ -478,7 +527,7 @@ static void check_sram(int force) {
   sram_seen = h;
   if (h == sram_sent || (!force && !settled)) return;
   sram_sent = h;
-  send_msg(9, p, (uint32_t)n);
+  send_sram(p, n);
   send_event("{\"event\":\"saved\",\"size\":%zu}", n);
 }
 /** The save souldew hands over at the start, into the core's save memory (as RetroArch does with .srm files). */
@@ -491,6 +540,8 @@ static void load_sram(void) {
     FILE *f = fopen(opt_sram, "rb");
     if (f) {
       size_t got = fread(p, 1, n, f);
+      uint8_t footer[RTC_FOOTER];
+      if (got == n && fread(footer, 1, RTC_FOOTER, f) == RTC_FOOTER) rtc_from_footer(footer); // (a clock cartridge's)
       fclose(f);
       logf_("battery save: %zu of %zu bytes", got, n);
     }
@@ -795,6 +846,7 @@ int main(int argc, char **argv) {
       if (p) {
         memset(p, 0xff, n);
         memcpy(p, sd, sl < n ? sl : n);
+        if (sl == n + RTC_FOOTER) rtc_from_footer(sd + n);
         sram_sent = sram_seen = fnv(p, n);
       }
       free(sd);
