@@ -5,7 +5,8 @@
 // GBA SIO, DS local wireless, …), and must be deterministic: the same ROMs, saves, start time and per-frame inputs give
 // bit-identical consoles on every peer. No threads that race the emulation, no wall clock, no uninitialised memory.
 //
-// Backends today: backend_mgba.c (Game Boy / Game Boy Color serial link and Game Boy Advance SIO, on libmgba).
+// Backends today: backend_sameboy.c (Game Boy / Game Boy Color serial link, on SameBoy – the first choice for GB/GBC),
+// backend_mgba.c (Game Boy Advance SIO, and GB/GBC as a fallback, on libmgba).
 // Planned: a DS backend (two melonDS instances with a deterministic local-wireless MP layer), 3DS later.
 #ifndef LINKBACKEND_H
 #define LINKBACKEND_H
@@ -78,6 +79,7 @@ struct link_backend {
 };
 
 extern const struct link_backend link_backend_mgba;
+extern const struct link_backend link_backend_sameboy;
 
 /** Shared helpers from linkhost.c */
 void link_log(const char *fmt, ...);

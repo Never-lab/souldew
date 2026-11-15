@@ -49,7 +49,8 @@
 #define RING 4096 // frames of buttons kept per seat
 #define HASH_EVERY 120
 
-static const struct link_backend *backends[] = {&link_backend_mgba};
+// in order of preference: the first whose probe takes every seat's game runs the session (--backend NAME: that one)
+static const struct link_backend *backends[] = {&link_backend_sameboy, &link_backend_mgba};
 static const struct link_backend *B;
 
 // ---- output --------------------------------------------------------------------------------------------------------
@@ -434,7 +435,7 @@ static int load_all(const uint8_t *b, size_t len) {
 // ---- main ----------------------------------------------------------------------------------------------------------
 int main(int argc, char **argv) {
   const char *roms[LINK_MAX_SEATS] = {0}, *srams[LINK_MAX_SEATS] = {0}, *states[LINK_MAX_SEATS] = {0};
-  const char *script_path = NULL, *out_dir = NULL;
+  const char *script_path = NULL, *out_dir = NULL, *backend_name = NULL;
   int nr = 0, ns = 0, nst = 0, bench = 0;
   double bench_speed = 0;
   int64_t rtc_ms = 0;
@@ -454,6 +455,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(k, "--record")) record_f = fopen(v, "wb");
     else if (!strcmp(k, "--script")) script_path = v;
     else if (!strcmp(k, "--out")) out_dir = v;
+    else if (!strcmp(k, "--backend")) backend_name = v;
     else if (!strcmp(k, "--ram") && ram_n < MAX_RAM) {
       char *end = NULL;
       const unsigned long a = strtoul(v, &end, 0), n = end && *end == ':' ? strtoul(end + 1, NULL, 0) : 0;
@@ -462,7 +464,7 @@ int main(int argc, char **argv) {
   }
   nseats = nr;
   if (nseats < 1 || local_seat < 0 || local_seat >= nseats || delay_frames < 1 || delay_frames > 120) {
-    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]]\n");
+    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]] [--backend sameboy|mgba]\n");
     return 2;
   }
   if (bench) protocol = 0;
@@ -479,6 +481,7 @@ int main(int argc, char **argv) {
   }
 
   for (size_t i = 0; i < sizeof backends / sizeof *backends && !B; i++) {
+    if (backend_name && strcmp(backend_name, backends[i]->name)) continue;
     int all = 1;
     for (int s = 0; s < nseats; s++) all &= backends[i]->probe(roms[s]);
     if (all) B = backends[i];

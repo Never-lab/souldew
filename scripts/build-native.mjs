@@ -5,8 +5,9 @@
 //   mgba_libretro.*              GBA: mGBA
 //   gambatte_libretro.*          Game Boy / Game Boy Color: Gambatte (libretro's port)
 //   SOURCES.txt                  which source each file was built from (GPL: the same tags/commits are public)
-//   linkhost                     native/link-host/linkhost.c on libmgba – link sessions: N linked GBA / GB consoles
-//                                in one process, lockstep (trades and battles between players, docs/MULTIPLAYER.md)
+//   linkhost                     native/link-host/linkhost.c – link sessions: N linked consoles in one process, lockstep
+//                                (trades and battles between players, docs/MULTIPLAYER.md); GBA on libmgba, GB/GBC on
+//                                SameBoy (needs RGBDS for SameBoy's boot ROM)
 //
 //   node scripts/build-native.mjs [--platform win32-x64] [--only nds,gba,gb,link] [--host-only] [--jobs n]
 //   node scripts/build-native.mjs --check      (npm run dist: fails when the part is missing; SLS_NO_NATIVE=1 builds
@@ -45,12 +46,15 @@ export const SOURCES = {
   // the link host links libmgba statically: mGBA's master has the rewritten GBA lockstep driver (sleep/wake instead of
   // blocking threads – what a single-threaded, deterministic scheduler needs). Pinned: every peer must run the same
   // build, or the consoles drift apart (the session compares RAM hashes).
+  // GB/GBC link sessions run on SameBoy (MIT): bit-level serial cable between two consoles, cycle-interleaved. Its boot
+  // ROM is built from source with RGBDS (rgbasm/rgblink: brew install rgbds; apt install rgbds; Windows: the release zip)
+  sameboy: { name: 'SameBoy (link host, Game Boy / Game Boy Color)', repo: 'https://github.com/LIJI32/SameBoy.git', ref: 'v1.0.5', file: null, license: ['LICENSE', 'LICENSE-sameboy-MIT.txt'] },
   link: { name: 'mGBA (libmgba, link host)', repo: 'https://github.com/mgba-emu/mgba.git', ref: 'd58ea8a86f30598fbf3958585de3d33028535072', file: win ? 'linkhost.exe' : 'linkhost', license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
 };
 const HOST = win ? 'retrohost.exe' : 'retrohost';
 
 if (has('check')) {
-  const need = [HOST, ...Object.entries(SOURCES).filter(([k]) => k !== 'link').map(([, s]) => s.file)]; // (the link host: optional for now)
+  const need = [HOST, ...Object.entries(SOURCES).filter(([k]) => k !== 'link' && k !== 'sameboy').map(([, s]) => s.file)]; // (the link host: optional for now)
   const missing = need.filter((f) => !existsSync(join(out, f)));
   if (!missing.length) {
     console.log(`fast player part: ${out} ✓`);
@@ -171,10 +175,41 @@ function buildLink() {
   const defs = (ninja.match(/build CMakeFiles\/mgba\.dir\/src\/core\/core\.c\.o[\s\S]*?DEFINES = ([^\n]*)/)?.[1] || '').split(/\s+/).filter((d) => d.startsWith('-D'));
   const flags = os === 'darwin' ? ['-arch', arch === 'arm64' ? 'arm64' : 'x86_64', '-mmacosx-version-min=11.0'] : [];
   const libs = os === 'darwin' ? ['-framework', 'CoreFoundation'] : os === 'linux' ? ['-lpthread', '-lm'] : ['-static', '-lm'];
+  const sb = buildSameBoy(flags);
   const exe = join(out, SOURCES.link.file);
-  run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), '-o', exe, ...['linkhost.c', 'backend_mgba.c'].map((f) => join(root, 'native', 'link-host', f)), join(build, 'libmgba.a'), ...libs]);
+  run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), ...sb.cflags, '-o', exe,
+    ...['linkhost.c', 'backend_mgba.c', 'backend_sameboy.c'].map((f) => join(root, 'native', 'link-host', f)), ...sb.objects, join(build, 'libmgba.a'), ...libs]);
   if (!win) chmodSync(exe, 0o755);
   license('link', src);
+}
+
+/**
+ * SameBoy's core for the link host's Game Boy backend (native/link-host/backend_sameboy.c): its Core/*.c without the
+ * debugger, rewind, cheats and real-time pacing, the core's time() pointed at the session clock (determinism: no wall
+ * clock), and its CGB boot ROM (assembled from SameBoy's source with RGBDS) as a C array. Returns objects + cflags.
+ */
+function buildSameBoy(flags) {
+  const src = source('sameboy');
+  const obj = join(src, `build-souldew-${plat}`);
+  mkdirSync(obj, { recursive: true });
+  run('make', ['-C', src, 'build/bin/BootROMs/cgb_boot.bin', `CC=${process.env.HOST_CC || 'cc'}`]); // (pb12 is a build-time helper: host compiler)
+  const boot = readFileSync(join(src, 'build', 'bin', 'BootROMs', 'cgb_boot.bin'));
+  const bootC = join(obj, 'sbl_boot.c');
+  writeFileSync(bootC, `/* SameBoy's CGB boot ROM (MIT), assembled from BootROMs/cgb_boot.asm */\nconst unsigned char sbl_cgb_boot[] = {${[...boot].join(',')}};\nconst unsigned sbl_cgb_boot_length = ${boot.length};\n`);
+  const defs = ['-DGB_INTERNAL', '-DGB_DISABLE_TIMEKEEPING', '-DGB_DISABLE_REWIND', '-DGB_DISABLE_DEBUGGER', '-DGB_DISABLE_CHEATS', '-DGB_DISABLE_CHEAT_SEARCH',
+    '-D_GNU_SOURCE', '-D_USE_MATH_DEFINES', '-DNDEBUG', `-DGB_VERSION="${SOURCES.sameboy.ref.replace(/^v/, '')}"`];
+  const files = ['gb', 'sgb', 'apu', 'memory', 'mbc', 'timing', 'display', 'camera', 'sm83_cpu', 'joypad', 'save_state', 'random', 'rumble'];
+  const objects = [];
+  for (const f of files) {
+    const o = join(obj, `${f}.o`);
+    run(cc, ['-O2', '-std=gnu11', '-w', ...flags, ...defs, '-Dtime=sbl_time', '-I', src, '-c', join(src, 'Core', `${f}.c`), '-o', o]);
+    objects.push(o);
+  }
+  const bo = join(obj, 'sbl_boot.o');
+  run(cc, ['-O2', ...flags, '-c', bootC, '-o', bo]);
+  objects.push(bo);
+  license('sameboy', src);
+  return { objects, cflags: ['-I', src, '-DGB_DISABLE_REWIND', '-DGB_DISABLE_DEBUGGER', '-DGB_DISABLE_CHEATS', '-DGB_DISABLE_CHEAT_SEARCH'] };
 }
 
 function buildHost() {
@@ -193,7 +228,7 @@ if (!has('host-only')) {
   if (only.has('gb')) buildGb();
   if (only.has('link')) buildLink();
 }
-const lines = Object.entries(SOURCES).filter(([, s]) => existsSync(join(out, s.file))).map(([, s]) => `${s.file}: ${s.name} ${s.ref} – ${s.repo.replace(/\.git$/, '')}`);
+const lines = Object.entries(SOURCES).filter(([, s]) => existsSync(join(out, s.file || SOURCES.link.file))).map(([, s]) => `${s.file || SOURCES.link.file}: ${s.name} ${s.ref} – ${s.repo.replace(/\.git$/, '')}`);
 const prev = existsSync(join(out, 'SOURCES.txt')) ? readFileSync(join(out, 'SOURCES.txt'), 'utf8') : '';
 writeFileSync(join(out, 'SOURCES.txt'), `${[`${HOST}: souldew native/retro-host/retrohost.c`, ...lines].join('\n')}\n`);
 if (prev && prev !== readFileSync(join(out, 'SOURCES.txt'), 'utf8')) console.log('SOURCES.txt updated');
