@@ -350,6 +350,11 @@ void d_run_frame() {
   seats[next].st = St::Running;
   cv.notify_all();
   cv.wait(lk, [&] { return baton == -1; });
+  static const bool stats = getenv("SOULDEW_DS_STATS") != nullptr;
+  static u32 n = 0;
+  if (stats && ++n % 600 == 0) {
+    fprintf(stderr, "ds: frame %u: %llu yields, %llu baton switches so far\n", n, (unsigned long long)yields, (unsigned long long)switches);
+  }
 }
 
 void d_video(int seat, const uint32_t **px, unsigned *w, unsigned *h, unsigned *stride) {
@@ -404,8 +409,9 @@ void d_write8(int seat, uint32_t addr, uint8_t v) {
 // a console waiting mid-frame lives on its thread's stack and can't be written down).
 size_t d_state_size(int seat) {
   std::lock_guard<std::mutex> g(lock);
+  seats[seat].stateCache.clear();
   for (int i = 0; i < nseats; i++)
-    if (seats[i].st != St::Done) return 0;
+    if (seats[i].st != St::Done) return 0; // a console waits mid-frame for a packet: no state now
   Savestate ss;
   if (!seats[seat].nds->DoSavestate(&ss) || ss.Error) return 0;
   ss.Finish();
