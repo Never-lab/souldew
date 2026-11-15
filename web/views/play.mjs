@@ -14,7 +14,7 @@ import { MusicKeyTracker } from '/shared/live/location.mjs';
 import { PlayHome } from './playhome.mjs';
 import { PartyGrid } from './party.mjs';
 import { PartnerScreen, useScreenShare } from './partnerscreen.mjs';
-import { StatePanel, SaveAge, useSaveGuard, describeState, stateInfo, slotName, SHOT, MANUAL_SLOTS, AUTO_SLOT } from './savestates.mjs';
+import { StatePanel, SaveAge, useSaveGuard, describeState, stateInfo, slotName, SHOT, MANUAL_SLOTS, AUTO_SLOT, otherCoreText } from './savestates.mjs';
 import { RunStrip, LinkedPairs, BattlePanel, RulesDrawer, useBattlePanelPrefs } from './session-info.mjs';
 import { LocationSign, readHere, nextHere, areaOfHere, musicInfo, loadRomLocations, romSpeciesNow, romDataReady, romWramNow, romMaps3Now, romOwnNow, romDataNow, resetRomData } from './location.mjs';
 import { FeatureCheck, romFeatures } from '/shared/live/features.mjs';
@@ -90,7 +90,8 @@ export function PlayView() {
   const running = session?.target;
   const home = route.params.home !== undefined;
   // The running game is drawn by the app shell (GameSession), so it keeps going in every other section.
-  if (running && !home && (!target || target.key === running.key)) return null;
+  // (a link session of this run counts as this run's game: web/lib/linksession.mjs)
+  if (running && !home && (!target || target.key === running.key || (running.link && running.runId && running.runId === target.runId))) return null;
   if (!target || home) return html`<div class="stack-l">${running && html`<${RunningBanner} />`}<${PlayHome} /></div>`;
   if (target.error === 'noRom') {
     return html`<div class="panel empty-state">
@@ -158,9 +159,19 @@ function CtrFailed({ fail, target, onClose }) {
 }
 
 function StartGame({ target }) {
-  const { startSession } = useApp();
-  useEffect(() => startSession(target), [target.key]);
-  return null;
+  const { startSession, linkPlay, linkSessions } = useApp();
+  // a link session of this run this page dropped out of: rejoin (or leave it) first – the game would start from a save
+  // the link is about to replace (web/lib/linksession.mjs › rejoin)
+  const held = !target.link && linkPlay?.phase === 'rejoinable' && linkSessions?.runId === target.runId;
+  useEffect(() => {
+    if (!held) startSession(target);
+  }, [target.key, held]);
+  if (!held) return null;
+  return html`<div class="panel empty-state stack">
+    <p>${t('linkplay.rejoinFirst', 'Your game is still part of a link with the others. Rejoin it – or leave it – before you play on alone.')}</p>
+    <div class="row"><button class="btn primary" onClick=${() => linkSessions.rejoin()}>${t('linkplay.rejoin', 'Rejoin')}</button>
+      <button class="btn ghost" onClick=${() => linkSessions.leave('left')}>${t('linkplay.dropIt', 'Leave it')}</button></div>
+  </div>`;
 }
 
 /** Shown on the Play overview while a game keeps running in the corner. */
@@ -305,9 +316,9 @@ export function GameSession({ session, mode }) {
   // (3DS: Azahar in the New 3DS mode – states of another core or mode can't be loaded, and a state of the other mode
   // would stop the game)
   // The fast player (playernative.html, server/lib/native.mjs): DS, GBA and Game Boy run in souldew's native host –
-  // melonDS with its JIT, mGBA, Gambatte – at full speed with uncapped fast-forward, unless Settings › "Fast player" is
+  // melonDS with its JIT, mGBA, SameBoy – at full speed with uncapped fast-forward, unless Settings › "Fast player" is
   // off or its part is missing. When it can't start the game, the session switches to the browser emulator by itself.
-  const [nativeOn, setNativeOn] = useState(() => target.system !== '3ds' && status?.config?.nativeCore !== false && !!status?.native?.cores?.[target.system] && !!status?.native?.ids?.[target.system]);
+  const [nativeOn, setNativeOn] = useState(() => !!target.link || (target.system !== '3ds' && status?.config?.nativeCore !== false && !!status?.native?.cores?.[target.system] && !!status?.native?.ids?.[target.system]));
   const core = target.system === '3ds' ? 'azahar-n3ds' : nativeOn ? status.native.ids[target.system] : isDs && /^(IPK|IPG|IRB|IRA|IRE|IRD)/.test(target.code || '') ? 'desmume' : '';
   // What fast-forward really reaches in this game on this computer (lib/reach.mjs), remembered per game and core: the
   // turbo steps it can't reach aren't offered – the highest one then plays as fast as the computer manages.
@@ -451,9 +462,10 @@ export function GameSession({ session, mode }) {
       }
       // a state of another core (or 3DS mode) can't be loaded – as the states panel says (and a 3DS one would stop the game)
       const info = await fetch(`/api/saves/states?id=${encodeURIComponent(target.stateId)}`).then((x) => x.json()).then((l) => l.find((x) => x.slot === slot)?.info).catch(() => null);
-      if (info && (info.core || '') !== (core || '')) {
+      const other = info ? otherCoreText(info.core, core) : null;
+      if (other) {
         armLoad(null);
-        return flash(t('states.otherCore', 'Made with another emulator core – can’t be loaded here'));
+        return flash(other);
       }
       armLoad({ slot, bytes });
     },
@@ -710,8 +722,9 @@ export function GameSession({ session, mode }) {
     // All uploads run one after another, so an older body can never land after a newer one.
     // `given` = bytes read synchronously by the caller (e.g. while the frame is being torn down).
     const persist = (given) => {
+      if (target.link?.discard) return chain; // (a link session that fell out of step: its saves don't count)
       chain = chain.then(async () => {
-        if (!loadedOk) return;
+        if (!loadedOk || target.link?.discard) return;
         const bytes = given || readSave();
         if (!bytes) return;
         const h = saveHash(bytes);
@@ -763,7 +776,7 @@ export function GameSession({ session, mode }) {
     // Page is going away (tab closed, reload, desktop window closed): no time to queue – send now.
     // keepalive bodies are capped at 64 KB, so bigger saves (NDS: 512 KB) are a plain best-effort fetch.
     const onPageHide = () => {
-      if (!loadedOk) return;
+      if (!loadedOk || target.link?.discard) return;
       const bytes = readSave();
       if (!bytes || saveHash(bytes) === lastSave) return;
       try {
@@ -997,7 +1010,7 @@ export function GameSession({ session, mode }) {
       window.removeEventListener('beforeunload', onPageHide);
       document.removeEventListener('visibilitychange', onVisibility);
       // final flush: read now (the frame is about to go), upload after whatever is still in flight
-      const bytes = loadedOk ? readSave() : null;
+      const bytes = loadedOk && !target.link?.discard ? readSave() : null;
       if (bytes) persist(bytes);
       saveAuto(loadedOk ? grabState() : null);
     };
@@ -1064,7 +1077,8 @@ export function GameSession({ session, mode }) {
   // runs clearly below full speed for ~10 s, the play view says so and what helps (lib/slowdown.mjs, issue #4: Platinum
   // at half speed with crackling sound on a player's PC – the core itself was too slow there, ~30 ms per frame).
   useEffect(() => {
-    if (phase !== 'running') return undefined;
+    // (a link session's pace is the slowest partner's and stands still while one is missing – not this computer's)
+    if (phase !== 'running' || target.link) return undefined;
     let last = null;
     let skipSlow = 0;
     let skipped = false;
@@ -1181,7 +1195,18 @@ export function GameSession({ session, mode }) {
   }, [phase]);
 
   // The fast player's page: the host opens the ROM itself; the battery save comes from the same place as for player.html
-  const [nativeSrc] = useState(() => `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}`);
+  // (a link session: the server started the link host already – the page attaches to it, docs/MULTIPLAYER.md)
+  const [nativeSrc] = useState(() => {
+    const q = new URLSearchParams({ system: target.system, rom: target.rom, key: target.soloKey || target.key, name: target.name, save: target.saveUrl });
+    if (layout === 'lr') q.set('layout', 'left');
+    // (a link session's page also gets the game itself: once the session is over it goes on alone from there)
+    if (target.link) {
+      q.set('link', '1');
+      q.set('session', target.link.id);
+      if (target.link.model) q.set('model', target.link.model);
+    }
+    return `/playernative.html?${q}`;
+  });
   // The frame's URL is fixed for the whole session – changing it would reboot the game.
   const [wasmSrc] = useState(() => {
     // 3DS: souldew's own player page – the game runs in the native host (server/lib/ctr.mjs), its saves live in the
@@ -1308,7 +1333,7 @@ export function GameSession({ session, mode }) {
           </div>
         </div>
         <div class="session-bar" role="toolbar" aria-label=${t('play.controls', 'Game controls')}>
-          ${btn(paused ? 'resume' : 'pause', t('keys.pause', 'Pause / resume') + ' (P)', actions.pause, { 'data-pad-first': '' })}
+${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.pause', 'Pause / resume') + ' (P)', actions.pause, { 'data-pad-first': '' })}
           ${btn('reset', t('keys.reset', 'Reset the game (asks first)') + ' (R)', actions.reset)}
           <span class="sep"></span>
           <button class="btn icon" title=${t('play.slower', 'Slower')} aria-label=${t('play.slower', 'Slower')} onClick=${actions.slower}><span aria-hidden="true">–</span></button>
@@ -1319,7 +1344,7 @@ export function GameSession({ session, mode }) {
           ${btn('save', t('states.quicksave', 'Quick save to slot {n}', { n: sel }) + ' (F5)', () => actions.quicksave())}
           <button class=${`btn small ghost states-btn ${statesOpen ? 'on' : ''}`} aria-expanded=${statesOpen} aria-haspopup="dialog"
             title=${t('states.openHint', 'All save states – load, overwrite, delete')} onClick=${() => setStatesOpen(!statesOpen)}>
-            <${Icon} name="load" size=${14} />${t('states.title', 'Save states')}<span class="px slot-no" aria-hidden="true">${sel}</span></button>
+            <${Icon} name="load" size=${14} />${t('states.title', 'Save states')}<span class="px slot-no" aria-hidden="true">${sel}</span></button>`}
           <span class="spacer"></span>
           ${target.system === '3ds' && html`<span class="layout-wrap">
             ${btn(layout3ds === 'lr' || layout3ds === 'large' ? 'layoutLr' : 'layoutTb', t('play.layout3ds', 'Screen layout'), () => setLayoutOpen(!layoutOpen), { 'aria-expanded': layoutOpen, 'aria-haspopup': 'dialog' })}

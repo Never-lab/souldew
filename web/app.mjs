@@ -6,7 +6,7 @@ import { SyncLink, PARTNER_TTL } from './lib/sync.mjs';
 import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
 import { detectLayout } from './lib/controls.mjs';
-import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun } from './lib/run.mjs';
+import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules } from './lib/run.mjs';
 import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal, openExternal } from './lib/ui.mjs';
 import { LINKS } from './lib/links.mjs';
@@ -19,6 +19,8 @@ import { LibraryView } from './views/library.mjs';
 import { unpackToast } from './lib/libadded.mjs';
 import { SoulLinkView, NuzlockeView } from './views/soullink.mjs';
 import { PlayView, GameSession, ExternalFeed } from './views/play.mjs';
+import { LinkSessions } from './lib/linksession.mjs';
+import { LinkBar } from './views/linkplay.mjs';
 import { unsavedProgress, unsavedTexts } from './views/savestates.mjs';
 import { LinkView } from './views/link.mjs';
 import { SettingsView, gpuFallbackText } from './views/settings.mjs';
@@ -196,6 +198,8 @@ function App() {
   sessionRef.current = session;
   const [, setLangTick] = useState(0);
   const linkRef = useRef(null);
+  const linkPlayRef = useRef(null); // trades and battles (web/lib/linksession.mjs)
+  const [linkPlay, setLinkPlay] = useState(null);
   const runIdRef = useRef(null);
   runIdRef.current = runId;
   const inboxKey = useRef('');
@@ -509,6 +513,18 @@ function App() {
   const applySnap = useCallback((snap, { notify = true, battle = null } = {}) => {
     if (!runDoc) return null;
     const doc = runDoc;
+    // A link session (docs/MULTIPLAYER.md › rules): what the game shows meanwhile isn't the run's – a link battle (also
+    // one fought in a "trade" session: the Colosseum is next door) would count deaths and wipes, a trade screen shuffles
+    // the party. Nothing of it is applied; the first and the last team it showed make the trade's log entry, and the run
+    // goes on from the session's in-game save. Only "Losing a link battle counts as deaths" applies a battle's team.
+    const lps = linkPlayRef.current;
+    if (lps?.state?.phase === 'running' && snap.source === 'live') {
+      if ((snap.party || []).length) {
+        lps.partyFirst ||= snap.party;
+        lps.partyLast = snap.party;
+      }
+      if (!(lps.state.kind === 'battle' && getRules(doc, manifest)?.linkBattleDeaths)) return null;
+    }
     // An ended run stays as it ended: playing on (for fun, or after a wipe) records nothing anymore.
     if (doc.get('run:status')) return null;
     const res = applySnapshot(doc, manifest, genOfRun(manifest, runData), me, snap, { rd: runData, battle });
@@ -550,6 +566,8 @@ function App() {
     const names = getPlayers(doc, manifest);
     const link = new SyncLink({
       room: manifest.room, secret: manifest.secret, slot: me, slots: slotsOf(manifest), name: names[me].name, doc,
+      // TURN for strict NATs: short-lived credentials from souldew's bot through the local server (docs/MULTIPLAYER.md)
+      getIceServers: () => api.get('/api/link/ice').then((r) => (r?.iceServers ? { iceServers: r.iceServers, relayOnly: !!r.relayOnly } : null)),
       onStatus: (s) => linkRef.current === link && setLinkStatus({ ...s }),
       onMessage: (msg) => {
         if (msg.payload?.type === 'ping') {
@@ -559,10 +577,72 @@ function App() {
       },
     });
     linkRef.current = link;
+    linkPlayRef.current?.stop();
+    // a link session: the play view shows the local seat (target.link); its end closes it
+    // this player's game of this run, running in the fast player right now (a link session starts from it – seamless)
+    const nativeEmu = () => document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__emu || null;
+    const ownGame = () => {
+      const tg = sessionRef.current?.target;
+      return !!tg && tg.runId === manifest.id && !tg.link && tg.saveUrl === `/api/runs/${manifest.id}/save/${me}` && !!nativeEmu()?.ready;
+    };
+    const lp = new LinkSessions({
+      sync: link, runId: manifest.id, me, emu: nativeEmu, ownGame,
+      onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
+      openSession: (st) => {
+        lp.partyFirst = lp.partyLast = null; // the teams the link session shows first and last (the trade's log entry)
+        const out = manifest.outputs?.[me];
+        if (!out) return;
+        const link = { id: st.id, seats: st.seats, kind: st.kind, delay: st.delay, model: st.models?.[me] || null };
+        const cur = sessionRef.current;
+        if (st.seamless && cur?.target?.runId === manifest.id) { // the running game went into the session: same player, same picture
+          cur.target.link = link; // (the play view's save writer reads target.link as it goes)
+          setSession({ ...cur });
+          return;
+        }
+        startSession({
+          kind: 'run', key: `link-${st.id}`, soloKey: `run-${manifest.id}-${me}`, system: manifest.game?.system, code: manifest.game?.code, title: manifest.game?.title,
+          rom: `/api/runs/${manifest.id}/file?inline=1&name=${encodeURIComponent(out.rom)}`, name: out.rom.replace(/\.\w+$/, ''),
+          saveUrl: `/api/runs/${manifest.id}/save/${me}`, stateId: `run-${manifest.id}-${me}`, label: manifest.name, gameId: manifest.game?.id,
+          runId: manifest.id, params: { run: manifest.id }, link,
+        });
+        navigate('play', { run: manifest.id });
+      },
+      closeSession: (st) => {
+        const cur = sessionRef.current;
+        const tl = cur?.target?.link;
+        // fell out of step: the run's save went back to before the session – the play view writes no last save of it
+        if (st.ended?.reason === 'linkDesync' && tl) tl.discard = true;
+        if (st.kind === 'trade' && st.ended?.reason !== 'linkDesync') {
+          const partner = (st.seats || []).find((s) => s !== me);
+          try {
+            logLinkTrade(doc, manifest, me, partner, lp.partyFirst, lp.partyLast);
+          } catch (e) {
+            console.warn('trade log', e);
+          }
+        }
+        // the player's own console went on alone (seamless): the same game keeps running – no restart, nothing to close
+        if (st.ended?.resumed && tl && cur) {
+          cur.target.link = null;
+          setSession({ ...cur });
+          return;
+        }
+        endSession();
+      },
+    });
+    linkPlayRef.current = lp;
+    if (pref.get('sl-e2e', false)) window.__slLink = { sessions: lp, sync: link }; // (scripts/link-e2e.mjs sets sl-e2e)
+    if (lp.state.phase !== 'idle') {
+      setLinkPlay({ ...lp.state }); // (a session this page dropped out of: the bar offers to rejoin it)
+      // the run's own game came up meanwhile (a reload on the play view): it waits until the link is rejoined or left
+      if (lp.state.phase === 'rejoinable' && sessionRef.current?.target?.runId === manifest.id && !sessionRef.current.target.link) endSession();
+    }
     await link.start();
     if (linkRef.current === link) pref.set(`sl-autolink-${manifest.id}`, true);
   }, [runDoc, manifest, me]);
   const disconnect = useCallback(() => {
+    linkPlayRef.current?.stop();
+    linkPlayRef.current = null;
+    setLinkPlay(null);
     linkRef.current?.stop();
     linkRef.current = null;
     setLinkStatus(null);
@@ -572,6 +652,9 @@ function App() {
     // A solo Nuzlocke has nobody to sync with – no relay traffic unless connected by hand (Connection page).
     if (runDoc && runMode(manifest) !== 'nuzlocke' && pref.get(`sl-autolink-${manifest.id}`, true)) connect();
     return () => {
+      linkPlayRef.current?.stop();
+      linkPlayRef.current = null;
+      setLinkPlay(null);
       linkRef.current?.stop();
       linkRef.current = null;
       setLinkStatus(null);
@@ -595,6 +678,7 @@ function App() {
       removeEventListener('pageshow', show);
     };
   }, []);
+
 
   // ---- native menu ----------------------------------------------------------------
   useEffect(() => {
@@ -626,7 +710,7 @@ function App() {
   const warnCount = runDoc ? checkCount + inbox.inbox.length + inbox.alerts.length : 0;
   const ctx = {
     status, reloadStatus, library, reloadLibrary, runId, setRunId, manifest, missingRun, reloadManifest, doc: runDoc, docVersion, runData, me, setMe,
-    navigate, route, link: linkRef.current, linkStatus, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, toast, liveInfo,
+    navigate, route, link: linkRef.current, linkStatus, linkPlay, linkSessions: linkPlayRef.current, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, toast, liveInfo,
     externalRun, setExternalRun,
     session, startSession, endSession, closeSession, offerRestart,
   };
@@ -765,6 +849,7 @@ function App() {
       <p class="muted">${unsavedTexts(unsavedProgress()).text}</p>
     <//>
     <${LicenseNag} open=${!!nag} launches=${nag?.launches} onClose=${() => setNag(null)} />
+    ${manifest && linkPlay && html`<${LinkBar} />`}
     <${Toasts} toasts=${toasts} dismiss=${(id) => setToasts((ts) => ts.filter((x) => x.id !== id))} />
     <${TrophyToasts} items=${trophyToasts} navigate=${navigate} dismiss=${(key) => setTrophyToasts((ts) => ts.filter((x) => x.key !== key))} />
     <${DeathAlert} alert=${runOver ? null : deathAlert} onClose=${() => setDeathAlert(null)} />

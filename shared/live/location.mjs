@@ -27,9 +27,19 @@ export function mapEntryFor(maps, entry) {
   return m && entry?.wram ? shiftEntry(m, entry.wram) : m;
 }
 
+// The link rooms (trades and battles between players, docs/MULTIPLAYER.md) aren't places of the region: the tables
+// would name them after whatever their map shares a number with (Gen 1 "Pokémon League", Gen 3 "Ferry"). A reading
+// in one gives { id: 'link:<room>', link: '<room>' } – the sign says "Trade Center" / "Colosseum" / "Cable Club" /
+// "Union Room", and no area of the run counts it.
+const linkRoom = (room, map) => ({ id: `link:${room}`, link: room, map });
+const GEN1_LINK = { 239: 'trade', 240: 'colosseum' }; // pokered TRADE_CENTER $EF, COLOSSEUM $F0 (Yellow the same)
+const GEN2_LINK = { '20.2': 'trade', '20.3': 'colosseum', '20.4': 'timecapsule' }; // the CableClub map group (G/S/C)
+const GEN4_LINK = { pt: { 466: 'union' } }; // Platinum's Union Room (measured in the link host; D/P and HG/SS: to do)
+
 function readGen1(m, read, maps) {
   const b = read(hex(m.curMapAddr), 1);
   if (!ok(b, 1)) return null;
+  if (GEN1_LINK[b[0]]) return linkRoom(GEN1_LINK[b[0]], b[0]);
   const id = maps.tables?.gen1?.[m.table]?.[String(b[0])];
   return Number.isInteger(id) ? { id, map: b[0] } : null;
 }
@@ -39,6 +49,7 @@ function readGen2(m, read, maps) {
   const n = read(hex(m.mapNumberAddr), 1);
   if (!ok(g, 1) || !ok(n, 1)) return null;
   const key = `${g[0]}.${n[0]}`;
+  if (GEN2_LINK[key]) return linkRoom(GEN2_LINK[key], key);
   const id = maps.tables?.gen2?.[m.table]?.[key];
   // landmark 0 = LANDMARK_SPECIAL (Pokémon Center 2F, trade/colosseum rooms): no place to show
   return Number.isInteger(id) && id > 0 ? { id, map: key } : null;
@@ -54,6 +65,9 @@ function readGen3(m, read) {
   const rom = (p) => p >= 0x08000000 && p < 0x0a000000;
   if (!rom(layout) || !rom(events)) return null;
   const sec = b[0x14];
+  // Ruby/Sapphire/Emerald's link rooms (Trade Center, Colosseums, Record Corner) share MAPSEC 0x57 with the S.S. Tidal
+  // – told apart by their music (0x1A6), measured in the link host
+  if (sec === 0x57 && u16le(b, 0x10) === 0x1a6) return linkRoom('cableclub', sec);
   // 0xD5+ = MAPSEC_NONE / dynamic (Emerald), 0xC5+ in FireRed/LeafGreen are special sections
   return sec < 0xd5 ? { id: sec, map: sec } : null;
 }
@@ -103,6 +117,7 @@ function readGen4(m, read, maps, entry, ctx = {}) {
   const b = read(save + (m?.mapIdOffset ? hex(m.mapIdOffset) : GEN4_ENGINE[fam].mapIdOffset), 4);
   if (!ok(b, 4)) return null;
   const mapId = u32le(b, 0);
+  if (GEN4_LINK[fam]?.[mapId]) return linkRoom(GEN4_LINK[fam][mapId], mapId);
   const list = ctx.rom?.gen === 4 ? ctx.rom.mapLoc : maps.tables?.gen4?.[m?.table];
   if (!Array.isArray(list) || mapId >= list.length) return null;
   const id = list[mapId];

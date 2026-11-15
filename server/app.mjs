@@ -6,6 +6,7 @@ import { readFileSync, existsSync, statSync, createReadStream, createWriteStream
 import { once } from 'node:events';
 import { join, extname, resolve, basename, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import { WEB_DIR, SHARED_DIR, CACHE_DIR, DATA_DIR, CONFIG_PATH, NODE_MODULES, DEV, LIBRARY_DIR } from './lib/paths.mjs';
 import { writeFileAtomic, httpError, safeFileName, safeJoin, realInside } from './lib/fsutil.mjs';
 import { detectJava, uprStatus, installUpr, runBridge } from './lib/toolchain.mjs';
@@ -23,7 +24,11 @@ import { LiveBridge } from './lib/livebridge.mjs';
 import { AzaharBridge, enableRpc } from './lib/azahar.mjs';
 import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted } from './lib/ctr.mjs';
 import { pickRenderer, validRenderer, gpuKey, remember, validScale, scaleFor } from './lib/ctrrenderer.mjs';
-import { NativeSessions, nativeTools, NATIVE_CORES } from './lib/native.mjs';
+import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId } from './lib/native.mjs';
+import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem } from '../shared/link.mjs';
+import { ownSeat, resolveSeat, pickSeat, extractTarget, partnerBuildRequest } from './lib/linkroms.mjs';
+import { linkIceServers } from './lib/linkice.mjs';
+import { needsIdenticalRom, baseRomsFor } from '../shared/restart.mjs';
 import { moveToGraveyard, parseHgssSave } from '../shared/gen4save.mjs';
 import { listPresets, savePreset, deletePreset } from './lib/presets.mjs';
 import { pageHeaders } from './lib/csp.mjs';
@@ -596,7 +601,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   };
   const nativeStatus = () => {
     const tl = nativeTools();
-    return { ok: tl.ok, cores: Object.fromEntries(Object.entries(tl.cores || {}).map(([k, v]) => [k, !!v])), ids: Object.fromEntries(Object.entries(NATIVE_CORES).map(([k, c]) => [k, c.id])) };
+    const look = loadConfig().gbLook;
+    return { ok: tl.ok, cores: Object.fromEntries(Object.entries(tl.cores || {}).map(([k, v]) => [k, !!v])), ids: Object.fromEntries(Object.keys(NATIVE_CORES).map((k) => [k, nativeCoreId(k, gbModel(k, look))])) };
   };
   // Azahar (3DS): polled once someone plays a 3DS game – the play view asks for its status, a launch starts it too
   let azahar = null;
@@ -860,6 +866,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         turboMax: config.turboMax === true,
         fullTurbo: config.fullTurbo !== false,
         nativeCore: config.nativeCore !== false,
+        gbLook: GB_LOOKS.includes(config.gbLook) ? config.gbLook : 'original',
         pads: config.pads || null,
         gpuBackend: validBackend(config.gpuBackend, process.platform),
         gpuFallback: fallbackNotice(config.gpuFallback),
@@ -877,7 +884,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale']) {
       if (k in body) allowed[k] = body[k];
     }
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
@@ -905,6 +912,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if ('turboMax' in allowed) allowed.turboMax = allowed.turboMax === true;
     if ('fullTurbo' in allowed) allowed.fullTurbo = allowed.fullTurbo !== false; // on unless switched off
     if ('nativeCore' in allowed) allowed.nativeCore = allowed.nativeCore !== false; // the fast player: on unless switched off
+    if ('gbLook' in allowed && !GB_LOOKS.includes(allowed.gbLook)) delete allowed.gbLook; // Game Boy games: original / GBC colours
     if ('padNav' in allowed) allowed.padNav = allowed.padNav !== false; // controller navigation (web/lib/padnav.mjs): on unless switched off
     // the graphics backend electron/main.mjs applies at the next start; the fallback notice can only be dismissed
     if ('gpuBackend' in allowed) {
@@ -1439,14 +1447,179 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // ---- DS / GBA / GB in the fast native player (server/lib/native.mjs) -------------------------------------------
   route('GET', /^\/api\/native\/status$/, () => ({ tools: nativeStatus(), session: native.status() }));
   route('POST', /^\/api\/native\/start$/, async (req) => {
-    const { rom, key, system, save, saveUrl } = await readBody(req);
+    const { rom, key, system, save, saveUrl, state, model: asked } = await readBody(req);
     if (typeof key !== 'string' || !key || key.length > 600) throw httpError(400, 'Ungültiger Spielstand-Schlüssel', 'badKey');
     if (!Object.hasOwn(NATIVE_CORES, system)) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
-    if (save != null && (typeof save !== 'string' || save.length > 6 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(save))) throw httpError(400, 'Ungültiger Spielstand', 'badSave');
+    const b64ok = (v, maxBytes) => typeof v === 'string' && v.length <= Math.ceil(maxBytes / 3) * 4 && /^[A-Za-z0-9+/]*={0,2}$/.test(v);
+    if (save != null && !b64ok(save, MAX_SAVE)) throw httpError(400, 'Ungültiger Spielstand', 'badSave');
+    // (state: the save state to go on from – the player's own console as a link session left it, docs/MULTIPLAYER.md)
+    if (state != null && !b64ok(state, MAX_STATE)) throw httpError(400, 'Ungültiger Zustand', 'badSave');
     const tools = nativeTools();
     if (!tools.cores?.[system]) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
-    const id = native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl) });
-    return { id, core: NATIVE_CORES[system].id };
+    // a Game Boy game's console: Settings › "Game Boy look" – or the one a state to go on from was made on
+    const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, loadConfig().gbLook);
+    const id = native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
+      state: state ? Buffer.from(state, 'base64') : null, model });
+    return { id, core: nativeCoreId(system, model), model };
+  });
+  // ---- link sessions: trades and battles between the players of a run (docs/MULTIPLAYER.md) -----------------------
+  // Every seat's game must be a file on this computer (server/lib/linkroms.mjs: the run's builds, a file the player
+  // picked, or the library – ROMs never travel), byte-identical to the one its player plays: by SHA-1, never by name.
+  const linkDeps = (manifest) => {
+    const dir = runDir(manifest.id);
+    const lib = scanLibrary(loadConfig());
+    return {
+      runFile: runPath, dir,
+      libraryRoms: lib.roms.filter((r) => sameLinkSystem(r.system, manifest.game?.system)),
+      extract: (rom) => { // (named with the entry's CRC: an existing file is that game already)
+        const target = extractTarget(dir, rom);
+        if (!existsSync(target)) writeFileAtomic(target, Buffer.from(loadFile(rom.id, loadConfig())));
+        return target;
+      },
+      lib,
+    };
+  };
+  const linkManifest = (runId) => {
+    const manifest = readManifest(String(runId || ''));
+    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    return manifest;
+  };
+  // the run's peer connections: STUN + short-lived TURN credentials from souldew's bot (server/lib/linkice.mjs)
+  route('GET', /^\/api\/link\/ice$/, () => linkIceServers());
+  route('GET', /^\/api\/link\/check$/, (req, m, url) => {
+    const manifest = linkManifest(url.searchParams.get('runId'));
+    const system = manifest.game?.system || null;
+    const slots = Object.fromEntries(slotsOf(manifest).map((s) => {
+      const r = ownSeat(manifest, s, runPath);
+      return [s, { rom: !!r.path, sha1: r.sha1, crc: r.crc }];
+    }));
+    // model: this player's console for a Game Boy game that boots for the link (Settings › "Game Boy look")
+    return { tool: !!linkTool(), system, supported: LINK_SYSTEMS.includes(system), game: manifest.game?.id || null, slots,
+      randomized: needsIdenticalRom(manifest), model: gbModel(system, loadConfig().gbLook) };
+  });
+  // Which seats' games are here: { seats: { slot: { ok, how } }, missing: [{ slot, canBuild }] }. `seats`: { slot:
+  // { sha1, crc } } as each player announced their own.
+  route('POST', /^\/api\/link\/resolve$/, async (req) => {
+    const { runId, seats } = await readBody(req);
+    const manifest = linkManifest(runId);
+    if (!seats || typeof seats !== 'object') throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    const runSlots = slotsOf(manifest);
+    const deps = linkDeps(manifest);
+    const out = {};
+    const missing = [];
+    for (const [slot, v] of Object.entries(seats)) {
+      if (!runSlots.includes(slot)) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+      const r = resolveSeat(manifest, slot, v?.sha1, v?.crc, deps);
+      out[slot] = { ok: !!r, how: r?.how || null };
+      if (!r) missing.push({ slot, canBuild: needsIdenticalRom(manifest) && !!(baseRomsFor(manifest, deps.lib.roms).length) });
+    }
+    return { seats: out, missing };
+  });
+  // "Pick your copy of FireRed": a library ROM for a partner's seat – taken only when its SHA-1 is the partner's.
+  route('POST', /^\/api\/link\/pick$/, async (req) => {
+    const { runId, slot, sha1, romId } = await readBody(req);
+    const manifest = linkManifest(runId);
+    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    const deps = linkDeps(manifest);
+    const rom = deps.lib.roms.find((r) => r.id === romId);
+    if (!rom) throw httpError(404, 'Datei nicht gefunden', 'noFile');
+    const p = pickSeat(rom, sha1, { dir: deps.dir, extract: deps.extract });
+    if (!p) throw httpError(409, 'Das ist eine andere Fassung des Spiels', 'linkPickDiffers', { slot });
+    return { ok: true };
+  });
+  // "Build Tim's game": a randomized / patched run joined before every player's game was built here – that slot only,
+  // from the run's own base ROM, patch, settings and seed.
+  route('POST', /^\/api\/link\/build$/, async (req) => {
+    const { runId, slot } = await readBody(req);
+    const manifest = linkManifest(runId);
+    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    let body;
+    try {
+      body = partnerBuildRequest(manifest, slot, scanLibrary(loadConfig()));
+    } catch (e) {
+      if (e.code !== 'no-rom' && e.code !== 'no-patch') throw e;
+      throw httpError(409, 'Das Grundspiel dieses Runs fehlt in der Bibliothek', e.code === 'no-patch' ? 'linkBuildNoPatch' : 'linkBuildNoRom');
+    }
+    if (building.has(manifest.id)) throw httpError(409, 'Dieser Run wird gerade gebaut', 'runBuilding');
+    building.add(manifest.id);
+    try {
+      const log = [];
+      const built = await buildRun({ ...body, identity: { id: manifest.id, room: manifest.room, secret: manifest.secret }, config: loadConfig() }, (l) => log.push(l));
+      return { ok: true, sha1: built.outputs?.[slot]?.sha1 || null, log };
+    } finally {
+      building.delete(manifest.id);
+    }
+  });
+  route('POST', /^\/api\/link\/start$/, async (req) => {
+    const { runId, local, seats, delay, rtc, state } = await readBody(req);
+    const manifest = linkManifest(runId);
+    const system = manifest.game?.system;
+    if (!LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
+    const runSlots = slotsOf(manifest);
+    if (!Array.isArray(seats) || seats.length < 2 || seats.length > MAX_LINK_SEATS) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    if (new Set(seats.map((s) => s?.slot)).size !== seats.length || !seats.every((s) => runSlots.includes(s?.slot))) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    const localIndex = seats.findIndex((s) => s.slot === local);
+    if (localIndex < 0) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    const deps = linkDeps(manifest);
+    const out = seats.map((s, i) => {
+      const r = resolveSeat(manifest, s.slot, s.sha1, s.crc, deps);
+      if (!r) throw httpError(409, 'Das Spiel dieses Spielers fehlt hier', 'linkRomMissing', { slot: s.slot });
+      let save = null;
+      if (i === localIndex) { // our own save: from disk, never from the page
+        const p = defaultSavePath(manifest, s.slot);
+        save = p && existsSync(p) ? readFileSync(p) : null;
+      } else if (typeof s.save === 'string' && s.save) save = Buffer.from(s.save, 'base64');
+      // (a rejoin starts from the session's state – the saves are inside it; the local one is still checked)
+      if (save && typeof s.saveSha1 === 'string' && s.saveSha1 && createHash('sha1').update(save).digest('hex') !== s.saveSha1.toLowerCase()) {
+        throw httpError(409, 'Spielstand beschädigt', 'linkSaveDiffers', { slot: s.slot });
+      }
+      // the player's running game (docs/MULTIPLAYER.md › "Seamless"): the fast player's save state, deflated – every
+      // peer starts that seat from exactly these bytes (checked by SHA-1), not from the battery save
+      let st = null;
+      if (typeof s.state === 'string' && s.state) {
+        try {
+          st = inflateRawSync(Buffer.from(s.state, 'base64'), { maxOutputLength: MAX_STATE });
+        } catch {
+          throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers', { slot: s.slot });
+        }
+        if (typeof s.stateSha1 !== 'string' || createHash('sha1').update(st).digest('hex') !== s.stateSha1.toLowerCase()) throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers', { slot: s.slot });
+      }
+      // a Game Boy seat's console, as its player announced it (every peer gets the same list – gbModel's values)
+      const model = system === 'gb' ? (s.model === 'cgb' ? 'cgb' : 'dmg') : system === 'gbc' ? 'cgb' : null;
+      return { rom: r.path, save, state: st, model };
+    });
+    let stateBytes = null;
+    if (typeof state === 'string' && state) {
+      stateBytes = Buffer.from(state, 'base64');
+      if (stateBytes.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+    }
+    const savePath = defaultSavePath(manifest, local);
+    const id = native.startLink({
+      host: linkTool(), system, seats: out, local: localIndex, delay, rtc, key: `${manifest.id}:${local}`, state: stateBytes,
+      saveFile: savePath ? { path: savePath, runId: manifest.id } : null,
+    });
+    // the save as it was before the session: what a session that fell out of step goes back to (/api/link/restore)
+    native.current.preLink = savePath && existsSync(savePath) ? readFileSync(savePath) : null;
+    return { id, system, local: localIndex, seats: seats.length };
+  });
+  // A session that fell out of step: the run's save goes back to what it was before the session (both players do it,
+  // so nobody keeps a Pokémon the other didn't lose); the session's last save stays next to it as a backup.
+  route('POST', /^\/api\/link\/restore$/, async (req) => {
+    const { runId, id, slot } = await readBody(req);
+    const manifest = linkManifest(runId);
+    const p = slotsOf(manifest).includes(slot) ? defaultSavePath(manifest, slot) : null;
+    if (!p) throw httpError(400, 'Ungültiger Platz', 'linkSeats'); // (checked before the session is stopped)
+    const sess = native.linkRestore(id);
+    if (!sess) throw httpError(404, 'Keine Link-Sitzung', 'noNativeSession');
+    let backup = null;
+    if (existsSync(p)) {
+      backup = `${p.replace(/\.[^./\\]+$/, '')}.link-${new Date().toISOString().replace(/[:.]/g, '-')}.sav`;
+      writeFileAtomic(backup, readFileSync(p));
+    }
+    const restored = !!sess.preLink;
+    if (sess.preLink) writeFileAtomic(p, sess.preLink);
+    sess.preLink = null; // (done: the save isn't kept in memory any longer)
+    return { ok: true, restored, backup: backup ? basename(backup) : null };
   });
   route('POST', /^\/api\/native\/stop$/, async (req) => {
     const { id } = await readBody(req);

@@ -191,6 +191,7 @@ export class SyncLink {
     this.seenIds = new Set(); // ids of recent chat/screen messages (they may arrive over P2P and several brokers)
     this.clockOffsets = {}; // slot → our clock minus theirs, from their live messages
     this.clockOffset = 0; // the same for whoever spoke last (older callers)
+    this.linkListeners = new Set(); // link sessions (web/lib/linksession.mjs): fn(msg) per message
   }
 
   /** The other slots of the run (all four when the caller didn't say). */
@@ -291,6 +292,7 @@ export class SyncLink {
       }
       this.trysteroRoom = null;
       this.ops = null;
+      this.linkAct = this.linkBinAct = null;
       this.peers.clear();
       this.peerId = null;
       this._set({ p2p: 'connecting' }); // no direct link to anybody until the room is joined again
@@ -521,9 +523,105 @@ export class SyncLink {
       return changed;
     }
     if (this._dup(msg.mid)) return null; // same chat / screen message over P2P and the relay (or two brokers)
-    if (msg.kind === 'msg') this.onMessage?.(msg);
+    if (msg.kind === 'msg' && msg.payload?.link) this._linkIn(msg.payload.link, null, 'relay');
+    else if (msg.kind === 'msg') this.onMessage?.(msg);
     else if (typeof msg.kind === 'string' && msg.kind.startsWith('screen-')) this._screenIn(msg);
     return null;
+  }
+
+  // --- link sessions --------------------------------------------------------------
+  /** Messages of link sessions: fn(msg) with msg.from = the sender's slot. Returns the unsubscribe function. */
+  onLink(fn) {
+    this.linkListeners.add(fn);
+    return () => this.linkListeners.delete(fn);
+  }
+
+  /** Is there a live direct (P2P) link to `slot` – what a link session's buttons need? */
+  linkDirect(slot) {
+    return this._p2pSlots().has(slot);
+  }
+
+  /**
+   * How the data channel to `slot` runs: 'direct' (peer to peer, also through a NAT) or 'relayed' (through a TURN
+   * server – still end-to-end encrypted, a little slower), from the connection's selected ICE candidate pair; null when
+   * unknown (no peer, no stats yet).
+   */
+  async linkRoute(slot) {
+    const pcs = this.trysteroRoom?.getPeers?.() || {};
+    for (const peer of this._peersOf(slot)) {
+      const pc = pcs[peer];
+      if (!pc?.getStats) continue;
+      try {
+        const stats = await pc.getStats();
+        const byId = new Map();
+        stats.forEach((r) => byId.set(r.id, r));
+        let pair = null;
+        stats.forEach((r) => {
+          if (r.type === 'transport' && r.selectedCandidatePairId) pair = byId.get(r.selectedCandidatePairId) || pair;
+        });
+        if (!pair) stats.forEach((r) => { if (r.type === 'candidate-pair' && r.state === 'succeeded' && (r.nominated || r.selected)) pair = pair || r; });
+        if (!pair) continue;
+        const types = [byId.get(pair.localCandidateId)?.candidateType, byId.get(pair.remoteCandidateId)?.candidateType];
+        return { route: types.includes('relay') ? 'relayed' : 'direct', rtt: Number.isFinite(pair.currentRoundTripTime) ? Math.round(pair.currentRoundTripTime * 1000) : null };
+      } catch {
+        // a closing connection
+      }
+    }
+    return null;
+  }
+
+  /**
+   * A link-session message to `slots` over the direct link (each peer of each slot). `relayToo`: control messages
+   * (invite, answer, bye) also go over the relay when there is no direct link; buttons never do (60 a second).
+   * Returns true when it went out directly to every slot.
+   */
+  sendLink(msg, slots, { relayToo = false } = {}) {
+    if (this.stopped) return false;
+    const m = { ...msg, from: this.slot, at: Date.now() };
+    let all = true;
+    for (const slot of slots) {
+      const peers = this.linkAct && this.status.p2p === 'connected' ? this._peersOf(slot) : [];
+      if (!peers.length) all = false;
+      for (const target of peers) {
+        try {
+          this.linkAct.send(m, { target })?.catch?.(() => {});
+        } catch (e) {
+          console.warn('link send failed', e);
+        }
+      }
+    }
+    if (!all && relayToo) this.sendMessage({ link: m });
+    return all;
+  }
+
+  /**
+   * A link-session message with a big binary part (a running game's state) to `slots`, over the direct link only: the
+   * bytes go as they are – no base64, no JSON, one transfer Trystero splits into chunks – and arrive as `msg.bin`.
+   * Returns true when it went out to every slot.
+   */
+  sendLinkBinary(msg, bytes, slots) {
+    if (this.stopped || !this.linkBinAct || this.status.p2p !== 'connected') return false;
+    const meta = { msg: { ...msg, from: this.slot, at: Date.now() } };
+    let all = true;
+    for (const slot of slots) {
+      const peers = this._peersOf(slot);
+      if (!peers.length) all = false;
+      for (const target of peers) this.linkBinAct.send(bytes, { target, metadata: meta })?.catch?.((e) => console.warn('link send failed', e));
+    }
+    return all;
+  }
+
+  _linkIn(msg, peerId, via = 'p2p') {
+    if (this.stopped || !msg || typeof msg !== 'object' || typeof msg.from !== 'string' || msg.from === this.slot) return;
+    if (!this.others.includes(msg.from)) return;
+    if (peerId) this._peerSlot(peerId, msg.from);
+    for (const fn of this.linkListeners) {
+      try {
+        fn(msg, via);
+      } catch (e) {
+        console.warn('link listener failed', e);
+      }
+    }
   }
 
   _offset(slot, ms) {
@@ -542,13 +640,34 @@ export class SyncLink {
       if (this.stopped) return;
       this.trysteroMod = mod;
       const { joinRoom } = mod;
-      const room = joinRoom({ appId: APP_ID, password: this.secret }, this.room);
+      // TURN (souldew's bot hands out short-lived credentials, docs/MULTIPLAYER.md › "Transport"): players behind strict
+      // NATs then still get a data channel, relayed – the direct path is tried first. Without an answer in time: STUN only.
+      const ice = this.getIceServers ? await Promise.race([this.getIceServers().catch(() => null), new Promise((r) => setTimeout(() => r(null), 2500))]) : null;
+      if (this.stopped) return;
+      const servers = Array.isArray(ice) ? ice : ice?.iceServers;
+      const turnConfig = Array.isArray(servers) && servers.length ? servers : undefined;
+      // (relayOnly: the server was told to send everything through TURN – a test of the relayed path)
+      const relay = !!ice?.relayOnly && !!turnConfig;
+      const room = joinRoom({ appId: APP_ID, password: this.secret, ...(turnConfig ? { turnConfig } : {}), ...(relay ? { rtcConfig: { iceTransportPolicy: 'relay' } } : {}) }, this.room);
       this.trysteroRoom = room;
       const action = room.makeAction('ops');
       this.ops = action;
       // The vendored Trystero passes the sender as { peerId, …metadata } (older builds: the bare id). Without the id
       // no peer ever gets its slot – no per-player direct flags, no video, and a needless room rejoin every 5 min.
       action.onMessage = (data, from) => this._receive(data, 'p2p', typeof from === 'string' ? from : from?.peerId);
+      // link sessions (trades and battles, docs/MULTIPLAYER.md): their own ordered, reliable channel
+      const link = room.makeAction('link');
+      this.linkAct = link;
+      link.onMessage = (data, from) => this._linkIn(data, typeof from === 'string' ? from : from?.peerId);
+      // …and their big binary parts (sendLinkBinary): the message rides along as the transfer's metadata
+      const bin = room.makeAction('linkbin');
+      this.linkBinAct = bin;
+      bin.onMessage = (data, from) => {
+        const msg = from?.metadata?.msg; // (Trystero hands the sender over as { peerId, metadata })
+        if (msg && typeof msg === 'object' && (data instanceof ArrayBuffer || ArrayBuffer.isView(data))) {
+          this._linkIn({ ...msg, bin: data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data, data.byteOffset || 0, data.byteLength) }, from.peerId);
+        }
+      };
       // One peer per other player – plus possibly the same player in a second window / on a second device. The
       // link counts as connected while any peer that may be a partner is there; ops go to all peers at once.
       room.onPeerJoin = (peerId) => {
