@@ -1,9 +1,11 @@
-// souldew's native host for the DS, GBA and Game Boy: runs a libretro core (melonDS DS, mGBA, Gambatte) as a native
+// souldew's native host for the DS, GBA and Game Boy: runs a libretro core (melonDS DS, mGBA, SameBoy) as a native
 // program – with the core's JIT and all of the computer's speed – and talks to souldew over stdin/stdout like the 3DS
 // host (native/ctr-host). The game then plays inside souldew's own player (web/lib/nativeplayer.mjs).
 //
-//   retrohost --core <lib> --rom <game> --system <dir> --save <dir> [--sram <file>] [--ram ADDR:LEN]…
+//   retrohost --core <lib> --rom <game> --system <dir> --save <dir> [--sram <file>] [--state <file>] [--ram ADDR:LEN]…
 //             [--option key=value]… [--bench FRAMES [--dump out.ppm] [--speed X]]
+// --state: a save state of the core, loaded before the first frame – the game goes on exactly where it was (back from a
+// link session: the link host's state of this player's console, docs/MULTIPLAYER.md › "Seamless").
 //
 // Messages are { u32 type, u32 length, payload } (little-endian), both ways.
 //   host → souldew   2 VIDEO  u16 width, u16 height, u32 format (0 XRGB8888 = BGRA bytes, 2 RGB565), packed pixels
@@ -47,7 +49,7 @@ static void die(const char *fmt, ...);
 static void logf_(const char *fmt, ...);
 
 // ---- options ---------------------------------------------------------------------------------------------------
-static const char *opt_core, *opt_rom, *opt_system, *opt_save, *opt_sram, *opt_dump;
+static const char *opt_core, *opt_rom, *opt_system, *opt_save, *opt_sram, *opt_dump, *opt_state;
 static int opt_bench = 0;
 static double opt_bench_speed = 0; // bench: 0 = as fast as possible, else paced like the game loop
 
@@ -361,6 +363,8 @@ static bool environment(unsigned cmd, void *data) {
   if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE)) { logf_("[core message] %s", ((const struct retro_message *)data)->msg); return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE_EXT)) { logf_("[core message] %s", ((const struct retro_message_ext *)data)->msg); return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE)) { *(float *)data = 60.0f; return true; }
+  // (SameBoy otherwise makes its sound at half the Game Boy's clock – 2 MHz, more than any sound card plays)
+  if (IS(cmd, RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE)) { *(unsigned *)data = 48000; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_SHUTDOWN)) { fflush(stdout); _exit(0); }
   return false;
 }
@@ -468,37 +472,61 @@ static void sram_get(uint8_t **p, size_t *n) {
   *n = *p && core.get_memory_size ? core.get_memory_size(RETRO_MEMORY_SAVE_RAM) : 0;
   if (!*n) *p = NULL;
 }
-// The cartridge clock (Game Boy MBC3: Gold/Silver/Crystal): Gambatte keeps it as RETRO_MEMORY_RTC, 8 bytes – the Unix
-// second the clock read zero (the clock = now − that). souldew keeps it in the battery save as the 48-byte footer
+// The cartridge clock (Game Boy MBC3: Gold/Silver/Crystal). souldew keeps it in the battery save as the 48-byte footer
 // VBA-M, mGBA and SameBoy write (u32 seconds, minutes, hours, days, flags – the clock then latched – then the u64 Unix
-// second it was saved): the same file then carries the clock into the link host (SameBoy) and back.
+// second it was saved): the same file then carries the clock into the link host (SameBoy) and back. The cores keep it as
+// RETRO_MEMORY_RTC:
+//   SameBoy: its "rtc" save-state section (32 bytes): the clock's 5 registers, the latched 5, at 16 the u64 Unix second
+//            the clock was last brought up to (it runs on the computer's clock from there)
+//   Gambatte (older souldew): 8 bytes – the Unix second the clock read zero (the clock = now − that)
 #define RTC_FOOTER 48
-static int rtc_footer(uint8_t out[RTC_FOOTER]) {
+#define SAMEBOY_RTC 32
+static uint8_t *rtc_mem(size_t *n) {
   uint8_t *r = core.get_memory_data ? core.get_memory_data(RETRO_MEMORY_RTC) : NULL;
-  if (!r || !core.get_memory_size || core.get_memory_size(RETRO_MEMORY_RTC) != 8) return 0;
-  uint64_t base;
-  memcpy(&base, r, 8);
-  const uint64_t now = (uint64_t)time(NULL);
-  uint64_t t = now > base ? now - base : 0, days = t / 86400;
-  uint32_t v[10] = {(uint32_t)(t % 60), (uint32_t)(t / 60 % 60), (uint32_t)(t / 3600 % 24), (uint32_t)(days & 0xff),
-                    (uint32_t)((days >> 8 & 1) | (days > 511 ? 0x80 : 0))};
-  memcpy(v + 5, v, 5 * sizeof *v);
+  *n = r && core.get_memory_size ? core.get_memory_size(RETRO_MEMORY_RTC) : 0;
+  return *n == 8 || *n == SAMEBOY_RTC ? r : NULL;
+}
+static int rtc_footer(uint8_t out[RTC_FOOTER]) {
+  size_t rn;
+  uint8_t *r = rtc_mem(&rn);
+  if (!r) return 0;
+  uint32_t v[10];
+  uint64_t stamp;
+  if (rn == SAMEBOY_RTC) {
+    for (int i = 0; i < 10; i++) v[i] = r[i];
+    memcpy(&stamp, r + 16, 8);
+  } else {
+    uint64_t base;
+    memcpy(&base, r, 8);
+    stamp = (uint64_t)time(NULL);
+    uint64_t t = stamp > base ? stamp - base : 0, days = t / 86400;
+    v[0] = (uint32_t)(t % 60), v[1] = (uint32_t)(t / 60 % 60), v[2] = (uint32_t)(t / 3600 % 24), v[3] = (uint32_t)(days & 0xff);
+    v[4] = (uint32_t)((days >> 8 & 1) | (days > 511 ? 0x80 : 0));
+    memcpy(v + 5, v, 5 * sizeof *v);
+  }
   memcpy(out, v, 40);
-  memcpy(out + 40, &now, 8);
+  memcpy(out + 40, &stamp, 8);
   return 1;
 }
-/** A save with the clock footer: Gambatte's clock from it (it ran on since it was saved, as a cartridge's does). */
+/** A save with the clock footer: the core's clock from it (it ran on since it was saved, as a cartridge's does). */
 static void rtc_from_footer(const uint8_t *f) {
-  uint8_t *r = core.get_memory_data ? core.get_memory_data(RETRO_MEMORY_RTC) : NULL;
-  if (!r || !core.get_memory_size || core.get_memory_size(RETRO_MEMORY_RTC) != 8) return;
-  uint32_t v[5];
+  size_t rn;
+  uint8_t *r = rtc_mem(&rn);
+  if (!r) return;
+  uint32_t v[10];
   uint64_t saved;
   memcpy(v, f, sizeof v);
   memcpy(&saved, f + 40, 8);
   const uint64_t days = (v[3] & 0xff) | (uint64_t)(v[4] & 1) << 8;
-  const uint64_t t = (v[0] % 60) + (uint64_t)(v[1] % 60) * 60 + (uint64_t)(v[2] % 24) * 3600 + days * 86400;
-  const uint64_t base = saved > t ? saved - t : 0;
-  memcpy(r, &base, 8);
+  if (rn == SAMEBOY_RTC) {
+    if (saved < 852076800ull) return; // (no real clock data: SameBoy keeps its own)
+    for (int i = 0; i < 10; i++) r[i] = (uint8_t)v[i];
+    memcpy(r + 16, &saved, 8); // (SameBoy then brings the clock up to now by itself)
+  } else {
+    const uint64_t t = (v[0] % 60) + (uint64_t)(v[1] % 60) * 60 + (uint64_t)(v[2] % 24) * 3600 + days * 86400;
+    const uint64_t base = saved > t ? saved - t : 0;
+    memcpy(r, &base, 8);
+  }
   logf_("cartridge clock from the save: %llu days %02u:%02u", (unsigned long long)days, v[2] % 24, v[1] % 60);
 }
 /** The battery save as souldew keeps it: the save memory, plus the clock footer for a clock cartridge. */
@@ -692,6 +720,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(k, "--system")) opt_system = v;
     else if (!strcmp(k, "--save")) opt_save = v;
     else if (!strcmp(k, "--sram")) opt_sram = v;
+    else if (!strcmp(k, "--state")) opt_state = v;
     else if (!strcmp(k, "--bench")) opt_bench = atoi(v);
     else if (!strcmp(k, "--speed")) opt_bench_speed = atof(v);
     else if (!strcmp(k, "--dump")) opt_dump = v;
@@ -710,7 +739,7 @@ int main(int argc, char **argv) {
     }
   }
   if (!opt_core || !opt_rom || !opt_system || !opt_save) {
-    fprintf(stderr, "usage: retrohost --core <lib> --rom <file> --system <dir> --save <dir> [--sram <file>] [--ram addr:len]… [--option k=v]… [--bench frames [--speed x] [--dump out.ppm]]\n");
+    fprintf(stderr, "usage: retrohost --core <lib> --rom <file> --system <dir> --save <dir> [--sram <file>] [--state <file>] [--ram addr:len]… [--option k=v]… [--bench frames [--speed x] [--dump out.ppm]]\n");
     return 2;
   }
   if (opt_bench) protocol = 0;
@@ -741,7 +770,7 @@ int main(int argc, char **argv) {
   core.get_system_info(&sys);
   struct retro_game_info info = {opt_rom, NULL, 0, NULL};
   void *rom_data = NULL;
-  if (sys.need_fullpath == false) { // the core wants the bytes (mGBA, Gambatte)
+  if (sys.need_fullpath == false) { // the core wants the bytes (mGBA, SameBoy)
     rom_data = read_file(opt_rom, &info.size);
     if (!rom_data) die("game not readable: %s", opt_rom);
     // A DS cartridge is a power of two in size; a trimmed or patched ROM (Renegade Platinum: 104,923,028 bytes) isn't.
@@ -762,6 +791,28 @@ int main(int argc, char **argv) {
   if (!core.load_game(&info)) die("the core couldn't load the game");
   if (core.set_controller_port_device) core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
   load_sram();
+  int state_ok = -1; // --state: -1 none, 0 not loadable (the game starts from its battery save), 1 loaded
+  if (opt_state && *opt_state) {
+    size_t sl = 0;
+    void *sb = read_file(opt_state, &sl);
+    const size_t want = core.serialize_size();
+    // (as LOAD: a state far off the core's own size is no state of this game)
+    const int fits = sb && want && sl >= want / 4 && sl <= want * 2 + 65536;
+    state_ok = fits && core.unserialize(sb, sl);
+    if (fits && !state_ok) { // (a core that finishes setting up in its first frame: one frame, unseen and unheard, then again)
+      want_frame = 0, audio_on = 0;
+      core.run();
+      want_frame = 1, audio_on = 1, audio_n = 0;
+      state_ok = core.unserialize(sb, sl);
+    }
+    if (!state_ok) logf_("save state %s not loadable (%zu bytes, the core's are %zu)", opt_state, sl, want);
+    free(sb);
+    // the battery save as the state left it is the one souldew has (a state carries the save memory of its moment)
+    uint8_t *p;
+    size_t n;
+    sram_get(&p, &n);
+    if (p) sram_sent = sram_seen = fnv(p, n);
+  }
   resolve_ram();
 
   struct retro_system_av_info av;
@@ -780,8 +831,8 @@ int main(int argc, char **argv) {
     json_escape(name, sizeof name, sys.library_name ? sys.library_name : "?");
     char ver[120];
     json_escape(ver, sizeof ver, sys.library_version ? sys.library_version : "?");
-    send_event("{\"event\":\"loaded\",\"core\":\"%s\",\"version\":\"%s\",\"width\":%u,\"height\":%u,\"fps\":%.4f,\"sampleRate\":%.1f,\"ram\":[%s],\"saveSize\":%zu,\"stateSize\":%zu}",
-               name, ver, av.geometry.base_width, av.geometry.base_height, fps, av.timing.sample_rate, regions, sn, core.serialize_size());
+    send_event("{\"event\":\"loaded\",\"core\":\"%s\",\"version\":\"%s\",\"width\":%u,\"height\":%u,\"fps\":%.4f,\"sampleRate\":%.1f,\"ram\":[%s],\"saveSize\":%zu,\"stateSize\":%zu,\"state\":%s}",
+               name, ver, av.geometry.base_width, av.geometry.base_height, fps, av.timing.sample_rate, regions, sn, core.serialize_size(), state_ok < 0 ? "null" : state_ok ? "true" : "false");
   }
 
   if (opt_bench) {
@@ -852,9 +903,10 @@ int main(int argc, char **argv) {
       free(sd);
     }
     if (ld) {
-      // a state far off the core's own size is no state of this game (cores trust the sizes inside it)
+      // a state far off the core's own size is no state of this game (cores trust the sizes inside it). (SameBoy names
+      // twice the biggest of all its models' states as its size – a Game Boy Color's is under half of that)
       const size_t want = core.serialize_size();
-      bool ok = want && ll >= want / 2 && ll <= want * 2 + 65536 && core.unserialize(ld, ll);
+      bool ok = want && ll >= want / 4 && ll <= want * 2 + 65536 && core.unserialize(ld, ll);
       free(ld);
       memmap_dirty = 1;
       send_event("{\"event\":\"stateLoaded\",\"ok\":%s}", ok ? "true" : "false");

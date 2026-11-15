@@ -56,6 +56,7 @@ const TEXTS = {
   linkRomMissing: () => t('linkplay.romMissing2', 'A player’s game isn’t on one of the computers – the link needs every player’s game on every computer.'),
   linkRomDiffers: () => t('linkplay.romDiffers', 'The games aren’t byte-identical on both computers (another base ROM or version). Linking needs exactly the same games.'),
   linkSaveDiffers: () => t('linkplay.saveDiffers', 'A save arrived damaged. Try again.'),
+  linkStateDiffers: () => t('linkplay.stateDiffers', 'A player’s game arrived damaged. Try again.'),
   linkOwnMissing: () => t('linkplay.ownMissing', 'Your own game for this run isn’t built on this computer.'),
   linkPickDiffers: () => t('err.linkPickDiffers', 'That file isn’t exactly the same game (its SHA-1 differs).'),
   linkBuildNoRom: () => t('err.linkBuildNoRom', 'The run’s base game isn’t in your library – add it, then build again.'),

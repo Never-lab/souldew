@@ -13,12 +13,24 @@
 //        [--speed 6] [--shots f1,f2,…] [--other-release]   (B plays another file of the game: each side must find or
 //        pick the partner's copy – decision (2), "Pick your copy", by SHA-1)
 //        [--rejoin <frame>]  (B's page reloads at that frame and rejoins from A's state)
-//        [--desync]          (B's host gets another clock: the games fall out of step – both saves go back)
+//        [--desync]          (B's host gets another clock: the games fall out of step – both saves go back; with
+//                            --seamless --desync-state <file>: B's host starts A's seat from that state instead – each
+//                            game then goes back to where it was before the link)
+//        [--seamless [--state1 <a.state> --state2 <b.state> …]]   (docs/MULTIPLAYER.md › "Seamless": every player is
+//                            in the middle of their game in the fast player – a state of that moment (the fast player's
+//                            format, e.g. linkhost --bench F --export) loaded while paused – and the link starts from the
+//                            running games without a restart; --script is then the recording from that moment on. After
+//                            the session each game goes on alone from where the session left it: same page, no reboot.
+//                            Frame strips of the switch in and out go to --out. --prestep k: the states are k frames
+//                            before the recording's start; those k frames run in the fast player, nothing pressed.)
+//        [--disconnect <frame>]  (B's peer link goes down there; both players leave – with --seamless each goes on alone
+//                            from their own console as it is)
 //        [--show]
 //
 // Never commit ROMs, saves or the screenshots.
 import { spawn } from 'node:child_process';
 import { mkdirSync, writeFileSync, readFileSync, copyFileSync, statfsSync, constants as fsConstants } from 'node:fs';
+import { deflateRawSync } from 'node:zlib';
 import { join, dirname, basename, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -73,6 +85,7 @@ async function main() {
     for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) copyFileSync(r, join(lib, basename(r)), fsConstants.COPYFILE_FICLONE);
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true }));
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_LINK_TEST_SCRIPT: script,
+      // (--seamless --desync: the states differ instead – a game in the middle of a trade may never read its clock)
       SLS_LINK_TEST_RTC: id === 'B' && flag('desync') ? String(Number(rtc) + 86400000 * 3) : rtc };
     const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stderr.on('data', (d) => process.stderr.write(`[${id}] ${d}`));
@@ -155,6 +168,16 @@ async function main() {
       }
     };
     const phase = (i) => ev(i, 'window.__slLink?.sessions?.state?.phase');
+    const emu = (i, js) => ev(i, `(() => { const f = document.querySelector('iframe[src^="/playernative.html"]'); const e = f?.contentWindow?.__emu; return e ? (${js}) : null; })()`);
+    const seamless = flag('seamless');
+    // frame strips: the window, as fast as it can be captured, while the game switches into / out of the link session
+    const strip = (i, name, ms) => (async () => {
+      const t = Date.now();
+      for (let k = 0; Date.now() - t < ms; k++) {
+        const img = await wins[i].webContents.capturePage();
+        writeFileSync(join(out, `strip-${name}-${profiles[i].id}-${String(k).padStart(3, '0')}-${Date.now() - t}ms.png`), img.toPNG());
+      }
+    })();
     const linked = () => until('every page and the peer links', async () => {
       for (const i of all) for (const s of SLOTS) if (s !== SLOTS[i] && !(await ev(i, `window.__slLink?.sync?.linkDirect(${JSON.stringify(s)})`))) return false;
       return true;
@@ -164,10 +187,43 @@ async function main() {
     log('peer link up');
     await shot('01-board');
 
+    if (seamless) { // every player is playing: their own game in the fast player, at the recorded moment, paused there
+      for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/play?run=${runId}`)}; true`);
+      await until('every fast player shows a picture', () => everyone((i) => emu(i, 'e.ready')), 120000);
+      for (const i of all) {
+        const file = opt(`state${i + 1}`);
+        if (!file) continue;
+        const z = deflateRawSync(readFileSync(file)).toString('base64');
+        const ok = await emu(i, `(async () => { e.pause(); const b = Uint8Array.from(atob(${JSON.stringify(z)}), (c) => c.charCodeAt(0));
+          const s = new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('deflate-raw'))); return e.loadState(new Uint8Array(await s.arrayBuffer())); })()`);
+        if (!ok) throw new Error(`${profiles[i].id}: the mid-game state didn't load`);
+        // (--prestep k: the state is k frames before the recording's start, k frames with nothing pressed run here – the
+        // picture is then the game's, not the one from before the state was loaded)
+        if (Number(opt('prestep', '0')) > 0) await emu(i, `e.step(${Number(opt('prestep'))})`);
+      }
+      // (a mark in each player page: still there after the session = the page and its canvas never reloaded)
+      for (const i of all) await ev(i, `document.querySelector('iframe[src^="/playernative.html"]').contentWindow.__e2eMark = 'm${i}'; true`);
+      await sleep(1500);
+      await shot('01b-playing');
+      // where the game's picture is in each window (for cropping the frame strips)
+      result.frameRect = [];
+      for (const i of all) result.frameRect.push(JSON.parse(await ev(i, `JSON.stringify((() => { const r = document.querySelector('iframe[src^="/playernative.html"]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, dpr: devicePixelRatio }; })())`)));
+      result.checks.ownGamesRunning = await everyone((i) => ev(i, 'window.__slLink.sessions.ownGame()'));
+    }
+
     // ---- invite, join (and the partner's game, when it's another file) -------------------------------------------------
+    const stripIn = seamless ? strip(0, 'in', 6000) : null;
     await ev(0, `window.__slLink.sessions.invite(${JSON.stringify(kind)}, ${JSON.stringify(SLOTS.slice(1))})`);
     await until('invite arrives', () => everyone(async (i) => !i || (await phase(i)) === 'invited'));
     await shot('02-invited');
+    if (seamless && flag('desync') && opt('desync-state')) {
+      // (out of step on purpose: B's host gets another state for A's seat than A's host has – the hashes differ from
+      // frame 120 on. Test-only, in B's page: the snap it received for p1 is swapped for that file before its host starts)
+      const other = readFileSync(opt('desync-state'));
+      const z = deflateRawSync(other).toString('base64');
+      await ev(1, `(() => { const L = window.__slLink.sessions; const start = L._start.bind(L); L._start = (...a) => {
+        const st = L.state; st.snaps.p1 = { sha1: ${JSON.stringify(sha(other))}, z: ${JSON.stringify(z)} }; st.saves.p1.state = ${JSON.stringify(sha(other))}; return start(...a); }; return true; })()`);
+    }
     for (const i of all.slice(1)) await ev(i, 'window.__slLink.sessions.accept()');
     if (flag('other-release')) {
       // each side lacks the other's file: the bar asks to pick it; a wrong file is refused by SHA-1, the right one taken
@@ -191,8 +247,16 @@ async function main() {
     const st0 = JSON.parse(await ev(0, 'JSON.stringify(window.__slLink.sessions.state)'));
     log('running: delay', st0.delay, 'rtt', st0.rtt);
     result.delay = st0.delay;
-    const emu = (i, js) => ev(i, `(() => { const f = document.querySelector('iframe[src^="/playernative.html"]'); const e = f?.contentWindow?.__emu; return e ? (${js}) : null; })()`);
     await until('pictures', () => everyone((i) => emu(i, 'e.ready')), 90000);
+    if (seamless) {
+      await until('every picture switched to the link session', () => everyone(async (i) => (await emu(i, 'e.switches().length')) >= 1), 60000);
+      result.seamlessStart = [];
+      for (const i of all) result.seamlessStart.push({ player: profiles[i].id, seamless: await ev(i, 'window.__slLink.sessions.state.seamless'), switch: await emu(i, 'e.switches()[0]'), snap: await ev(i, 'window.__slLink.sessions.stats.snap') });
+      log('seamless start', JSON.stringify(result.seamlessStart));
+      result.checks.startedFromRunningGames = result.seamlessStart.every((x) => x.seamless && x.switch?.to === 'link');
+      result.checks.samePlayerPage = await everyone(async (i) => (await ev(i, `document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__e2eMark`)) === `m${i}`);
+      await stripIn;
+    }
     await sleep(2500); // (sound only comes at normal speed)
     result.checks.sound = await everyone(async (i) => Number(await emu(i, 'e.perf().audioIn')) > 0);
     const speed = Number(opt('speed', '6'));
@@ -213,14 +277,23 @@ async function main() {
     // ---- run the recording to its end ----------------------------------------------------------------------------------
     const shots = String(opt('shots', '')).split(',').filter(Boolean).map(Number).sort((a, b) => a - b);
     const rejoinAt = Number(opt('rejoin', '0'));
+    const dropAt = Number(opt('disconnect', '0')); // (B's peer link goes down at that frame: both leave, each goes on alone)
     const frameOf = async (i) => Number(await emu(i, 'e.frames()')) || 0;
     let n = 5;
-    for (const target of [...new Set([...shots, rejoinAt, frames].filter((x) => x > 0))].sort((a, b) => a - b)) {
+    for (const target of [...new Set([...shots, rejoinAt, dropAt, frames].filter((x) => x > 0))].sort((a, b) => a - b)) {
       await until(`frame ${target}`, async () => {
         if (flag('desync') && (await phase(0)) === 'ended') return true;
         return everyone(async (i) => (await frameOf(i)) >= target);
       }, Math.max(300000, ((target - (await frameOf(0))) / 60 / Math.max(1, speed)) * 4000 + 120000));
       if (flag('desync') && (await phase(0)) === 'ended') break;
+      if (target === dropAt) {
+        log('disconnect: B\'s peer link goes down at frame', await frameOf(1));
+        await ev(1, 'window.__slLink.sync.stop(); true');
+        await sleep(3000);
+        result.checks.bothStalled = (await frameOf(0)) - dropAt < 600 && (await frameOf(1)) - dropAt < 600; // (each host waits for the other's buttons)
+        await shot(`${String(n++).padStart(2, '0')}-disconnected`);
+        break;
+      }
       if (target === rejoinAt) {
         log('rejoin test: B\'s page reloads at frame', await frameOf(1));
         await shot(`${String(n++).padStart(2, '0')}-before-drop`);
@@ -259,19 +332,51 @@ async function main() {
       result.checks.desyncDetected = ended.every((e) => e?.reason === 'linkDesync');
       result.checks.savesBackToBefore = sha(saves[0]) === pre.A && sha(saves[1]) === pre.B;
       result.checks.backupsKept = ended.every((e) => !!e?.restored?.backup);
+      if (seamless) { // out of step: each game goes back to where it was before the link – and goes on from there, alone
+        result.checks.backToBeforeTheLink = ended.every((e) => e?.resumed === true);
+        result.checks.wentOnAlone = await everyone(async (i) => (await emu(i, 'e.perf().core')) !== 'link' && (await emu(i, 'e.switches().at(-1)?.to')) === 'solo');
+        result.checks.samePlayerPageAfter = await everyone(async (i) => (await ev(i, `document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__e2eMark`)) === `m${i}`);
+      }
       log('desync', JSON.stringify(result.checks));
       return finish(Object.values(result.checks).every(Boolean) ? 0 : 1);
     }
 
     // ---- leave: both hosts stop, the last battery saves are in the run ---------------------------------------------------
     await sleep(2500);
+    const stripOut = seamless ? strip(0, 'out', 6000) : null;
     await ev(0, 'window.__slLink.sessions.leave("left")');
+    if (dropAt) await ev(1, 'window.__slLink.sessions.leave("left")'); // (A's bye can't reach B any more: B leaves too)
     await until('everybody ended', () => everyone(async (i) => (await phase(i)) === 'ended'), 60000);
+    if (seamless) { // each game goes on alone from where the session left it – the same page, no reboot
+      await until('every game going on alone', () => everyone(async (i) => (await emu(i, 'e.switches().length')) >= 2), 60000);
+      result.seamlessEnd = [];
+      await sleep(800); // (the fast player's first frame count comes four times a second – the link host's last one before)
+      for (const i of all) {
+        const f1 = Number(await emu(i, 'e.frames()')) || 0;
+        await sleep(1500);
+        const f2 = Number(await emu(i, 'e.frames()')) || 0;
+        result.seamlessEnd.push({ player: profiles[i].id, resumed: await ev(i, 'window.__slLink.sessions.state.ended?.resumed'), switch: await emu(i, 'e.switches().at(-1)'),
+          core: await emu(i, 'e.perf().core'), framesAdvance: f2 - f1, sessionOpen: await ev(i, 'location.hash') });
+      }
+      log('seamless end', JSON.stringify(result.seamlessEnd));
+      result.checks.wentOnAlone = result.seamlessEnd.every((x) => x.resumed && x.switch?.to === 'solo' && x.core !== 'link' && x.framesAdvance > 30);
+      result.checks.samePlayerPageAfter = await everyone(async (i) => (await ev(i, `document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__e2eMark`)) === `m${i}`);
+      await stripOut;
+    }
     await sleep(4000);
     await shot(`${String(n++).padStart(2, '0')}-left`);
     const saves = [];
     for (const [i, pr] of profiles.entries()) saves.push(Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`).then((r) => r.arrayBuffer())));
     saves.forEach((b, i) => writeFileSync(join(out, `after-${profiles[i].id}.sav`), b));
+    if (seamless) { // and A plays on (after the saves were taken): a few buttons – close a text box, walk – alone now
+      const stripPlay = strip(0, 'play', 4000);
+      for (const [keys, ms] of [[['a'], 150], [[], 700], [['a'], 150], [[], 700], [['b'], 150], [[], 400], [['down'], 1200], [[], 300]]) {
+        await emu(0, `e.hold(${JSON.stringify(keys)})`);
+        await sleep(ms);
+      }
+      await stripPlay;
+      await shot(`${String(n++).padStart(2, '0')}-playing-on`);
+    }
     result.checks.noMismatch = stats.every((s) => !s.mismatch);
     result.checks.hashesCompared = stats.every((s) => (s.hashes || 0) > 10);
     if (opt('expect')) {
@@ -283,7 +388,7 @@ async function main() {
     }
     // the run's log on both computers: the trade entry (web/lib/run.mjs logLinkTrade)
     await sleep(3000);
-    if (kind === 'trade') {
+    if (kind === 'trade' && !dropAt) { // (a session cut off before the trade has none to log)
       const trades = [];
       for (const pr of profiles) {
         const doc = await api(pr, `/api/runs/${runId}/doc`).catch(() => null);

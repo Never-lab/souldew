@@ -1,7 +1,7 @@
 name: Fast player part (Windows, Linux)
 
 # Builds souldew's fast player part – the native host (native/retro-host), the libretro cores melonDS DS, mGBA and
-# Gambatte, and the link host (native/link-host: trades and battles between players – mGBA, SameBoy and melonDS's core
+# SameBoy, and the link host (native/link-host: trades and battles between players – mGBA, SameBoy and melonDS's core
 # linked in; scripts/build-native.mjs, fixed tags) – for Windows and Linux, as tools/native/<platform>/ artifacts the app
 # packages bundle (release.yml, windows.yml and linux.yml call this workflow). macOS: `npm run native` on a Mac.
 # The link host needs RGBDS (SameBoy assembles its boot ROM from source): built here from its tag, a build-time tool only.

@@ -4,7 +4,7 @@
 // Skipped when the link host isn't built (npm run native).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -104,6 +104,43 @@ for (const name of Object.keys(games)) {
     assert.notEqual(r.status, 0);
   });
 }
+
+for (const name of Object.keys(games)) {
+  test(`link host, ${name.toUpperCase()}: seamless – a session starts from the players' running games and hands each console back`, { skip }, () => {
+    // a running game: --export writes every seat as the fast player's core saves it (here: the link host's own, at frame 200)
+    const argv = ['--rom', rom(name), '--rom', rom(name), '--rtc', '1763200000000'];
+    const exp = (tag, extra, frames) => {
+      const d = join(dir, `exp-${name}-${tag}`);
+      mkdirSync(d, { recursive: true });
+      const r = spawnSync(host, [...extra, '--bench', String(frames), '--export', d], { encoding: 'utf8' });
+      assert.equal(r.status, 0, r.stderr);
+      return [0, 1].map((k) => readFileSync(join(d, `seat${k}.state`)));
+    };
+    const at200 = exp('200', argv, 200);
+    assert.ok(at200[0].length > 1000);
+    const states = at200.map((b, k) => { const f = join(dir, `${name}-seat${k}.state`); writeFileSync(f, b); return f; });
+    // a session started from them (--state per seat) goes on from frame 200 – it doesn't boot
+    const fromState = exp('from', ['--rom', rom(name), '--state', states[0], '--rom', rom(name), '--state', states[1], '--rtc', '1763200000000'], 1);
+    const booted = exp('boot', argv, 1);
+    assert.ok(!fromState[0].equals(booted[0]), 'not a fresh boot');
+    if (name === 'gba') { // (mGBA's core state: the same as the session that ran on to frame 201 itself)
+      const at201 = exp('201', argv, 201);
+      assert.ok(fromState[0].subarray(0, 0x61000).equals(at201[0].subarray(0, 0x61000)), 'frame 201, as if the session had run all along');
+    }
+  });
+}
+
+test('link host: SEATSTATE hands the local seat\'s console over (the fast player goes on from it)', { skip }, async () => {
+  const A = startHost(host, ['--rom', rom('gba'), '--rom', rom('gba'), '--rtc', '1763200000000', '--local', '1']);
+  await A.loaded;
+  await A.step(30);
+  const got = A.wait((m) => m.type === 15);
+  A.send(26, A.u32(10));
+  const m = await got;
+  assert.equal(m.payload.readUInt32LE(0), 1, 'the local seat');
+  assert.ok(m.payload.length > 0x61000, 'its mGBA state (the libretro core\'s format)');
+  A.send(6);
+});
 
 test('link host: NEED answers with the seat\'s buttons it knows', { skip }, async () => {
   const A = startHost(host, ['--rom', rom('gb'), '--rom', rom('gb'), '--net', '--delay', '4', '--local', '0', '--rtc', '1763200000000']);

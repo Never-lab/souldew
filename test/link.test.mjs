@@ -131,19 +131,24 @@ test('linkice: the bot\'s /link/ice, cached while the credentials are young; STU
 test('native: link host arguments – every system incl. the DS, a rejoin\'s state, the clock', () => {
   assert.ok(LINK_SYSTEMS.includes('nds') && LINK_SYSTEMS.includes('gb') && LINK_SYSTEMS.includes('gba'));
   const a = linkArgs({ system: 'nds', roms: ['/a.nds', '/b.nds'], saves: ['/a.sav', null], local: 1, delay: 6, rtc: 1234, state: '/s.state' });
-  assert.deepEqual(a.slice(0, 8), ['--rom', '/a.nds', '--sram', '/a.sav', '--rom', '/b.nds', '--sram', '-']);
+  assert.deepEqual(a.slice(0, 12), ['--rom', '/a.nds', '--sram', '/a.sav', '--state', '-', '--rom', '/b.nds', '--sram', '-', '--state', '-']);
   assert.deepEqual(a.slice(a.indexOf('--local'), a.indexOf('--local') + 7), ['--local', '1', '--net', '--delay', '6', '--rtc', '1234']);
   assert.ok(a.includes('--ram') && a[a.indexOf('--ram') + 1] === '0x2000000:0x400000', 'the DS main RAM for live tracking');
   assert.deepEqual(a.slice(-2), ['--load', '/s.state']);
+  // seamless: a seat whose game was running starts from its state (the fast player's), the others from their saves
+  const b = linkArgs({ system: 'gba', roms: ['/a.gba', '/b.gba'], saves: ['/a.sav', '/b.sav'], states: ['/a.state', null], local: 0, delay: 4, rtc: 1 });
+  assert.deepEqual(b.slice(0, 12), ['--rom', '/a.gba', '--sram', '/a.sav', '--state', '/a.state', '--rom', '/b.gba', '--sram', '/b.sav', '--state', '-']);
+  assert.ok(!b.includes('--load'));
   assert.throws(() => linkArgs({ system: '3ds', roms: ['a', 'b'], saves: [], local: 0 }), /Linken/);
   assert.throws(() => linkArgs({ system: 'gba', roms: ['a'], saves: [], local: 0 }), /Plätze/);
 });
 
 test('native: a page may send a link session buttons, a peer\'s request, a session state request – never LOAD, POKE, READ', () => {
   const u32 = (...v) => Buffer.from(new Uint32Array(v).buffer);
-  const ok = Buffer.concat([command(LCMD.INPUT, Buffer.alloc(17)), command(LCMD.RINPUT, u32(1, 10, 5)), command(LCMD.NEED, u32(1, 10)), command(LCMD.SAVE), command(LCMD.UNTIL, u32(99))]);
+  const ok = Buffer.concat([command(LCMD.INPUT, Buffer.alloc(17)), command(LCMD.RINPUT, u32(1, 10, 5)), command(LCMD.NEED, u32(1, 10)), command(LCMD.SAVE), command(LCMD.UNTIL, u32(99)),
+    command(LCMD.SEATSTATE, u32(300))]);
   assert.equal(checkLinkCommands(ok), ok);
-  for (const bad of [command(4, Buffer.alloc(8)), command(23, u32(0, 0, 1)), command(22, u32(0, 0, 4)), command(LCMD.NEED, u32(1)), command(LCMD.RINPUT, Buffer.alloc(9))]) {
+  for (const bad of [command(4, Buffer.alloc(8)), command(23, u32(0, 0, 1)), command(22, u32(0, 0, 4)), command(LCMD.NEED, u32(1)), command(LCMD.RINPUT, Buffer.alloc(9)), command(LCMD.SEATSTATE, Buffer.alloc(0))]) {
     assert.throws(() => checkLinkCommands(bad), /Befehl/);
   }
 });
@@ -196,7 +201,7 @@ function browserGlobals() {
 }
 
 /** Two pages of one run (p1 = Marius, p2 = Tim): their channel, their servers (fetch), what reached the link hosts. */
-async function pair({ missingOnB = false } = {}) {
+async function pair({ missingOnB = false, seamless = false } = {}) {
   const g = browserGlobals();
   const { LinkSessions } = await import('../web/lib/linksession.mjs');
   const roms = { p1: 'a'.repeat(40), p2: 'b'.repeat(40) };
@@ -232,12 +237,23 @@ async function pair({ missingOnB = false } = {}) {
   };
   const closed = { p1: 0, p2: 0 };
   const emuState = { p1: null, p2: null };
+  // seamless: each player's game runs in the fast player – what the page asked of it is logged
+  const emuLog = { p1: [], p2: [] };
+  const emuFor = (slot) => ({
+    linkState: async () => emuState[slot],
+    ...(seamless ? {
+      linkSnapshot: async () => (emuLog[slot].push(['snapshot']), { state: new TextEncoder().encode(`running game of ${slot} `.repeat(500)), frame: 1234 }),
+      linkSnapshotCancel: async (st) => (emuLog[slot].push(['cancel', !!st]), true),
+      attachLink: (id) => (emuLog[slot].push(['attach', id]), true),
+      resumeSolo: async (from) => (emuLog[slot].push(['resume', from ? new TextDecoder().decode(from.state).slice(0, 22) : null]), true),
+    } : {}),
+  });
   const mk = (slot) => new LinkSessions({ sync: sync(slot), runId: 'run1', me: slot, onChange: () => {}, openSession: () => {}, closeSession: () => closed[slot]++,
-    emu: () => ({ linkState: async () => emuState[slot] }), fetchImpl: fetchFor(slot) });
+    emu: () => emuFor(slot), ownGame: () => seamless, fetchImpl: fetchFor(slot) });
   const A = mk('p1'), B = mk('p2');
   const settle = async (ms = 1700) => { for (let i = 0; i < ms / 50; i++) await new Promise((r) => setTimeout(r, 50)); };
   const as = (slot, fn) => fn; // (each page has its own server now)
-  return { A, B, g, server, net, as, settle, closed, emuState, roms, fetchFor, sync };
+  return { A, B, g, server, net, as, settle, closed, emuState, emuLog, roms, fetchFor, sync };
 }
 
 test('linksession: invite → join → every game here → saves → go: both link hosts start with the same seats', async () => {
@@ -257,6 +273,49 @@ test('linksession: invite → join → every game here → saves → go: both li
   assert.ok(sa.seats[1].save && !sa.seats[0].save, 'A gets B\'s save, its own comes from its disk');
   assert.match(sa.seats[1].saveSha1, /^[0-9a-f]{40}$/, 'with its SHA-1 (the server checks it)');
   A.stop(), B.stop();
+});
+
+test('linksession, seamless: the running games go into the session (every host the same states) and on alone after it', async () => {
+  const { A, B, server, settle, emuLog, net } = await pair({ seamless: true });
+  await A.invite('trade', ['p2']);
+  await settle(100);
+  await B.accept();
+  await settle(4000);
+  assert.equal(A.state.phase, 'running', JSON.stringify(A.state.ended));
+  assert.equal(B.state.phase, 'running');
+  // the round trips were measured before the states went out (snapnow), then each game's state went to the partner
+  const order = net.log.filter((m) => m.from === 'p1').map((m) => m.t);
+  assert.ok(order.lastIndexOf('ping') < order.indexOf('snapnow') && order.indexOf('snapnow') < order.indexOf('snap'), order.join(' '));
+  const [sa, sb] = [server.p1.starts[0], server.p2.starts[0]];
+  for (const st of [sa, sb]) for (const seat of st.seats) {
+    assert.ok(seat.state && /^[0-9a-f]{40}$/.test(seat.stateSha1), `${seat.slot} starts from its running game`);
+  }
+  assert.deepEqual(sa.seats.map((x) => [x.state, x.stateSha1]), sb.seats.map((x) => [x.state, x.stateSha1]), 'every host gets the same states');
+  assert.deepEqual(emuLog.p1, [['snapshot'], ['attach', 'host-p1']]);
+  assert.deepEqual(emuLog.p2, [['snapshot'], ['attach', 'host-p2']]);
+  assert.equal(A.state.seamless, true);
+  // leave: each console goes on alone from where the session left it (no state given: the link host's own)
+  A.leave('left');
+  await settle(300);
+  assert.equal(B.state.phase, 'ended');
+  assert.deepEqual(emuLog.p1.at(-1), ['resume', null]);
+  assert.deepEqual(emuLog.p2.at(-1), ['resume', null]);
+  assert.equal(A.state.ended.resumed, true);
+  A.stop(), B.stop();
+  // out of step: back to the game as it was before the link
+  const p = await pair({ seamless: true });
+  await p.A.invite('trade', ['p2']);
+  await p.settle(100);
+  await p.B.accept();
+  await p.settle(4000);
+  p.A._hash('p1', 240, 'aaaa');
+  p.A._hash('p2', 240, 'bbbb');
+  await p.settle(800);
+  assert.equal(p.A.state.ended?.reason, 'linkDesync');
+  assert.equal(p.server.p1.restores.length, 1, 'the run\'s save goes back as before');
+  assert.deepEqual(p.emuLog.p1.at(-1), ['resume', 'running game of p1 run']);
+  assert.deepEqual(p.emuLog.p2.at(-1), ['resume', 'running game of p2 run']);
+  p.A.stop(), p.B.stop();
 });
 
 test('linksession: the partner\'s game missing → "need" until picked; buttons flow; a gap is asked for and resent; hashes', async () => {

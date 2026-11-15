@@ -314,7 +314,7 @@ export function GameSession({ session, mode }) {
   // (3DS: Azahar in the New 3DS mode – states of another core or mode can't be loaded, and a state of the other mode
   // would stop the game)
   // The fast player (playernative.html, server/lib/native.mjs): DS, GBA and Game Boy run in souldew's native host –
-  // melonDS with its JIT, mGBA, Gambatte – at full speed with uncapped fast-forward, unless Settings › "Fast player" is
+  // melonDS with its JIT, mGBA, SameBoy – at full speed with uncapped fast-forward, unless Settings › "Fast player" is
   // off or its part is missing. When it can't start the game, the session switches to the browser emulator by itself.
   const [nativeOn, setNativeOn] = useState(() => !!target.link || (target.system !== '3ds' && status?.config?.nativeCore !== false && !!status?.native?.cores?.[target.system] && !!status?.native?.ids?.[target.system]));
   const core = target.system === '3ds' ? 'azahar-n3ds' : nativeOn ? status.native.ids[target.system] : isDs && /^(IPK|IPG|IRB|IRA|IRE|IRD)/.test(target.code || '') ? 'desmume' : '';
@@ -1176,7 +1176,8 @@ export function GameSession({ session, mode }) {
 
   // The fast player's page: the host opens the ROM itself; the battery save comes from the same place as for player.html
   // (a link session: the server started the link host already – the page attaches to it, docs/MULTIPLAYER.md)
-  const [nativeSrc] = useState(() => target.link ? `/playernative.html?system=${target.system}&link=1&session=${encodeURIComponent(target.link.id)}&save=${encodeURIComponent(target.saveUrl)}` : `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}`);
+  // (a link session's page also gets the game itself: once the session is over it goes on alone from there, no restart)
+  const [nativeSrc] = useState(() => target.link ? `/playernative.html?system=${target.system}&link=1&session=${encodeURIComponent(target.link.id)}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.soloKey || target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}` : `/playernative.html?system=${target.system}&rom=${encodeURIComponent(target.rom)}&key=${encodeURIComponent(target.key)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}${layout === 'lr' ? '&layout=left' : ''}`);
   // The frame's URL is fixed for the whole session – changing it would reboot the game.
   const [wasmSrc] = useState(() => {
     // 3DS: souldew's own player page – the game runs in the native host (server/lib/ctr.mjs), its saves live in the

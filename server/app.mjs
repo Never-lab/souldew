@@ -6,6 +6,7 @@ import { readFileSync, existsSync, statSync, createReadStream, createWriteStream
 import { once } from 'node:events';
 import { join, extname, resolve, basename, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { inflateRawSync } from 'node:zlib';
 import { WEB_DIR, SHARED_DIR, CACHE_DIR, DATA_DIR, CONFIG_PATH, NODE_MODULES, DEV, LIBRARY_DIR } from './lib/paths.mjs';
 import { writeFileAtomic, httpError, safeFileName, safeJoin, realInside } from './lib/fsutil.mjs';
 import { detectJava, uprStatus, installUpr, runBridge } from './lib/toolchain.mjs';
@@ -22,7 +23,7 @@ import { EMULATORS, detectEmulator, installEmulator, launchRom, revealInFileMana
 import { LiveBridge } from './lib/livebridge.mjs';
 import { AzaharBridge, enableRpc } from './lib/azahar.mjs';
 import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted } from './lib/ctr.mjs';
-import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, LINK_SYSTEMS, MAX_LINK_SEATS } from './lib/native.mjs';
+import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, LINK_SYSTEMS, MAX_LINK_SEATS, MAX_STATE } from './lib/native.mjs';
 import { ownSeat, resolveSeat, pickSeat, extractTarget, partnerBuildRequest } from './lib/linkroms.mjs';
 import { linkIceServers } from './lib/linkice.mjs';
 import { needsIdenticalRom, baseRomsFor } from '../shared/restart.mjs';
@@ -1415,13 +1416,16 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // ---- DS / GBA / GB in the fast native player (server/lib/native.mjs) -------------------------------------------
   route('GET', /^\/api\/native\/status$/, () => ({ tools: nativeStatus(), session: native.status() }));
   route('POST', /^\/api\/native\/start$/, async (req) => {
-    const { rom, key, system, save, saveUrl } = await readBody(req);
+    const { rom, key, system, save, saveUrl, state } = await readBody(req);
     if (typeof key !== 'string' || !key || key.length > 600) throw httpError(400, 'Ungültiger Spielstand-Schlüssel', 'badKey');
     if (!Object.hasOwn(NATIVE_CORES, system)) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
     if (save != null && (typeof save !== 'string' || save.length > 6 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(save))) throw httpError(400, 'Ungültiger Spielstand', 'badSave');
+    // (state: the save state to go on from – the player's own console as a link session left it, docs/MULTIPLAYER.md)
+    if (state != null && (typeof state !== 'string' || state.length > 30 * 1024 * 1024 || !/^[A-Za-z0-9+/]*={0,2}$/.test(state))) throw httpError(400, 'Ungültiger Zustand', 'badSave');
     const tools = nativeTools();
     if (!tools.cores?.[system]) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
-    const id = native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl) });
+    const id = native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
+      state: state ? Buffer.from(state, 'base64') : null });
     return { id, core: NATIVE_CORES[system].id };
   });
   // ---- link sessions: trades and battles between the players of a run (docs/MULTIPLAYER.md) -----------------------
@@ -1533,7 +1537,18 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       if (save && typeof s.saveSha1 === 'string' && s.saveSha1 && createHash('sha1').update(save).digest('hex') !== s.saveSha1.toLowerCase()) {
         throw httpError(409, 'Spielstand beschädigt', 'linkSaveDiffers', { slot: s.slot });
       }
-      return { rom: r.path, save };
+      // the player's running game (docs/MULTIPLAYER.md › "Seamless"): the fast player's save state, deflated – every
+      // peer starts that seat from exactly these bytes (checked by SHA-1), not from the battery save
+      let st = null;
+      if (typeof s.state === 'string' && s.state) {
+        try {
+          st = inflateRawSync(Buffer.from(s.state, 'base64'), { maxOutputLength: MAX_STATE });
+        } catch {
+          throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers', { slot: s.slot });
+        }
+        if (typeof s.stateSha1 !== 'string' || createHash('sha1').update(st).digest('hex') !== s.stateSha1.toLowerCase()) throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers', { slot: s.slot });
+      }
+      return { rom: r.path, save, state: st };
     });
     let stateBytes = null;
     if (typeof state === 'string' && state) {

@@ -40,7 +40,7 @@ if (!process.versions.electron) {
     const tools = join(data, 'bundled');
     mkdirSync(join(tools, 'native', plat), { recursive: true });
     for (const f of readdirSync(src)) copyFileSync(join(src, f), join(tools, 'native', plat, f));
-    writeFileSync(join(tools, 'native', plat, readdirSync(src).find((f) => f.startsWith('gambatte_libretro'))), 'not a library');
+    writeFileSync(join(tools, 'native', plat, readdirSync(src).find((f) => f.startsWith('sameboy_libretro'))), 'not a library');
     process.env.SLS_TOOLS_DIR = tools;
   }
   app.commandLine.appendSwitch('mute-audio');

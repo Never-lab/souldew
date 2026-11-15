@@ -477,6 +477,20 @@ size_t d_state_size(int seat) {
   putQueue(me.stateCache, me.replies);
   return me.stateCache.size();
 }
+/** The console as melonDS DS (the fast player's core, built on this melonDS) keeps it: melonDS's own state, without the
+ *  wireless layer's part. Not while a console waits mid-frame for a packet. */
+size_t d_export(int seat, void **out) {
+  *out = nullptr;
+  if (!d_state_size(seat)) return 0;
+  std::lock_guard<std::mutex> g(lock);
+  const std::vector<u8> &c = seats[seat].stateCache;
+  u32 len = 0;
+  if (c.size() < 16) return 0;
+  memcpy(&len, c.data() + 8, 4); // ("MELN", u16 major, u16 minor, u32 length)
+  if (len < 16 || len > c.size() || !(*out = malloc(len))) return 0;
+  memcpy(*out, c.data(), len);
+  return len;
+}
 bool d_save_state(int seat, void *out) {
   std::lock_guard<std::mutex> g(lock);
   if (seats[seat].stateCache.empty()) return false;
@@ -530,6 +544,7 @@ size_t d_audio(int seat, int16_t *out, size_t max) {
 extern "C" const struct link_backend link_backend_melonds = {
     "melonds", d_system, d_probe, d_open, d_set_input, d_run_frame, d_video, d_fps, d_sram, d_hash,
     d_mem, d_read8, d_write8, d_state_size, d_save_state, d_load_state, d_sample_rate, d_audio,
+    nullptr, d_export,
 };
 
 extern "C" void link_backend_melonds_stats(uint64_t *y, uint64_t *s) { *y = yields, *s = switches; }

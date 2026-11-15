@@ -21,6 +21,8 @@
 //                   12 LINPUT u32 seat, u32 first frame, u32 inputs[] (linkbackend.h link_input) – the local seat's
 //                             buttons, for the peers
 //                   14 SEATSRAM u32 seat, bytes (every seat's battery save, on FLUSH)
+//                   15 SEATSTATE u32 seat, bytes – the local seat's console as the fast player's core saves it (answer to
+//                             SEATSTATE; no bytes = not possible): the player goes on from it alone, no restart
 //   souldew → host   1 INPUT  u32 joypad bits (RETRO_DEVICE_ID_JOYPAD_*), s16 lx, ly, rx, ry, s16 px, py, u8 pressed (the
 //                             fast player's 17 bytes: the pointer over the whole picture is the DS touch screen) – the
 //                             local seat; exactly 8 bytes { bits, seat } in local mode: that seat (tests)
@@ -33,6 +35,12 @@
 //                   24 UNTIL  u32 frame: run until the session reaches this frame, then pause (every peer the same)
 //                   25 NEED   u32 seat, u32 from: send that seat's buttons from frame `from` on as LINPUT (a peer missed
 //                             some; any peer may answer for any seat – every host keeps every seat's buttons)
+//                   26 SEATSTATE u32 settle: the local seat's console for the fast player (after the session's end). A DS
+//                             console waiting mid-frame for a wireless packet can't be written down: then up to `settle`
+//                             more frames run here alone (nothing pressed – the session is over) until it can
+// --state <file> per seat: start that seat from the player's running game (the fast player's state, export_state's format)
+// instead of booting it from the battery save – a link session without a restart (docs/MULTIPLAYER.md › "Seamless").
+// --export <dir> (with --bench): every seat's console in that format at the end → <dir>/seat<k>.state (tests).
 // --load <file>: start from a whole-session state (STATE's format, see save_all) – rejoining a running session.
 //
 // Local mode (no --net): every seat's buttons come from INPUT. Net mode: the local seat's buttons for frame f are taken
@@ -234,6 +242,7 @@ static pthread_cond_t cmd_cond = PTHREAD_COND_INITIALIZER;
 static float speed = 1.0f;
 static uint32_t step_left, until_frame; // STEP: frames still to run; UNTIL: pause at this session frame
 static int view_seat, want_quit, want_save, want_flush, want_view;
+static uint32_t want_seatstate; // SEATSTATE: 1 + frames it may run on alone to get there
 static uint8_t *load_data;
 static size_t load_len;
 #define MAX_PENDING 1024
@@ -290,6 +299,12 @@ static void *reader(void *arg) {
     case 6: want_quit = 1; break;
     case 10: want_flush = 1; break;
     case 12: ram_full = 1; break;
+    case 26: {
+      uint32_t settle = 0;
+      if (h[1] >= 4) memcpy(&settle, p, 4);
+      want_seatstate = 1 + (settle > 600 ? 600 : settle);
+      break;
+    }
     case 13:
       if (h[1] >= 4) {
         uint32_t n;
@@ -560,6 +575,27 @@ static void do_need(const uint8_t *p, uint32_t len) {
   free(m);
 }
 
+/**
+ * SEATSTATE: the local seat's console for the fast player. The page asks only once the session is over (each peer's
+ * host stands where it ran out of buttons): if a console can't be written down yet (DS: waiting mid-frame for a packet),
+ * every seat runs on here alone with nothing pressed, at most `settle` frames – what those frames do no longer has to
+ * match anybody.
+ */
+static void send_seatstate(uint32_t settle) {
+  const uint32_t seat = (uint32_t)local_seat;
+  void *p = NULL;
+  size_t n = B->export_state ? B->export_state(local_seat, &p) : 0;
+  for (uint32_t i = 0; !n && B->export_state && i < settle; i++) {
+    for (int s = 0; s < nseats; s++) seats[s].in[frame % RING] = 0;
+    run_frame();
+    pump_audio(0);
+    n = B->export_state(local_seat, &p);
+  }
+  send_msg2(15, &seat, 4, p, (uint32_t)n);
+  send_event("{\"event\":\"seatState\",\"seat\":%d,\"size\":%zu,\"frame\":%u}", local_seat, n, frame);
+  free(p);
+}
+
 // ---- main ----------------------------------------------------------------------------------------------------------
 int main(int argc, char **argv) {
 #ifdef _WIN32
@@ -567,7 +603,7 @@ int main(int argc, char **argv) {
   _setmode(_fileno(stdout), _O_BINARY);
 #endif
   const char *roms[LINK_MAX_SEATS] = {0}, *srams[LINK_MAX_SEATS] = {0}, *states[LINK_MAX_SEATS] = {0};
-  const char *script_path = NULL, *out_dir = NULL, *backend_name = NULL, *load_path = NULL;
+  const char *script_path = NULL, *out_dir = NULL, *backend_name = NULL, *load_path = NULL, *export_dir = NULL;
   int nr = 0, ns = 0, nst = 0, bench = 0;
   double bench_speed = 0;
   int64_t rtc_ms = 0;
@@ -587,6 +623,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(k, "--record")) record_f = fopen(v, "wb");
     else if (!strcmp(k, "--script")) script_path = v;
     else if (!strcmp(k, "--out")) out_dir = v;
+    else if (!strcmp(k, "--export")) export_dir = v;
     else if (!strcmp(k, "--backend")) backend_name = v;
     else if (!strcmp(k, "--load")) load_path = v;
     else if (!strcmp(k, "--ram") && ram_n < MAX_RAM) {
@@ -597,7 +634,7 @@ int main(int argc, char **argv) {
   }
   nseats = nr;
   if (nseats < 1 || local_seat < 0 || local_seat >= nseats || delay_frames < 1 || delay_frames > 120) {
-    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]] [--backend sameboy|mgba|melonds] [--load state]\n");
+    fprintf(stderr, "usage: linkhost --rom <seat0> [--rom <seat1>…] [--sram f|-]… [--state f|-]… [--local k] [--net --delay D] [--rtc ms] [--ram a:n]… [--record f] [--script f] [--bench frames [--out dir]] [--backend sameboy|mgba|melonds] [--load state] [--export dir]\n");
     return 2;
   }
   if (bench) protocol = 0;
@@ -676,6 +713,16 @@ int main(int argc, char **argv) {
       if (f) fclose(f);
       free(p);
     }
+    if (export_dir) for (int s = 0; s < nseats; s++) { // every seat's console in the fast player's format
+      void *p = NULL;
+      const size_t n = B->export_state ? B->export_state(s, &p) : 0;
+      char path[1024];
+      snprintf(path, sizeof path, "%s/seat%d.state", export_dir, s);
+      FILE *f = n ? fopen(path, "wb") : NULL;
+      if (f) fwrite(p, 1, n, f), fclose(f);
+      fprintf(stderr, "export: seat %d: %zu bytes%s\n", s, n, n ? "" : " (not now)");
+      free(p);
+    }
     _exit(0);
   }
 
@@ -700,6 +747,8 @@ int main(int argc, char **argv) {
     pthread_mutex_lock(&cmd_lock);
     const float spd = speed;
     const int quit = want_quit, save = want_save, flush = want_flush, view_now = want_view, view = view_seat;
+    const uint32_t seatstate = want_seatstate;
+    want_seatstate = 0;
     uint8_t *ld = load_data;
     const size_t ll = load_len;
     want_save = want_flush = want_view = 0;
@@ -724,6 +773,7 @@ int main(int argc, char **argv) {
     }
     if (save) save_all();
     if (flush) check_sram(1), send_all_sram();
+    if (seatstate) send_seatstate(seatstate - 1);
     double t = now_s();
     if (spd <= 0.0f) {
       if (t - last_ram >= 0.1) last_ram = t, send_ram();

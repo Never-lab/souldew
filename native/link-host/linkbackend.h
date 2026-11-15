@@ -42,7 +42,7 @@ struct link_seat_config {
   const char *rom;         // path of this seat's game (the partner's rebuilt locally, checked by SHA-1 by souldew)
   const uint8_t *save;     // battery save bytes or NULL (a new cartridge)
   size_t save_len;
-  const char *state;       // tests only: a save state to start from, or NULL
+  const char *state;       // the player's running game as the fast player's core saved it (export_state's format), or NULL
 };
 
 struct link_backend {
@@ -88,6 +88,13 @@ struct link_backend {
    * the save memory + the 48-byte clock footer). `sram` stays what tells whether the game saved.
    */
   size_t (*battery)(int seat, void **out);
+  /**
+   * The seat's console as the fast player's core (native/retro-host on the libretro core of the same emulator, the same
+   * version) saves and loads it – a link session starts from the players' running games (link_seat_config.state) and
+   * hands each player's console back the same way when it ends (docs/MULTIPLAYER.md › "Seamless"). malloc'd, caller
+   * frees; 0 = not now (a DS console waiting mid-frame for a wireless packet).
+   */
+  size_t (*export_state)(int seat, void **out);
 };
 
 extern const struct link_backend link_backend_mgba;

@@ -59,7 +59,7 @@ New visible text always goes through `t('area.key', 'English default', { vars })
 ## Fast player (DS, GBA, Game Boy)
 
 DS, GBA and Game Boy games play in the fast player when its part is there: a native host
-(`native/retro-host/retrohost.c`) runs melonDS DS (with its JIT), mGBA or Gambatte as a native program, and
+(`native/retro-host/retrohost.c`) runs melonDS DS (with its JIT), mGBA or SameBoy as a native program, and
 `web/playernative.html` / `web/lib/nativeplayer.mjs` offer the play view the same `window.__emu` API as the
 EmulatorJS player. The host speaks the 3DS host's protocol plus a few messages (header of `retrohost.c`): the game's RAM
 regions are mirrored in the page (what changed, ten times a second, between two frames – the live reader reads them
@@ -67,11 +67,13 @@ synchronously as before), the battery save comes out when the game saved (and se
 cheats are written between frames, `STEP n` runs exactly n frames (the ROM matrix). `server/lib/native.mjs` knows the
 cores, their RAM and options and reuses the 3DS sessions (`/api/native/*`). Settings › "Fast player" switches it off
 (`config.nativeCore`); when the host can't start a game the play view falls back to `player.html` by itself. Save
-states carry the core id (`melonds-native`, `mgba-native`, `gambatte-native`) – the other player's states aren't offered.
+states carry the core id (`melonds-native`, `mgba-native`, `sameboy-native`) – the other player's states aren't offered (nor
+the older Game Boy player's, `gambatte-native`). The GBA and Game Boy cores are built from the link host's mGBA commit and
+SameBoy version: a link session starts from the running game's state and hands it back (docs/MULTIPLAYER.md › "Seamless").
 
 ```sh
 brew install cmake ninja rgbds                  # (rgbds: SameBoy's boot ROM for the link host; Windows cross build: brew install mingw-w64)
-npm run native                                  # host + melonDS DS v1.4.0 + mGBA 0.10.5 + Gambatte, into tools/native/<platform>-<arch>/
+npm run native                                  # host + melonDS DS v1.4.0 + mGBA (d58ea8a) + SameBoy v1.0.5 + link host, into tools/native/<platform>-<arch>/
 node scripts/build-native.mjs --host-only       # only the host (after changing retrohost.c)
 node scripts/build-native.mjs --platform win32-x64   # the Windows part, cross-compiled and statically linked
 node --test test/native.test.mjs                # the real host on a Game Boy ROM the test makes (skipped when not built)

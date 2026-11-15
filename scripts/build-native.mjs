@@ -2,8 +2,9 @@
 // package.json and server/lib/native.mjs):
 //   retrohost[.exe]              native/retro-host/retrohost.c – the host that runs a libretro core for the player page
 //   melondsds_libretro.*         DS: melonDS DS (JesseTG/melonds-ds) – software 3D on its own thread, the JIT on
-//   mgba_libretro.*              GBA: mGBA
-//   gambatte_libretro.*          Game Boy / Game Boy Color: Gambatte (libretro's port)
+//   mgba_libretro.*              GBA: mGBA – built from the link host's libmgba commit (the same save states both ways:
+//                                a link session starts from the running game and hands it back, docs/MULTIPLAYER.md)
+//   sameboy_libretro.*           Game Boy / Game Boy Color: SameBoy – the link host's GB/GBC emulator, the same version
 //   SOURCES.txt                  which source each file was built from (GPL: the same tags/commits are public)
 //   linkhost[.exe]               native/link-host/linkhost.c – link sessions: N linked consoles in one process, lockstep
 //                                (trades and battles between players, docs/MULTIPLAYER.md); GBA on libmgba, GB/GBC on
@@ -17,7 +18,7 @@
 // compiler; Windows is cross-compiled with MinGW-w64 (macOS: brew install mingw-w64; Ubuntu: apt install mingw-w64) –
 // every library is linked in statically, the DLLs need nothing but Windows itself.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync, rmSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cpus } from 'node:os';
@@ -39,10 +40,17 @@ const jobs = String(opt('jobs', Math.max(2, cpus().length)));
 const only = new Set(String(opt('only', 'nds,gba,gb,link')).split(','));
 
 /** The sources, at fixed versions (bump them here; SOURCES.txt in the build says which ones went in). */
+// mGBA's master with the rewritten GBA lockstep driver – the link host's libmgba AND the fast player's GBA core: a link
+// session starts from the player's running game (the fast player's save state, loaded into the link host) and hands the
+// console back the same way, so both must speak one save-state format (mGBA refuses states from a newer version).
+const MGBA_LINK = 'd58ea8a86f30598fbf3958585de3d33028535072';
 export const SOURCES = {
   nds: { name: 'melonDS DS', repo: 'https://github.com/JesseTG/melonds-ds.git', ref: 'v1.4.0', file: `melondsds_libretro.${ext}`, license: ['LICENSE', 'LICENSE-melonds-ds-GPL-3.0.txt'] },
-  gba: { name: 'mGBA', repo: 'https://github.com/mgba-emu/mgba.git', ref: '0.10.5', file: `mgba_libretro.${ext}`, license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
-  gb: { name: 'Gambatte (libretro)', repo: 'https://github.com/libretro/gambatte-libretro.git', ref: '77f2567d718b8973d02caa2daa8dce4953faf811', file: `gambatte_libretro.${ext}`, license: ['COPYING', 'LICENSE-gambatte-GPL-2.0.txt'] },
+  gba: { name: 'mGBA (libretro, the link host\'s commit)', repo: 'https://github.com/mgba-emu/mgba.git', ref: MGBA_LINK, dir: 'link', file: `mgba_libretro.${ext}`, license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
+  // Game Boy / Game Boy Color: SameBoy's libretro core from the link host's SameBoy (Gambatte's save states can't go into
+  // a link session – and SameBoy is the more accurate emulator anyway). Every seat is a Game Boy Color (CGB-E), as in the
+  // link host.
+  gb: { name: 'SameBoy (libretro)', repo: 'https://github.com/LIJI32/SameBoy.git', ref: 'v1.0.5', dir: 'sameboy', file: `sameboy_libretro.${ext}`, license: ['LICENSE', 'LICENSE-sameboy-MIT.txt'] },
   // the link host links libmgba statically: mGBA's master has the rewritten GBA lockstep driver (sleep/wake instead of
   // blocking threads – what a single-threaded, deterministic scheduler needs). Pinned: every peer must run the same
   // build, or the consoles drift apart (the session compares RAM hashes).
@@ -53,7 +61,7 @@ export const SOURCES = {
   // wireless layer in native/link-host/backend_melonds.cpp): the melonDS fork melonDS DS v1.4.0 builds, at the commit its
   // branch jtg/fix-uninitialized-opengl had then. Interpreter only (no JIT: the same results on arm64 and x64 peers).
   melonds: { name: 'melonDS (link host, DS)', repo: 'https://github.com/JesseTG/melonDS.git', ref: '16f127dbb587a73371827ce79689c5d237c4b59b', file: null, license: ['LICENSE', 'LICENSE-melonds-GPL-3.0.txt'] },
-  link: { name: 'mGBA (libmgba, link host)', repo: 'https://github.com/mgba-emu/mgba.git', ref: 'd58ea8a86f30598fbf3958585de3d33028535072', file: win ? 'linkhost.exe' : 'linkhost', license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
+  link: { name: 'mGBA (libmgba, link host)', repo: 'https://github.com/mgba-emu/mgba.git', ref: MGBA_LINK, file: win ? 'linkhost.exe' : 'linkhost', license: ['LICENSE', 'LICENSE-mgba-MPL-2.0.txt'] },
 };
 const HOST = win ? 'retrohost.exe' : 'retrohost';
 
@@ -83,10 +91,10 @@ const MINGW = 'x86_64-w64-mingw32';
 const cc = process.env.CC || (win ? (cross ? `${MINGW}-gcc` : 'gcc') : 'cc');
 const cxx = process.env.CXX || (win ? (cross ? `${MINGW}-g++` : 'g++') : 'c++');
 
-/** A checkout of `s` at its ref in _ref/native (cloned once). */
+/** A checkout of `s` at its ref in _ref/native (cloned once; `dir`: shared with another part built from the same source). */
 function source(key) {
   const s = SOURCES[key];
-  const dir = join(root, '_ref', 'native', `${key}-${s.ref.slice(0, 12)}`);
+  const dir = join(root, '_ref', 'native', `${s.dir || key}-${s.ref.slice(0, 12)}`);
   if (!existsSync(join(dir, '.git'))) {
     mkdirSync(dir, { recursive: true });
     run('git', ['init', '-q', dir]);
@@ -146,23 +154,40 @@ function buildNds() {
 
 function buildGba() {
   const src = source('gba');
-  const build = join(src, `build-${plat}`);
+  const build = join(src, `build-libretro-${plat}`);
   const off = ['QT', 'SDL', 'GL', 'GLES2', 'GLES3', 'EPOXY'].map((x) => `-DBUILD_${x}=OFF`);
-  const no = ['FFMPEG', 'ZLIB', 'LIBZIP', 'MINIZIP', 'PNG', 'SQLITE3', 'ELF', 'LUA', 'EDITLINE', 'DISCORD_RPC', 'EPOXY', 'JSON_C', 'DEBUGGERS', 'GDB_STUB'].map((x) => `-DUSE_${x}=OFF`);
-  run('cmake', [...cmakeTarget(), '-DBUILD_LIBRETRO=ON', '-DBUILD_SHARED=OFF', '-DBUILD_STATIC=OFF', '-DSKIP_LIBRARY=ON', ...off, ...no, '-S', src, '-B', build]);
+  const no = ['FFMPEG', 'ZLIB', 'LIBZIP', 'MINIZIP', 'PNG', 'SQLITE3', 'ELF', 'LUA', 'EDITLINE', 'DISCORD_RPC', 'EPOXY', 'JSON_C'].map((x) => `-DUSE_${x}=OFF`);
+  // (Windows: master's libretro target compiles the Windows directory code, which needs ENABLE_DIRECTORIES's types)
+  const winDirs = win ? ['-DCMAKE_C_FLAGS=-DENABLE_DIRECTORIES'] : [];
+  run('cmake', [...cmakeTarget(), '-DBUILD_LIBRETRO=ON', '-DBUILD_SHARED=OFF', '-DBUILD_STATIC=OFF', '-DSKIP_LIBRARY=ON', '-DENABLE_SCRIPTING=OFF', '-DENABLE_DEBUGGERS=OFF',
+    '-DENABLE_GDB_STUB=OFF', '-DBUILD_LTO=OFF', ...winDirs, ...off, ...no, '-S', src, '-B', build]);
   run('cmake', ['--build', build, '--parallel', jobs, '--target', 'mgba_libretro']);
   copyFileSync(join(build, SOURCES.gba.file), join(out, SOURCES.gba.file));
   license('gba', src);
 }
 
+/**
+ * SameBoy's libretro core (its boot ROMs assembled from source with RGBDS – needed for the link host anyway). The Game
+ * Boy Color boot ROM built in is SameBoy's fast one (no logo animation: a game starts at once, as with Gambatte before);
+ * a boot ROM is no part of a save state, so the link host's (the full one) and this one still trade states.
+ */
 function buildGb() {
   const src = source('gb');
   const platform = win ? 'win' : os === 'darwin' ? 'osx' : 'unix';
-  // (Windows: winpthread static too – a MinGW build otherwise needs libwinpthread-1.dll next to it)
-  const extra = os === 'darwin' ? [`ARCHFLAGS=-arch ${arch === 'arm64' ? 'arm64' : 'x86_64'} -mmacosx-version-min=11.0`] : win ? ['LDFLAGS=-static -lws2_32'] : ['LDFLAGS=-static-libgcc -static-libstdc++'];
-  run('make', ['-C', src, '-f', 'Makefile.libretro', 'clean'], { stdio: 'ignore' });
-  run('make', ['-C', src, '-f', 'Makefile.libretro', `platform=${platform}`, 'HAVE_NETWORK=0', `CC=${cc}`, `CXX=${cxx}`, ...extra, `-j${jobs}`]);
-  copyFileSync(join(src, SOURCES.gb.file), join(out, SOURCES.gb.file));
+  const roms = ['agb', 'cgb', 'cgb0', 'dmg', 'mgb', 'sgb', 'sgb2'];
+  const built = join(src, 'build', 'bin', 'BootROMs');
+  run('make', ['-C', src, 'bootroms', join('build', 'bin', 'BootROMs', 'cgb_boot_fast.bin'), `CC=${process.env.HOST_CC || 'cc'}`]); // (pb12: a build-time helper)
+  const boot = join(src, `build-libretro-bootroms`);
+  mkdirSync(boot, { recursive: true });
+  for (const r of roms) copyFileSync(join(built, r === 'cgb' ? 'cgb_boot_fast.bin' : `${r}_boot.bin`), join(boot, `${r}_boot.bin`));
+  for (const r of roms) rmSync(join(src, 'libretro', `${r}_boot.c`), { force: true }); // (made from the .bin files above: never an older one)
+  const bin = join(src, `build-libretro-${plat}`);
+  mkdirSync(bin, { recursive: true });
+  const extra = os === 'darwin' ? [`ARCHFLAGS=-arch ${arch === 'arm64' ? 'arm64' : 'x86_64'} -mmacosx-version-min=11.0`] : os === 'linux' ? ['LDFLAGS=-static-libgcc'] : [];
+  const mk = ['-C', join(src, 'libretro'), `platform=${platform}`, `BOOTROMS_DIR=${boot}`, `BIN=${bin}`, `CC=${cc}`, 'GIT_VERSION=" souldew"', ...extra];
+  run('make', [...mk, 'clean'], { stdio: 'ignore' }); // (its objects sit next to the sources: none of another platform's)
+  run('make', [...mk, `-j${jobs}`]);
+  copyFileSync(join(bin, SOURCES.gb.file), join(out, SOURCES.gb.file));
   license('gb', src);
 }
 

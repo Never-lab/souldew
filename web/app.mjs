@@ -568,25 +568,38 @@ function App() {
     linkRef.current = link;
     linkPlayRef.current?.stop();
     // a link session: the play view shows the local seat (target.link); its end closes it
+    // this player's game of this run, running in the fast player right now (a link session starts from it – seamless)
+    const nativeEmu = () => document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__emu || null;
+    const ownGame = () => {
+      const t = sessionRef.current?.target;
+      return !!t && t.runId === manifest.id && !t.link && t.saveUrl === `/api/runs/${manifest.id}/save/${me}` && !!nativeEmu()?.ready;
+    };
     const lp = new LinkSessions({
-      sync: link, runId: manifest.id, me,
-      emu: () => document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__emu || null,
+      sync: link, runId: manifest.id, me, emu: nativeEmu, ownGame,
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
       openSession: (st) => {
         lp.partyFirst = lp.partyLast = null; // the teams the link session shows first and last (the trade's log entry)
         const out = manifest.outputs?.[me];
         if (!out) return;
+        const link = { id: st.id, seats: st.seats, kind: st.kind, delay: st.delay };
+        const cur = sessionRef.current;
+        if (st.seamless && cur?.target?.runId === manifest.id) { // the running game went into the session: same player, same picture
+          cur.target.link = link; // (the play view's save writer reads target.link as it goes)
+          setSession({ ...cur });
+          return;
+        }
         startSession({
-          kind: 'run', key: `link-${st.id}`, system: manifest.game?.system, code: manifest.game?.code, title: manifest.game?.title,
+          kind: 'run', key: `link-${st.id}`, soloKey: `run-${manifest.id}-${me}`, system: manifest.game?.system, code: manifest.game?.code, title: manifest.game?.title,
           rom: `/api/runs/${manifest.id}/file?inline=1&name=${encodeURIComponent(out.rom)}`, name: out.rom.replace(/\.\w+$/, ''),
           saveUrl: `/api/runs/${manifest.id}/save/${me}`, stateId: `run-${manifest.id}-${me}`, label: manifest.name, gameId: manifest.game?.id,
-          runId: manifest.id, params: { run: manifest.id }, link: { id: st.id, seats: st.seats, kind: st.kind, delay: st.delay },
+          runId: manifest.id, params: { run: manifest.id }, link,
         });
         navigate('play', { run: manifest.id });
       },
       closeSession: (st) => {
+        const cur = sessionRef.current;
+        const tl = cur?.target?.link;
         // fell out of step: the run's save went back to before the session – the play view writes no last save of it
-        const tl = sessionRef.current?.target?.link;
         if (st.ended?.reason === 'linkDesync' && tl) tl.discard = true;
         if (st.kind === 'trade' && st.ended?.reason !== 'linkDesync') {
           const partner = (st.seats || []).find((s) => s !== me);
@@ -595,6 +608,12 @@ function App() {
           } catch (e) {
             console.warn('trade log', e);
           }
+        }
+        // the player's own console went on alone (seamless): the same game keeps running – no restart, nothing to close
+        if (st.ended?.resumed && tl && cur) {
+          cur.target.link = null;
+          setSession({ ...cur });
+          return;
         }
         endSession();
       },

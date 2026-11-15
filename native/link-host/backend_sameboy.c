@@ -44,7 +44,7 @@ static struct sseat {
   bool bit_out;            // the bit this console (as master) is shifting out
   uint32_t back[160 * 144];  // SameBoy draws here…
   uint32_t front[160 * 144]; // …and every finished frame is copied here (no half-drawn pictures)
-  size_t ram_size;         // battery RAM size (the save souldew keeps: no RTC footer, Gambatte's .srm layout)
+  size_t ram_size;         // battery RAM size (the save souldew keeps: the RAM, then a clock cartridge's footer)
   bool has_rtc;
 } seats[2];
 
@@ -94,7 +94,7 @@ static bool s_probe(const char *rom) {
 }
 
 /**
- * An RTC cartridge's save without the clock behind it (souldew's saves are Gambatte's .srm: the battery RAM only) gets
+ * An RTC cartridge's save without the clock behind it (older souldew saves: the battery RAM only) gets
  * a clock that starts at day 0, 00:00:00 now – SameBoy would otherwise flag a reset clock and the game would ask for
  * the time. A save with a clock footer (VBA-M/SameBoy layout) keeps its own and catches up to the session's start.
  */
@@ -129,7 +129,7 @@ static void on_sample(GB_gameboy_t *gb, GB_sample_t *sample) {
 }
 static double s_sample_rate(void) { return SAMPLE_RATE; }
 /** A clock cartridge's save as souldew keeps it: the battery RAM + the 48-byte VBA-M clock footer (its time: the
- *  session clock, sbl_time) – retrohost (Gambatte) reads that footer back into the fast player's clock. */
+ *  session clock, sbl_time) – retrohost reads that footer back into the fast player's clock (SameBoy's libretro core). */
 static size_t s_battery(int seat, void **out) {
   struct sseat *st = &seats[seat];
   *out = NULL;
@@ -170,6 +170,7 @@ static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     GB_set_boot_rom_load_callback(gb, on_boot);
     GB_set_border_mode(gb, GB_BORDER_NEVER);
     GB_set_rgb_encode_callback(gb, on_rgb);
+    GB_set_color_correction_mode(gb, GB_COLOR_CORRECTION_MODERN_BALANCED); // (the picture only: as the fast player's SameBoy shows it)
     GB_set_pixels_output(gb, st->back);
     GB_set_vblank_callback(gb, on_vblank);
     // sound: every seat alike (only the local seat's is played); the rate only shapes the output, not the emulation
@@ -192,7 +193,7 @@ static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     }
     GB_random_seed(0x736f756c64657700ull + (uint64_t)s); // power-on RAM: the same "random" contents on every peer
     GB_reset(gb);
-    if (cfg[s].state) { // tests: a SameBoy save state to start from (the battery save stays as loaded above)
+    if (cfg[s].state) { // the player's running game (SameBoy's libretro core: the same format; its battery RAM comes along)
       if (GB_load_state(gb, cfg[s].state)) { link_log("seat %d: state not loadable", s); return false; }
     }
     GB_set_serial_transfer_bit_start_callback(gb, bit_start);
@@ -249,7 +250,7 @@ static void s_video(int seat, const uint32_t **px, unsigned *w, unsigned *h, uns
 }
 static double s_fps(void) { return CLOCK / 70224.0; }
 
-/** The battery RAM only (souldew's .srm layout, as Gambatte keeps it) – the clock footer stays in the session. */
+/** The battery RAM only (what tells whether the game saved) – `battery` adds a clock cartridge's footer. */
 static size_t s_sram(int seat, void **out) {
   struct sseat *st = &seats[seat];
   *out = NULL;
@@ -339,8 +340,17 @@ static bool s_load_state(int seat, const void *in, size_t len) {
   return true;
 }
 
+/** The console as SameBoy's libretro core keeps it (retro_serialize: GB_save_state_to_buffer, the same SameBoy version). */
+static size_t s_export(int seat, void **out) {
+  const size_t n = GB_get_save_state_size(seats[seat].gb);
+  if (!(*out = malloc(n))) return 0;
+  GB_save_state_to_buffer(seats[seat].gb, *out);
+  return n;
+}
+
 const struct link_backend link_backend_sameboy = {
   .name = "sameboy", .system = s_system, .probe = s_probe, .open = s_open, .set_input = s_set_input, .run_frame = s_run_frame,
   .video = s_video, .fps = s_fps, .sram = s_sram, .hash = s_hash, .mem = s_mem, .read8 = s_read8, .write8 = s_write8,
   .state_size = s_state_size, .save_state = s_save_state, .load_state = s_load_state, .sample_rate = s_sample_rate, .audio = s_audio, .battery = s_battery,
+  .export_state = s_export,
 };

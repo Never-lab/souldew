@@ -1,6 +1,6 @@
 # Multiplayer: trades, battles and a shared world
 
-Status: **every generation from Gen 1 to Gen 4 links in the app** (15 November 2026, branch `feat/multiplayer`; §1). This document is the plan for souldew 3.0: players of a run (and friends they invite) trade Pokémon and battle each other **the authentic in-game way** (Cable Club, Colosseum, Union Room), and see each other walking around in their own games.
+Status: **every generation from Gen 1 to Gen 4 links in the app – without restarting anybody's game** (15 November 2026, branches `feat/multiplayer` and `feat/mp-seamless`; §1, §4a). This document is the plan for souldew 3.0: players of a run (and friends they invite) trade Pokémon and battle each other **the authentic in-game way** (Cable Club, Colosseum, Union Room), and see each other walking around in their own games.
 
 There are no public lobbies. Multiplayer happens between the players of a run, over the peer channel the run already has.
 
@@ -46,6 +46,20 @@ Status on 15 November 2026 (branch `feat/multiplayer`, after merging the GB/GBC 
 | Location sign | "Trade Center", "Colosseum", "Cable Club", "Union Room" instead of "Pokémon League" / "Ferry" / nothing. |
 | Direct / relayed | The bar shows "direct · 1 ms" (both on one Mac); TURN servers come from the Worker (checked against the real key). |
 
+**Seamless – from the running games, no restart** (§4a; `link-e2e.mjs --seamless`, branch `feat/mp-seamless`). Each player is in the middle of their game in the fast player – a state of a recorded session's moment F, loaded while paused (`--state1/2`); with `--prestep 4` it is F−4 and four frames run in the fast player, so the picture is the game's – then invite/accept on the board, the session runs the recording's tail from F, both leave. Checked every time: the session started from **both running games** (`seamless`, the first picture after "Linking…" is the link session's), the **same player page** before and after (a mark in it survives – no reload, no new canvas), equal hashes all along, each game **goes on alone** afterwards (the fast player's core again, frames advancing, the same page), and the run saves against the recording:
+
+| Gen | Game(s), moment F | Result | "Linking…" (snapshot → first linked picture) | Back alone (leave → first solo picture) |
+|---|---|---|---|---|
+| 1 | Red ↔ Red trade, F = 1500: both at the Cable Club receptionist, mid-text ("Please appl…") | ✅ saves as recorded, logged; the text goes on in the session | 106 ms | 90–94 ms |
+| 1 | the same with `--prestep 4` | ✅ trade done, logged; the save differs from the recording in the play-time frame counter (1/60 s) only – the 4 frames ran in the fast player, without the link host's 61 ppm clock offset of seat 1 | 350 ms¹ | 72 ms |
+| 3 | Emerald ↔ Sapphire trade, F = 1707 (prestep 4): both standing in the Pokémon Center 2F | ✅ saves as recorded, logged; afterwards the trade menu goes on alone (the recording ends there) | 433–462 ms¹ | 97–128 ms |
+| 3 | Emerald ↔ Sapphire Colosseum battle, F = 1700 (prestep 4): both talking to the attendants ("Which Battle Mode…") | ✅ saves as recorded (Emerald wins, battle record in both saves); afterwards both in the Pokémon Center 2F after saving, playing on | 445–449 ms¹ | 123–127 ms |
+| 4 | Platinum ↔ Platinum Union Room trade, F = 3000 (prestep 4, the fast player's JIT ran those frames): both at the attendant's "save the game?" | ✅ saves as recorded (no log entry – the known Gen 4 gap, §13); afterwards in the Union Room alone | 1.2–3.2 s (1.29 s¹) | 0.67–0.89 s |
+| 3 | Emerald ↔ Sapphire, out of step (B's host on another clock) | ✅ (B's host given another state for A's seat – test-only, `--desync-state`; a game in the middle of a trade may never read its clock, so the old clock trick doesn't trigger here): mismatch at frame 120, both run saves back to before, backups kept, **each game back at the moment it was linked from**, going on alone, same page | 198 ms | |
+| 3 | Emerald ↔ Sapphire, B's peer link cut at frame 3,000 (in the Cable Club), both leave | ✅ both hosts stood still (each waits for the other's buttons), both left: **each goes on alone from its own console as it was** (in the Cable Club – the game then shows its link error, as with a pulled cable), same page | | 109–111 ms |
+
+¹ measured before the round trips were moved in front of the snapshot (they used to overlap with it – and a DS state on the channel made the round trip look like 570 ms, delay 25); since then the game stands still only for the snapshot, the transfer and the start (Gen 1: 106 ms).
+
 **The link host alone** (headless, `--script`/`--bench`): every recording replays to byte-identical saves (Red trade and battle, Crystal/Silver trade+battle 41,838 frames, Emerald/Sapphire trade, battle and 4-player multi battle, Platinum trade, battle and 4-console Union Room). Whole-session states load into a fresh host and go on identically (GBA at frames 3,000–11,111, GBC at 15,001 and 30,003, DS at 12,001 in the Union Room): the basis of rejoin. Network lockstep (`scripts/link-net-test.mjs`) as before: 0 mismatches.
 
 | Platform | Link host |
@@ -87,6 +101,7 @@ The design is hybrid. Players play apart, asynchronously, as they always do. **A
 | `linkbackend.h` | The **backend interface** each system implements. |
 | `backend_mgba.c` | GBA SIO (link cable: multiplayer and normal modes, 2–4 GBAs) on libmgba; GB/GBC as a fallback (`--backend mgba`). |
 | `backend_sameboy.c` | GB/GBC serial link cable (2 consoles) on SameBoy (MIT): Gen 1/2 Cable Club, the first choice for GB/GBC. |
+| *(every backend)* | `export_state` and `link_seat_config.state`: a seat starts from the player's running game and hands the console back in the fast player's state format (§4a). |
 | `backend_melonds.cpp` | DS local wireless between up to 4 melonDS instances (melonDS's core library, interpreter only) with a deterministic MP layer: Gen 4/5 Union Room. Details: [MULTIPLAYER-DS.md](MULTIPLAYER-DS.md). |
 | *(later)* 3DS | Azahar rooms, or two instances. Research. |
 
@@ -153,6 +168,9 @@ The page keeps sending retrohost's INPUT message (libretro joypad bits plus poin
 | → host `25 NEED` | `u32 seat, u32 from` | A peer missed a seat's buttons: this host sends what it knows (LINPUT). Any peer may answer for any seat. |
 | → host `3 SAVE` → `5 STATE` | — | A whole-session state for a partner who rejoins: every console, then `'LSES'` and the frame. Empty = "not now" (DS: a console waits mid-frame for a packet). |
 | `--load <state>` | — | Start from such a state (rejoin). mGBA's states include the lockstep driver's own state and the battery save; melonDS's include the wireless layer's queues. |
+| `--state <file>` per seat | — | Start that seat from the player's running game (the fast player's save state, §4a) instead of booting it from its battery save. |
+| → host `26 SEATSTATE` → `15 SEATSTATE` | `u32 settle` → `u32 seat, bytes` | The local seat's console in the fast player's format, after the session's end (§4a); a DS console that can't be written down yet runs on alone up to `settle` frames. Empty = not possible. |
+| `--export <dir>` (with `--bench`) | — | Every seat's console in that format → `seat<k>.state` (tests: a "mid-game" moment from a recording). |
 | host → `3 AUDIO` | stereo s16 | The local seat's sound at the loaded event's `sampleRate` (only at normal speed). |
 | → host `1 INPUT` | 17 bytes | Buttons plus the pointer: over the DS's lower screen it becomes the touch bits (a tap lasts at least 4 frames). |
 
@@ -168,12 +186,40 @@ The page keeps sending retrohost's INPUT message (libretro joypad bits plus poin
 4. **Start.** The initiator picks `rtc` (its clock, ms) and the input delay from the measured RTT (§5), then sends `link-go {delay, rtc}`.
    - Each server starts `linkhost --rom <seat0> --rom <seat1> --sram … --local k --net --delay D --rtc R --ram …` and replaces the single-player session.
    - The page shows the local seat in the fast player.
-5. **Play.** Both games boot from their saves (title screen, then Continue). The players walk to the Pokémon Center 2F and use the Cable Club as on real hardware. Inputs and hashes flow (§5). The tracker reads the local seat live.
+5. **Play.** Both games boot from their saves (title screen, then Continue) – or, since §4a, a game that was running goes on from its state, no boot. The players walk to the Pokémon Center 2F and use the Cable Club as on real hardware. Inputs and hashes flow (§5). The tracker reads the local seat live.
 6. **End.** Either player clicks "Leave", or the game is back in the overworld and the players walk out (souldew suggests leaving once both have saved). `link-bye {frame}` is sent and both hosts stop at the same frame (UNTIL).
    - Each server takes its **own seat's** battery save (SRAM / SEATSRAM) and writes it into the run (§7). The partner's save copy is discarded.
-   - Single-player play resumes from the new save.
+   - Single-player play resumes from the new save – since §4a without a restart: each player's console goes on alone from where the session left it.
 
 What if a player quits mid-trade? Gen 3 saves before a trade and again after it. A session cut in between leaves both players with their pre-trade save, which is the cartridge behaviour: nobody loses or duplicates a Pokémon.
+
+### 4a. Seamless: linking a running game, no restart
+
+Since November 2026 (branch `feat/mp-seamless`) a link session no longer reboots anybody's game. You're playing, you click Trade/Battle (or accept an invite), your game stands still for a moment ("Linking…" over the picture), and it goes on **where it was – now linked**; when the link ends it goes on alone from exactly where the session left it. Steps 3, 5 and 6 above change like this:
+
+1. **Snapshot** (`web/lib/linksession.mjs` `_maybeSnap` → `_sendSave`, once every player has every seat's game – a partner who still has to pick or build one doesn't keep the others' games standing – and after the inviter measured the round trips: it says `snapnow`, because a few MB on the channel would make every ping look slow; the first DS run measured 570 ms instead of 1 and picked an input delay of 25 frames). When this player's game of the run runs in the fast player (`ownGame()`), the page pauses it and takes its save state (`__emu.linkSnapshot()`: SPEED 0, then SAVE – the host takes commands between frames, so the state is at a frame boundary, and it is what the picture shows). It goes to every partner as `snap {slot, sha1, i, n, data}` (deflate-raw, base64, 12 KB parts, the run's encrypted channel); the battery save follows as before, its `save` message naming the snap (`state: sha1`). A player whose game isn't running (on the board, in the browser emulator) sends no snap: that seat boots from its battery save as before – mixed sessions are fine.
+2. **Start from states.** `go` waits until every seat's save and snap are at the inviter **and** every partner said `got` (they're at every partner too – an inviter that started its host early only stood and waited, and its busy page slowed the rest of its own snap to the others: DS 4 s instead of 1.2 s). Every server gets the same snaps (`/api/link/start` `seats[i].state`, deflated, SHA-1-checked after inflating) and starts `linkhost … --rom <seat> --sram <save> --state <snap>` per seat: each backend boots the seat with its battery save, then loads the state (`link_seat_config.state`). Every peer loads the same bytes into the same build, so the consoles are identical – the hash checks (§5) compare them from frame 120 on, as before.
+3. **The same picture.** The page's player (`playernative.html`) is never replaced: `__emu.attachLink(id)` switches its stream from the fast player to the link host; the canvas keeps the last picture until the session's first one arrives, the RAM mirror keeps its contents (the live reader never sees an empty party), the sound continues (a new rate restarts the audio context). The play view keeps its session (`target.link` is set on the running one) – pause, speed, save states and cheats are blocked during the link as before.
+4. **Back alone** (`__emu.resumeSolo()`, from `_end`). Once the session is over: FLUSH (the session's last battery save of this seat, SEATSRAM), then `SEATSTATE` – the link host writes this seat's console in the fast player's format (`export_state`). The page starts the fast player again with that state and save (`/api/native/start` `state` → `retrohost --state`, loaded before the first frame) and switches the stream back. The battery save goes into the run as every save does (`emu-saved`). A partner who dropped out doesn't matter: each one goes on from their own console as it is. A DS console that waits mid-frame for a wireless packet can't be written down; then the link host runs on alone (nothing pressed – the session is over) up to 300 frames until it can.
+5. **Out of step** (a desync): the run's save goes back to the pre-session one as before (`/api/link/restore`, backup kept), and the game goes back to **the snapshot it was linked from** – the player continues from where they were before the link, nothing of the session counts.
+6. **Edge cases.** An invite can be accepted anywhere – in a menu, mid-dialogue, in a battle: the state is taken there and the session starts there; the players walk to the Cable Club / Union Room themselves (they're simply linked now). Gen 1–3 need the link only inside the club rooms; leaving the link while inside one is like pulling the cable (the game shows its link error, Gen 3 needs a soft reset) – leave after walking out, as the bar suggests. A session started from the board (no game running here) boots from the save as before, and goes on alone afterwards too (the link player page carries the game for that).
+
+**Formats – one emulator version on both sides.** A state only loads into the emulator (and version) that wrote it, so the fast player's cores are now built from the link host's sources:
+
+| System | Fast player (libretro) | Link host | State |
+|---|---|---|---|
+| GBA | mGBA at the link host's commit `d58ea8a` (was the 0.10.5 release) | libmgba `d58ea8a` | mGBA's `mCoreSaveStateNamed` (the libretro core's own); into the link host with the battery save and clock extras, back out with the battery save, without the clock (the fast player's cartridge clock follows the computer's again). 0.10.5 can't load states of this version ("too new") – hence the same commit. Older 0.10.5 save states still load in it. |
+| GB / GBC | **SameBoy v1.0.5** (was Gambatte) | SameBoy v1.0.5 | `GB_save_state_to_buffer` both ways. Gambatte's states can't become SameBoy's (different internals; a converter through SameBoy's BESS format could only go one way). |
+| DS | melonDS DS v1.4.0 (JIT) | melonDS `16f127d` (the commit melonDS DS v1.4.0 builds, interpreter) | melonDS's own `DoSavestate` (the link host adds its wireless layer's part for rejoin; the fast player gets melonDS's part only). JIT or not doesn't change the format. |
+
+All three were checked headless both ways and frame-exact: a recorded session's seats exported at frame F (`linkhost --bench F --export dir`), loaded into the fast player, saved back by it while paused, then loaded into a fresh link host with the recording's tail – the battery saves at the end are byte-identical to the original session's (Emerald/Sapphire trade and battle, Red trade and battle, Platinum Union Room trade; the tail's hash equals the uninterrupted run's).
+
+**Decision: SameBoy for the fast player's Game Boy (MIT).** The cleanest of the three options:
+- *The link host as the Game Boy player all the time* would have meant re-building everything the fast player does (fast-forward sound, cheats, save-state slots, RESET, a save given late) in the link host – and Gambatte's save states would be gone just the same.
+- *Converting* Gambatte ↔ SameBoy states isn't sound (PPU/APU/timer internals differ; only Gambatte → SameBoy through BESS would be thinkable, never back).
+- *SameBoy's libretro core* is the link host's emulator at the same version, more accurate than Gambatte, and MIT (no GPL-2-only part in the bundle any more). Impacts, all handled: every game runs on a **Game Boy Color (CGB-E)** as in the link host – Red/Blue/Yellow get the Game Boy Color's palettes (as on a real GBC), Gold/Silver/Crystal look the same; the GBC boot ROM is SameBoy's fast one (no logo animation – a boot ROM is no part of a state, so the link host's full one doesn't matter); live tracking reads WRAM banks 0+1 as before (the system RAM, `0xC000` + 8 KB, the same layout the link host has); cheats are RAM writes and don't care; battery saves are the same bytes; **the cartridge clock** – retrohost converts SameBoy's RTC section (registers, latched registers, the Unix second it last caught up to) to and from the 48-byte VBA-M footer souldew keeps (`test/native.test.mjs`: a save whose clock read 3 days 4:05 ten minutes ago reads 3 days 4:15) – SameBoy runs the clock on the computer's time (`sameboy_rtc: sync to system clock`), the link host on emulated time from the state's clock, and the fast player catches up after the session; its sound at 48 kHz (retrohost now answers `GET_TARGET_SAMPLE_RATE` – SameBoy would make 2 MHz otherwise). **Lost:** save states made with the older Gambatte fast player (`gambatte-native`) aren't offered for GB runs any more (another core's, like the browser emulator's); battery saves and the clock carry over.
+
+**Determinism from live states.** Everything that must be equal on every peer is in the states or agreed: RAM, CPU, timers, RNG state (all in the console state), the battery save (in the state for all three systems: mGBA's extdata, SameBoy's MBC RAM, melonDS's cartridge), the cartridge/console clock (GBA: the agreed `rtc` with mGBA's fake epoch, as before – Emerald's clock moves to the inviter's, a few ms off; GB: the RTC registers in the state, then emulated time; DS: the RTC in the state, then emulated time), the core options (the link host's own, the same on every peer), and the frame alignment (every seat's state is at its own frame end; the session counts its frames from 0 from there). The link hosts' own extras (the GBA lockstep driver, SameBoy's cable bit, the DS wireless queues) start fresh – no link is up at a snapshot (nobody is in a Cable Club exchange or a wireless exchange before the session runs).
 
 ## 5. Netcode
 
@@ -308,7 +354,7 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 | mGBA / libmgba | MPL-2.0 | Compatible with GPL-3 (MPL §3.3 "Larger Work"); keep the MPL notice (`LICENSE-mgba-MPL-2.0.txt` ships next to the host) and offer the source, as for the libretro core. |
 | melonDS | GPL-3 | Compatible. |
 | SameBoy | Expat | Compatible. |
-| Gambatte | GPL-2.0-only | Confirmed: its sources say "version 2" with no "or later", so it can't be linked into the GPL-3 link host. The link host uses SameBoy instead. (The fast player loads it as a separate libretro core.) |
+| Gambatte | GPL-2.0-only | Confirmed: its sources say "version 2" with no "or later", so it can't be linked into the GPL-3 link host. The link host uses SameBoy instead – and since the seamless link (§4a) the fast player too (SameBoy's libretro core): Gambatte isn't shipped any more (only EmulatorJS's browser build still has it). |
 | TGB Dual | GPL-2.0-or-later | Compatible, but older and less accurate than SameBoy. Not used. |
 | GBA-PK | CC BY-NC 4.0 | **Not used, not ported.** |
 | pret decompilations | — | Used only as references for RAM layouts and scripts (as the trackers already do). |
@@ -336,6 +382,10 @@ M-series Mac, darwin-arm64, Release build:
 | 2 peers, RTT 80 ± 15 ms, D = 6, max speed | 143.6 fps, 105/105 hashes equal, saves equal (peers and local session) |
 | 2 peers, RTT 40 ± 10 ms, D = 5 | 234 fps, 25/25 hashes equal |
 | Bandwidth (unbatched, u32 inputs + framing) | 1.4–2.8 KB/s per peer |
+| Seamless: a running game's state (the snap) | GBA (mGBA) 528,448 B → 21–32 KB deflated; GB/GBC (SameBoy) 252,682 B (the libretro core pads its ~116 KB state to its maximum) → 28 KB; DS (melonDS) 19,744,141 B → 1.7 MB deflated (2.3 MB as base64 on the channel, ~190 parts) |
+| Seamless: snapshot (pause, SAVE, deflate, SHA-1) | GBA 18–54 ms, GB 46–64 ms, DS ~200 ms |
+| Seamless: "Linking…" – the picture stands still from the snapshot to the first linked picture (two players on one Mac) | GB 106 ms, GBA 168–207 ms, DS 1.2–3.2 s – almost all of it the 2.3 MB of the two DS states on the data channel (0.4–2.6 s per direction between runs, base64 in 12 KB JSON parts) |
+| Seamless: back alone – leave to the first solo picture (FLUSH, SEATSTATE, the fast player started with the state) | GB 72–94 ms, GBA 97–222 ms, DS 0.67–0.89 s |
 
 ## 13. Plan and effort
 
@@ -353,11 +403,15 @@ What is left for 3.0, with effort:
 | FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e; their link rooms on the sign | 3–4 d |
 | Gen 1 ↔ 2 Time Capsule | 1 d |
 | DS rejoin during a wireless exchange (the state can't be taken while a console waits mid-frame): retry until the exchange pauses, or make the wait state serialisable | 2–3 d |
-| UX polish from real players: the need/pick bar, a "save first" check before joining, what happens to an invite while the partner is in a menu | 2 d |
+| UX polish from real players: the need/pick bar, what happens to an invite while the partner is in a menu (seamless: the link simply starts there) | 1–2 d |
+| Seamless DS start: 1.2–3.2 s on one Mac, more over the internet/TURN – the 1.7 MB deflated state is sent as base64 in JSON parts; binary chunks on the data channel, and only what differs from a reference the receiver can build itself (the same game booted from the same save), would cut it to a fraction | 1–2 d |
+| Seamless with 3–4 players (the same path, not run yet) and a DS session started while both are already inside the Union Room alone (the fast player's firmware MAC is the same for every player – the games may need to leave and re-enter the room so their wireless reads the link host's per-seat MAC) | 1 d |
 | Shared World (§9), rollback, spectating | after 3.0 |
 
 ## 14. Decisions for the owner
 
 Decided (November 2026): TURN approved (Cloudflare Realtime key "souldew-link" on the Worker); different games in one run: the player picks the partner's file from their library, checked by SHA-1; no third-party WFC servers; rule defaults: trades allowed, link-battle losses don't count; up to 4 players; the GBA wireless adapter is skipped for now.
+
+Decided in this round (seamless link, §4a): the fast player's Game Boy core is **SameBoy** (the link host's emulator and version, MIT) instead of Gambatte – Gambatte's save states can't go into a link session; the GBA core is built from the **link host's mGBA commit** instead of the 0.10.5 release. Cost: save states made with the older Gambatte fast player aren't offered for GB runs any more (battery saves and the cartridge clock carry over); Game Boy games show the Game Boy Color's palettes, as on a GBC.
 
 Open: none for this round. Worth deciding before release: whether runs created before 3.0 should get "Build every player's game" offered once (randomized GB/GBA runs joined earlier have only the joiner's own game), and whether DS JIT may be offered for sessions where every peer is the same architecture (faster for 4 players; needs the JIT build and a session option).

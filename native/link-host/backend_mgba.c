@@ -141,8 +141,9 @@ static bool m_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     st->core->rtc.value = rtc_ms;
     st->core->reset(st->core);
     if (cfg[s].state) {
+      // (the player's running game, from the fast player – mGBA's libretro core of this very commit: the same format)
       struct VFile *sf = VFileOpen(cfg[s].state, O_RDONLY);
-      if (!sf || !mCoreLoadStateNamed(st->core, sf, SAVESTATE_SAVEDATA | SAVESTATE_RTC)) { link_log("seat %d: state not loadable", s); return false; }
+      if (!sf || !mCoreLoadStateNamed(st->core, sf, SAVESTATE_SAVEDATA | SAVESTATE_RTC)) { if (sf) sf->close(sf); link_log("seat %d: state not loadable", s); return false; }
       sf->close(sf);
       st->core->rtc.override = RTC_FAKE_EPOCH; // (a state may carry its own clock setting)
       st->core->rtc.value = rtc_ms;
@@ -321,6 +322,23 @@ static bool m_load_state(int seat, const void *in, size_t len) {
   return true;
 }
 
+/** The console as mGBA's libretro core keeps it (retro_serialize: the state, then its extra data) – the battery save
+ *  along, the clock not: the fast player's cartridge clock follows the computer's again, not the session's. */
+static size_t m_export(int seat, void **out) {
+  *out = NULL;
+  struct VFile *vf = VFileMemChunk(NULL, 0);
+  if (!vf) return 0;
+  size_t n = 0;
+  if (mCoreSaveStateNamed(seats[seat].core, vf, SAVESTATE_SAVEDATA)) {
+    n = (size_t)vf->size(vf);
+    *out = n ? malloc(n) : NULL;
+    vf->seek(vf, 0, SEEK_SET);
+    if (!*out || (size_t)vf->read(vf, *out, n) != n) free(*out), *out = NULL, n = 0;
+  }
+  vf->close(vf);
+  return n;
+}
+
 static double m_sample_rate(void) { return seats[0].core->audioSampleRate(seats[0].core); }
 static size_t m_audio(int seat, int16_t *out, size_t max) {
   struct mAudioBuffer *b = seats[seat].core->getAudioBuffer(seats[seat].core);
@@ -331,4 +349,5 @@ const struct link_backend link_backend_mgba = {
   .name = "mgba", .system = m_system, .probe = m_probe, .open = m_open, .set_input = m_set_input, .run_frame = m_run_frame,
   .video = m_video, .fps = m_fps, .sram = m_sram, .hash = m_hash, .mem = m_mem, .read8 = m_read8, .write8 = m_write8,
   .state_size = m_state_size, .save_state = m_save_state, .load_state = m_load_state, .sample_rate = m_sample_rate, .audio = m_audio,
+  .export_state = m_export,
 };

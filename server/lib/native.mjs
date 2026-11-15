@@ -1,5 +1,5 @@
 // The DS, GBA and Game Boy in souldew's fast player: the native host (native/retro-host) runs a libretro core – melonDS
-// DS with its JIT, mGBA, Gambatte – as a native program and speaks the 3DS host's protocol (server/lib/ctr.mjs) with a
+// DS with its JIT, mGBA, SameBoy – as a native program and speaks the 3DS host's protocol (server/lib/ctr.mjs) with a
 // few more messages (see the header of native/retro-host/retrohost.c). Sessions, the page's stream and the command
 // checks are the 3DS ones (CtrSessions); this module knows the cores, their memory and their settings.
 //
@@ -7,7 +7,7 @@
 //   retrohost[.exe]                                   the host
 //   melondsds_libretro.dylib | .dll | .so             DS
 //   mgba_libretro.*                                   GBA
-//   gambatte_libretro.*                               Game Boy / Game Boy Color
+//   sameboy_libretro.*                                Game Boy / Game Boy Color
 // When the host or a core is missing, the play view uses the built-in browser emulator (player.html) as before.
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -26,13 +26,15 @@ export const NMSG = { ...MSG, RAM: 8, SRAM: 9, MEMREAD: 11, LINPUT: 12, SEATSRAM
 /** Commands the page may send it. */
 export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13 };
 
-/** Commands of a link session (native/link-host/linkhost.c): no states, cheats, steps or memory access from a page. */
-export const LCMD = { INPUT: 1, SPEED: 2, SAVE: 3, QUIT: 6, FLUSH: 10, RESYNC: 12, VIEW: 20, RINPUT: 21, UNTIL: 24, NEED: 25 };
+/** Commands of a link session (native/link-host/linkhost.c): no states, cheats, steps or memory access from a page.
+ *  SEATSTATE: the player's own console for the fast player once the session is over (it goes on alone from there). */
+export const LCMD = { INPUT: 1, SPEED: 2, SAVE: 3, QUIT: 6, FLUSH: 10, RESYNC: 12, VIEW: 20, RINPUT: 21, UNTIL: 24, NEED: 25, SEATSTATE: 26 };
 /** Systems the link host plays: GB/GBC (SameBoy), GBA (mGBA), DS (melonDS) – docs/MULTIPLAYER.md. */
 export const LINK_SYSTEMS = ['gba', 'gb', 'gbc', 'nds'];
 export const MAX_LINK_SEATS = 4;
 
 const MAX_SAVE = 4 * 1024 * 1024; // the biggest battery save of a DS game is 8 Mbit; GBA / GB far less
+export const MAX_STATE = 64 * 1024 * 1024; // a save state (a DS console with its cartridge's save: ~6 MB)
 
 /**
  * Per system: the core, the memory the live reader reads (bus address, length – what player.html's read() maps:
@@ -68,7 +70,16 @@ export const NATIVE_CORES = {
     ram: [[0x02000000, 0x40000], [0x03000000, 0x8000]],
     options: { mgba_skip_bios: 'ON', mgba_use_bios: 'OFF', mgba_idle_optimization: 'Remove Known' },
   },
-  gb: { id: 'gambatte-native', lib: 'gambatte_libretro', ram: [[0xc000, 0x2000]], options: {} },
+  // SameBoy – the link host's Game Boy emulator, the same version: a link session starts from the running game's state and
+  // hands it back (docs/MULTIPLAYER.md › "Seamless"). Every game on a Game Boy Color (CGB-E), as in the link host (Game
+  // Boy games get the GBC's palettes); the cartridge clock follows the computer's. States of the older Gambatte player
+  // ('gambatte-native') aren't offered – another core's.
+  gb: {
+    id: 'sameboy-native',
+    lib: 'sameboy_libretro',
+    ram: [[0xc000, 0x2000]],
+    options: { sameboy_model: 'Game Boy Color', sameboy_rtc: 'sync to system clock', sameboy_border: 'never', sameboy_color_correction_mode: 'emulate hardware' },
+  },
 };
 NATIVE_CORES.gbc = NATIVE_CORES.gb;
 
@@ -105,14 +116,14 @@ export function linkTool({ dirs = nativeDirs(), exists = existsSync } = {}) {
  * The link host's arguments: every seat's ROM and battery save (paths – the server's own), the local seat, net mode
  * with the input delay, the shared clock start, and the local seat's memory for live tracking.
  */
-export function linkArgs({ system, roms, saves, local, delay, rtc, state = null }) {
+export function linkArgs({ system, roms, saves, local, delay, rtc, state = null, states = [] }) {
   const c = NATIVE_CORES[system];
   if (!c || !LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
   if (!Array.isArray(roms) || roms.length < 2 || roms.length > MAX_LINK_SEATS) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
   if (!Number.isInteger(local) || local < 0 || local >= roms.length) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
   const d = Math.max(1, Math.min(60, Math.round(Number(delay) || 4)));
   const args = [];
-  roms.forEach((r, i) => args.push('--rom', r, '--sram', saves[i] || '-'));
+  roms.forEach((r, i) => args.push('--rom', r, '--sram', saves[i] || '-', '--state', states[i] || '-'));
   const clock = Number(process.env.SLS_LINK_TEST_RTC) || Math.round(Number(rtc) || Date.now()); // (the env: tests only)
   args.push('--local', String(local), '--net', '--delay', String(d), '--rtc', String(clock));
   for (const [addr, len] of c.ram) args.push('--ram', `0x${addr.toString(16)}:0x${len.toString(16)}`);
@@ -131,7 +142,7 @@ export function checkLinkCommands(body) {
   if (rest.length || !messages.length) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
   const limits = {
     [LCMD.INPUT]: [17, 32], [LCMD.SPEED]: [4, 4], [LCMD.QUIT]: [0, 0], [LCMD.FLUSH]: [0, 0], [LCMD.RESYNC]: [0, 0], [LCMD.VIEW]: [4, 4],
-    [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4], [LCMD.SAVE]: [0, 0], [LCMD.NEED]: [8, 8],
+    [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4], [LCMD.SAVE]: [0, 0], [LCMD.NEED]: [8, 8], [LCMD.SEATSTATE]: [4, 4],
   };
   for (const m of messages) {
     const l = limits[m.type];
@@ -141,11 +152,12 @@ export function checkLinkCommands(body) {
 }
 
 /** The host's arguments for `system` (the paths are the server's own – nothing here comes from the page). */
-export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null }) {
+export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null, state = null }) {
   const c = NATIVE_CORES[system];
   if (!c) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
   const args = ['--core', core, '--rom', rom, '--system', systemDir, '--save', saveDir];
   if (sram) args.push('--sram', sram);
+  if (state) args.push('--state', state);
   for (const [addr, len] of c.ram) args.push('--ram', `0x${addr.toString(16)}:0x${len.toString(16)}`);
   for (const [k, v] of Object.entries(c.options)) args.push('--option', `${k}=${v}`);
   return args;
@@ -199,7 +211,7 @@ export class NativeSessions extends CtrSessions {
    * Start `rom` (a path) on `system` with the core folder of `key`; `save` = the battery save souldew has for it
    * (bytes) or null. Ends a session that still runs.
    */
-  startNative({ rom, key, system, tools, save = null, saveFile = null }) {
+  startNative({ rom, key, system, tools, save = null, saveFile = null, state = null }) {
     const core = tools.cores?.[system];
     if (!core) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
     this.stop();
@@ -216,7 +228,13 @@ export class NativeSessions extends CtrSessions {
     } else {
       rmSync(boot, { force: true }); // no save (yet): the core starts with an empty cartridge
     }
-    const id = this.launch(tools.host, hostArgs({ system, core, rom, saveDir, systemDir, sram }), saveDir);
+    // a save state to go on from (back from a link session: the player's console as the link host left it)
+    const stateFile = join(saveDir, 'resume.state');
+    if (state?.length) {
+      if (state.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+      writeFileSync(stateFile, state);
+    } else rmSync(stateFile, { force: true });
+    const id = this.launch(tools.host, hostArgs({ system, core, rom, saveDir, systemDir, sram, state: state?.length ? stateFile : null }), saveDir);
     this.current.saveFile = saveFile;
     this.current.rom = rom;
     return id;
@@ -228,6 +246,7 @@ export class NativeSessions extends CtrSessions {
    * channel. The local seat's battery save goes where the run keeps it (`saveFile`), as in single play.
    */
   startLink({ host, system, seats, local, delay, rtc, key, saveFile = null, state = null }) {
+    // seats[i].state: that player's running game (the fast player's save state) – the session starts from it, no restart
     if (!host) throw httpError(409, 'Der Link-Teil fehlt in dieser Version', 'linkMissing');
     this.stop();
     const dir = join(nativeSaveDir(`link:${key}`), 'link');
@@ -239,12 +258,19 @@ export class NativeSessions extends CtrSessions {
       writeFileSync(f, s.save);
       return f;
     });
+    const states = seats.map((s, i) => {
+      if (!s.state?.length) return null;
+      if (s.state.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+      const f = join(dir, `seat${i}.state`);
+      writeFileSync(f, s.state);
+      return f;
+    });
     let stateFile = null;
     if (state?.length) { // a rejoin: the session as the partners who stayed had it (every console, the frame)
       stateFile = join(dir, 'session.state');
       writeFileSync(stateFile, inflateRawSync(state, { maxOutputLength: 256 * 1024 * 1024 }));
     }
-    const id = this.launch(host, linkArgs({ system, roms: seats.map((s) => s.rom), saves, local, delay, rtc, state: stateFile }), dir);
+    const id = this.launch(host, linkArgs({ system, roms: seats.map((s) => s.rom), saves, local, delay, rtc, state: stateFile, states: stateFile ? [] : states }), dir);
     this.current.saveFile = saveFile;
     this.current.rom = seats[local].rom;
     this.current.link = { seats: seats.length, local, system };

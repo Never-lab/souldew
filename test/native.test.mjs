@@ -26,7 +26,7 @@ const u32 = (n) => {
 };
 
 test('the tools: the host and whichever cores are there', () => {
-  const files = new Set(['/t/a/' + EXE, `/t/a/melondsds_libretro.${EXT}`, `/t/a/gambatte_libretro.${EXT}`].map((f) => join(f)));
+  const files = new Set(['/t/a/' + EXE, `/t/a/melondsds_libretro.${EXT}`, `/t/a/sameboy_libretro.${EXT}`].map((f) => join(f)));
   const tl = nativeTools({ dirs: [join('/t/none'), join('/t/a')], exists: (p) => files.has(join(p)) });
   assert.equal(tl.ok, true);
   assert.equal(tl.host, join('/t/a', EXE));
@@ -91,7 +91,7 @@ function fakeSpawn(calls) {
 test('a session: the battery save goes to the host as a file, commands are checked, one session at a time', () => {
   const calls = [];
   const s = new NativeSessions({ spawn: fakeSpawn(calls) });
-  const tools = { host: '/t/retrohost', cores: { gb: '/t/gambatte' } };
+  const tools = { host: '/t/retrohost', cores: { gb: '/t/sameboy' } };
   const id = s.startNative({ rom: '/r/red.gb', key: 'solo-red', system: 'gb', tools, save: Buffer.from([1, 2, 3, 4]) });
   const args = calls[0].args;
   const sram = args[args.indexOf('--sram') + 1];
@@ -117,7 +117,7 @@ test('a battery save that comes after the page has gone is stored where the play
   const calls = [];
   const written = [];
   const s = new NativeSessions({ spawn: fakeSpawn(calls), writeSave: (target, bytes) => written.push({ target, bytes: [...bytes] }) });
-  const tools = { host: '/t/retrohost', cores: { gb: '/t/gambatte' } };
+  const tools = { host: '/t/retrohost', cores: { gb: '/t/sameboy' } };
   s.startNative({ rom: '/r/red.gb', key: 'k', system: 'gb', tools, saveFile: { path: '/s/red.sav', runId: null } });
   const out = calls[0].child.stdout;
   const msg = (type, payload) => Buffer.concat([u32(type), u32(payload.length), payload]);
@@ -138,7 +138,8 @@ test('a battery save that comes after the page has gone is stored where the play
 // ---- the real host --------------------------------------------------------------------------------------------------
 const hosts = []; // the real hosts started here – killed when a test failed half way
 test.after(() => hosts.forEach((p) => p.exitCode === null && p.kill('SIGKILL')));
-const toolsDir = nativeDirs().find((d) => existsSync(join(d, EXE)) && existsSync(join(d, `gambatte_libretro.${EXT}`)));
+const toolsDir = nativeDirs().find((d) => existsSync(join(d, EXE)) && existsSync(join(d, `sameboy_libretro.${EXT}`)));
+const BOOT_FRAMES = 120; // SameBoy runs its (fast) Game Boy Color boot ROM before the game: frames before the ROM's own code
 
 /**
  * A 32 KB Game Boy ROM (MBC1 + 8 KB battery RAM): it switches the cartridge RAM on, then counts up 0xC000 forever and
@@ -160,10 +161,10 @@ function testRom() {
 }
 
 /** The host on the test ROM, spoken to like the page does. */
-function startHost(dir, { sram, romBytes } = {}) {
+function startHost(dir, { sram, romBytes, state } = {}) {
   const rom = join(dir, 'test.gb');
   writeFileSync(rom, romBytes || testRom());
-  const args = hostArgs({ system: 'gb', core: join(toolsDir, `gambatte_libretro.${EXT}`), rom, saveDir: dir, systemDir: dir, sram });
+  const args = hostArgs({ system: 'gb', core: join(toolsDir, `sameboy_libretro.${EXT}`), rom, saveDir: dir, systemDir: dir, sram, state });
   const p = spawn(join(toolsDir, EXE), args, { stdio: ['pipe', 'pipe', 'pipe'] });
   const h = { p, events: [], ram: new Map(), states: [], srams: [], logs: [], video: 0, waiters: [], exit: new Promise((res) => p.on('exit', (code) => res(code))) };
   let buf = Buffer.alloc(0);
@@ -225,9 +226,10 @@ test('the real host: RAM mirror, exact steps, cheats, save states, the battery s
     assert.ok(first >= 30 && first < 60, String(first));
     await h.until(() => h.read(0xc000, 1) !== null);
     const c1 = h.read(0xc000, 1)[0];
-    h.send(NCMD.STEP, u32(3));
+    // (37: the counter loop runs close to a multiple of 256 times per frame – a few frames hardly move its low byte)
+    h.send(NCMD.STEP, u32(37));
     await h.until(() => h.events.filter((e) => e.event === 'stepped').length === 2);
-    assert.equal(h.events.filter((e) => e.event === 'stepped')[1].frame, first + 3); // paused in between, exactly 3
+    assert.equal(h.events.filter((e) => e.event === 'stepped')[1].frame, first + 37); // paused in between, exactly 37
     await h.until(() => h.read(0xc000, 1)[0] !== c1); // the counter moved on – the mirror follows
     assert.ok(h.video > 0);
 
@@ -261,7 +263,7 @@ test('the real host: RAM mirror, exact steps, cheats, save states, the battery s
     // another battery save given later: the game starts over with it
     const steps = h.events.filter((e) => e.event === 'stepped').length;
     h.send(NCMD.SRAM, Buffer.alloc(8192, 0x33));
-    h.send(NCMD.STEP, u32(2));
+    h.send(NCMD.STEP, u32(BOOT_FRAMES)); // (the Game Boy Color's boot ROM runs first)
     await h.until(() => h.events.filter((e) => e.event === 'stepped').length > steps);
     h.send(NCMD.FLUSH);
     await h.until(() => h.srams.some((b) => b[1] === 0x33));
@@ -284,7 +286,7 @@ test('the real host: QUIT hands over the last battery save; a ROM it can\'t load
     const h = startHost(dir);
     hosts.push(h.p);
     await h.until(() => h.events.some((e) => e.event === 'loaded'));
-    h.send(NCMD.STEP, u32(10));
+    h.send(NCMD.STEP, u32(BOOT_FRAMES));
     await h.until(() => h.events.some((e) => e.event === 'stepped'));
     h.send(NCMD.QUIT);
     assert.equal(await h.exit, 0);
@@ -292,7 +294,7 @@ test('the real host: QUIT hands over the last battery save; a ROM it can\'t load
 
     const bad = join(dir, 'bad.gb');
     writeFileSync(bad, Buffer.alloc(16));
-    const p = spawn(join(toolsDir, EXE), ['--core', join(toolsDir, `gambatte_libretro.${EXT}`), '--rom', bad, '--system', dir, '--save', dir], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const p = spawn(join(toolsDir, EXE), ['--core', join(toolsDir, `sameboy_libretro.${EXT}`), '--rom', bad, '--system', dir, '--save', dir], { stdio: ['pipe', 'pipe', 'pipe'] });
     let out = Buffer.alloc(0);
     p.stdout.on('data', (c) => (out = Buffer.concat([out, c])));
     p.stderr.on('data', () => {});
@@ -305,7 +307,46 @@ test('the real host: QUIT hands over the last battery save; a ROM it can\'t load
   }
 });
 
-/** The test ROM as an MBC3 cartridge with a clock (Gold/Silver/Crystal's kind): Gambatte keeps its clock as RTC memory. */
+test('the real host: --state goes on from a save state before the first frame (a link session hands a console back)', { skip: !toolsDir && 'native part not built (npm run native)' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'sls-native-state-'));
+  try {
+    let h = startHost(dir);
+    hosts.push(h.p);
+    await h.until(() => h.events.some((e) => e.event === 'loaded'));
+    assert.equal(h.events.find((e) => e.event === 'loaded').state, null); // (no state asked for)
+    h.send(NCMD.STEP, u32(20));
+    await h.until(() => h.events.some((e) => e.event === 'stepped'));
+    await h.until(() => h.read(0xc000, 1) !== null);
+    h.send(NCMD.WRITE, Buffer.concat([u32(0xc200), Buffer.from([0x42, 0x43])])); // a mark in RAM that only the state has
+    await h.until(() => h.events.some((e) => e.event === 'written'));
+    h.send(NCMD.SAVE);
+    await h.until(() => h.states.length === 1);
+    h.send(NCMD.QUIT);
+    await h.exit;
+    const file = join(dir, 'resume.state');
+    writeFileSync(file, h.states[0]);
+    h = startHost(dir, { state: file });
+    hosts.push(h.p);
+    await h.until(() => h.events.some((e) => e.event === 'loaded'));
+    assert.equal(h.events.find((e) => e.event === 'loaded').state, true);
+    await h.until(() => h.read(0xc200, 2) !== null);
+    assert.deepEqual([...h.read(0xc200, 2)], [0x42, 0x43]); // the game went on from the state, it didn't boot
+    h.send(NCMD.QUIT);
+    await h.exit;
+    // a file that is no state of this game: refused, the game starts from its battery save as usual
+    writeFileSync(file, Buffer.alloc(200000, 7));
+    h = startHost(dir, { state: file });
+    hosts.push(h.p);
+    await h.until(() => h.events.some((e) => e.event === 'loaded'));
+    assert.equal(h.events.find((e) => e.event === 'loaded').state, false);
+    h.send(NCMD.QUIT);
+    await h.exit;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** The test ROM as an MBC3 cartridge with a clock (Gold/Silver/Crystal's kind): SameBoy keeps its clock as RTC memory. */
 function clockRom() {
   const r = testRom();
   r[0x147] = 0x10; // MBC3 + TIMER + RAM + BATTERY
@@ -321,7 +362,7 @@ test('the real host: a clock cartridge\'s save carries the clock (the 48-byte fo
     let h = startHost(dir, { romBytes: clockRom() });
     hosts.push(h.p);
     await h.until(() => h.events.some((e) => e.event === 'loaded'));
-    h.send(NCMD.STEP, u32(10));
+    h.send(NCMD.STEP, u32(BOOT_FRAMES));
     await h.until(() => h.events.some((e) => e.event === 'stepped'));
     h.send(NCMD.QUIT);
     assert.equal(await h.exit, 0);
@@ -340,7 +381,7 @@ test('the real host: a clock cartridge\'s save carries the clock (the 48-byte fo
     hosts.push(h.p);
     await h.until(() => h.events.some((e) => e.event === 'loaded'));
     assert.ok(h.logs.some((l) => /cartridge clock from the save: 3 days 04:/.test(l)), h.logs.join('\n'));
-    h.send(NCMD.STEP, u32(10));
+    h.send(NCMD.STEP, u32(BOOT_FRAMES));
     await h.until(() => h.events.some((e) => e.event === 'stepped'));
     h.send(NCMD.QUIT);
     assert.equal(await h.exit, 0);
