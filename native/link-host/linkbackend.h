@@ -14,6 +14,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #define LINK_MAX_SEATS 4
 
@@ -105,6 +106,8 @@ extern const struct link_backend link_backend_melonds;
 /** Shared helpers from linkhost.c */
 void link_log(const char *fmt, ...);
 void *link_read_file(const char *path, size_t *n);
+/** fopen for UTF-8 paths (Windows: _wfopen) – every file the backends open themselves goes through it. */
+FILE *link_fopen(const char *path, const char *mode);
 uint64_t link_fnv(uint64_t h, const void *p, size_t n);
 
 #endif

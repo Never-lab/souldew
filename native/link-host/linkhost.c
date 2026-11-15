@@ -64,6 +64,8 @@
 #ifdef _WIN32 // (MinGW-w64 with POSIX threads: pthread, clock_gettime and nanosleep come from winpthreads)
 #include <fcntl.h>
 #include <io.h>
+#include <windows.h>
+#include <shellapi.h>
 #endif
 
 #define RING 4096 // frames of buttons kept per seat
@@ -139,8 +141,40 @@ static void sleep_s(double s) {
   struct timespec t = {(time_t)s, (long)((s - (double)(time_t)s) * 1e9)};
   nanosleep(&t, NULL);
 }
+/**
+ * fopen for UTF-8 paths (every path the link host gets is UTF-8 – on Windows main() converts the command line). The C
+ * runtime's fopen there reads a path in the ANSI code page, mGBA's VFileOpen reads UTF-8: a game "Pokémon Blattgrüne
+ * Edition.gba" or a user folder like "Jürgen" must reach both the same way (the fast player's retrohost had this in
+ * 2.7.1, compat_fopen).
+ */
+FILE *link_fopen(const char *path, const char *mode) {
+#ifdef _WIN32
+  wchar_t wp[4096], wm[16];
+  if (!MultiByteToWideChar(CP_UTF8, 0, path, -1, wp, (int)(sizeof wp / sizeof *wp)) || !MultiByteToWideChar(CP_UTF8, 0, mode, -1, wm, (int)(sizeof wm / sizeof *wm))) return NULL;
+  return _wfopen(wp, wm);
+#else
+  return fopen(path, mode);
+#endif
+}
+#ifdef _WIN32
+/** The command line as UTF-8 (argv comes in the ANSI code page, which can't hold every file name). NULL: keep argv. */
+static char **utf8_argv(int *argc) {
+  int n = 0;
+  wchar_t **w = CommandLineToArgvW(GetCommandLineW(), &n);
+  if (!w) return NULL;
+  char **a = calloc((size_t)n + 1, sizeof *a);
+  for (int i = 0; a && i < n; i++) {
+    const int len = WideCharToMultiByte(CP_UTF8, 0, w[i], -1, NULL, 0, NULL, NULL);
+    a[i] = len > 0 ? malloc((size_t)len) : NULL;
+    if (!a[i] || !WideCharToMultiByte(CP_UTF8, 0, w[i], -1, a[i], len, NULL, NULL)) { a = NULL; break; } // (leaks on a failure that never happens)
+  }
+  LocalFree(w);
+  if (a) *argc = n;
+  return a;
+}
+#endif
 void *link_read_file(const char *path, size_t *n) {
-  FILE *f = fopen(path, "rb");
+  FILE *f = link_fopen(path, "rb");
   if (!f) return NULL;
   fseek(f, 0, SEEK_END);
   long len = ftell(f);
@@ -604,6 +638,8 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
   _setmode(_fileno(stdin), _O_BINARY); // the protocol is binary
   _setmode(_fileno(stdout), _O_BINARY);
+  char **wargv = utf8_argv(&argc);
+  if (wargv) argv = wargv;
 #endif
   const char *roms[LINK_MAX_SEATS] = {0}, *srams[LINK_MAX_SEATS] = {0}, *states[LINK_MAX_SEATS] = {0}, *models[LINK_MAX_SEATS] = {0};
   const char *script_path = NULL, *out_dir = NULL, *backend_name = NULL, *load_path = NULL, *export_dir = NULL;
@@ -624,7 +660,7 @@ int main(int argc, char **argv) {
     else if (!strcmp(k, "--rtc")) rtc_ms = strtoll(v, NULL, 10);
     else if (!strcmp(k, "--bench")) bench = atoi(v);
     else if (!strcmp(k, "--speed")) bench_speed = atof(v);
-    else if (!strcmp(k, "--record")) record_f = fopen(v, "wb");
+    else if (!strcmp(k, "--record")) record_f = link_fopen(v, "wb");
     else if (!strcmp(k, "--script")) script_path = v;
     else if (!strcmp(k, "--out")) out_dir = v;
     else if (!strcmp(k, "--export")) export_dir = v;
@@ -712,7 +748,7 @@ int main(int argc, char **argv) {
       const size_t n = B->sram(s, &p);
       char path[1024];
       snprintf(path, sizeof path, "%s/seat%d.sav", out_dir, s);
-      FILE *f = fopen(path, "wb");
+      FILE *f = link_fopen(path, "wb");
       if (f && p) fwrite(p, 1, n, f);
       if (f) fclose(f);
       free(p);
@@ -722,7 +758,7 @@ int main(int argc, char **argv) {
       const size_t n = B->export_state ? B->export_state(s, &p) : 0;
       char path[1024];
       snprintf(path, sizeof path, "%s/seat%d.state", export_dir, s);
-      FILE *f = n ? fopen(path, "wb") : NULL;
+      FILE *f = n ? link_fopen(path, "wb") : NULL;
       if (f) fwrite(p, 1, n, f), fclose(f);
       fprintf(stderr, "export: seat %d: %zu bytes%s\n", s, n, n ? "" : " (not now)");
       free(p);

@@ -83,7 +83,7 @@ static const char *s_system(void) { return "gb"; }
 
 /** A Game Boy / Game Boy Color cartridge: the logo's first bytes at 0x104 and a sane size. */
 static bool s_probe(const char *rom) {
-  FILE *f = fopen(rom, "rb");
+  FILE *f = link_fopen(rom, "rb");
   if (!f) return false;
   uint8_t h[0x150];
   size_t n = fread(h, 1, sizeof h, f);

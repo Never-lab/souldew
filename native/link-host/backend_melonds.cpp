@@ -262,7 +262,7 @@ Firmware makeFirmware(int seat) {
 const char *d_system() { return "nds"; }
 
 bool d_probe(const char *rom) {
-  FILE *f = fopen(rom, "rb");
+  FILE *f = link_fopen(rom, "rb");
   if (!f) return false;
   u8 h[0x200];
   const size_t n = fread(h, 1, sizeof h, f);
@@ -541,16 +541,16 @@ static const char *modeString(FileMode m) {
 std::string GetLocalFilePath(const std::string &filename) { return filename; }
 FileHandle *OpenFile(const std::string &path, FileMode mode) {
   if ((mode & FileMode::NoCreate) != FileMode::None) {
-    FILE *t = fopen(path.c_str(), "rb");
+    FILE *t = link_fopen(path.c_str(), "rb");
     if (!t) return nullptr;
     fclose(t);
   }
-  FILE *f = fopen(path.c_str(), modeString(mode));
+  FILE *f = link_fopen(path.c_str(), modeString(mode));
   return f ? new FileHandle{f} : nullptr;
 }
 FileHandle *OpenLocalFile(const std::string &, FileMode) { return nullptr; } // no BIOS / firmware / config files
 bool FileExists(const std::string &name) {
-  FILE *f = fopen(name.c_str(), "rb");
+  FILE *f = link_fopen(name.c_str(), "rb");
   if (f) fclose(f);
   return f != nullptr;
 }
