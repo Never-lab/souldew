@@ -31,8 +31,9 @@ Everything below was measured on an M-series Mac (darwin-arm64) with retail ROMs
 | **GBA link host** (`native/link-host`, libmgba) | Two linked GBAs in one process, one thread, deterministic. **Emerald ↔ Sapphire Cable Club trade completed between two different saves and written to both battery saves**, then traded back. Screenshots: `gba-01…05`. |
 | Determinism | The recorded interactive session (12,638 frames, two consoles, title screen → Cable Club → trade → save) replays headless to **byte-identical battery saves** in 8.5 s. The same holds after rebuilding the host with other compile flags. |
 | **Network lockstep** (`scripts/link-net-test.mjs`) | Two link hosts, one per player, each running both consoles, exchanging only their own buttons through a relay with **80 ms RTT ± 15 ms jitter**. Input delay 6 frames. Over all 12,638 frames: **105 of 105 RAM hashes equal, the battery saves equal between peers and equal to the local session's**. At most ~150 fps at that RTT (2.5× real time), so there are no stalls at 1×. Traffic is ~1.4–2.8 KB/s per peer. |
-| CPU | 2 GBAs: **0.68 ms per frame** (4 % of one core at 60 fps). 4 GBAs: 1.4 ms. 2 GB/GBC: 0.23–0.35 ms. |
-| GB/GBC | Same host (mGBA's GB core and its GB serial lockstep). Crystal + Silver boot linked from in-game saves. The Cable Club trade is not done yet: the GB/GBC spike moved to its own agent. |
+| CPU | 2 GBAs: **0.68 ms per frame** (4 % of one core at 60 fps). 4 GBAs: 1.4 ms. 2 GB/GBC on SameBoy: **1.4–1.9 ms CPU per frame** (Apple M1: 8–11 % of one core at 60 fps); on mGBA's GB core 0.23–0.40 ms. |
+| **GB/GBC link host** (`backend_sameboy.c`, SameBoy) | Two linked Game Boy Colors in one process, deterministic. With two different saves each: **Red ↔ Red: Cable Club trade (Bulbasaur ↔ Charmander) and Colosseum battle completed; Crystal ↔ Silver: Trade Center trade (Cyndaquil ↔ Totodile) and Colosseum battle completed** (both directions of a 2-on-2 battle to "YOU WIN / YOU LOSE"). Trades are in both battery saves. |
+| GB/GBC determinism | Recorded sessions (Red trade 6,589 frames, Red battle 7,091, Crystal/Silver trade + battle 41,838) replay headless twice to the same hash and **byte-identical saves, equal to the interactive session's**. Net lockstep (80 ms RTT ± 10 ms, delay 6): Red trade 54/54 and Crystal/Silver 348/348 hashes equal, saves equal between peers and to the local session, no waits, ~1.8 KB/s per peer. |
 | DS | Research only, see §8 (the DS spike moved to its own agent). |
 
 | **In the app, two profiles** (`scripts/link-e2e.mjs`) | Two souldew servers with scratch data folders on this Mac, one Emerald run created on A and joined on B, both pages in Electron. A clicks "Trade" (invite over the run's peer channel), B joins. Both servers check every seat's ROM by SHA-1, the saves cross the channel (deflated, SHA-1-checked), both play views switch to the link session, and each page drives its own seat (title → Continue → Cable Club → Trade Center). **Both hosts ran at real speed (0.99–1.02×), 202 of 202 hash comparisons equal, ~12,000 inputs each way, no stall.** The local seat's battery saves (the game's link save) landed in each player's run save, and live tracking showed both teams and "Oldale Town" during the session. |
@@ -51,7 +52,7 @@ The design is hybrid. Players play apart, asynchronously, as they always do. **A
  ┌───────────────────────────┐   HTTP   ┌──────────────────────────┐ stdio ┌──────────────────────────────┐
  │ board: "Trade with Tim"   │─────────▶│ /api/link/start          │──────▶│ linkhost --rom seat0 seat1   │
  │ link session (web/lib/    │◀─stream──│ verifies every seat's ROM│◀──────│   --sram … --local k --net   │
- │   linksession.mjs)        │   cmd    │ (SHA-1), saves in/out    │       │ backend: mGBA (GB/GBC, GBA)  │
+ │   linksession.mjs)        │   cmd    │ (SHA-1), saves in/out    │       │ backend: mGBA (GBA), SameBoy │
  │ fast player shows seat k  │─────────▶│ NativeSessions (same     │       │   later melonDS (DS)         │
  └─────────────┬─────────────┘          │ stream/cmd as retrohost) │       │ all seats, one thread,       │
                │ Trystero action 'link' └──────────────────────────┘       │ input-delay lockstep, hashes │
@@ -71,7 +72,8 @@ The design is hybrid. Players play apart, asynchronously, as they always do. **A
 |---|---|
 | `linkhost.c` | The **session**, shared by every system: protocol, frame pacing, input-delay lockstep, RAM hashes, battery saves, live-tracking RAM, session save states, record/replay for tests. |
 | `linkbackend.h` | The **backend interface** each system implements. |
-| `backend_mgba.c` | GB/GBC serial link and GBA SIO (link cable: multiplayer and normal modes, 2–4 GBAs) on libmgba. |
+| `backend_mgba.c` | GBA SIO (link cable: multiplayer and normal modes, 2–4 GBAs) on libmgba; GB/GBC as a fallback (`--backend mgba`). |
+| `backend_sameboy.c` | GB/GBC serial link cable (2 consoles) on SameBoy (MIT): Gen 1/2 Cable Club, the first choice for GB/GBC. |
 | *(planned)* `backend_melonds.cpp` | DS local wireless: 2 melonDS instances with a deterministic MP layer. |
 | *(later)* 3DS | Azahar rooms, or two instances. Research. |
 
@@ -112,6 +114,16 @@ The page keeps sending retrohost's INPUT message (libretro joypad bits plus poin
 - GB serial uses mGBA's older lockstep (signal/wait/cycle budgets), driven the way mGBA's `MultiplayerController` drives it, with flags instead of thread pauses.
 - Cartridge clocks use `RTC_FAKE_EPOCH`: one shared start time, then emulated time only.
 - libmgba is pinned to a commit. Every peer must run the same build; the session's version check (§4) enforces this.
+
+**How the SameBoy backend (GB/GBC) works.**
+- **The cable.** SameBoy's bit-level serial interface, as its own two-Game-Boy mode wires it. When a console driving the clock (SC bit 0, internal) starts a bit, `bit_start` keeps the bit it shifts out. When the bit ends, `bit_end` returns the partner's outgoing bit (`GB_serial_get_data_bit`) as the master's incoming bit and shifts the master's bit into the partner (`GB_serial_set_data_bit`). The partner's SB/SC and serial interrupt then behave as on an externally clocked Game Boy. Either side can be master; Pokémon decides at run time. Bit timing is the hardware's (8 kHz internal clock; CGB fast clock included).
+- **One thread, interleaved.** The console that is behind in emulated time runs the next instruction (`GB_run`), ties to seat 0. The two are never more than one instruction apart. A session frame is a fixed slice of emulated time (70,224 clocks), not "until VBlank": a console with the LCD off can't hold the session up, and both take their buttons at the same emulated moment on every peer. The picture is the last finished frame (copied on VBlank).
+- **Clock drift on purpose.** Seat 1's clock runs 1/16384 (≈ 61 ppm) fast, within real crystals' spread. Two emulated consoles at exactly the same speed stay phase-locked. When both players talked to Gen 1's receptionist on the same frame, both sent "I'll drive the clock" at the same instant on every retry and the link never came up. With the drift it connects. It is deterministic and invisible to the games.
+- **No wall clock.** The core's `time()` is redirected at build time (`-Dtime=sbl_time`) to the session's start time plus emulated seconds. The MBC3 clock (Gold/Silver/Crystal) runs on emulated cycles (`GB_RTC_MODE_ACCURATE`). Power-on RAM comes from a fixed seed per seat. Audio is off (`sample_rate 0`).
+- **Saves.** In and out as the plain battery RAM, Gambatte's `.srm` layout, which is what souldew's runs hold. A clock cartridge's save without a clock footer gets a clock that starts at day 0 at the session time. Otherwise SameBoy would flag a reset clock and Crystal would ask for the time. A footer (VBA-M/SameBoy layout) is used as it is. **To do:** carry the fast player's Gambatte RTC (`RETRO_MEMORY_RTC`) into the session and back, so the in-game clock doesn't jump.
+- **Model.** Every seat is a Game Boy Color (CGB-E) with SameBoy's own CGB boot ROM (MIT, assembled from source with RGBDS and embedded). DMG games get the CGB boot ROM palettes, as on hardware.
+- **Memory for the live reader.** `0xC000–0xDFFF` is WRAM bank 0 + bank 1 (where the Gen 1/2 party lives, like `[0xc000, 0x2000]` in `server/lib/native.mjs`). `0xA000` is the cartridge RAM's current bank, plus VRAM and HRAM.
+- **Pinned.** SameBoy v1.0.5. Every peer must run the same build.
 
 **Protocol.** The full list is in the header of `linkhost.c`. On top of retrohost's messages:
 
@@ -217,8 +229,8 @@ What if a player quits mid-trade? Gen 3 saves before a trade and again after it.
 
 | Gen | Games | Link | Engine | Trades | Battles | Status / effort |
 |---|---|---|---|---|---|---|
-| 1 | R/B/Y (+hacks) | GB serial | mGBA GB core (link host) or SameBoy dual | Cable Club trade | Colosseum | Host runs GB serial lockstep already. Needs a trade spike and walking automation. **1 wk to slice** (spike agent). |
-| 2 | G/S/C, Polished Crystal, Crystal Legacy | GB serial | same | Trade Center | Colosseum | Crystal + Silver boot linked from saves (§1). The Cable Club needs `EVENT_GAVE_MYSTERY_EGG_TO_ELM`, which real players have. RTC: MBC3 clock on `RTC_FAKE_EPOCH`. **1 wk** (spike agent). Time Capsule (Gen 1↔2) should come almost for free: both run in the same backend (mixed GB + GBC seats, to verify). |
+| 1 | R/B/Y (+hacks) | GB serial | SameBoy (link host) | Cable Club trade | Colosseum | **Trade and battle work** in the host (Red ↔ Red, deterministic, net-tested). Remaining: the app flow (same as Gen 3), RTC n/a. Gen 1 has no exit from the Trade Center/Colosseum: the game saved after the trade, and the session ends by resetting, as on hardware. |
+| 2 | G/S/C, Polished Crystal, Crystal Legacy | GB serial | SameBoy (link host) | Trade Center | Colosseum | **Trade and battle work** (Crystal ↔ Silver). The Cable Club needs `EVENT_GAVE_MYSTERY_EGG_TO_ELM`, which real players have, and a trade needs a second non-egg Pokémon. RTC: emulated MBC3 clock from the session start; carrying Gambatte's RTC across is a to-do. Time Capsule (Gen 1 ↔ 2) runs in the same backend (both seats are CGBs), not tried yet. |
 | 3 | R/S/E, FR/LG, hacks (Unbound, Radical Red …) | GBA SIO link cable | mGBA (link host) | **Done** (E ↔ S, saved) | Colosseum single/double, multi (4 seats) | Battles use the same link code path as trades; a test is pending. FR/LG: the 2F Direct Corner should fall back to the cable without an adapter, as Emerald's did in the spike (to verify). The **Union Room** (FR/LG/E) needs the **wireless adapter (RFU)**, which mGBA doesn't emulate: skip it, the cable rooms cover trades and battles. Record Mixing and Berry Crush work by cable. Hacks: anything that keeps the vanilla link code should work; some big hacks changed or removed link features (check per hack in the ROM matrix). **1–2 wk to ship** (UI, channel, rules). |
 | 4 | D/P/Pt, HG/SS | DS local wireless | melonDS ×2 in one process + deterministic MP layer | Union Room, Pal Pad, Colosseum, GTS (online) | Colosseum, Union Room | The melonDS DS libretro core implements libretro netpacket (since 1.2.0), but its MP layer **busy-waits up to 25 ms per packet on a CPU clock**: not deterministic, and LAN-only in practice. Lockstep needs melonDS linked directly (not the libretro singleton), two `NDS` instances (melonDS 1.0+ supports them), JIT **off**, threaded renderer off, and an MP layer that hands packets over by emulated timestamp. **3–4 wk prototype, 8–12 wk robust** (spike agent). Quick alternative: WFC replacement (Kaeru WFC / Pokémon Classic Network) via melonDS network mode `indirect`, with **GTS and Wi-Fi Club trades/battles over the internet in days**, but third-party servers and no SoulLink control. |
 | 5 | B/W, B2/W2 (+Blaze Black/Volt White) | DS local wireless (+ C-Gear IR) | as Gen 4 | Union Room, C-Gear | Union Room, C-Gear | As Gen 4. Whether the C-Gear's IR features work in melonDS is unknown (check). Same effort after Gen 4. |
@@ -282,7 +294,8 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 | mGBA / libmgba | MPL-2.0 | Compatible with GPL-3 (MPL §3.3 "Larger Work"); keep the MPL notice (`LICENSE-mgba-MPL-2.0.txt` ships next to the host) and offer the source, as for the libretro core. |
 | melonDS | GPL-3 | Compatible. |
 | SameBoy | Expat | Compatible. |
-| Gambatte | GPL-2.0-only? | Check "or later" before linking it into the GPL-3 link host. mGBA's GB core avoids the question. |
+| Gambatte | GPL-2.0-only | Confirmed: its sources say "version 2" with no "or later", so it can't be linked into the GPL-3 link host. The link host uses SameBoy instead. (The fast player loads it as a separate libretro core.) |
+| TGB Dual | GPL-2.0-or-later | Compatible, but older and less accurate than SameBoy. Not used. |
 | GBA-PK | CC BY-NC 4.0 | **Not used, not ported.** |
 | pret decompilations | — | Used only as references for RAM layouts and scripts (as the trackers already do). |
 
@@ -302,6 +315,9 @@ M-series Mac, darwin-arm64, Release build:
 | 4 GBA, linked | 726 fps (1.38 ms/frame) |
 | 2 GB (Red ×2) | 4,303 fps (0.23 ms) |
 | 2 GBC (Crystal + Silver) | 2,892 fps (0.35 ms) |
+| 2 GB, SameBoy (Red ×2, recorded trade) | ~600–720 fps; 1.4–1.65 ms CPU per frame (M1, under load) |
+| 2 GBC, SameBoy (Crystal + Silver, recorded session) | ~500 fps; ~1.9 ms CPU per frame |
+| 1 GBC, SameBoy (reference) | ~1,000 fps; ~0.95 ms |
 | Recorded trade session replayed headless | 12,638 frames in 8.5 s, saves byte-identical to the live session |
 | 2 peers, RTT 80 ± 15 ms, D = 6, max speed | 143.6 fps, 105/105 hashes equal, saves equal (peers and local session) |
 | 2 peers, RTT 40 ± 10 ms, D = 5 | 234 fps, 25/25 hashes equal |
@@ -315,7 +331,7 @@ M-series Mac, darwin-arm64, Release build:
 | 1 | **GBA slice in the app:** server `/api/link/*` on `NativeSessions`; page link session over Trystero `link`; invite/accept, save exchange, ROM SHA-1 check, start/stop; hash compare; write-back; tracker trade entry; run rule; EN/DE/FR/ES/IT texts; e2e with two scratch profiles | 1–1.5 wk | **mostly done** (open: the rule switch in the rules editor, audio, polishing the bar/modal) |
 | 1b | Gen 3 battles (Colosseum single/double; multi with 4 seats), battle log entry | 2–3 d | |
 | 2 | Robustness: resend on gaps, rejoin by state transfer (lockstep state fix), TURN via the Worker, "direct/relayed" UI, Windows build | 1–1.5 wk | |
-| 3 | GB/GBC (Gen 1/2) trades and battles, Time Capsule | 1 wk after the spike | spike agent |
+| 3 | GB/GBC (Gen 1/2) trades and battles, Time Capsule | Host side done (SameBoy backend); app flow as Gen 3, RTC hand-over, Time Capsule test: ~3 days | spike agent |
 | 4 | DS (Gen 4/5): melonDS 2-instance backend, deterministic MP layer; or WFC opt-in first | 3–4 wk prototype | spike agent |
 | 5 | Shared World overlay, Gen 3 first, then 1/2, then 4/5 | 1.5–2 wk (Gen 3) | |
 | 6 | Rollback, spectating, partner windows | open | |
