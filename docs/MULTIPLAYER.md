@@ -274,6 +274,7 @@ All three were checked headless both ways and frame-exact: a recorded session's 
   - The Worker (`souldew-discord`, feature `link`, `src/features/link.js`) serves `GET /link/ice[?run=<hex>]`: it calls Cloudflare Realtime TURN `…/turn/keys/<TURN_KEY_ID>/credentials/generate-ice-servers` with the `TURN_KEY_API_TOKEN` secret and answers `{ iceServers, ttl: 7200, turn: true }` (port-53 URLs dropped). 20 requests per IP per hour (the live feature's D1 counter); STUN only (`turn: false`) when the secrets are missing or Cloudflare fails. Checked against the real TURN key.
   - The app's server proxies it (`GET /api/link/ice`, `server/lib/linkice.mjs`, cached for 80 % of the credentials' life); the page hands the entries to Trystero as `turnConfig` (added to its default STUN servers), so the direct path is still tried first.
   - The link bar shows the route from the connection's selected ICE pair: "direct · 12 ms" or "relayed (TURN) · 80 ms" (`SyncLink.linkRoute`).
+  - Where the bar is (`web/views/linkplay.mjs` LinkBar): over the page at the top; while the game is big (the play view's dock, layout C) it is a dock section of its own – first on the right, next to the place at the bottom – and with the dock folded the strip shows its dot while a bar that asks something (invite, missing game, rejoin, how it ended) waits over the top of the game.
   - Costs: inputs are ~3 KB/s per peer, so a 10-minute session is ~2 MB. The free tier (1,000 GB/month, TURN and SFU combined) covers ~500,000 sessions per month. Partner video over TURN is the real cost; keep it to stills when relayed, as today.
 - **Fallback when even TURN fails:** a Durable Object WebSocket relay per session. The payload stays encrypted with the run key, so the relay sees nothing. Build it only if field data asks for it.
 
@@ -456,7 +457,7 @@ What is left for 3.0, with effort:
 | UX polish from real players: the need/pick bar, what happens to an invite while the partner is in a menu (seamless: the link simply starts there) | 1–2 d |
 | Seamless DS start over slow uplinks: 1.7 MB deflated per DS state (0.8 s on one Mac, 1.4–2.0 s over TURN at 40 ms); a delta against a reference the receiver builds itself (the same game booted from the same save) would cut it further | 1–2 d |
 | Seamless DS session started while both are already inside the Union Room alone (the fast player's firmware MAC is the same for every player – the games may need to leave and re-enter the room so their wireless reads the link host's per-seat MAC); a DS 3–4-player seamless run | 1 d |
-| Shared World (§9), rollback, spectating | after 3.0 |
+| Shared World beyond Gen 3 (§9), rollback, spectating | after 3.0 |
 
 ## 14. Decisions for the owner
 
