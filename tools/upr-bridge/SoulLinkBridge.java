@@ -7,6 +7,7 @@ import com.dabomstew.pkrandom.pokemon.EncounterSet;
 import com.dabomstew.pkrandom.pokemon.Evolution;
 import com.dabomstew.pkrandom.pokemon.Pokemon;
 import com.dabomstew.pkrandom.pokemon.StaticEncounter;
+import com.dabomstew.pkrandom.romhandlers.Gen3RomHandler;
 import com.dabomstew.pkrandom.romhandlers.Gen4RomHandler;
 import com.dabomstew.pkrandom.romhandlers.Gen5RomHandler;
 import com.dabomstew.pkrandom.romhandlers.Gen6RomHandler;
@@ -309,6 +310,32 @@ public class SoulLinkBridge {
         return s;
     }
 
+    /**
+     * UPR ZX's Gen 3 tables put most city Poké Marts in SkipShops (FRLG only randomizes Celadon Dept 4F/5F).
+     * When the user asked for shop randomization, clear that skip list and mark every shop table as main-game
+     * so Viridian / Pewter / … change too (#62).
+     */
+    @SuppressWarnings("unchecked")
+    private static void unlockGen3Shops(RomHandler h, Settings settings) throws Exception {
+        if (!(h instanceof Gen3RomHandler)) return;
+        if (settings.getShopItemsMod() == Settings.ShopItemsMod.UNCHANGED) return;
+        Field re = Gen3RomHandler.class.getDeclaredField("romEntry");
+        re.setAccessible(true);
+        Object entry = re.get(h);
+        Field arrays = entry.getClass().getDeclaredField("arrayEntries");
+        arrays.setAccessible(true);
+        Map<String, int[]> map = (Map<String, int[]>) arrays.get(entry);
+        int[] offsets = map.get("ShopItemOffsets");
+        if (offsets == null || offsets.length == 0) return;
+        int[] skipped = map.get("SkipShops");
+        if (skipped == null || skipped.length == 0) return;
+        int[] all = new int[offsets.length];
+        for (int i = 0; i < all.length; i++) all[i] = i;
+        map.put("SkipShops", new int[0]);
+        map.put("MainGameShops", all);
+        System.out.println("@@WARN " + json("Shop items: randomizing all Gen 3 shop tables (UPR skips most city Poké Marts by default)"));
+    }
+
     /** A bare `new Settings()` leaves fields null that toString()/randomize() dereference. */
     private static void fillDefaults(Settings s) throws Exception {
         for (Field f : Settings.class.getDeclaredFields()) {
@@ -352,6 +379,7 @@ public class SoulLinkBridge {
         Settings.TweakForROMFeedback fb = settings.tweakForRom(h);
         if (fb.isChangedStarter()) System.out.println("@@WARN " + json("Custom starters were adjusted for this ROM"));
         if (fb.isRemovedCodeTweaks()) System.out.println("@@WARN " + json("Some code tweaks are not supported by this ROM and were removed"));
+        unlockGen3Shops(h, settings);
         System.out.println("@@SETTINGS " + json(settings.toString()));
 
         if (h instanceof Abstract3DSRomHandler) System.out.println("@@STEP " + json("randomize"));
