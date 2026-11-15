@@ -70,7 +70,7 @@ cores, their RAM and options and reuses the 3DS sessions (`/api/native/*`). Sett
 states carry the core id (`melonds-native`, `mgba-native`, `gambatte-native`) – the other player's states aren't offered.
 
 ```sh
-brew install cmake ninja                        # (Windows cross build: brew install mingw-w64)
+brew install cmake ninja rgbds                  # (rgbds: SameBoy's boot ROM for the link host; Windows cross build: brew install mingw-w64)
 npm run native                                  # host + melonDS DS v1.4.0 + mGBA 0.10.5 + Gambatte, into tools/native/<platform>-<arch>/
 node scripts/build-native.mjs --host-only       # only the host (after changing retrohost.c)
 node scripts/build-native.mjs --platform win32-x64   # the Windows part, cross-compiled and statically linked

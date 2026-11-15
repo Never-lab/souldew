@@ -45,6 +45,7 @@ Chromium's and Node.js's own notices), electron-builder (MIT), ESLint (MIT).
 | melonDS DS libretro core (fast player, DS) | GPL-3.0 | Built unmodified by `scripts/build-native.mjs` from tag v1.4.0 into `tools/native/` and bundled with the app (its license text alongside as `LICENSE-melonds-ds-GPL-3.0.txt`). The corresponding source is that tag. https://github.com/JesseTG/melonds-ds |
 | mGBA libretro core (fast player, GBA) | MPL-2.0 | Built unmodified by `scripts/build-native.mjs` from tag 0.10.5 (`LICENSE-mgba-MPL-2.0.txt` alongside). https://github.com/mgba-emu/mgba |
 | Gambatte libretro core (fast player, Game Boy / Color) | GPL-2.0 | Built unmodified by `scripts/build-native.mjs` from commit 77f2567 of libretro's port (`LICENSE-gambatte-GPL-2.0.txt` alongside). https://github.com/libretro/gambatte-libretro |
+| SameBoy core and CGB boot ROM (link host, Game Boy / Color link sessions) | Expat (MIT) | Built unmodified by `scripts/build-native.mjs` from tag v1.0.5 (its `Core/` and `BootROMs/cgb_boot.asm`, assembled with RGBDS) and linked into `linkhost` (`LICENSE-sameboy-MIT.txt` alongside). https://github.com/LIJI32/SameBoy |
 | MoltenVK (macOS) | Apache-2.0 | Vulkan on Metal for the 3DS core – taken from Azahar's macOS release by `scripts/build-ctr.mjs`. https://github.com/KhronosGroup/MoltenVK |
 
 ## Fetched at runtime
