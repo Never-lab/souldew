@@ -35,7 +35,10 @@ Everything below was measured on an M-series Mac (darwin-arm64) with retail ROMs
 | GB/GBC | Same host (mGBA's GB core and its GB serial lockstep). Crystal + Silver boot linked from in-game saves. The Cable Club trade is not done yet: the GB/GBC spike moved to its own agent. |
 | DS | Research only, see §8 (the DS spike moved to its own agent). |
 
-Still to do for the GBA slice: the souldew server and UI flow, the peer channel, and the save write-back into a run. See §13.
+| **In the app, two profiles** (`scripts/link-e2e.mjs`) | Two souldew servers with scratch data folders on this Mac, one Emerald run created on A and joined on B, both pages in Electron. A clicks "Trade" (invite over the run's peer channel), B joins. Both servers check every seat's ROM by SHA-1, the saves cross the channel (deflated, SHA-1-checked), both play views switch to the link session, and each page drives its own seat (title → Continue → Cable Club → Trade Center). **Both hosts ran at real speed (0.99–1.02×), 202 of 202 hash comparisons equal, ~12,000 inputs each way, no stall.** The local seat's battery saves (the game's link save) landed in each player's run save, and live tracking showed both teams and "Oldale Town" during the session. |
+| Gotcha | 32-bit pictures from the link host halved the speed in the app (the page couldn't take 9 MB/s per window). The host now sends RGB565 like retrohost. |
+
+Not yet in the app: audio from a link session (the host is silent), resend on input gaps, rejoin, TURN, Windows. See §13.
 
 ## 2. Architecture
 
@@ -307,7 +310,7 @@ M-series Mac, darwin-arm64, Release build:
 | Phase | Content | Effort | Status |
 |---|---|---|---|
 | 0 | Research, link host, GBA spike, net test, this doc | — | **done** |
-| 1 | **GBA slice in the app:** server `/api/link/*` on `NativeSessions`; page link session over Trystero `link`; invite/accept, save exchange, ROM SHA-1 check, start/stop; hash compare; write-back; tracker trade entry; run rule; EN/DE/FR/ES/IT texts; e2e with two scratch profiles | 1–1.5 wk | in progress |
+| 1 | **GBA slice in the app:** server `/api/link/*` on `NativeSessions`; page link session over Trystero `link`; invite/accept, save exchange, ROM SHA-1 check, start/stop; hash compare; write-back; tracker trade entry; run rule; EN/DE/FR/ES/IT texts; e2e with two scratch profiles | 1–1.5 wk | **mostly done** (open: the rule switch in the rules editor, audio, polishing the bar/modal) |
 | 1b | Gen 3 battles (Colosseum single/double; multi with 4 seats), battle log entry | 2–3 d | |
 | 2 | Robustness: resend on gaps, rejoin by state transfer (lockstep state fix), TURN via the Worker, "direct/relayed" UI, Windows build | 1–1.5 wk | |
 | 3 | GB/GBC (Gen 1/2) trades and battles, Time Capsule | 1 wk after the spike | spike agent |

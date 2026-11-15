@@ -17,7 +17,7 @@ import { useStreamer } from '../lib/streamer.mjs';
 import { NuzlockeRules, Choice, TypeHelpRule } from './nuzrules.mjs';
 import { ShareButton } from './liveshare.mjs';
 import { deathEvent } from '../lib/liveshare.mjs';
-import { LinkButtons } from './linkplay.mjs';
+import { LinkButtons, LINK_SYSTEMS } from './linkplay.mjs';
 
 
 /** Is `slot` connected right now? Per player once the app tracks it (`onlineSlots`), before that "any partner". */
@@ -885,6 +885,9 @@ export function RulesTab() {
       <label class="check"><input type="checkbox" checked=${!!r.cheats} onChange=${(e) => set({ cheats: e.target.checked })} /><span>${t('rules.cheats', 'Allow cheats (Rare Candies)')}<span class="hint">${n > 2
         ? t('rules.cheatsHintGroup', 'From the play screen. Every use shows up in the log for all of you.')
         : t('rules.cheatsHint', 'From the play screen. Every use shows up in the log for both of you.')}</span></span></label>
+      ${LINK_SYSTEMS.includes(manifest.game?.system) && html`
+        <label class="check"><input type="checkbox" checked=${r.linkTrades !== 'off'} onChange=${(e) => set({ linkTrades: e.target.checked ? 'on' : 'off' })} /><span>${t('rules.linkTrades', 'Trades between us (link)')}<span class="hint">${t('rules.linkTradesHint', 'The real in-game trade in the Pokémon Center – a traded Pokémon keeps its link.')}</span></span></label>
+        <label class="check"><input type="checkbox" checked=${r.linkBattles !== 'off'} onChange=${(e) => set({ linkBattles: e.target.checked ? 'on' : 'off' })} /><span>${t('rules.linkBattles', 'Battles between us (link)')}<span class="hint">${t('rules.linkBattlesHint', 'A link battle in the Colosseum – losses there don’t count for the run.')}</span></span></label>`}
     </section>`}
     <section class="panel stack">
       <h2>${t('rules.battleHelp', 'Battle help')}</h2>
