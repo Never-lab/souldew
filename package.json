@@ -125,6 +125,7 @@
           "to": "tools/native/darwin-arm64",
           "filter": [
             "retrohost*",
+            "linkhost*",
             "*_libretro.*",
             "SOURCES.txt",
             "LICENSE-*"
@@ -179,6 +180,7 @@
           "to": "tools/native/win32-x64",
           "filter": [
             "retrohost*",
+            "linkhost*",
             "*_libretro.*",
             "SOURCES.txt",
             "LICENSE-*"
@@ -246,6 +248,7 @@
           "to": "tools/native/linux-x64",
           "filter": [
             "retrohost*",
+            "linkhost*",
             "*_libretro.*",
             "SOURCES.txt",
             "LICENSE-*"
