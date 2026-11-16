@@ -215,7 +215,9 @@ static bool s_open(const struct link_open *o) {
     // the cartridge clock: emulated cycles in a link session; alone, the computer's clock (the fast player's
     // "sync to system clock" – it catches up with the time the game was closed)
     GB_set_rtc_mode(gb, solo ? GB_RTC_MODE_SYNC_TO_HOST : GB_RTC_MODE_ACCURATE);
-    GB_set_emulate_joypad_bouncing(gb, false);
+    // (button bounce: SameBoy's default, as the fast player's core has it, alone – it moves when a press lands and so the
+    // games' random numbers; link seats keep it off, as they always had)
+    GB_set_emulate_joypad_bouncing(gb, solo);
     GB_load_rom_from_buffer(gb, rom, rl);
     free(rom);
     size_t cart = 0;
