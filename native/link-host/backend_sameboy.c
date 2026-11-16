@@ -52,6 +52,7 @@ static struct sseat {
   uint32_t front[160 * 144]; // …and every finished frame is copied here (no half-drawn pictures)
   size_t ram_size;         // battery RAM size (the save souldew keeps: the RAM, then a clock cartridge's footer)
   bool has_rtc;
+  bool vblank;             // a frame ended (solo frames run vblank to vblank)
 } seats[2];
 
 /**
@@ -75,6 +76,7 @@ static void on_boot(GB_gameboy_t *gb, GB_boot_rom_t type) {
 static uint32_t on_rgb(GB_gameboy_t *gb, uint8_t r, uint8_t g, uint8_t b) { (void)gb; return (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16; }
 static void on_vblank(GB_gameboy_t *gb, GB_vblank_type_t type) {
   struct sseat *s = GB_get_user_data(gb);
+  s->vblank = true;
   if (type == GB_VBLANK_TYPE_REPEAT) return; // (the screen keeps the previous frame)
   memcpy(s->front, s->back, sizeof s->front);
 }
@@ -273,8 +275,18 @@ static void s_set_input(int seat, link_input in) {
 static uint64_t own_time(int seat, uint64_t t) { return seat ? t + (t >> DRIFT_SHIFT) : t; } // session time → the seat's clock
 static uint64_t real_time(int seat, uint64_t t) { return seat ? t - (t >> DRIFT_SHIFT) : t; } // (approximately the inverse)
 
-/** One slice of emulated time for every console, the one behind always running next (ties: the lower seat). */
+/**
+ * Alone: one frame as the fast player's SameBoy runs it (GB_run_frame: up to the next vblank – SameBoy has one with the
+ * LCD off too), so a frame's buttons apply from its start and its picture comes at its end. In a link session: one
+ * slice of emulated time for every console, the one behind always running next (ties: the lower seat).
+ */
 static void s_run_frame(void) {
+  if (solo) {
+    struct sseat *st = &seats[0];
+    st->vblank = false;
+    for (uint64_t ran = 0; !st->vblank && ran < 2 * FRAME_TICKS;) ran += GB_run(st->gb); // (the bound: never stuck)
+    return;
+  }
   const uint64_t target = session_tick + FRAME_TICKS;
   for (;;) {
     int s = -1;
