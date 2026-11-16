@@ -24,6 +24,7 @@ import { BUNDLED_TOOLS, TOOLS_DIR, DATA_DIR, DEV, APP_ROOT } from './paths.mjs';
 import { httpError } from './fsutil.mjs';
 import { CtrSessions, MSG, splitMessages, PLATFORM_DIR, command } from './ctr.mjs';
 import { LINK_SYSTEMS, MAX_LINK_SEATS, LINK_CMD, LINK_MSG } from '../../shared/link.mjs';
+import { sha1OfFile } from './linkroms.mjs';
 
 const EXE = process.platform === 'win32' ? 'retrohost.exe' : 'retrohost';
 const LINK_EXE = process.platform === 'win32' ? 'linkhost.exe' : 'linkhost';
@@ -250,6 +251,21 @@ function clearLinkFiles(dir) {
   rmSync(join(dir, 'session.state'), { force: true });
 }
 
+/**
+ * Does session `c` play exactly the game at `rom`? The same file – or a byte-identical copy: a zipped library game is
+ * unpacked to one place for playing and another for linking (SHA-1, cached per file and kept on the session).
+ */
+function sameGame(c, rom) {
+  if (!c?.rom || !rom) return false;
+  if (c.rom === rom) return true;
+  try {
+    const own = (c.romSha1 ||= sha1OfFile(c.rom));
+    return !!own && own === sha1OfFile(rom);
+  } catch {
+    return false;
+  }
+}
+
 /** A battery save that is all 0xFF or all 0x00 is an empty cartridge, not a save. */
 export const blankSave = (b) => !b?.length || b.every((x) => x === 0xff) || b.every((x) => x === 0);
 
@@ -331,7 +347,7 @@ export class NativeSessions extends CtrSessions {
   /** The engine runs a link session whose local seat plays `rom` (it can go on alone in place). */
   engineLinked(rom) {
     const c = this.current;
-    return !!(c?.engine && !c.exit && c.link && c.rom === rom);
+    return !!(c?.engine && !c.exit && c.link && sameGame(c, rom));
   }
 
   /**
@@ -393,7 +409,7 @@ export class NativeSessions extends CtrSessions {
     // seats[i].model: a Game Boy seat's console ('dmg' | 'cgb', gbModel) – every peer gets the same list from the pages
     if (!host) throw httpError(409, 'Der Link-Teil fehlt in dieser Version', 'linkMissing');
     const c = this.current;
-    const inPlace = !!(c?.engine && !c.exit && !c.link && !state?.length && c.rom === seats[local].rom);
+    const inPlace = !!(c?.engine && !c.exit && !c.link && !state?.length && sameGame(c, seats[local].rom));
     if (!inPlace) this.stop();
     const dir = join(nativeSaveDir(`link:${key}`), 'link');
     mkdirSync(dir, { recursive: true });
