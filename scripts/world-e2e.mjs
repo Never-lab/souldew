@@ -6,6 +6,7 @@
 //
 //   node scripts/world-e2e.mjs --rom <emerald.gba> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] --data <dir> --out <dir> [--show]
 //                              [--browser]   (A plays in the browser player, EmulatorJS, instead of the fast player)
+//                              [--engine]    (every fast player is the souldew engine – Settings › "souldew engine (beta)")
 //                              [--occlusion] (Emerald, three saves in the Oldale Pokémon Center 2F: instead of the walk and
 //                                             the menu, the players line up behind the potted plants, then walk out to a
 //                                             tree top in Oldale Town, then A walks into Route 101 while B stands under
@@ -155,7 +156,7 @@ async function main() {
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
     copyFileSync(opt('rom'), join(lib, basename(opt('rom'))));
-    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: opt('lang', 'en'), playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: !(id === 'A' && args.includes('--browser')) }));
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: opt('lang', 'en'), playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: !(id === 'A' && args.includes('--browser')), nativeEngine: args.includes('--engine') }));
     const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stderr.on('data', (d) => process.stderr.write(`[${id}] ${d}`));
     servers.push(p);
