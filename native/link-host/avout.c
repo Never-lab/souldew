@@ -67,6 +67,7 @@ void avout_sound(int local, bool play, bool turbo, double asked, double now) {
       if (n < room) break;
     }
   }
+  if (B->sample_rate) ffa_rate(&ffa, B->sample_rate()); // (a GBA game switches its sound rate after it boots)
   if (play) ffa_frame(&ffa, snd, have, turbo, asked, now);
 }
 

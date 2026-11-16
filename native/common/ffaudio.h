@@ -29,6 +29,12 @@ struct ff_audio {
 
 void ffa_init(struct ff_audio *fa, double sample_rate);
 /**
+ * The console's sound rate now (a GBA game switches its sound hardware to 65536 Hz after it boots – SOUNDBIAS): when it
+ * differs from the one announced, the sound starts afresh at the new rate and the page hears of it (EVENT audioRate
+ * {sampleRate}: it re-creates its audio context, as for a new loaded event's rate).
+ */
+void ffa_rate(struct ff_audio *fa, double sample_rate);
+/**
  * One emulated frame's sound (`frames` interleaved stereo frames) out as AUDIO. `turbo`: fast-forwarding at `asked`
  * (the speed souldew asked for: the speed-up until ffa_measured knows better). `now`: host_now().
  */

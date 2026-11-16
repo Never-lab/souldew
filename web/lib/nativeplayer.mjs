@@ -314,6 +314,15 @@ async function startAudio(rate) {
     st.log.push(`audio: ${e.message}`);
   }
 }
+/** The host's sound comes at `rate` (from now on): a context at another rate is replaced by one at this rate. */
+function audioRate(rate) {
+  if (audio.ctx && rate && Math.round(audio.ctx.sampleRate) !== Math.round(rate)) {
+    const old = audio.ctx;
+    audio.ctx = audio.node = audio.gain = null;
+    old.close().catch(() => {});
+  }
+  startAudio(rate);
+}
 // DS games: the ROM's sound archive, read in a worker – the mixer synthesizes the song the game plays
 const sdat = { worker: null, ready: false };
 const sdatSong = (key) => {
@@ -413,13 +422,9 @@ function onEvent(p) {
       st.ram = regions.map((r) => ({ addr: r.addr >>> 0, b: new Uint8Array(r.len) }));
       st.ramReady = false;
     }
-    if (audio.ctx && e.sampleRate && Math.round(audio.ctx.sampleRate) !== Math.round(e.sampleRate)) { // (the link host's rate may be another)
-      const old = audio.ctx;
-      audio.ctx = audio.node = audio.gain = null;
-      old.close().catch(() => {});
-    }
-    startAudio(e.sampleRate);
-  } else if (e.event === 'stats') {
+    audioRate(e.sampleRate); // (the link host's rate may be another)
+  } else if (e.event === 'audioRate') audioRate(e.sampleRate); // (a GBA game switched its sound hardware's rate)
+  else if (e.event === 'stats') {
     st.fps = e.fps;
     st.hostSpeed = e.speed;
     if (st.speed > 1 && !st.paused && e.speed > 0.5) tellAudio({ type: 'rate', ratio: Math.round(Math.min(e.speed, MAX_SOUND_RATIO) * 100) / 100 });

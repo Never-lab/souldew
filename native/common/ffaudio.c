@@ -10,6 +10,14 @@ void ffa_init(struct ff_audio *fa, double sample_rate) {
   *fa = (struct ff_audio){.rate = sample_rate > 0 ? sample_rate : 32768, .k = 1};
 }
 
+void ffa_rate(struct ff_audio *fa, double rate) {
+  if (rate <= 0 || (rate > fa->rate - 0.5 && rate < fa->rate + 0.5)) return;
+  int16_t *buf = fa->buf;
+  const size_t cap = fa->cap;
+  *fa = (struct ff_audio){.rate = rate, .k = 1, .buf = buf, .cap = cap};
+  host_event("{\"event\":\"audioRate\",\"sampleRate\":%.1f}", rate);
+}
+
 /** The frame's sound sped up by fa->k (fractional box filter) into fa->buf; returns how many frames came out. */
 static size_t speed_up(struct ff_audio *fa, const int16_t *s, size_t n) {
   if (fa->cap < n + 4) {

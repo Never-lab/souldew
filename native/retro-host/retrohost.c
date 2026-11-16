@@ -199,6 +199,7 @@ static void core_log(enum retro_log_level level, const char *fmt, ...) {
 }
 
 static int fastforwarding;
+static double new_rate; // a sound rate the core announced while running (taken after the frame)
 static bool environment(unsigned cmd, void *data) {
   if (IS(cmd, RETRO_ENVIRONMENT_GET_CAN_DUPE)) { *(bool *)data = true; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL)) return true;
@@ -227,7 +228,11 @@ static bool environment(unsigned cmd, void *data) {
   if (IS(cmd, RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME)) return true;
   if (IS(cmd, RETRO_ENVIRONMENT_GET_LOG_INTERFACE)) { ((struct retro_log_callback *)data)->log = core_log; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_SET_GEOMETRY)) return true;
-  if (IS(cmd, RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO)) return true;
+  if (IS(cmd, RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO)) { // (mGBA: the game switched its sound rate – SOUNDBIAS)
+    const struct retro_system_av_info *av = data;
+    if (av && av->timing.sample_rate > 0) new_rate = av->timing.sample_rate;
+    return true;
+  }
   if (IS(cmd, RETRO_ENVIRONMENT_SET_MEMORY_MAPS)) {
     const struct retro_memory_map *m = data;
     free(memmap);
@@ -639,6 +644,7 @@ int main(int argc, char **argv) {
       host_event("{\"event\":\"stepped\",\"frame\":%llu}", (unsigned long long)frame_no);
     }
     if (want_frame && frame_new) send_frame();
+    if (new_rate > 0) ffa_rate(&ffa, new_rate), new_rate = 0;
     ffa_frame(&ffa, audio_buf, audio_n / 2, turbo, speed, t);
     audio_n = 0;
     if (wrote || cadence_every(&cad.last_ram, 0.1, t)) cad.last_ram = t, send_ram(); // ten times a second, whatever the speed
