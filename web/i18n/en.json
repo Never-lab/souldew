@@ -661,6 +661,7 @@
   "err.linkBuildNoPatch": "The run’s ROM hack patch isn’t in your library – add it, then build again.",
   "err.linkBuildNoRom": "The run’s base game isn’t in your library – add it, then build again.",
   "err.linkPickDiffers": "That file isn’t exactly the same game (its SHA-1 differs).",
+  "err.linkRefused": "The games couldn’t be linked on this computer – your game goes on as it was.",
   "err.linkSeats": "These players can’t be linked",
   "err.liveCard": "The card image couldn’t be made ({what}).",
   "err.liveMeta": "The post’s text isn’t valid ({field}).",
@@ -2335,6 +2336,8 @@
   "set.emuCore": "Built-in emulator",
   "set.emuText": "The built-in emulator plays every system up to the Nintendo 3DS and has the best live sync. 3DS games can also run in Azahar (for example when a graphics card can’t run the built-in 3DS player). External emulators are optional otherwise.",
   "set.emulators": "Emulators",
+  "set.engine": "souldew engine (beta)",
+  "set.engineHint": "The fast player on souldew’s own engine: one player for DS, GBA and Game Boy that trades and battles straight from your running game – your partners join it, nobody’s game restarts. Same speed, save states, cheats and live sync as the fast player. Off: the fast player as before. Applies to the next game you start.",
   "set.fullTurbo": "Full-power turbo: no brake while fast-forwarding",
   "set.fullTurboHint": "The game may use almost all of the computer’s time while fast-forwarding, and DS games skip drawing frames nobody sees. Never steps down. If the app reacts sluggishly while fast-forwarding, turn it off. Normal speed stays the same.",
   "set.gbLook": "Game Boy look",
@@ -2696,8 +2699,5 @@
   "world.toggle": "Show partners in my game",
   "world.toggleHint": "Your partners walk in your game when you’re on the same map. Walk up to them and press A to trade, battle or wave.",
   "world.trade": "Trade",
-  "world.wave": "Wave",
-  "set.engine": "souldew engine (beta)",
-  "set.engineHint": "The fast player on souldew’s own engine: one player for DS, GBA and Game Boy that trades and battles straight from your running game – your partners join it, nobody’s game restarts. Same speed, save states, cheats and live sync as the fast player. Off: the fast player as before. Applies to the next game you start.",
-  "err.linkRefused": "The games couldn’t be linked on this computer – your game goes on as it was."
+  "world.wave": "Wave"
 }
