@@ -20,6 +20,8 @@ const SYSTEM = q.get('system') || 'nds';
 // Seamless (docs/MULTIPLAYER.md › "Seamless"): a running game goes into a link session and back without a restart – its
 // state goes in (linkSnapshot), the page switches its stream to the link host (attachLink) and, once the session is over,
 // back to the fast player started from this console's state as the link host left it (resumeSolo). The canvas stays.
+// The souldew engine (Settings › "souldew engine (beta)": the link host plays the game alone too) does both switches in
+// its own process: the session's id stays, the stream goes on, and leaving needs no state to travel (/api/native/unlink).
 // ?link=1&session=<id>: a session the play view opened for a game that wasn't running here (it starts from the save).
 let LINK_SESSION = q.get('link') === '1' ? q.get('session') : null;
 // (retrohost's messages – the link host speaks the same ones plus its own, shared/link.mjs)
@@ -52,6 +54,7 @@ const st = {
   ram: [], ramReady: false, sram: null, bootSave: 'pending', error: null, log: [], ended: false, lr: /left/i.test(q.get('layout') || ''),
   info: null, turboAudio: 'music', switches: [], whole: q.get('px') === 'whole',
   model: q.get('model') || null, // a Game Boy game's console ('dmg' | 'cgb'): its save states only load into that model
+  engine: false, // the souldew engine plays (its loaded event says so): link sessions switch in its own process
 };
 const waiters = { state: [], loaded: [], stepped: [], seatState: [], seatSram: [] };
 
@@ -400,6 +403,7 @@ function onEvent(p) {
   if (e.event !== 'stats' && e.event !== 'stepped' && e.event !== 'written') dbg('event', JSON.stringify(e).slice(0, 300));
   if (e.event === 'loaded') {
     st.info = e;
+    st.engine = e.engine === true;
     if (Number.isInteger(e.local)) st.localSeat = e.local;
     // a mirror for every region the core has (all of it arrives with the first RAM message) – after a switch into or out
     // of a link session the same regions stay as they are until then (the live reader never sees an empty party)
@@ -735,6 +739,7 @@ window.__emu = {
   /** The link session `id` (its host already runs, started from this game's snapshot): this page shows it from now on. */
   attachLink(id) {
     if (!id) return false;
+    const inPlace = id === st.id; // (the engine: its game was linked in its own process – the stream goes on)
     LINK_SESSION = id;
     st.id = id;
     st.core = 'link';
@@ -748,7 +753,7 @@ window.__emu = {
     tellAudio('clear');
     tellAudio({ type: 'speed', ratio: 1 });
     tellAudio({ type: 'paused', paused: false });
-    startPump();
+    if (!inPlace) startPump();
     sendInput();
     return true;
   },
@@ -762,6 +767,9 @@ window.__emu = {
     linking(t('native.unlinking', 'Back to your game…'));
     st.switchFrom = performance.now();
     st.switching = true;
+    // the engine: the partners leave its process and the game goes on alone where it is (its last battery save comes as
+    // SRAM first, the play view stores it as every save) – nothing to fetch and hand back
+    if (!from && st.engine && !st.ended && (await unlinkInPlace())) return true;
     let state = from?.state || null;
     let save = from ? from.save || null : null;
     if (!from && !st.ended) {
@@ -935,6 +943,27 @@ async function bootSaveBytes() {
 
 const BOOT_TIMEOUT_MS = Number(q.get('bootTimeout')) || 30000;
 
+/** The engine's link session ends in place: the same process, the same stream; false when the server can't (then the
+ *  session's console travels the usual way). */
+async function unlinkInPlace() {
+  const res = await fetch('/api/native/unlink', { method: 'POST', headers: { 'content-type': 'application/json', 'x-soullink': '1' }, body: JSON.stringify({ id: st.id }) }).catch(() => null);
+  const j = res?.ok ? await res.json().catch(() => null) : null;
+  if (!j || j.id !== st.id) return false;
+  LINK_SESSION = null;
+  st.core = j.core;
+  st.model = j.model || st.model;
+  window.__world?.rewatch();
+  st.paused = false;
+  st.speed = 1;
+  st.awaitPicture = 1;
+  sentInput = '';
+  tellAudio('clear');
+  tellAudio({ type: 'paused', paused: false });
+  st.switching = false;
+  sendInput();
+  return true;
+}
+
 /** The fast player again, from a save state (out of a link session): the same page, canvas and sound – no restart. */
 async function startSolo({ state, save }) {
   st.switching = true;
@@ -950,10 +979,11 @@ async function startSolo({ state, save }) {
     return false;
   }
   LINK_SESSION = null;
+  const inPlace = j.id === st.id; // (the engine went on alone in its own process: the stream goes on)
   st.id = j.id;
   st.core = j.core;
   st.model = j.model || st.model;
-  window.__world?.rewatch(); // (a new retrohost: the Shared World overlay's WATCH ranges go to it again)
+  window.__world?.rewatch(); // (a new host – or the engine alone again: the Shared World overlay's WATCH ranges go to it)
   st.ended = false;
   st.paused = false;
   st.speed = 1;
@@ -964,7 +994,7 @@ async function startSolo({ state, save }) {
   tellAudio('clear');
   tellAudio({ type: 'paused', paused: false });
   st.switching = false;
-  startPump();
+  if (!inPlace) startPump();
   sendInput();
   return true;
 }

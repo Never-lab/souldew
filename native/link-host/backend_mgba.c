@@ -3,6 +3,7 @@
 // its GB serial lockstep (Gen 1/2 Cable Club). All seats run in this thread: the drivers' sleep/wake only set flags,
 // and the scheduler runs whoever is awake, event by event, in a fixed order – deterministic by construction.
 #include "linkbackend.h"
+#include "../common/hostio.h"
 
 #include <mgba/flags.h>
 #include <mgba/core/core.h>
@@ -24,6 +25,7 @@
 #include <string.h>
 
 static int nseats;
+static bool linked; // the seats are joined by a lockstep driver (two or more)
 static enum mPlatform platform;
 static struct mseat {
   struct mCore *core;
@@ -99,7 +101,7 @@ static void core_log(struct mLogger *l, int category, enum mLogLevel level, cons
   if (!(level & (mLOG_FATAL | mLOG_ERROR))) return;
   char buf[512];
   vsnprintf(buf, sizeof buf, fmt, ap);
-  link_log("[mGBA] %s", buf);
+  host_log("[mGBA] %s", buf);
 }
 static struct mLogger logger = {core_log, NULL};
 
@@ -113,16 +115,32 @@ static bool m_probe(const char *rom) {
   return p == mPLATFORM_GBA || p == mPLATFORM_GB;
 }
 
-static bool m_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
+static bool solo; // one player's game alone: the computer's clock, the fast player's state format
+
+/** The cartridge clock: alone it follows the computer's (as the fast player's mGBA); in a link session one shared start,
+ *  then emulated time only (a real clock would differ between peers). */
+static void set_clock(struct mCore *c, int64_t rtc_ms) {
+  if (solo) {
+    c->rtc.override = RTC_NO_OVERRIDE;
+  } else {
+    c->rtc.override = RTC_FAKE_EPOCH;
+    c->rtc.value = rtc_ms;
+  }
+}
+
+static bool m_open(const struct link_open *o) {
   mLogSetDefaultLogger(&logger);
-  nseats = n;
-  for (int s = 0; s < n; s++) {
+  nseats = o->n;
+  solo = o->solo;
+  for (int s = 0; s < o->n; s++) {
+    const struct link_seat_config *cfg = &o->seats[s];
     struct mseat *st = &seats[s];
-    st->core = mCoreFind(cfg[s].rom);
-    if (!st->core) { link_log("seat %d: not a Game Boy / Game Boy Advance game", s); return false; }
+    memset(st, 0, sizeof *st);
+    st->core = mCoreFind(cfg->rom);
+    if (!st->core) { host_log("seat %d: not a Game Boy / Game Boy Advance game", s); return false; }
     if (!s) platform = st->core->platform(st->core);
-    else if (st->core->platform(st->core) != platform) { link_log("seat %d: another system than seat 0", s); return false; }
-    if (!st->core->init(st->core)) { link_log("seat %d: the core didn't start", s); return false; }
+    else if (st->core->platform(st->core) != platform) { host_log("seat %d: another system than seat 0", s); return false; }
+    if (!st->core->init(st->core)) { host_log("seat %d: the core didn't start", s); st->core = NULL; return false; }
     mCoreInitConfig(st->core, NULL);
     // (sound on for every seat alike – only the local seat's is played; volume only scales the output)
     struct mCoreOptions opts = {.useBios = false, .skipBios = true, .volume = 0x100, .mute = false};
@@ -132,34 +150,32 @@ static bool m_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     st->core->baseVideoSize(st->core, &st->w, &st->h);
     st->video = calloc((size_t)st->w * st->h, sizeof *st->video);
     st->core->setVideoBuffer(st->core, (void *)st->video, st->w);
-    if (!mCoreLoadFile(st->core, cfg[s].rom)) { link_log("seat %d: the game didn't load", s); return false; }
+    if (!mCoreLoadFile(st->core, cfg->rom)) { host_log("seat %d: the game didn't load", s); return false; }
     st->core->setAudioBufferSize(st->core, 4096);
     // the battery save in memory only – souldew gets it back through SRAM / SEATSRAM, nothing is written here
-    st->core->loadSave(st->core, VFileMemChunk(cfg[s].save, cfg[s].save_len));
-    // the cartridge clock: one shared start, then emulated time only (a real clock would differ between peers)
-    st->core->rtc.override = RTC_FAKE_EPOCH;
-    st->core->rtc.value = rtc_ms;
+    st->core->loadSave(st->core, VFileMemChunk(cfg->save, cfg->save_len));
+    set_clock(st->core, o->rtc_ms);
     st->core->reset(st->core);
-    if (cfg[s].state) {
+    if (cfg->state) {
       // (the player's running game, from the fast player – mGBA's libretro core of this very commit: the same format)
-      struct VFile *sf = VFileOpen(cfg[s].state, O_RDONLY);
-      if (!sf || !mCoreLoadStateNamed(st->core, sf, SAVESTATE_SAVEDATA | SAVESTATE_RTC)) { if (sf) sf->close(sf); link_log("seat %d: state not loadable", s); return false; }
-      sf->close(sf);
-      st->core->rtc.override = RTC_FAKE_EPOCH; // (a state may carry its own clock setting)
-      st->core->rtc.value = rtc_ms;
+      struct VFile *sf = VFileFromConstMemory(cfg->state, cfg->state_len);
+      const bool ok = sf && mCoreLoadStateNamed(st->core, sf, SAVESTATE_SAVEDATA | SAVESTATE_RTC);
+      if (sf) sf->close(sf);
+      if (!ok) { host_log("seat %d: state not loadable", s); return false; }
+      set_clock(st->core, o->rtc_ms); // (a state carries its own clock setting)
     }
   }
-  if (n < 2) return true;
+  if (o->n < 2) return true;
   if (platform == mPLATFORM_GBA) {
     GBASIOLockstepCoordinatorInit(&gba_coord);
-    for (int s = 0; s < n; s++) {
+    for (int s = 0; s < o->n; s++) {
       users[s] = (struct seat_user){{user_sleep, user_wake, user_requested_id, NULL}, s};
       GBASIOLockstepDriverCreate(&gba_drv[s], &users[s].d);
       GBASIOLockstepCoordinatorAttach(&gba_coord, &gba_drv[s]);
       seats[s].core->setPeripheral(seats[s].core, mPERIPH_GBA_LINK_PORT, &gba_drv[s].d);
     }
   } else {
-    if (n > 2) { link_log("a Game Boy link cable joins two consoles"); return false; }
+    if (o->n > 2) { host_log("a Game Boy link cable joins two consoles"); return false; }
     GBSIOLockstepInit(&gb_lock);
     gb_lock.d.signal = gb_signal;
     gb_lock.d.wait = gb_wait;
@@ -167,13 +183,39 @@ static bool m_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     gb_lock.d.useCycles = gb_use_cycles;
     gb_lock.d.unusedCycles = gb_unused_cycles;
     gb_lock.d.unload = gb_unload;
-    for (int s = 0; s < n; s++) {
+    for (int s = 0; s < o->n; s++) {
       GBSIOLockstepNodeCreate(&gb_node[s]);
       GBSIOLockstepAttachNode(&gb_lock, &gb_node[s]);
       GBSIOSetDriver(&((struct GB *)seats[s].core->board)->sio, &gb_node[s].d);
     }
   }
+  linked = true;
   return true;
+}
+
+/** Every console gone (the link first: its drivers point into the consoles). */
+static void m_close(void) {
+  if (linked && platform == mPLATFORM_GBA) {
+    for (int s = 0; s < nseats; s++) {
+      seats[s].core->setPeripheral(seats[s].core, mPERIPH_GBA_LINK_PORT, NULL);
+      GBASIOLockstepCoordinatorDetach(&gba_coord, &gba_drv[s]);
+    }
+    GBASIOLockstepCoordinatorDeinit(&gba_coord);
+  } else if (linked) {
+    for (int s = 0; s < nseats; s++) {
+      GBSIOSetDriver(&((struct GB *)seats[s].core->board)->sio, NULL);
+      GBSIOLockstepDetachNode(&gb_lock, &gb_node[s]);
+    }
+    mLockstepDeinit(&gb_lock.d);
+  }
+  linked = false;
+  for (int s = 0; s < LINK_MAX_SEATS; s++) {
+    struct mseat *st = &seats[s];
+    if (st->core) mCoreConfigDeinit(&st->core->config), st->core->deinit(st->core);
+    free(st->video);
+    memset(st, 0, sizeof *st);
+  }
+  nseats = 0;
 }
 
 static void m_set_input(int seat, link_input in) {
@@ -207,9 +249,9 @@ static void m_run_frame(void) {
       }
       // (can't happen with the lockstep driver's own rules; if it did, the session is broken for good: the log line
       // reaches the page, the host ends, the page sees the stream end – an abort, not a hang)
-      if (!ran) { link_log("link: every console waits for another (deadlock)"); abort(); }
+      if (!ran) { host_log("link: every console waits for another (deadlock)"); abort(); }
     }
-    if (guard > 50000000) { link_log("link: a frame never ended"); abort(); }
+    if (guard > 50000000) { host_log("link: a frame never ended"); abort(); }
   }
 }
 
@@ -227,16 +269,16 @@ static uint64_t m_hash(uint64_t h) {
     struct mCore *c = seats[s].core;
     if (platform == mPLATFORM_GBA) {
       struct GBA *gba = c->board;
-      h = link_fnv(h, gba->memory.wram, GBA_SIZE_EWRAM);
-      h = link_fnv(h, gba->memory.iwram, GBA_SIZE_IWRAM);
-      h = link_fnv(h, gba->cpu->gprs, sizeof gba->cpu->gprs);
+      h = host_fnv(h, gba->memory.wram, GBA_SIZE_EWRAM);
+      h = host_fnv(h, gba->memory.iwram, GBA_SIZE_IWRAM);
+      h = host_fnv(h, gba->cpu->gprs, sizeof gba->cpu->gprs);
     } else {
       struct GB *gb = c->board;
-      h = link_fnv(h, gb->memory.wram, GB_SIZE_WORKING_RAM);
-      h = link_fnv(h, gb->memory.hram, GB_SIZE_HRAM);
+      h = host_fnv(h, gb->memory.wram, GB_SIZE_WORKING_RAM);
+      h = host_fnv(h, gb->memory.hram, GB_SIZE_HRAM);
     }
     int32_t t = mTimingCurrentTime(c->timing);
-    h = link_fnv(h, &t, sizeof t);
+    h = host_fnv(h, &t, sizeof t);
   }
   return h;
 }
@@ -261,7 +303,7 @@ static void m_write8(int seat, uint32_t addr, uint8_t v) { seats[seat].core->bus
 // (it is "extra" state) and the flash / EEPROM contents too, so a state loaded into a fresh host (a player rejoining)
 // would meet a driver that knows nothing of the transfer in progress and wait forever, and an old battery save.
 #define SIO_STATE_MAX 0x400
-static bool linked_gba(void) { return platform == mPLATFORM_GBA && nseats > 1; }
+static bool linked_gba(void) { return platform == mPLATFORM_GBA && linked; }
 static size_t save_size(int seat) {
   void *p = NULL;
   const size_t n = seats[seat].core->savedataClone(seats[seat].core, &p);
@@ -324,14 +366,17 @@ static bool m_load_state(int seat, const void *in, size_t len) {
   return true;
 }
 
-/** The console as mGBA's libretro core keeps it (retro_serialize: the state, then its extra data) – the battery save
- *  along, the clock not: the fast player's cartridge clock follows the computer's again, not the session's. */
+/**
+ * The console as mGBA's libretro core keeps it (retro_serialize: the state with the battery save and the clock as extra
+ * data). A link session's console goes back without the clock: the fast player's cartridge clock follows the computer's
+ * again, not the session's.
+ */
 static size_t m_export(int seat, void **out) {
   *out = NULL;
   struct VFile *vf = VFileMemChunk(NULL, 0);
   if (!vf) return 0;
   size_t n = 0;
-  if (mCoreSaveStateNamed(seats[seat].core, vf, SAVESTATE_SAVEDATA)) {
+  if (mCoreSaveStateNamed(seats[seat].core, vf, SAVESTATE_SAVEDATA | (solo ? SAVESTATE_RTC : 0))) {
     n = (size_t)vf->size(vf);
     *out = n ? malloc(n) : NULL;
     vf->seek(vf, 0, SEEK_SET);
@@ -339,6 +384,15 @@ static size_t m_export(int seat, void **out) {
   }
   vf->close(vf);
   return n;
+}
+/** A fast-player state into the running console – as retro_unserialize: the clock comes along, the battery save stays
+ *  what the game wrote last (an old save state never rolls the cartridge back). */
+static bool m_import(int seat, const void *in, size_t len) {
+  struct VFile *vf = VFileFromConstMemory(in, len);
+  if (!vf) return false;
+  const bool ok = mCoreLoadStateNamed(seats[seat].core, vf, SAVESTATE_RTC);
+  vf->close(vf);
+  return ok;
 }
 
 static double m_sample_rate(void) { return seats[0].core->audioSampleRate(seats[0].core); }
@@ -351,5 +405,5 @@ const struct link_backend link_backend_mgba = {
   .name = "mgba", .system = m_system, .probe = m_probe, .open = m_open, .set_input = m_set_input, .run_frame = m_run_frame,
   .video = m_video, .fps = m_fps, .sram = m_sram, .hash = m_hash, .mem = m_mem, .read8 = m_read8, .write8 = m_write8,
   .state_size = m_state_size, .save_state = m_save_state, .load_state = m_load_state, .sample_rate = m_sample_rate, .audio = m_audio,
-  .export_state = m_export,
+  .export_state = m_export, .import_state = m_import, .close = m_close,
 };

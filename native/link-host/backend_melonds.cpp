@@ -26,6 +26,11 @@
 //
 // No Nintendo BIOS or firmware: melonDS's FreeBIOS and a generated firmware (per seat: own MAC address and nickname –
 // two consoles with one MAC can't talk) – the games' wireless code lives in the cartridge's ARM7 binary.
+//
+// Alone (the souldew engine's solo seat, link_open.solo) the console is set up as the fast player's melonDS DS: the JIT
+// on, the 3D picture drawn on its own thread, melonDS DS's firmware (its default MAC, the nickname "melonDS DS") and the
+// computer's local time. Nothing there has to match another computer; a link session re-forms the consoles from their
+// states with the interpreter and the per-seat firmware before anyone links.
 #include <NDS.h>
 #include <NDSCart.h>
 #include <Platform.h>
@@ -33,6 +38,7 @@
 #include <SPI_Firmware.h>
 #include <Args.h>
 #include <FreeBIOS.h>
+#include <GPU.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -53,6 +59,7 @@
 extern "C" {
 #include "linkbackend.h"
 }
+#include "../common/hostio.h"
 
 using namespace melonDS;
 
@@ -103,6 +110,7 @@ std::mutex lock;
 std::condition_variable cv;
 int baton = -1;       // which seat runs; -1 = the caller of run_frame
 bool quitting = false;
+bool solo = false;    // one console alone (see the header)
 int lastHost = -1;    // the seat that sent the last CMD frame (LocalMP's LastHostID)
 
 /** Pick the console that runs next (lock held). Returns -1 when the session frame is over. */
@@ -236,14 +244,16 @@ void seatMain(Seat *s) {
   }
 }
 
+/** A seat's firmware: in a link session its own MAC and nickname; alone, the one melonDS DS (the fast player) generates
+ *  with souldew's settings – melonDS's default MAC and the nickname "melonDS DS". */
 Firmware makeFirmware(int seat) {
   Firmware fw(0);
   auto &h = fw.GetHeader();
   // a locally administered unicast MAC per seat: same on every peer, different between seats
-  h.MacAddr = MacAddress{0x02, 0x50, 0x4b, 0x53, 0x44, static_cast<u8>(0x10 + seat)};
+  if (!solo) h.MacAddr = MacAddress{0x02, 0x50, 0x4b, 0x53, 0x44, static_cast<u8>(0x10 + seat)};
   auto &u = fw.GetEffectiveUserData();
   char name[11];
-  snprintf(name, sizeof name, "souldew%d", seat + 1);
+  snprintf(name, sizeof name, solo ? "melonDS DS" : "souldew%d", seat + 1);
   memset(u.Nickname, 0, sizeof u.Nickname);
   const size_t n = strlen(name);
   for (size_t i = 0; i < n; i++) u.Nickname[i] = static_cast<char16_t>(name[i]);
@@ -262,7 +272,7 @@ Firmware makeFirmware(int seat) {
 const char *d_system() { return "nds"; }
 
 bool d_probe(const char *rom) {
-  FILE *f = link_fopen(rom, "rb");
+  FILE *f = host_fopen(rom, "rb");
   if (!f) return false;
   u8 h[0x200];
   const size_t n = fread(h, 1, sizeof h, f);
@@ -272,35 +282,67 @@ bool d_probe(const char *rom) {
   return h[0x15C] == 0x56 && h[0x15D] == 0xCF;
 }
 
-bool d_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
+/**
+ * A DS cartridge is a power of two in size; a trimmed or patched ROM (Renegade Platinum: 104,923,028 bytes) isn't.
+ * melonDS rounds the size up and reads past the end of the buffer – padded with 0xFF, as an unused cartridge area reads,
+ * the game starts (the fast player's host does the same).
+ */
+void *padRom(void *rom, size_t *len) {
+  if (!*len || !(*len & (*len - 1))) return rom;
+  size_t want = 1;
+  while (want < *len) want <<= 1;
+  void *b = realloc(rom, want);
+  if (!b) return rom;
+  memset(static_cast<u8 *>(b) + *len, 0xff, want - *len);
+  *len = want;
+  return b;
+}
+
+bool d_open(const struct link_open *o) {
+  const int n = o->n;
   if (n < 1 || n > LINK_MAX_SEATS) return false;
   nseats = n;
-  const time_t secs = static_cast<time_t>(rtc_ms / 1000);
+  solo = o->solo;
+  // the consoles' clock: a link session's agreed start (UTC, the same on every peer); alone, the computer's local time
+  // (as melonDS DS sets it)
+  const time_t secs = solo ? time(nullptr) : static_cast<time_t>(o->rtc_ms / 1000);
   struct tm tm;
 #ifdef _WIN32
-  gmtime_s(&tm, &secs);
+  if (solo) localtime_s(&tm, &secs);
+  else gmtime_s(&tm, &secs);
 #else
-  gmtime_r(&secs, &tm);
+  if (solo) localtime_r(&secs, &tm);
+  else gmtime_r(&secs, &tm);
 #endif
   for (int i = 0; i < n; i++) {
+    const struct link_seat_config &cfg = o->seats[i];
     Seat &s = seats[i];
     s.index = i;
     s.video.assign(256 * 384, 0);
     size_t romLen = 0;
-    void *rom = link_read_file(cfg[i].rom, &romLen);
-    if (!rom) { link_log("ds: can't read %s", cfg[i].rom); return false; }
+    void *rom = host_read_file(cfg.rom, &romLen);
+    if (!rom) { host_log("ds: can't read %s", cfg.rom); return false; }
+    rom = padRom(rom, &romLen);
     NDSArgs args{};
     args.Firmware = makeFirmware(i);
+    // the JIT only alone: its timing differs from the interpreter's, and every peer of a link session must compute the
+    // same (melonDS DS's settings: no fast memory)
+    if (solo) args.JIT = JITArgs{32, true, true, false};
+    else args.JIT = std::nullopt;
     s.nds = std::make_unique<LinkNDS>(std::move(args), &s);
+    if (solo) { // (the fast player's software renderer: the 3D picture on a thread of its own)
+      RendererSettings rs{1, true, false, false};
+      s.nds->GetRenderer().SetRenderSettings(rs);
+    }
     NDSCart::NDSCartArgs cart{};
-    if (cfg[i].save && cfg[i].save_len) {
-      cart.SRAM = std::make_unique<u8[]>(cfg[i].save_len);
-      memcpy(cart.SRAM.get(), cfg[i].save, cfg[i].save_len);
-      cart.SRAMLength = static_cast<u32>(cfg[i].save_len);
+    if (cfg.save && cfg.save_len) {
+      cart.SRAM = std::make_unique<u8[]>(cfg.save_len);
+      memcpy(cart.SRAM.get(), cfg.save, cfg.save_len);
+      cart.SRAMLength = static_cast<u32>(cfg.save_len);
     }
     auto c = NDSCart::ParseROM(static_cast<const u8 *>(rom), static_cast<u32>(romLen), &s, std::move(cart));
     free(rom);
-    if (!c) { link_log("ds: %s is not a DS game melonDS can load", cfg[i].rom); return false; }
+    if (!c) { host_log("ds: %s is not a DS game melonDS can load", cfg.rom); return false; }
     s.nds->SetNDSCart(std::move(c));
     s.nds->Reset();
     if (s.nds->NeedsDirectBoot()) s.nds->SetupDirectBoot("game.nds");
@@ -308,24 +350,36 @@ bool d_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     s.nds->Start();
     const u8 *sv = s.nds->GetNDSSave();
     s.sram.assign(sv, sv + s.nds->GetNDSSaveLength());
-    if (cfg[i].state) { // the player's running game (melonDS DS's state: melonDS's own format)
-      size_t sl = 0;
-      void *st = link_read_file(cfg[i].state, &sl);
-      bool ok = false;
-      if (st) {
-        Savestate ss(st, static_cast<u32>(sl), false);
-        ok = s.nds->DoSavestate(&ss) && !ss.Error;
-        free(st);
-      }
-      if (!ok) { link_log("ds: seat %d: state not loadable", i); return false; }
+    if (cfg.state) { // the player's running game (melonDS DS's state: melonDS's own format)
+      std::vector<u8> copy(cfg.state, cfg.state + cfg.state_len); // (Savestate reads from a buffer it may touch)
+      Savestate ss(copy.data(), static_cast<u32>(copy.size()), false);
+      if (!s.nds->DoSavestate(&ss) || ss.Error) { host_log("ds: seat %d: state not loadable", i); return false; }
+      const u8 *v = s.nds->GetNDSSave(); // (the battery save came back with the cartridge's state)
+      if (v) s.sram.assign(v, v + s.nds->GetNDSSaveLength());
     }
     s.t = s.nds->Now();
     s.st = St::Done;
   }
   for (int i = 0; i < n; i++) seats[i].thread = std::thread(seatMain, &seats[i]);
-  // (the interpreter: melonDS is built without its JIT – the JIT's timing differs, every peer must compute the same)
-  link_log("ds: %d console(s), FreeBIOS + generated firmware, interpreter", n);
+  host_log("ds: %d console(s), FreeBIOS + generated firmware, %s", n, solo ? "JIT" : "interpreter");
   return true;
+}
+
+/** Every console gone: their threads end (a console waiting mid-frame for a packet finishes its frame alone first). */
+void d_close() {
+  {
+    std::lock_guard<std::mutex> g(lock);
+    quitting = true;
+  }
+  cv.notify_all();
+  for (int i = 0; i < LINK_MAX_SEATS; i++)
+    if (seats[i].thread.joinable()) seats[i].thread.join();
+  for (int i = 0; i < LINK_MAX_SEATS; i++) seats[i] = Seat{};
+  std::lock_guard<std::mutex> g(lock);
+  quitting = false;
+  baton = -1;
+  lastHost = -1;
+  nseats = 0;
 }
 
 void d_set_input(int seat, link_input in) {
@@ -367,13 +421,13 @@ uint64_t d_hash(uint64_t h) {
   std::lock_guard<std::mutex> g(lock);
   for (int i = 0; i < nseats; i++) {
     LinkNDS &n = *seats[i].nds;
-    h = link_fnv(h, n.MainRAM, n.MainRAMMask + 1);
-    h = link_fnv(h, n.SharedWRAM, n.SharedWRAMSize);
-    h = link_fnv(h, n.ARM7WRAM, n.ARM7WRAMSize);
-    h = link_fnv(h, n.ARM9.R, sizeof n.ARM9.R);
-    h = link_fnv(h, n.ARM7.R, sizeof n.ARM7.R);
+    h = host_fnv(h, n.MainRAM, n.MainRAMMask + 1);
+    h = host_fnv(h, n.SharedWRAM, n.SharedWRAMSize);
+    h = host_fnv(h, n.ARM7WRAM, n.ARM7WRAMSize);
+    h = host_fnv(h, n.ARM9.R, sizeof n.ARM9.R);
+    h = host_fnv(h, n.ARM7.R, sizeof n.ARM7.R);
     const u64 t = n.Now();
-    h = link_fnv(h, &t, sizeof t);
+    h = host_fnv(h, &t, sizeof t);
   }
   return h;
 }
@@ -475,6 +529,22 @@ bool d_save_state(int seat, void *out) {
   memcpy(out, seats[seat].stateCache.data(), seats[seat].stateCache.size());
   return true;
 }
+/** A fast-player state (melonDS's own) into the running console – between frames only. */
+bool d_import(int seat, const void *in, size_t len) {
+  std::lock_guard<std::mutex> g(lock);
+  for (int i = 0; i < nseats; i++)
+    if (seats[i].st != St::Done) return false;
+  const u8 *b = static_cast<const u8 *>(in);
+  if (len < 16 || memcmp(b, "MELN", 4)) return false;
+  Seat &me = seats[seat];
+  std::vector<u8> copy(b, b + len);
+  Savestate ss(copy.data(), static_cast<u32>(len), false);
+  if (!me.nds->DoSavestate(&ss) || ss.Error) return false;
+  me.t = me.nds->Now();
+  me.inputs.clear();
+  return true;
+}
+
 bool d_load_state(int seat, const void *in, size_t have) {
   std::lock_guard<std::mutex> g(lock);
   const u8 *b = static_cast<const u8 *>(in);
@@ -520,9 +590,9 @@ size_t d_audio(int seat, int16_t *out, size_t max) {
 }
 
 extern "C" const struct link_backend link_backend_melonds = {
-    "melonds", d_system, d_probe, d_open, d_set_input, d_run_frame, d_video, d_fps, d_sram, d_hash,
+    "melonds", d_system, d_probe, d_open, d_close, d_set_input, d_run_frame, d_video, d_fps, d_sram, d_hash,
     d_mem, d_read8, d_write8, d_state_size, d_save_state, d_load_state, d_sample_rate, d_audio,
-    nullptr, d_export,
+    nullptr, d_export, d_import,
 };
 
 // ---- melonDS's platform layer (what the core asks of a frontend) ---------------------------------------------------
@@ -541,16 +611,16 @@ static const char *modeString(FileMode m) {
 std::string GetLocalFilePath(const std::string &filename) { return filename; }
 FileHandle *OpenFile(const std::string &path, FileMode mode) {
   if ((mode & FileMode::NoCreate) != FileMode::None) {
-    FILE *t = link_fopen(path.c_str(), "rb");
+    FILE *t = host_fopen(path.c_str(), "rb");
     if (!t) return nullptr;
     fclose(t);
   }
-  FILE *f = link_fopen(path.c_str(), modeString(mode));
+  FILE *f = host_fopen(path.c_str(), modeString(mode));
   return f ? new FileHandle{f} : nullptr;
 }
 FileHandle *OpenLocalFile(const std::string &, FileMode) { return nullptr; } // no BIOS / firmware / config files
 bool FileExists(const std::string &name) {
-  FILE *f = link_fopen(name.c_str(), "rb");
+  FILE *f = host_fopen(name.c_str(), "rb");
   if (f) fclose(f);
   return f != nullptr;
 }
@@ -596,7 +666,7 @@ void Log(LogLevel level, const char *fmt, ...) {
   va_end(ap);
   size_t n = strlen(buf);
   while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
-  if (n) link_log("melonDS: %s", buf);
+  if (n) host_log("melonDS: %s", buf);
 }
 
 struct Thread { std::thread t; };

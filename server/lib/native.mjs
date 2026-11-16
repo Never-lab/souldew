@@ -8,14 +8,21 @@
 //   melondsds_libretro.dylib | .dll | .so             DS
 //   mgba_libretro.*                                   GBA
 //   sameboy_libretro.*                                Game Boy / Game Boy Color
+//   linkhost[.exe]                                    the souldew engine (native/link-host): link sessions – and, with
+//                                                     Settings › "souldew engine (beta)", the fast player itself
 // When the host or a core is missing, the play view uses the built-in browser emulator (player.html) as before.
+//
+// The souldew engine (config.nativeEngine): ONE native player for these systems – the link host alone (`--solo`) runs
+// the game on the emulators' own APIs, speaks retrohost's protocol (the same page, the same save-state format), and a
+// trade or battle links the running game in place: the server hands the session to the same process (CMD_LINK, every
+// seat from the agreed states), and back (CMD_SOLO) when it ends. retrohost stays the fallback while the engine is beta.
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import { BUNDLED_TOOLS, TOOLS_DIR, DATA_DIR, DEV, APP_ROOT } from './paths.mjs';
 import { httpError } from './fsutil.mjs';
-import { CtrSessions, MSG, splitMessages, PLATFORM_DIR } from './ctr.mjs';
+import { CtrSessions, MSG, splitMessages, PLATFORM_DIR, command } from './ctr.mjs';
 import { LINK_SYSTEMS, MAX_LINK_SEATS, LINK_CMD, LINK_MSG } from '../../shared/link.mjs';
 
 const EXE = process.platform === 'win32' ? 'retrohost.exe' : 'retrohost';
@@ -182,6 +189,29 @@ export function checkLinkCommands(body) {
   return body;
 }
 
+/** Server → engine only (never accepted from a page, see check()): partners join the running game / it goes on alone. */
+export const ENGINE_CMD = { LINK: 27, SOLO: 28 };
+/** Systems the souldew engine plays alone (the link host's: its backends are the fast player's emulators). */
+export const ENGINE_SYSTEMS = LINK_SYSTEMS;
+
+/** Arguments as the engine reads them in CMD_LINK / CMD_SOLO: the command line's words, NUL-separated. */
+export const engineWords = (args) => Buffer.from(args.map((a) => `${a}\0`).join(''), 'utf8');
+
+/**
+ * The souldew engine alone (`linkhost --solo`): the game, its battery save, a state to go on from, the Game Boy model,
+ * and the RAM the live reader needs – the fast player's settings are the engine's own (native/link-host).
+ */
+export function engineArgs({ system, rom, sram = null, state = null, model = null }) {
+  const c = NATIVE_CORES[system];
+  if (!c || !ENGINE_SYSTEMS.includes(system)) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
+  const args = ['--solo', '--rom', rom];
+  if (sram) args.push('--sram', sram);
+  if (state) args.push('--state', state);
+  if (system === 'gb' || system === 'gbc') args.push('--model', model === 'dmg' && system === 'gb' ? 'dmg' : 'cgb');
+  for (const [addr, len] of c.ram) args.push('--ram', `0x${addr.toString(16)}:0x${len.toString(16)}`);
+  return args;
+}
+
 /** The host's arguments for `system` (the paths are the server's own – nothing here comes from the page). */
 export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null, state = null, model = null }) {
   const c = NATIVE_CORES[system];
@@ -236,6 +266,15 @@ export class NativeSessions extends CtrSessions {
   }
 
   onMessage(s, m, attached) {
+    if (m.type === NMSG.EVENT && s.waiters?.length) {
+      let e = null;
+      try {
+        e = JSON.parse(m.data.subarray(8).toString('utf8'));
+      } catch {
+        // not JSON
+      }
+      for (const w of s.waiters.slice()) if (e && w.pred(e)) w.done(null, e);
+    }
     if (m.type !== NMSG.SRAM || attached || !s.saveFile || !this.writeSave) return;
     const bytes = Buffer.from(m.data.subarray(8));
     if (blankSave(bytes)) return;
@@ -248,10 +287,13 @@ export class NativeSessions extends CtrSessions {
 
   /**
    * Start `rom` (a path) on `system` with the core folder of `key`; `save` = the battery save souldew has for it
-   * (bytes) or null. Ends a session that still runs.
+   * (bytes) or null. Ends a session that still runs. `engine`: the souldew engine's link host plays it (else retrohost
+   * with the system's libretro core). Coming back from a link session the engine already runs (`state` given, the same
+   * game): the game goes on alone in that process (CMD_SOLO) – no new player; then a promise of the id.
    */
-  startNative({ rom, key, system, tools, save = null, saveFile = null, state = null, model = null }) {
-    const core = tools.cores?.[system];
+  startNative({ rom, key, system, tools, save = null, saveFile = null, state = null, model = null, engine = null }) {
+    if (engine && state?.length && this.engineLinked(rom)) return this.soloInPlace({ key, system, save, saveFile, state, model });
+    const core = engine ? engine : tools.cores?.[system];
     if (!core) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
     this.stop();
     if (this.lastLink) this.linkDone(this.lastLink.id); // (a link session before this game: over – a desync's restore came first)
@@ -259,7 +301,16 @@ export class NativeSessions extends CtrSessions {
     const systemDir = join(DATA_DIR, DEV ? 'runs/.native' : 'native', 'system');
     mkdirSync(saveDir, { recursive: true });
     mkdirSync(systemDir, { recursive: true });
-    const boot = join(saveDir, 'boot.sav');
+    const { sram, stateFile } = this.startFiles(saveDir, save, state);
+    const args = engine ? engineArgs({ system, rom, sram, state: stateFile, model }) : hostArgs({ system, core, rom, saveDir, systemDir, sram, state: stateFile, model });
+    const id = this.launch(engine || tools.host, args, saveDir);
+    Object.assign(this.current, { saveFile, rom, engine: !!engine, system, model, key });
+    return id;
+  }
+
+  /** The battery save and the state to start from, as files in `dir` (none: the old ones go). */
+  startFiles(dir, save, state) {
+    const boot = join(dir, 'boot.sav');
     let sram = null;
     if (save?.length) {
       if (save.length > MAX_SAVE) throw httpError(413, 'Spielstand zu groß', 'saveTooLarge');
@@ -269,27 +320,81 @@ export class NativeSessions extends CtrSessions {
       rmSync(boot, { force: true }); // no save (yet): the core starts with an empty cartridge
     }
     // a save state to go on from (back from a link session: the player's console as the link host left it)
-    const stateFile = join(saveDir, 'resume.state');
+    const stateFile = join(dir, 'resume.state');
     if (state?.length) {
       if (state.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
       writeFileSync(stateFile, state);
     } else rmSync(stateFile, { force: true });
-    const id = this.launch(tools.host, hostArgs({ system, core, rom, saveDir, systemDir, sram, state: state?.length ? stateFile : null, model }), saveDir);
-    this.current.saveFile = saveFile;
-    this.current.rom = rom;
-    return id;
+    return { sram, stateFile: state?.length ? stateFile : null };
+  }
+
+  /** The engine runs a link session whose local seat plays `rom` (it can go on alone in place). */
+  engineLinked(rom) {
+    const c = this.current;
+    return !!(c?.engine && !c.exit && c.link && c.rom === rom);
+  }
+
+  /**
+   * The engine's session goes on alone in the same process: from `state` (+ `save`) – out of step: the game as it was
+   * before the link – or, without them, from the local console as the session left it (its battery save first).
+   * Resolves the session's id once the engine says it plays alone.
+   */
+  async soloInPlace({ key, system, save = null, saveFile = null, state = null, model = null }) {
+    const c = this.current;
+    let words = [];
+    if (state?.length) {
+      const dir = nativeSaveDir(key);
+      mkdirSync(dir, { recursive: true });
+      const { sram, stateFile } = this.startFiles(dir, save, state);
+      words = engineArgs({ system, rom: c.rom, sram, state: stateFile, model: model || c.model }).filter((w, i, l) => w !== '--ram' && l[i - 1] !== '--ram' && w !== '--solo');
+    }
+    const loaded = this.awaitEvent(c, (e) => e.event === 'loaded' && e.mode === 'solo', 30000);
+    c.child.stdin.write(command(ENGINE_CMD.SOLO, engineWords(words)));
+    await loaded;
+    const dir = c.link?.dir;
+    Object.assign(c, { link: null, saveFile: saveFile ?? c.saveFile, key: key || c.key });
+    if (dir) clearLinkFiles(dir); // (the session's saves and states are big and go stale)
+    return c.id;
+  }
+
+  /** The engine's link session `id` ends, the game goes on alone in place (no state travels). Null when it can't. */
+  async unlink(id) {
+    const c = this.current;
+    if (!c || c.id !== id || !c.engine || !c.link || c.exit) return null;
+    await this.soloInPlace({ key: c.key, system: c.system });
+    return { id: c.id, core: nativeCoreId(c.system, c.model), model: c.model };
+  }
+
+  /** Resolves the host's next EVENT matching `pred` on session `s` (rejects after `ms`, or when the host ends). */
+  awaitEvent(s, pred, ms) {
+    return new Promise((resolve, reject) => {
+      const w = { pred, resolve, reject };
+      const t = setTimeout(() => done(new Error('timeout')), ms);
+      const done = (err, e) => {
+        clearTimeout(t);
+        s.waiters = (s.waiters || []).filter((x) => x !== w);
+        if (err) reject(httpError(409, 'Das Spiel antwortet nicht', 'nativeBusy'));
+        else resolve(e);
+      };
+      w.done = done;
+      (s.waiters ||= []).push(w);
+      s.child.once('exit', () => done(new Error('ended')));
+    });
   }
 
   /**
    * A link session (docs/MULTIPLAYER.md): `seats` = [{ rom, save (bytes|null) }] in seat order, `local` = this player's
    * seat. Every seat's ROM is a file on this computer (verified by the caller), the partners' saves came over the run's
-   * channel. The local seat's battery save goes where the run keeps it (`saveFile`), as in single play.
+   * channel. The local seat's battery save goes where the run keeps it (`saveFile`), as in single play. When the engine
+   * plays this player's game right now, the partners join that process (CMD_LINK) – else a link host starts.
    */
-  startLink({ host, system, seats, local, delay, rtc, key, saveFile = null, state = null }) {
+  async startLink({ host, system, seats, local, delay, rtc, key, saveFile = null, state = null }) {
     // seats[i].state: that player's running game (the fast player's save state) – the session starts from it, no restart;
     // seats[i].model: a Game Boy seat's console ('dmg' | 'cgb', gbModel) – every peer gets the same list from the pages
     if (!host) throw httpError(409, 'Der Link-Teil fehlt in dieser Version', 'linkMissing');
-    this.stop();
+    const c = this.current;
+    const inPlace = !!(c?.engine && !c.exit && !c.link && !state?.length && c.rom === seats[local].rom);
+    if (!inPlace) this.stop();
     const dir = join(nativeSaveDir(`link:${key}`), 'link');
     mkdirSync(dir, { recursive: true });
     clearLinkFiles(dir); // (nothing of an earlier session: its saves and states are big and go stale)
@@ -319,10 +424,19 @@ export class NativeSessions extends CtrSessions {
       writeFileSync(stateFile, bytes);
     }
     const models = seats.map((s) => s.model || null);
-    const id = this.launch(host, linkArgs({ system, roms: seats.map((s) => s.rom), saves, local, delay, rtc, state: stateFile, states: stateFile ? [] : states, models }), dir);
-    this.current.saveFile = saveFile;
-    this.current.rom = seats[local].rom;
-    this.current.link = { seats: seats.length, local, system };
+    const args = linkArgs({ system, roms: seats.map((s) => s.rom), saves, local, delay, rtc, state: stateFile, states: stateFile ? [] : states, models });
+    if (inPlace) {
+      // the partners join the running game: the engine forms every seat from these files and says so (or refuses: the
+      // game then goes on alone as it was)
+      const answer = this.awaitEvent(c, (e) => (e.event === 'loaded' && e.mode === 'link') || e.event === 'linkRefused', 30000);
+      c.child.stdin.write(command(ENGINE_CMD.LINK, engineWords(args.filter((w, i, l) => w !== '--ram' && l[i - 1] !== '--ram'))));
+      const e = await answer;
+      if (e.event === 'linkRefused') throw httpError(409, 'Die Spiele ließen sich nicht verbinden', 'linkStart');
+      Object.assign(c, { saveFile, link: { seats: seats.length, local, system, dir } });
+      return c.id;
+    }
+    const id = this.launch(host, args, dir);
+    Object.assign(this.current, { saveFile, rom: seats[local].rom, link: { seats: seats.length, local, system, dir }, engine: true, system, model: models[local], key: null });
     return id;
   }
 
@@ -348,7 +462,10 @@ export class NativeSessions extends CtrSessions {
     const c = this.current?.id === id && this.current.link ? this.current : this.lastLink?.id === id ? this.lastLink : null;
     if (!c) return null;
     c.saveFile = null; // (its last battery saves don't go into the run any more)
-    if (this.current === c) this.stop();
+    if (this.current === c && c.engine && c.rom) {
+      // the engine's game goes on alone from the snapshot right after (soloInPlace): it only stands still until then
+      c.child.stdin.write(command(NCMD.SPEED, Buffer.from(new Float32Array([0]).buffer)));
+    } else if (this.current === c) this.stop();
     return c;
   }
 

@@ -2696,5 +2696,7 @@
   "ps.popOut": "Abrir en una ventana",
   "rail.playHint": "Mientras juegas, la barra lateral se pliega. Este botón, el borde izquierdo de la ventana o {key} la traen de vuelta.",
   "set.wholePixels": "Solo píxeles enteros",
-  "set.wholePixelsHint": "Cada píxel del juego mide exactamente 2, 3, 4 … píxeles de pantalla: la imagen más nítida, con un borde negro fino cuando el juego no llena el espacio exactamente. Solo si eso cuesta como mucho un 15 % de la imagen; si no, y con esto desactivado, la imagen llena el espacio con píxeles nítidos suavizados solo en sus bordes."
+  "set.wholePixelsHint": "Cada píxel del juego mide exactamente 2, 3, 4 … píxeles de pantalla: la imagen más nítida, con un borde negro fino cuando el juego no llena el espacio exactamente. Solo si eso cuesta como mucho un 15 % de la imagen; si no, y con esto desactivado, la imagen llena el espacio con píxeles nítidos suavizados solo en sus bordes.",
+  "set.engine": "Motor souldew (beta)",
+  "set.engineHint": "El reproductor rápido con el motor propio de souldew: un solo reproductor para DS, GBA y Game Boy que intercambia y combate directamente desde tu partida en curso: tus compañeros se unen a ella y ninguna partida se reinicia. La misma velocidad, estados guardados, trucos y sincronización en vivo que el reproductor rápido. Desactivado: el reproductor rápido como antes. Se aplica al próximo juego que inicies."
 }

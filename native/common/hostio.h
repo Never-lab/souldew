@@ -30,6 +30,8 @@ void host_event(const char *fmt, ...);
 void host_log(const char *fmt, ...);
 /** An error event, then the host ends (exit code 1). */
 void host_die(const char *fmt, ...);
+/** The host ends now (stdout flushed; `_exit`: a core's exit handlers may hang). */
+void host_exit(int code);
 /** `s` as the inside of a JSON string. */
 void host_json_escape(char *out, size_t cap, const char *s);
 

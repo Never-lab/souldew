@@ -2696,5 +2696,7 @@
   "ps.popOut": "In einem Fenster öffnen",
   "rail.playHint": "Beim Spielen klappt die Seitenleiste weg. Dieser Knopf, der linke Fensterrand oder {key} holen sie zurück.",
   "set.wholePixels": "Nur ganze Pixel",
-  "set.wholePixelsHint": "Jeder Spielpixel genau 2, 3, 4 … Bildschirmpixel groß – das schärfste Bild, mit einem schmalen schwarzen Rand, wenn das Spiel den Platz nicht genau füllt. Nur wenn das höchstens etwa 15 % des Bildes kostet; sonst, und wenn das aus ist, füllt das Bild den Platz mit scharfen Pixeln, die nur an ihren Kanten geglättet sind."
+  "set.wholePixelsHint": "Jeder Spielpixel genau 2, 3, 4 … Bildschirmpixel groß – das schärfste Bild, mit einem schmalen schwarzen Rand, wenn das Spiel den Platz nicht genau füllt. Nur wenn das höchstens etwa 15 % des Bildes kostet; sonst, und wenn das aus ist, füllt das Bild den Platz mit scharfen Pixeln, die nur an ihren Kanten geglättet sind.",
+  "set.engine": "souldew-Engine (Beta)",
+  "set.engineHint": "Der schnelle Player auf souldews eigener Engine: ein Player für DS, GBA und Game Boy, der direkt aus deinem laufenden Spiel tauscht und kämpft – deine Partner kommen dazu, niemandes Spiel startet neu. Gleiche Geschwindigkeit, Speicherstände, Cheats und Live-Sync wie beim schnellen Player. Aus: der schnelle Player wie bisher. Gilt ab dem nächsten Spielstart."
 }

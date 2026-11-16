@@ -67,6 +67,12 @@ void host_log(const char *fmt, ...) {
   host_send(MSG_LOG, buf, (uint32_t)n);
 }
 
+void host_exit(int code) {
+  fflush(stdout);
+  fflush(stderr);
+  _exit(code);
+}
+
 void host_json_escape(char *out, size_t cap, const char *s) {
   size_t o = 0;
   for (; *s && o + 7 < cap; s++) {

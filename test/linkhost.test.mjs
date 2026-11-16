@@ -85,14 +85,16 @@ for (const name of Object.keys(games)) {
     assert.ok(tail > 0 && tail + 8 + 4 * 2 <= state.length, 'the session tail');
     const at = state.readUInt32LE(tail + 4); // the frame it was taken at
     assert.ok(at >= 130 && at < 240, `state at frame ${at}`);
-    await A.step(250 - at);
+    // (UNTIL: an absolute frame – a host runs at 1× until a STEP arrives, so "n more frames" would race the start)
+    const until = (h, f) => { const w = h.wait((m) => m.event?.event === 'stepped'); h.send(24, h.u32(f)); return w; };
+    await until(A, 250);
     const sa = await A.flush(2);
     const file = join(dir, `${name}.state`);
     writeFileSync(file, state);
     const B = startHost(host, [...argv, '--load', file], { onEvent: hashes(hb) });
     const lb = (await B.loaded).event;
     assert.equal(lb.frame, at);
-    await B.step(250 - at);
+    await until(B, 250);
     const sb = await B.flush(2);
     assert.ok(ha[240] && ha[240] === hb[240], `hash at frame 240: ${ha[240]} / ${hb[240]}`);
     assert.ok(sa[0].equals(sb[0]) && sa[1].equals(sb[1]), 'the battery saves are the same');

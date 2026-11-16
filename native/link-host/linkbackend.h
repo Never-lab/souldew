@@ -1,5 +1,6 @@
-// The link host's backend interface: one implementation per system family, the session around it (linkhost.c –
-// protocol, input-delay lockstep, hashes, saves, RAM for live tracking) is shared. See docs/MULTIPLAYER.md › "Backends".
+// The link host's backend interface: one implementation per system family; the engine around it (seats.c, session.c,
+// avout.c, linkhost.c – seat management, input-delay lockstep, picture and sound, the frame loop) is shared. See
+// docs/MULTIPLAYER.md › "Backends" and "The souldew engine".
 //
 // A backend runs ALL seats of a link session in this process, joined by the system's link (GB/GBC serial cable,
 // GBA SIO, DS local wireless, …), and must be deterministic: the same ROMs, saves, start time and per-frame inputs give
@@ -43,8 +44,22 @@ struct link_seat_config {
   const char *rom;         // path of this seat's game (the partner's rebuilt locally, checked by SHA-1 by souldew)
   const uint8_t *save;     // battery save bytes or NULL (a new cartridge)
   size_t save_len;
-  const char *state;       // the player's running game as the fast player's core saved it (export_state's format), or NULL
+  const uint8_t *state;    // the player's running game as the fast player's core saves it (export_state's format), or NULL
+  size_t state_len;
   const char *model;       // Game Boy family: "dmg" (the original Game Boy) or "cgb" (Game Boy Color, the default); NULL
+};
+
+/** How a set of seats starts (open). */
+struct link_open {
+  int n;                                // seats (1 … LINK_MAX_SEATS)
+  const struct link_seat_config *seats;
+  int64_t rtc_ms;                       // link session: the shared start of every cartridge / console clock (Unix ms)
+  /**
+   * One player's game alone (the souldew engine's solo mode): set up as the fast player has it – the clocks follow the
+   * computer's, the DS runs its JIT, the GBC boots with the fast boot ROM – and save states in the fast player's format.
+   * Nothing there must match another computer; a link session opens the seats again (solo false) from their states.
+   */
+  bool solo;
 };
 
 struct link_backend {
@@ -54,10 +69,12 @@ struct link_backend {
   /** Can this backend run `rom`? (by file contents / header) */
   bool (*probe)(const char *rom);
   /**
-   * Start `n` seats joined by the link. `rtc_ms`: the shared start time of every cartridge / console clock (Unix ms) –
-   * the clocks then advance with emulated time only. Returns false (and logs why) when it can't.
+   * Start the seats (joined by the link when there are two or more). In a link session the clocks then advance with
+   * emulated time only. Returns false (and logs why) when it can't – close() then cleans up what was started.
    */
-  bool (*open)(int n, const struct link_seat_config *seats, int64_t rtc_ms);
+  bool (*open)(const struct link_open *o);
+  /** Every seat gone; open may come again (the engine's seat set is re-formed in place: solo ⇄ link). */
+  void (*close)(void);
   /** The inputs of every seat for the next frame. */
   void (*set_input)(int seat, link_input in);
   /** Run one session frame: every console starts exactly one more frame (consoles may run ahead inside it). */
@@ -70,7 +87,7 @@ struct link_backend {
   size_t (*sram)(int seat, void **out);
   /** A hash of everything that must be equal on every peer (RAM, CPU registers, clocks) of every seat. */
   uint64_t (*hash)(uint64_t h);
-  /** Bus access for the live reader, cheats in tests and READ / POKE. */
+  /** Bus access for the live reader, cheats and READ / POKE (tests). */
   uint8_t *(*mem)(int seat, uint32_t addr, uint32_t len);
   uint8_t (*read8)(int seat, uint32_t addr);
   void (*write8)(int seat, uint32_t addr, uint8_t v);
@@ -92,22 +109,17 @@ struct link_backend {
   size_t (*battery)(int seat, void **out);
   /**
    * The seat's console as the fast player's core (native/retro-host on the libretro core of the same emulator, the same
-   * version) saves and loads it – a link session starts from the players' running games (link_seat_config.state) and
-   * hands each player's console back the same way when it ends (docs/MULTIPLAYER.md › "Seamless"). malloc'd, caller
-   * frees; 0 = not now (a DS console waiting mid-frame for a wireless packet).
+   * version) saves it – a save-state slot while playing alone, and the console a link session hands back to its player
+   * (docs/MULTIPLAYER.md › "Seamless"). malloc'd, caller frees; 0 = not now (a DS console waiting mid-frame for a
+   * wireless packet).
    */
   size_t (*export_state)(int seat, void **out);
+  /** A state in that format into the running seat (a save-state slot loaded while playing alone). */
+  bool (*import_state)(int seat, const void *in, size_t len);
 };
 
 extern const struct link_backend link_backend_mgba;
 extern const struct link_backend link_backend_sameboy;
 extern const struct link_backend link_backend_melonds;
-
-/** Shared helpers from linkhost.c */
-void link_log(const char *fmt, ...);
-void *link_read_file(const char *path, size_t *n);
-/** fopen for UTF-8 paths (Windows: _wfopen) – every file the backends open themselves goes through it. */
-FILE *link_fopen(const char *path, const char *mode);
-uint64_t link_fnv(uint64_t h, const void *p, size_t n);
 
 #endif

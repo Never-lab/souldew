@@ -14,10 +14,14 @@
 // 4.19 MHz), not "until vblank": a console with the LCD off or in STOP can't hold the session up, and both consoles
 // take their buttons at the same emulated instant on every peer. The picture is the console's last finished frame.
 //
-// Determinism: no wall clock anywhere – the core's time() is redirected (-Dtime=sbl_time at build time) to the
-// session's start time plus emulated seconds, the RTC (MBC3: Gold/Silver/Crystal) runs on emulated cycles
-// (GB_RTC_MODE_ACCURATE), power-on RAM is filled from a fixed seed per seat, audio is off, no threads.
+// Determinism: no wall clock anywhere – the core's time() is redirected (a header included before each core file, see
+// scripts/build-native.mjs) to the session's start time plus emulated seconds, the RTC (MBC3: Gold/Silver/Crystal) runs
+// on emulated cycles (GB_RTC_MODE_ACCURATE), power-on RAM is filled from a fixed seed per seat, no threads.
+//
+// Alone (the souldew engine's solo seat, link_open.solo) a console is set up as the fast player's SameBoy: the cartridge
+// clock follows the computer's, the Game Boy Color boots with the fast boot ROM; its states are that core's.
 #include "linkbackend.h"
+#include "../common/hostio.h"
 
 #include <Core/gb.h>
 #include <Core/random.h>
@@ -28,13 +32,15 @@
 #include <time.h>
 
 // the boot ROMs (SameBoy's own, MIT – built from its BootROMs/ with RGBDS, embedded by scripts/build-native.mjs)
-extern const unsigned char sbl_cgb_boot[], sbl_dmg_boot[];
-extern const unsigned sbl_cgb_boot_length, sbl_dmg_boot_length;
+// (cgb_fast: the Game Boy Color's boot ROM without the logo animation – the fast player's, for a game played alone)
+extern const unsigned char sbl_cgb_boot[], sbl_cgb_fast_boot[], sbl_dmg_boot[];
+extern const unsigned sbl_cgb_boot_length, sbl_cgb_fast_boot_length, sbl_dmg_boot_length;
 
 #define FRAME_TICKS (70224 * 2) // one LCD frame in GB_run's 8 MHz ticks (also in double speed: real time)
 #define CLOCK 4194304.0
 
 static int nseats;
+static bool solo;           // one player's game alone: the computer's clock and the fast boot ROM, as the fast player
 static int64_t epoch_s;     // the session's shared start (Unix seconds)
 static uint64_t session_tick; // emulated time of the session (8 MHz ticks), drives sbl_time()
 static struct sseat {
@@ -48,8 +54,12 @@ static struct sseat {
   bool has_rtc;
 } seats[2];
 
-/** The core's clock: the session's start time + emulated time – the same on every peer, never the wall clock. */
+/**
+ * The core's clock. In a link session: the session's start time + emulated time – the same on every peer, never the
+ * wall clock. Alone: the computer's (the cartridge clock follows it, as with the fast player's SameBoy).
+ */
 time_t sbl_time(time_t *t) {
+  if (solo) return time(t);
   time_t v = (time_t)(epoch_s + (int64_t)(session_tick / (uint64_t)(CLOCK * 2)));
   if (t) *t = v;
   return v;
@@ -59,6 +69,7 @@ static void on_log(GB_gameboy_t *gb, const char *s, GB_log_attributes_t a) { (vo
 static void on_boot(GB_gameboy_t *gb, GB_boot_rom_t type) {
   // a seat is an original Game Boy (DMG-B) or a Game Boy Color (CGB-E: Game Boy games get its palettes, as on hardware)
   if (type == GB_BOOT_ROM_DMG || type == GB_BOOT_ROM_DMG_0) GB_load_boot_rom_from_buffer(gb, sbl_dmg_boot, sbl_dmg_boot_length);
+  else if (solo) GB_load_boot_rom_from_buffer(gb, sbl_cgb_fast_boot, sbl_cgb_fast_boot_length);
   else GB_load_boot_rom_from_buffer(gb, sbl_cgb_boot, sbl_cgb_boot_length);
 }
 static uint32_t on_rgb(GB_gameboy_t *gb, uint8_t r, uint8_t g, uint8_t b) { (void)gb; return (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16; }
@@ -83,7 +94,7 @@ static const char *s_system(void) { return "gb"; }
 
 /** A Game Boy / Game Boy Color cartridge: the logo's first bytes at 0x104 and a sane size. */
 static bool s_probe(const char *rom) {
-  FILE *f = link_fopen(rom, "rb");
+  FILE *f = host_fopen(rom, "rb");
   if (!f) return false;
   uint8_t h[0x150];
   size_t n = fread(h, 1, sizeof h, f);
@@ -150,19 +161,38 @@ static size_t s_audio(int seat, int16_t *out, size_t max) {
   return n;
 }
 
-static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
-  if (n > 2) { link_log("a Game Boy link cable joins two consoles"); return false; }
-  nseats = n;
-  epoch_s = rtc_ms / 1000;
+/** A clock cartridge's save with its footer: what the clock read when it was saved (the log line the fast player has too). */
+static void log_clock(const uint8_t *foot) {
+  uint32_t v[5];
+  uint64_t saved;
+  memcpy(v, foot, sizeof v);
+  memcpy(&saved, foot + 40, 8);
+  if (saved < 852076800ull) return; // (no real clock data)
+  const uint64_t days = (v[3] & 0xff) | (uint64_t)(v[4] & 1) << 8;
+  host_log("cartridge clock from the save: %llu days %02u:%02u", (unsigned long long)days, v[2] % 24, v[1] % 60);
+}
+
+/** A state of SameBoy (its libretro core pads its own to the biggest model's size: only this model's part is read). */
+static bool load_state(GB_gameboy_t *gb, const uint8_t *in, size_t len) {
+  const size_t own = GB_get_save_state_size(gb);
+  return !GB_load_state_from_buffer(gb, in, len > own ? own : len);
+}
+
+static bool s_open(const struct link_open *o) {
+  if (o->n > 2) { host_log("a Game Boy link cable joins two consoles"); return false; }
+  nseats = o->n;
+  solo = o->solo;
+  epoch_s = solo ? (int64_t)time(NULL) : o->rtc_ms / 1000;
   session_tick = 0;
-  for (int s = 0; s < n; s++) {
+  for (int s = 0; s < o->n; s++) {
+    const struct link_seat_config *cfg = &o->seats[s];
     struct sseat *st = &seats[s];
     memset(st, 0, sizeof *st);
     st->index = s;
     size_t rl = 0;
-    uint8_t *rom = link_read_file(cfg[s].rom, &rl);
-    if (!rom) { link_log("seat %d: the game can't be read", s); return false; }
-    const bool dmg = cfg[s].model && !strcmp(cfg[s].model, "dmg"); // (the seat's player's console – the same on every peer)
+    uint8_t *rom = host_read_file(cfg->rom, &rl);
+    if (!rom) { host_log("seat %d: the game can't be read", s); return false; }
+    const bool dmg = cfg->model && !strcmp(cfg->model, "dmg"); // (the seat's player's console – the same on every peer)
     st->gb = GB_init(GB_alloc(), dmg ? GB_MODEL_DMG_B : GB_MODEL_CGB_E);
     GB_gameboy_t *gb = st->gb;
     GB_set_user_data(gb, st);
@@ -180,7 +210,9 @@ static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     // sound: every seat alike (only the local seat's is played); the rate only shapes the output, not the emulation
     GB_set_sample_rate(gb, SAMPLE_RATE);
     GB_apu_set_sample_callback(gb, on_sample);
-    GB_set_rtc_mode(gb, GB_RTC_MODE_ACCURATE);
+    // the cartridge clock: emulated cycles in a link session; alone, the computer's clock (the fast player's
+    // "sync to system clock" – it catches up with the time the game was closed)
+    GB_set_rtc_mode(gb, solo ? GB_RTC_MODE_SYNC_TO_HOST : GB_RTC_MODE_ACCURATE);
     GB_set_emulate_joypad_bouncing(gb, false);
     GB_load_rom_from_buffer(gb, rom, rl);
     free(rom);
@@ -190,20 +222,29 @@ static bool s_open(int n, const struct link_seat_config *cfg, int64_t rtc_ms) {
     int full = GB_save_battery_size(gb);
     st->has_rtc = full > (int)cart; // SameBoy saves a clock footer exactly for clock cartridges
     if (cart) {
+      if (st->has_rtc && cfg->save && cfg->save_len == cart + 48) log_clock(cfg->save + cart);
       size_t bl = 0;
-      uint8_t *b = st->has_rtc ? with_clock(st, cfg[s].save, cfg[s].save_len, &bl) : NULL;
+      uint8_t *b = st->has_rtc ? with_clock(st, cfg->save, cfg->save_len, &bl) : NULL;
       if (b) GB_load_battery_from_buffer(gb, b, bl), free(b);
-      else if (cfg[s].save) GB_load_battery_from_buffer(gb, cfg[s].save, cfg[s].save_len);
+      else if (cfg->save) GB_load_battery_from_buffer(gb, cfg->save, cfg->save_len);
     }
     GB_random_seed(0x736f756c64657700ull + (uint64_t)s); // power-on RAM: the same "random" contents on every peer
     GB_reset(gb);
-    if (cfg[s].state) { // the player's running game (SameBoy's libretro core: the same format; its battery RAM comes along)
-      if (GB_load_state(gb, cfg[s].state)) { link_log("seat %d: state not loadable", s); return false; }
-    }
+    // the player's running game (SameBoy's libretro core: the same format; its battery RAM comes along)
+    if (cfg->state && !load_state(gb, cfg->state, cfg->state_len)) { host_log("seat %d: state not loadable", s); return false; }
     GB_set_serial_transfer_bit_start_callback(gb, bit_start);
     GB_set_serial_transfer_bit_end_callback(gb, bit_end);
   }
   return true;
+}
+
+static void s_close(void) {
+  for (int s = 0; s < 2; s++) {
+    if (seats[s].gb) GB_free(seats[s].gb), GB_dealloc(seats[s].gb);
+    seats[s].gb = NULL;
+  }
+  memset(audio_ring, 0, sizeof audio_ring);
+  nseats = 0;
 }
 
 static void s_set_input(int seat, link_input in) {
@@ -275,11 +316,11 @@ static uint64_t s_hash(uint64_t h) {
       size_t n = 0;
       uint16_t bank = 0;
       void *p = GB_get_direct_access(gb, parts[i], &n, &bank);
-      if (p && n) h = link_fnv(h, p, n);
-      h = link_fnv(h, &bank, sizeof bank);
+      if (p && n) h = host_fnv(h, p, n);
+      h = host_fnv(h, &bank, sizeof bank);
     }
-    h = link_fnv(h, GB_get_registers(gb), sizeof(GB_registers_t));
-    h = link_fnv(h, &seats[s].ticks, sizeof seats[s].ticks);
+    h = host_fnv(h, GB_get_registers(gb), sizeof(GB_registers_t));
+    h = host_fnv(h, &seats[s].ticks, sizeof seats[s].ticks);
   }
   return h;
 }
@@ -352,9 +393,12 @@ static size_t s_export(int seat, void **out) {
   return n;
 }
 
+/** A fast-player state into the running console (a save-state slot loaded while playing alone). */
+static bool s_import(int seat, const void *in, size_t len) { return load_state(seats[seat].gb, in, len); }
+
 const struct link_backend link_backend_sameboy = {
   .name = "sameboy", .system = s_system, .probe = s_probe, .open = s_open, .set_input = s_set_input, .run_frame = s_run_frame,
   .video = s_video, .fps = s_fps, .sram = s_sram, .hash = s_hash, .mem = s_mem, .read8 = s_read8, .write8 = s_write8,
   .state_size = s_state_size, .save_state = s_save_state, .load_state = s_load_state, .sample_rate = s_sample_rate, .audio = s_audio, .battery = s_battery,
-  .export_state = s_export,
+  .export_state = s_export, .import_state = s_import, .close = s_close,
 };

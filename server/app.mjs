@@ -24,7 +24,7 @@ import { LiveBridge } from './lib/livebridge.mjs';
 import { AzaharBridge, enableRpc } from './lib/azahar.mjs';
 import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted } from './lib/ctr.mjs';
 import { pickRenderer, validRenderer, gpuKey, remember, validScale, scaleFor } from './lib/ctrrenderer.mjs';
-import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId } from './lib/native.mjs';
+import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS } from './lib/native.mjs';
 import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem } from '../shared/link.mjs';
 import { ownSeat, resolveSeat, pickSeat, extractTarget, partnerBuildRequest } from './lib/linkroms.mjs';
 import { linkIceServers } from './lib/linkice.mjs';
@@ -602,7 +602,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   const nativeStatus = () => {
     const tl = nativeTools();
     const look = loadConfig().gbLook;
-    return { ok: tl.ok, cores: Object.fromEntries(Object.entries(tl.cores || {}).map(([k, v]) => [k, !!v])), ids: Object.fromEntries(Object.keys(NATIVE_CORES).map((k) => [k, nativeCoreId(k, gbModel(k, look))])) };
+    // engine: the souldew engine (the link host as the fast player) is in this build – Settings › "souldew engine (beta)"
+    return { ok: tl.ok, cores: Object.fromEntries(Object.entries(tl.cores || {}).map(([k, v]) => [k, !!v])), ids: Object.fromEntries(Object.keys(NATIVE_CORES).map((k) => [k, nativeCoreId(k, gbModel(k, look))])),
+      engine: !!linkTool() };
   };
   // Azahar (3DS): polled once someone plays a 3DS game – the play view asks for its status, a launch starts it too
   let azahar = null;
@@ -866,6 +868,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         turboMax: config.turboMax === true,
         fullTurbo: config.fullTurbo !== false,
         nativeCore: config.nativeCore !== false,
+        nativeEngine: config.nativeEngine === true,
         gbLook: GB_LOOKS.includes(config.gbLook) ? config.gbLook : 'original',
         pads: config.pads || null,
         gpuBackend: validBackend(config.gpuBackend, process.platform),
@@ -885,7 +888,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels']) {
       if (k in body) allowed[k] = body[k];
     }
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
@@ -914,6 +917,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if ('turboMax' in allowed) allowed.turboMax = allowed.turboMax === true;
     if ('fullTurbo' in allowed) allowed.fullTurbo = allowed.fullTurbo !== false; // on unless switched off
     if ('nativeCore' in allowed) allowed.nativeCore = allowed.nativeCore !== false; // the fast player: on unless switched off
+    if ('nativeEngine' in allowed) allowed.nativeEngine = allowed.nativeEngine === true; // the souldew engine (beta): off unless switched on
     if ('gbLook' in allowed && !GB_LOOKS.includes(allowed.gbLook)) delete allowed.gbLook; // Game Boy games: original / GBC colours
     if ('padNav' in allowed) allowed.padNav = allowed.padNav !== false; // controller navigation (web/lib/padnav.mjs): on unless switched off
     // the graphics backend electron/main.mjs applies at the next start; the fallback notice can only be dismissed
@@ -1457,12 +1461,21 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     // (state: the save state to go on from – the player's own console as a link session left it, docs/MULTIPLAYER.md)
     if (state != null && !b64ok(state, MAX_STATE)) throw httpError(400, 'Ungültiger Zustand', 'badSave');
     const tools = nativeTools();
-    if (!tools.cores?.[system]) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
+    // the souldew engine (beta): the link host plays the game (the same states and protocol); else retrohost and its core
+    const engine = loadConfig().nativeEngine === true && ENGINE_SYSTEMS.includes(system) ? linkTool() : null;
+    if (!engine && !tools.cores?.[system]) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
     // a Game Boy game's console: Settings › "Game Boy look" – or the one a state to go on from was made on
     const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, loadConfig().gbLook);
-    const id = native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
-      state: state ? Buffer.from(state, 'base64') : null, model });
-    return { id, core: nativeCoreId(system, model), model };
+    const id = await native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
+      state: state ? Buffer.from(state, 'base64') : null, model, engine });
+    return { id, core: nativeCoreId(system, model), model, engine: !!engine };
+  });
+  // the engine's link session is over: its game goes on alone in the same process (no state travels, no new player)
+  route('POST', /^\/api\/native\/unlink$/, async (req) => {
+    const { id } = await readBody(req);
+    const r = typeof id === 'string' ? await native.unlink(id) : null;
+    if (!r) throw httpError(409, 'Keine Link-Sitzung des Spiels', 'noNativeSession');
+    return r;
   });
   // ---- link sessions: trades and battles between the players of a run (docs/MULTIPLAYER.md) -----------------------
   // Every seat's game must be a file on this computer (server/lib/linkroms.mjs: the run's builds, a file the player
@@ -1596,7 +1609,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       if (stateBytes.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
     }
     const savePath = defaultSavePath(manifest, local);
-    const id = native.startLink({
+    const id = await native.startLink({
       host: linkTool(), system, seats: out, local: localIndex, delay, rtc, key: `${manifest.id}:${local}`, state: stateBytes,
       saveFile: savePath ? { path: savePath, runId: manifest.id } : null,
     });

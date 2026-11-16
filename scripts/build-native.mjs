@@ -213,9 +213,11 @@ function buildLink() {
   const obj = join(build, 'souldew');
   mkdirSync(obj, { recursive: true });
   const objects = [];
-  for (const f of ['linkhost.c', 'backend_mgba.c', 'backend_sameboy.c']) {
-    const o = join(obj, f.replace(/\.c$/, '.o'));
-    run(cc, ['-O2', '-std=gnu11', '-Wall', ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), ...sb.cflags, '-c', join(root, 'native', 'link-host', f), '-o', o]);
+  // the engine (seats, session, picture/sound, the frame loop), its backends, and native/common (shared with retrohost)
+  const sources = [...['linkhost.c', 'seats.c', 'session.c', 'avout.c', 'backend_mgba.c', 'backend_sameboy.c'].map((f) => join(root, 'native', 'link-host', f)), ...COMMON];
+  for (const f of sources) {
+    const o = join(obj, `${f.includes(join('native', 'common')) ? 'common-' : ''}${f.split(/[\\/]/).pop().replace(/\.c$/, '.o')}`);
+    run(cc, ['-O2', '-std=gnu11', '-Wall', ...COMMON_FLAGS, ...flags, ...defs, '-I', join(src, 'include'), '-I', join(build, 'include'), ...sb.cflags, '-c', f, '-o', o]);
     objects.push(o);
   }
   const dso = join(obj, 'backend_melonds.o');
@@ -235,13 +237,15 @@ function ninjaDefines(build, re) {
 
 /**
  * melonDS's core library for the link host's DS backend (native/link-host/backend_melonds.cpp): no frontend, no OpenGL,
- * no GDB stub and no JIT (its timing differs from the interpreter's, and every peer must compute the same). Returns the
- * flags to compile against it (the same definitions – its classes change shape with them) and the static libraries.
+ * no GDB stub. The JIT is built in for a game played alone (the souldew engine's solo mode, as fast as the fast player's
+ * melonDS DS); link sessions switch it off per console (its timing differs from the interpreter's, and every peer must
+ * compute the same). Returns the flags to compile against it (the same definitions – its classes change shape with
+ * them) and the static libraries.
  */
 function buildMelonDS() {
   const src = source('melonds');
   const build = join(src, `build-core-${plat}`);
-  run('cmake', [...cmakeTarget(), '-DBUILD_QT_SDL=OFF', '-DENABLE_OGLRENDERER=OFF', '-DENABLE_GDBSTUB=OFF', '-DENABLE_JIT=OFF', '-DENABLE_LTO_RELEASE=OFF', '-DENABLE_LTO=OFF',
+  run('cmake', [...cmakeTarget(), '-DBUILD_QT_SDL=OFF', '-DENABLE_OGLRENDERER=OFF', '-DENABLE_GDBSTUB=OFF', '-DENABLE_JIT=ON', '-DENABLE_LTO_RELEASE=OFF', '-DENABLE_LTO=OFF',
     '-DUSE_VCPKG=OFF', '-DMELONDS_EMBED_BUILD_INFO=OFF', '-S', src, '-B', build]);
   run('cmake', ['--build', build, '--parallel', jobs, '--target', 'core']);
   const defs = ninjaDefines(build, /build src\/CMakeFiles\/core\.dir\/NDS\.cpp\.o[\s\S]*?DEFINES = ([^\n]*)/);
@@ -262,13 +266,14 @@ function buildSameBoy(flags) {
   const obj = join(src, `build-souldew-${plat}`);
   mkdirSync(obj, { recursive: true });
   // (pb12 is a build-time helper: host compiler)
-  run('make', ['-C', src, 'build/bin/BootROMs/cgb_boot.bin', 'build/bin/BootROMs/dmg_boot.bin', `CC=${process.env.HOST_CC || 'cc'}`]);
+  run('make', ['-C', src, 'build/bin/BootROMs/cgb_boot.bin', 'build/bin/BootROMs/cgb_boot_fast.bin', 'build/bin/BootROMs/dmg_boot.bin', `CC=${process.env.HOST_CC || 'cc'}`]);
   const bootC = join(obj, 'sbl_boot.c');
-  const rom = (name) => {
-    const b = readFileSync(join(src, 'build', 'bin', 'BootROMs', `${name}_boot.bin`));
+  const rom = (name, file = `${name}_boot.bin`) => {
+    const b = readFileSync(join(src, 'build', 'bin', 'BootROMs', file));
     return `const unsigned char sbl_${name}_boot[] = {${[...b].join(',')}};\nconst unsigned sbl_${name}_boot_length = ${b.length};\n`;
   };
-  writeFileSync(bootC, `/* SameBoy's boot ROMs (MIT), assembled from BootROMs/cgb_boot.asm and dmg_boot.asm */\n${rom('cgb')}${rom('dmg')}`);
+  // (cgb_fast: the Game Boy Color's boot ROM without the logo animation – the engine's solo mode, as the fast player)
+  writeFileSync(bootC, `/* SameBoy's boot ROMs (MIT), assembled from BootROMs/cgb_boot.asm and dmg_boot.asm */\n${rom('cgb')}${rom('cgb_fast', 'cgb_boot_fast.bin')}${rom('dmg')}`);
   // the core's time() → the session clock: a header included first (time.h, then the macro) – not -Dtime=…, which on
   // Windows would rename MinGW's inline time() in <time.h> and leave the wall clock in place
   const timeH = join(obj, 'sbl_time.h');
