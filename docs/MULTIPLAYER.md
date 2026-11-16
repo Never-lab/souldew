@@ -103,12 +103,16 @@ The design is hybrid. Players play apart, asynchronously, as they always do. **A
 
 | File | Role |
 |---|---|
-| `linkhost.c` | The **session**, shared by every system: protocol, frame pacing, input-delay lockstep, RAM hashes, battery saves, live-tracking RAM, session save states, record/replay for tests. |
-| `linkbackend.h` | The **backend interface** each system implements. |
+| `linkhost.c` | The **frame loop and the commands** (protocol: `native/common/protocol.h`), the mode changes of the souldew engine (solo ⇄ link in place, §4b), bench/record/replay for tests. |
+| `seats.c` | **Seat management**: which backend, the seats' games (ROM, battery save, state, model), (re-)forming them in this process, each seat's battery save. |
+| `session.c` | **The session**: whose buttons drive which console on which frame – solo / local mode, input-delay lockstep, peers' buttons (RINPUT, NEED), hashes, whole-session states (rejoin). |
+| `avout.c` | **Picture and sound**: the viewed seat as RGB565, the local seat's sound through the fast-forward sound. |
+| `native/common/` | Shared with retrohost: IPC and the command queue (`hostio`), the RAM stream for live tracking with cheats and WATCH (`ramstream`), the fast-forward sound (`ffaudio`), the loop's cadence and battery-save settling (`cadence`). |
+| `linkbackend.h` | The **backend interface** each system implements (open/close, frames, picture, sound, memory, saves, states – the fast player's format both ways). |
 | `backend_mgba.c` | GBA SIO (link cable: multiplayer and normal modes, 2–4 GBAs) on libmgba; GB/GBC as a fallback (`--backend mgba`). |
 | `backend_sameboy.c` | GB/GBC serial link cable (2 consoles) on SameBoy (MIT): Gen 1/2 Cable Club, the first choice for GB/GBC. |
 | *(every backend)* | `export_state` and `link_seat_config.state`: a seat starts from the player's running game and hands the console back in the fast player's state format (§4a). |
-| `backend_melonds.cpp` | DS local wireless between up to 4 melonDS instances (melonDS's core library, interpreter only) with a deterministic MP layer: Gen 4/5 Union Room. Details: [MULTIPLAYER-DS.md](MULTIPLAYER-DS.md). |
+| `backend_melonds.cpp` | DS local wireless between up to 4 melonDS instances (melonDS's core library – built with the JIT, which only a console played alone uses; link seats run the interpreter) with a deterministic MP layer: Gen 4/5 Union Room. Details: [MULTIPLAYER-DS.md](MULTIPLAYER-DS.md). |
 | *(later)* 3DS | Azahar rooms, or two instances. Research. |
 
 ### Backends

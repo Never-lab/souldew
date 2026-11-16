@@ -949,7 +949,11 @@ async function unlinkInPlace() {
   const res = await fetch('/api/native/unlink', { method: 'POST', headers: { 'content-type': 'application/json', 'x-soullink': '1' }, body: JSON.stringify({ id: st.id }) }).catch(() => null);
   const j = res?.ok ? await res.json().catch(() => null) : null;
   if (!j || j.id !== st.id) return false;
+  // the engine sent the session's last battery save, then its "loaded" (alone): once that is read here, the save goes
+  // to the play view as every save does (it skips saves during a link session – this one is the game's own again)
+  for (let i = 0; i < 40 && st.info?.mode !== 'solo'; i++) await new Promise((r) => setTimeout(r, 50));
   LINK_SESSION = null;
+  if (st.sram) post({ type: 'emu-saved' });
   st.core = j.core;
   st.model = j.model || st.model;
   window.__world?.rewatch();

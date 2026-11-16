@@ -33,6 +33,8 @@ void session_begin(int n, int local, bool net, int delay) {
   nseats = n, local_seat = local, net_mode = net, delay_frames = delay;
   frame = 0;
   wait_since = 0;
+  free(script); // (a recording belongs to the session it was given for – never to the game alone afterwards)
+  script = NULL, script_frames = 0;
   memset(seat, 0, sizeof seat);
   for (int s = 0; s < n; s++) seat[s].have = net ? (uint32_t)delay : 0; // the first frames: nothing pressed, known to all
 }

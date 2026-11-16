@@ -40,7 +40,8 @@ void session_send_state(void);
 /** A whole-session state (SAVE's / --load's format); false (nothing changed) when it doesn't fit these seats. */
 bool session_load_state(const uint8_t *b, size_t len);
 
-/** Tests: write every frame's buttons to `path` (--record); play a recording back (--script). */
+/** Tests: write every frame's buttons to `path` (--record); play a recording back (--script – for this session only:
+ *  session_begin drops it). */
 bool session_record(const char *path);
 bool session_script(const char *path);
 /** --bench: the script's buttons for the coming frame (every seat, local mode). */
