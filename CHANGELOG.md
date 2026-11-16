@@ -31,6 +31,11 @@ Plus a new play view that gives the game the room it deserves.
   and they never cover the game's text boxes or the place name. It is drawn over your game; nothing is written into
   it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald and Sapphire;
   Ruby, FireRed and LeafGreen run on the same code, with their addresses from the games' disassembly.
+- **souldew engine (beta)** – Settings › Emulators. One player of souldew's own for DS, GBA and Game Boy, on the
+  same emulators as the fast player: a trade or battle simply brings your partners' consoles into your running game,
+  and when the link ends they leave it again – nothing restarts, not even for a moment's handover. Speed steps, Max,
+  save states (the fast player's – they work in both), cheats, live sync, the turbo music and Shared World as you know
+  them. Off by default while it is in beta; the fast player stays as it is.
 - **A new play view: the game big, everything else in one dock beside it.** The sidebar folds away while you play
   (its button at the top left, the window's left edge or ⌘B / Ctrl+B bring it back – a note says so the first time)
   and the game gets the room. Title, place and level cap, the battle helper, the link with your partners, your team or
