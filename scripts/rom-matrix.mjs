@@ -25,6 +25,8 @@
 //   --states      keep each game's save state after its plan (<out>/shots/<key>.state)
 //   --battery     keep each game's battery save after its plan (<out>/shots/<key>.sav – never commit it)
 //   --native      play in the fast player (playernative.html – the native host, tools/native) instead of player.html
+//   --engine      the fast player on the souldew engine (Settings › "souldew engine (beta)": the link host plays the
+//                 game) – implies --native; each result says which player ran it ("player")
 //   --plan <json> play this plan file instead of the game's own (with --only: a probe for one game)
 //   --saves <dir> where saves for the plans that start from one are, too: <patch or ROM name>.sav or <hack id>.sav
 // Zipped ROMs are unpacked one at a time when they are needed and deleted again right after (a DS ROM is up to 512 MB);
@@ -343,7 +345,7 @@ async function runLive(list) {
   if (!jobs.length) return;
   const dataDir = join(out, 'data');
   mkdirSync(dataDir, { recursive: true });
-  writeFileSync(join(dataDir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: 'Matrix', libraryFolders: [...sources.map((p) => (statSync(p).isDirectory() ? p : dirname(p))), work] }));
+  writeFileSync(join(dataDir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: 'Matrix', libraryFolders: [...sources.map((p) => (statSync(p).isDirectory() ? p : dirname(p))), work], nativeEngine: flag('engine') }));
   const electron = (await import('electron')).default;
   log(`live: ${jobs.length} game(s) in souldew's emulator …`);
   const all = [];
@@ -354,7 +356,7 @@ async function runLive(list) {
     rmSync(resultFile, { force: true });
     materialize(r); // (one big ROM on disk at a time: unpacked or patched for its run, deleted after it)
     const job = {
-      dataDir, outDir: join(out, 'shots'), resultFile, show: flag('show'), native: flag('native'), battery: flag('battery'), saveStates: flag('states'), timeoutMs: 60 * 60000,
+      dataDir, outDir: join(out, 'shots'), resultFile, show: flag('show'), native: flag('native') || flag('engine'), battery: flag('battery'), saveStates: flag('states'), timeoutMs: 60 * 60000,
       targets: [{ key, file: r.file, system: r.system, core: plan.core || '', ...(plan.save ? { save: saveFor(r) } : {}), plan: { ...plan, header: r.header, gameId: r.gameId || r.base?.gameId || null } }],
     };
     writeFileSync(join(out, 'job.json'), JSON.stringify(job));

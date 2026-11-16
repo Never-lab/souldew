@@ -2698,5 +2698,6 @@
   "world.trade": "Trade",
   "world.wave": "Wave",
   "set.engine": "souldew engine (beta)",
-  "set.engineHint": "The fast player on souldew’s own engine: one player for DS, GBA and Game Boy that trades and battles straight from your running game – your partners join it, nobody’s game restarts. Same speed, save states, cheats and live sync as the fast player. Off: the fast player as before. Applies to the next game you start."
+  "set.engineHint": "The fast player on souldew’s own engine: one player for DS, GBA and Game Boy that trades and battles straight from your running game – your partners join it, nobody’s game restarts. Same speed, save states, cheats and live sync as the fast player. Off: the fast player as before. Applies to the next game you start.",
+  "err.linkRefused": "The games couldn’t be linked on this computer – your game goes on as it was."
 }

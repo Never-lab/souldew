@@ -431,7 +431,7 @@ export class NativeSessions extends CtrSessions {
       const answer = this.awaitEvent(c, (e) => (e.event === 'loaded' && e.mode === 'link') || e.event === 'linkRefused', 30000);
       c.child.stdin.write(command(ENGINE_CMD.LINK, engineWords(args.filter((w, i, l) => w !== '--ram' && l[i - 1] !== '--ram'))));
       const e = await answer;
-      if (e.event === 'linkRefused') throw httpError(409, 'Die Spiele ließen sich nicht verbinden', 'linkStart');
+      if (e.event === 'linkRefused') throw httpError(409, 'Die Spiele ließen sich nicht verbinden', 'linkRefused');
       Object.assign(c, { saveFile, link: { seats: seats.length, local, system, dir } });
       return c.id;
     }

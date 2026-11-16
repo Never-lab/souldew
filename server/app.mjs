@@ -1473,7 +1473,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // the engine's link session is over: its game goes on alone in the same process (no state travels, no new player)
   route('POST', /^\/api\/native\/unlink$/, async (req) => {
     const { id } = await readBody(req);
-    const r = typeof id === 'string' ? await native.unlink(id) : null;
+    // (only with the engine switched on – a link host started from the board otherwise hands over to retrohost as before)
+    const r = typeof id === 'string' && loadConfig().nativeEngine === true ? await native.unlink(id) : null;
     if (!r) throw httpError(409, 'Keine Link-Sitzung des Spiels', 'noNativeSession');
     return r;
   });

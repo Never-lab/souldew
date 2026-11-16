@@ -62,6 +62,7 @@ const TEXTS = {
   linkBuildNoPatch: () => t('err.linkBuildNoPatch', 'The run’s ROM hack patch isn’t in your library – add it, then build again.'),
   nativeEnded: () => t('err.nativeEnded', 'The game has stopped'),
   nativeBusy: () => t('err.nativeBusy', 'The game is busy – try again in a moment'),
+  linkRefused: () => t('err.linkRefused', 'The games couldn’t be linked on this computer – your game goes on as it was.'),
   badSave: () => t('err.badSave', 'Invalid save file'),
   saveTooLarge: () => t('err.saveTooLarge', 'The save file is too large'),
   emulatorOpen: (v) => t('err.emulatorOpen', '{emu} is already open – start the game there, or close {emu} and start it from here', v),

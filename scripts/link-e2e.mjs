@@ -28,6 +28,9 @@
 //        [--relay]           (every peer connection relayed through TURN – the bot's /link/ice must answer)
 //        [--gb-look original|color] [--gb-look1 …] [--gb-look2 …]  (every / one player's Settings › Game Boy look;
 //                            default color, as the recordings were made)
+//        [--engine]          (Settings › "souldew engine (beta)": every fast player is the souldew engine – with
+//                            --seamless the partners join each player's running game in its own process and leave it
+//                            the same way: checks linkedInPlace / aloneInPlace)
 //        [--show]
 //
 // Never commit ROMs, saves or the screenshots.
@@ -87,7 +90,7 @@ async function main() {
     // (--all-roms: every player's library has every game of the session – the partners' are then found by CRC + SHA-1)
     // (a clone where the disk can – APFS: no extra space – else a copy: a DS game is 128–512 MB per player)
     for (const r of flag('all-roms') ? [...new Set([rom, ...[0, 1, 2, 3].slice(0, seats).map(romOf)])] : [rom]) copyFileSync(r, join(lib, basename(r)), fsConstants.COPYFILE_FICLONE);
-    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true,
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true, nativeEngine: flag('engine'),
       gbLook: opt(`gb-look${'ABCD'.indexOf(id) + 1}`) || opt('gb-look', 'color') })); // (the recordings were made on Game Boy Colors)
     const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_E2E: '1', SLS_LINK_TEST_SCRIPT: script,
       // (--seamless --desync: the states differ instead – a game in the middle of a trade may never read its clock)
@@ -222,6 +225,11 @@ async function main() {
       result.frameRect = [];
       for (const i of all) result.frameRect.push(JSON.parse(await ev(i, `JSON.stringify((() => { const r = document.querySelector('iframe[src^="/playernative.html"]').getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, dpr: devicePixelRatio }; })())`)));
       result.checks.ownGamesRunning = await everyone((i) => ev(i, 'window.__slLink.sessions.ownGame()'));
+      if (flag('engine')) { // (every game in the souldew engine, alone: the process the link will join)
+        result.engineIds = [];
+        for (const pr of profiles) result.engineIds.push((await api(pr, '/api/native/status')).session?.id || null);
+        result.checks.engineAlone = await everyone(async (i) => (await emu(i, 'e.perf().info?.engine === true && e.perf().info?.mode === "solo"')) === true);
+      }
     }
 
     // ---- invite, join (and the partner's game, when it's another file) -------------------------------------------------
@@ -257,6 +265,12 @@ async function main() {
       result.checks.pickedBySha1 = true;
     }
     await until('everybody running', () => everyone(async (i) => (await phase(i)) === 'running'), 120000);
+    if (seamless && flag('engine')) { // the partners joined each game in its own process: the same session, now linked
+      const ids = [];
+      for (const pr of profiles) ids.push((await api(pr, '/api/native/status')).session?.id || null);
+      result.checks.linkedInPlace = ids.every((x, i) => x && x === result.engineIds[i])
+        && (await everyone(async (i) => (await emu(i, 'e.perf().info?.mode')) === 'link'));
+    }
     const st0 = JSON.parse(await ev(0, 'JSON.stringify(window.__slLink.sessions.state)'));
     log('running: delay', st0.delay, 'rtt', st0.rtt);
     result.delay = st0.delay;
@@ -349,6 +363,12 @@ async function main() {
         result.checks.backToBeforeTheLink = ended.every((e) => e?.resumed === true);
         result.checks.wentOnAlone = await everyone(async (i) => (await emu(i, 'e.perf().core')) !== 'link' && (await emu(i, 'e.switches().at(-1)?.to')) === 'solo');
         result.checks.samePlayerPageAfter = await everyone(async (i) => (await ev(i, `document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__e2eMark`)) === `m${i}`);
+      if (flag('engine')) { // each game alone again in the same process (no new player was started)
+        const ids = [];
+        for (const pr of profiles) ids.push((await api(pr, '/api/native/status')).session?.id || null);
+        result.checks.aloneInPlace = ids.every((x, i) => x && x === result.engineIds[i])
+          && (await everyone(async (i) => (await emu(i, 'e.perf().info?.mode')) === 'solo'));
+      }
       }
       log('desync', JSON.stringify(result.checks));
       return finish(Object.values(result.checks).every(Boolean) ? 0 : 1);
@@ -374,6 +394,12 @@ async function main() {
       log('seamless end', JSON.stringify(result.seamlessEnd));
       result.checks.wentOnAlone = result.seamlessEnd.every((x) => x.resumed && x.switch?.to === 'solo' && x.core !== 'link' && x.framesAdvance > 30);
       result.checks.samePlayerPageAfter = await everyone(async (i) => (await ev(i, `document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__e2eMark`)) === `m${i}`);
+      if (flag('engine')) { // each game alone again in the same process (no new player was started)
+        const ids = [];
+        for (const pr of profiles) ids.push((await api(pr, '/api/native/status')).session?.id || null);
+        result.checks.aloneInPlace = ids.every((x, i) => x && x === result.engineIds[i])
+          && (await everyone(async (i) => (await emu(i, 'e.perf().info?.mode')) === 'solo'));
+      }
       await stripOut;
     }
     await sleep(4000);

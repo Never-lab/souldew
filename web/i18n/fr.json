@@ -2698,5 +2698,6 @@
   "set.wholePixels": "Pixels entiers uniquement",
   "set.wholePixelsHint": "Chaque pixel du jeu fait exactement 2, 3, 4 … pixels d’écran – l’image la plus nette, avec une fine bordure noire quand le jeu ne remplit pas exactement l’espace. Seulement si cela coûte au plus environ 15 % de l’image ; sinon, et quand c’est désactivé, l’image remplit l’espace avec des pixels nets, adoucis seulement sur leurs bords.",
   "set.engine": "Moteur souldew (bêta)",
-  "set.engineHint": "Le lecteur rapide sur le propre moteur de souldew : un seul lecteur pour DS, GBA et Game Boy qui échange et combat directement depuis ta partie en cours – tes partenaires la rejoignent, aucune partie ne redémarre. Même vitesse, mêmes sauvegardes d’état, codes de triche et synchro en direct que le lecteur rapide. Désactivé : le lecteur rapide comme avant. S’applique au prochain jeu lancé."
+  "set.engineHint": "Le lecteur rapide sur le propre moteur de souldew : un seul lecteur pour DS, GBA et Game Boy qui échange et combat directement depuis ta partie en cours – tes partenaires la rejoignent, aucune partie ne redémarre. Même vitesse, mêmes sauvegardes d’état, codes de triche et synchro en direct que le lecteur rapide. Désactivé : le lecteur rapide comme avant. S’applique au prochain jeu lancé.",
+  "err.linkRefused": "Les jeux n’ont pas pu être reliés sur cet ordinateur – ta partie continue comme avant."
 }

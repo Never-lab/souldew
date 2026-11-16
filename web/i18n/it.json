@@ -2698,5 +2698,6 @@
   "set.wholePixels": "Solo pixel interi",
   "set.wholePixelsHint": "Ogni pixel del gioco è grande esattamente 2, 3, 4 … pixel dello schermo – l’immagine più nitida, con un sottile bordo nero quando il gioco non riempie esattamente lo spazio. Solo se costa al massimo circa il 15 % dell’immagine; altrimenti, e con questa opzione spenta, l’immagine riempie lo spazio con pixel nitidi ammorbiditi solo ai bordi.",
   "set.engine": "Motore souldew (beta)",
-  "set.engineHint": "Il player veloce sul motore di souldew: un solo player per DS, GBA e Game Boy che scambia e combatte direttamente dalla tua partita in corso – i tuoi partner si uniscono, nessuna partita riparte. Stessa velocità, salvataggi di stato, trucchi e sincronizzazione live del player veloce. Disattivato: il player veloce come prima. Vale dal prossimo gioco che avvii."
+  "set.engineHint": "Il player veloce sul motore di souldew: un solo player per DS, GBA e Game Boy che scambia e combatte direttamente dalla tua partita in corso – i tuoi partner si uniscono, nessuna partita riparte. Stessa velocità, salvataggi di stato, trucchi e sincronizzazione live del player veloce. Disattivato: il player veloce come prima. Vale dal prossimo gioco che avvii.",
+  "err.linkRefused": "Non è stato possibile collegare i giochi su questo computer – la tua partita continua come prima."
 }
