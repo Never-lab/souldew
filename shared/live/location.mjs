@@ -110,12 +110,13 @@ function readGen4(m, read, maps, entry, ctx = {}) {
   return Number.isInteger(id) && id > 0 ? { id, map: u16le(b, 0) } : null;
 }
 
-// Gen 5: the current zone id (u16) – NDS-Ironmon-Tracker constants/MemoryAddresses.lua childMapHeader /
-// parentMapHeader (community values, not verified by souldew yet). Black 2/White 2 behind the main pointer at
-// 0x02000024 (masked like the party pointer, addresses.json black2_us), Black/White static (White = Black + 0x20).
+// Gen 5: the current zone id (u16). Black 2/White 2: child then parent map header behind the main pointer at
+// 0x02000024 (NDS-Ironmon-Tracker; same mask as the party pointer). Black/White: the overworld map id next to
+// the player coords on DeSmuME (Kaphotics / Project Pokemon LUA – White = Black + 0x20). Ironmon's static
+// childMapHeader (0x022592b2) only matched the intro Black City cutscene under DeSmuME (#71).
 const GEN5_ZONE = {
-  IRB: { addrs: [0x022592b2, 0x022592b4] },
-  IRA: { addrs: [0x022592d2, 0x022592d4] },
+  IRB: { addrs: [0x0224f90c] },
+  IRA: { addrs: [0x0224f92c] },
   IRE: { ptr: 0x02000024, offsets: [0x41b5c, 0x41b44] },
   IRD: { ptr: 0x02000024, offsets: [0x41b5c, 0x41b44] },
 };

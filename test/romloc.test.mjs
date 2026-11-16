@@ -214,6 +214,19 @@ test('readLocation with ROM data: Gen 5 zone id behind the main pointer (Black 2
   assert.equal(canReadLocation(maps, { id: 'black2_us', gen: 5 }, null), false, 'Gen 5 needs the ROM data');
 });
 
+test('readLocation with ROM data: Gen 5 Black/White overworld map id (DeSmuME, #71)', () => {
+  const rom = { gen: 5, family: 'bw', code: 'IRBO', lang: 'en', mapLoc: [0, 0, 4, 14], names: Object.assign(new Array(15).fill(''), { 4: 'Nuvema Town', 14: 'Route 1' }) };
+  const read = bus({ 0x0224f90c: le16(2) });
+  assert.equal(canReadLocation(maps, { id: 'black_us', gen: 5 }, rom), true);
+  assert.deepEqual(readLocation(maps, { id: 'black_us', gen: 5 }, read, { rom }), { gen: 5, id: 4, map: 2, romName: 'Nuvema Town' });
+  const white = { ...rom, code: 'IRAO' };
+  const readW = bus({ 0x0224f92c: le16(3) });
+  assert.deepEqual(readLocation(maps, { id: 'white_us', gen: 5 }, readW, { rom: white }), { gen: 5, id: 14, map: 3, romName: 'Route 1' });
+  // stale Ironmon childMapHeader must not win after the intro
+  const stale = bus({ 0x022592b2: le16(2), 0x0224f90c: le16(3) });
+  assert.equal(readLocation(maps, { id: 'black_us', gen: 5 }, stale, { rom }).romName, 'Route 1');
+});
+
 // ---------------------------------------------------------------- real ROMs (optional)
 
 const DIR = process.env.SOULDEW_TEST_ROMS;

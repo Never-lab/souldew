@@ -5,7 +5,7 @@
 ],
 "core": "desmume",
 "note": "White (US/EU): as Black (its position sits 0x20 further on) \u2013 gift box (Tepig) \u2192 both rival battles in the room \u2192 Nuvema Town \u2192 Juniper's lab \u2192 Route 1, where a check every few steps watches Juniper's catching demo (her Minccino against a Patrat: the game flags it like a battle, so it shows while it runs and must be gone once it ends \u2013 the checks after it expect no battle) \u2192 a real wild catch (Pok\u00e9 Balls given into the bag). The probe records the battle flag, whose PID battleActive holds, held items, status conditions, badges and the level cap.",
-"pos": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]",
+"pos": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]",
 "probe": "(()=>{const u=(a)=>{const b=read(a,2);return b?(b[0]|b[1]<<8).toString(16):null};const r=ctx.parse.readLiveParty(ctx.entry,read,ctx.T,ctx.state);const party=r?.party||[];const b0=read(0x022A7E34,4);const pid=b0?(b0[0]|b0[1]<<8|b0[2]<<16|b0[3]<<24)>>>0:0;let cap=null;try{const {R,doc,manifest}=ctx.run;doc.set('live:p1',{badges:r?.badges,at:Date.now()});cap=R.levelCap(doc,{...manifest,game:{...manifest.game,id:'pokemon-white'}},'p1').cap}catch(e){cap=String(e)}return {flag:u(0x021D07B8),atBattleActive:party.findIndex(m=>m.pid===pid),items:party.map(m=>m.item),status:party.map(m=>m.status),badges:r?.badges,cap}})()",
 "steps": [
 {
@@ -64,7 +64,7 @@
 {
 "do": "log",
 "name": "pos:starter",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -96,7 +96,7 @@
 {
 "do": "log",
 "name": "pos:battle1",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -118,7 +118,7 @@
 {
 "do": "log",
 "name": "pos:pb0",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -140,7 +140,7 @@
 {
 "do": "log",
 "name": "pos:pb1",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -162,7 +162,7 @@
 {
 "do": "log",
 "name": "pos:pb2",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -184,7 +184,7 @@
 {
 "do": "log",
 "name": "pos:pb3",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -206,7 +206,7 @@
 {
 "do": "log",
 "name": "pos:pb4",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -228,7 +228,7 @@
 {
 "do": "log",
 "name": "pos:pb5",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -250,7 +250,7 @@
 {
 "do": "log",
 "name": "pos:pb6",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -272,7 +272,7 @@
 {
 "do": "log",
 "name": "pos:pb7",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -294,7 +294,7 @@
 {
 "do": "log",
 "name": "pos:free",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -321,7 +321,7 @@
 {
 "do": "log",
 "name": "pos:g1",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -347,7 +347,7 @@
 {
 "do": "log",
 "name": "pos:d1",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -369,7 +369,7 @@
 {
 "do": "log",
 "name": "pos:d2",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -391,7 +391,7 @@
 {
 "do": "log",
 "name": "pos:d3",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -418,7 +418,7 @@
 {
 "do": "log",
 "name": "pos:o1",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -449,7 +449,7 @@
 {
 "do": "log",
 "name": "pos:o2",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -483,7 +483,7 @@
 {
 "do": "log",
 "name": "pos:e1",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "check",
@@ -569,7 +569,7 @@
 {
 "do": "log",
 "name": "pos:bianca",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "mash",
@@ -702,7 +702,7 @@
 {
 "do": "log",
 "name": "pos:lab",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "mash",
@@ -1111,7 +1111,7 @@
 {
 "do": "log",
 "name": "pos:route1",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "mash",
@@ -1182,7 +1182,7 @@
 {
 "do": "log",
 "name": "pos:wild",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 },
 {
 "do": "mash",
@@ -1315,7 +1315,7 @@
 {
 "do": "log",
 "name": "pos:caught",
-"expr": "[(b=>b[0]|b[1]<<8)(read(0x022592d2,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
+"expr": "[(b=>b[0]|b[1]<<8)(read(0x0224f92c,2)), (b=>b[0]|b[1]<<8)(read(0x0224f932,2)), (b=>b[0]|b[1]<<8)(read(0x0224f93a,2))]"
 }
 ],
 "expect": {
