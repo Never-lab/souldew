@@ -506,3 +506,28 @@ test('a link session formed in place from two running games: the same consoles a
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** A GBA ROM that switches its sound hardware to 65536 Hz (SOUNDBIAS resolution 1), as the Pokémon games do once booted. */
+function soundbiasRom() {
+  const r = gbaRom();
+  // ldr r0,=0x04000088; ldr r1,=0x4200; strh r1,[r0]; b .
+  [0xe59f0008, 0xe59f1008, 0xe1c010b0, 0xeafffffe, 0x04000088, 0x00004200].forEach((w, i) => r.writeUInt32LE(w, 0xc0 + i * 4));
+  return r;
+}
+
+test('a GBA game\'s switch to 65536 Hz sound is announced (audioRate) – by the engine and by the fast player', { skip }, async () => {
+  const dir = tmp('rate');
+  try {
+    for (const start of [startEngine, ...(retroDir ? [startRetro] : [])]) {
+      const h = start(dir, { system: 'gba', rom: soundbiasRom() });
+      await h.until(() => h.ev('loaded').length);
+      assert.equal(h.ev('loaded')[0].sampleRate, 32768);
+      await h.until(() => h.ev('audioRate').length);
+      assert.equal(h.ev('audioRate')[0].sampleRate, 65536, start.name);
+      h.send(NCMD.QUIT);
+      await h.exit;
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
