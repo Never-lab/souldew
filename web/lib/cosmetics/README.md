@@ -95,7 +95,7 @@ envelope       one per file, made by the service per account at download time:
 - *Previews.* A preview pack is just another signed manifest (stylesheets + images ≤ 512 px, no `contents.json`) with
   a key for that preview only – no second container format.
 
-**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (with `url('pack:fonts/…')` / `pack:assets/…`), `fonts/*.woff2`, `assets/*.svg`, `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css` without fonts and `assets/*.png` (≤ 512 px).
+**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (with `url('pack:fonts/…')` / `pack:assets/…`), `fonts/*.woff2`, `assets/*.svg`, `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css`, the editions' fonts (`fonts/*.woff2`, the same OFL files as the full pack, so a preview lays out exactly like the skin) and `assets/*.png` (≤ 512 px).
 
 **Verification order (`openPack`):**
 1. Ed25519 over the manifest bytes against a pinned key (`pack/keys.mjs`: a production placeholder that fails closed; a dev key only when the local server offers one – `SLS_PLUS_DEV_PACK`, or `SLS_PLUS_DEV_KEY` with a service on this computer).

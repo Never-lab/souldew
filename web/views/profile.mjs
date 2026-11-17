@@ -5,10 +5,11 @@
 // (the curated palette only), showcase, status line and privacy with a live preview; souldew+ items can be previewed
 // by everyone and are marked quietly, never pushed.
 import { html, useState, useEffect, useMemo } from '/vendor/htm-preact.mjs';
-import { useApp, Modal, Led } from '../lib/ui.mjs';
+import { useApp, Modal, Led, Sprite } from '../lib/ui.mjs';
 import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
-import { speciesName } from '../lib/data.mjs';
+import { speciesName, pokeapi } from '../lib/data.mjs';
+import { speciesInText, splitTrusted } from '../lib/trusted.mjs';
 import { settingsLink } from '../lib/settingsindex.mjs';
 import { useAccount, useCatalog, accentHex, profileOf, updateMe, editorChoices, useFriends, askToJoin } from '../lib/account.mjs';
 import { toCatalogId, fromCatalogId } from '../lib/achievementids.mjs';
@@ -88,6 +89,16 @@ function NowCard({ presence, own, name, onAsk, asked }) {
   </section>`;
 }
 
+/** "Most trusted": the Pokémon's sprite when the line names one (in any of the app's languages), else a quiet ball. */
+function Trusted({ text }) {
+  const id = useMemo(() => speciesInText(text, pokeapi()?.names), [text]);
+  const { head, rest } = splitTrusted(text);
+  return html`<div class="pf-trusted">
+    <span class=${`pf-trusted-mon${id ? '' : ' blank'}`}>${id ? html`<${Sprite} id=${id} gen=${5} size=${80} alt=${speciesName(id)} />` : html`<${Icon} name="ball" size=${26} />`}</span>
+    <div class="stack-s pf-trusted-text">${head && html`<b class="pf-trusted-head">${head}</b>`}<p>${rest}</p></div>
+  </div>`;
+}
+
 function SideColumn({ prof }) {
   const { library } = useApp();
   const sc = prof.showcase || {};
@@ -95,7 +106,7 @@ function SideColumn({ prof }) {
   const trophies = sc.trophies.map((id) => ({ id, ach: fromCatalogId(id) })).filter((x) => x.ach);
   return html`<div class="pf-side stack-l">
     ${sc.trusted && html`<section class="pf-section"><div class="pf-head"><h2>${t('pf.trusted', 'Most trusted')}</h2><span class="pf-rule"></span></div>
-      <div class="pf-trusted"><span class="pf-trusted-icon"><${Icon} name="heart" size=${22} /></span><p>${sc.trusted}</p></div></section>`}
+      <${Trusted} text=${sc.trusted} /></section>`}
     ${sc.favoriteGame && html`<div class="pf-fav">${cover ? html`<img class="pixel" src=${cover} alt="" />` : html`<span class="pf-fav-blank"><${Icon} name="play" size=${16} /></span>`}
       <div class="stack-s" style="gap:0"><b>${sc.favoriteGame}</b><span class="small muted">${t('pf.favorite', 'Favourite game')}</span></div></div>`}
     ${trophies.length > 0 && html`<section class="pf-section"><div class="pf-head"><h2>${t('pf.showcase', 'Showcase')}</h2><span class="pf-rule"></span></div>
@@ -104,7 +115,11 @@ function SideColumn({ prof }) {
   </div>`;
 }
 
-/** The masthead (shared by the profile and the editor's live preview). */
+/**
+ * The masthead (shared by the profile and the editor's live preview), design "A – Logbook": the banner on top, the avatar
+ * overhanging its lower edge – the only thing that may – and below the banner the name row, then the meta row with the
+ * actions on its right. test/skin-proof.test.mjs checks the banner stays clear at 1024–1440 px in every skin.
+ */
 function Masthead({ prof, presence, accent, actions, meta }) {
   return html`<header class="pf-mast" style=${accent ? `--acc:${accent}` : ''}>
     <div class="pf-banner"><${Banner} id=${prof.banner || null} size="fill" shade /></div>
@@ -112,10 +127,9 @@ function Masthead({ prof, presence, accent, actions, meta }) {
       <${Avatar} user=${prof} size=${104} presence=${presence} accent=${accent} />
       <div class="pf-names grow">
         <div class="row tight pf-nameline"><h1 class="pf-name">${prof.name}</h1><${TitlePlate} text=${achTitle(prof.title)} /><${Badges} badges=${prof.badges} /></div>
-        <div class="small muted pf-meta">${meta}</div>
+        <div class="pf-metaline"><div class="small muted pf-meta">${meta}</div>${actions && html`<div class="pf-actions row">${actions}</div>`}</div>
         ${prof.status && html`<p class="pf-status">“${prof.status}”</p>`}
       </div>
-      <div class="pf-actions row">${actions}</div>
     </div>
   </header>`;
 }

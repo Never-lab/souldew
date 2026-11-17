@@ -1,6 +1,9 @@
 // "A skin changes the look only" – proven on the REAL app: every main view rendered in Electron with classic and with
 // every souldew+ skin of a pack, comparing every element's box, the visible text and the generated text
-// (test/fixtures/skin-proof-runner.mjs). The automated form of the design's proof.py.
+// (test/fixtures/skin-proof-runner.mjs). The automated form of the design's proof.py. Signed in (a fake accounts
+// service) the same for Friends, the profile and the sidebar's account chip – plus their text contrast in every skin and
+// the profile's banner (only the avatar overlaps it, 1024–1440 px) – and for the live theme PREVIEW pack, whose skins
+// must lay out exactly like the full ones.
 //
 // Skins are premium content and not in this repository, so the test needs a pack: SLS_PLUS_PROOF_PACK=<dev pack folder>
 // (scripts/plus-dev-pack.mjs), or the design sources next to the checkout (../design-plus/design/plus), from which it
@@ -19,7 +22,7 @@ const noDisplay = process.platform === 'linux' && !process.env.DISPLAY && !proce
 const havePack = !!process.env.SLS_PLUS_PROOF_PACK || existsSync(join(DESIGN, 'themes', 'skins.json'));
 const skip = noDisplay ? 'no display' : !havePack ? 'no souldew+ pack (set SLS_PLUS_PROOF_PACK)' : false;
 
-test('skins never change a box or a text on the real app views', { skip, timeout: 600000 }, async () => {
+test('skins never change a box or a text on the real app views', { skip, timeout: 1500000 }, async () => {
   let pack = process.env.SLS_PLUS_PROOF_PACK;
   if (!pack) {
     pack = mkdtempSync(join(tmpdir(), 'souldew-proof-pack-'));
@@ -31,16 +34,32 @@ test('skins never change a box or a text on the real app views', { skip, timeout
   const out = join(data, 'proof.json');
   const electron = (await import('electron')).default;
   const r = spawnSync(electron, [join(ROOT, 'test', 'fixtures', 'skin-proof-runner.mjs'), out], {
-    env: { ...process.env, SLS_DATA_DIR: data, SLS_PLUS_DEV_PACK: pack, ELECTRON_ENABLE_LOGGING: '' }, encoding: 'utf8', timeout: 540000,
+    env: { ...process.env, SLS_DATA_DIR: data, SLS_PLUS_DEV_PACK: pack, ELECTRON_ENABLE_LOGGING: '' }, encoding: 'utf8', timeout: 1440000,
   });
   assert.ok(existsSync(out), `the runner wrote no result (exit ${r.status}): ${String(r.stderr).slice(-2000)}`);
   const res = JSON.parse(readFileSync(out, 'utf8'));
   assert.equal(res.error, undefined, res.error);
   assert.ok(res.skins >= 20, `${res.skins} skins in the pack`);
-  assert.equal(res.views, 11);
-  assert.deepEqual(res.diffs, [], `${res.diffs.length} differences`);
+  assert.equal(res.previewSkins, res.skins, 'the preview pack carries every skin');
+  // the editions' fonts travel with the preview, so its text is set exactly as in the full skins
+  assert.ok(res.previewFonts.length >= 4, `preview fonts: ${res.previewFonts}`);
+  // 11 views signed out, Friends + profile + library signed in, a friend's card, 13 views with the preview pack
+  assert.equal(res.views, 28);
+  assert.deepEqual(res.diffs, [], `${res.diffs.length} differences: ${JSON.stringify(res.diffs.slice(0, 5))}`);
   assert.ok(res.boxes > 10000, `${res.boxes} element boxes compared`);
   // glyph runs only where the design has them: page titles of the skins with their own display face
   for (const g of res.glyphRuns) assert.match(g, /^(fieldbook|clearshell|woodgrain) · .* · H1/, g);
-  console.log(`skin proof: ${res.skins} skins × ${res.views} views, ${res.boxes} element boxes, 0 differences, ${res.glyphRuns.length} title glyph runs`);
+  // readable: the account chip, Friends and the profile in classic and every skin
+  assert.ok(res.contrast.checked > 1000, `${res.contrast.checked} texts checked`);
+  assert.deepEqual(res.contrast.fails, [], `${res.contrast.fails.length} texts below 4.5:1 (3:1 large): ${JSON.stringify(res.contrast.fails.slice(0, 8))}`);
+  // the profile header (design A): the banner is overlapped by the avatar only, at every width and in every skin
+  assert.equal(res.banner.length, 3 * (res.skins + 1));
+  for (const b of res.banner) {
+    assert.equal(b.error, undefined, `${b.width} ${b.skin}: ${b.error}`);
+    assert.deepEqual(b.hits, [], `${b.width} px, ${b.skin}: over the banner – ${b.hits.join(', ')}`);
+    assert.ok(b.avatarOverhang > 0, `${b.width} px, ${b.skin}: the avatar overhangs the banner`);
+  }
+  const mins = Object.values(res.contrast.min).filter((x) => x != null);
+  console.log(`skin proof: ${res.skins} skins × ${res.views} views (${res.previewSkins} as preview), ${res.boxes} element boxes, 0 differences, ${res.glyphRuns.length} title glyph runs; `
+    + `${res.contrast.checked} texts ≥ 4.5:1 (lowest ${Math.min(...mins).toFixed(2)}); banner clear at 1024/1280/1440`);
 });

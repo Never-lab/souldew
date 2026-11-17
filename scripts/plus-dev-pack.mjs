@@ -5,8 +5,9 @@
 //        the pack SOURCE folders, unsigned: the input of the owner's pack tool (souldew-accounts tools/pack-build.mjs),
 //        which signs them offline with the production key – the app never sees that key.
 //          <source>          contents.json, banners.json, frames.mjs, launch.mjs, skins/*.css, fonts/*.woff2, assets/*
-//          <preview-source>  the live theme preview pack (--kind preview): skin stylesheets only, their art as PNG at
-//                            most 512 px, no fonts (the preview falls back to the app's own), nothing else
+//          <preview-source>  the live theme preview pack (--kind preview): skin stylesheets, the editions' OFL fonts
+//                            (fonts/*.woff2 – the same files as the full pack, so a preview sets the same text) and their
+//                            art as PNG at most 512 px – nothing else
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --out <dir>      a TEST pack to try the whole path locally:
 //        signed with a throwaway dev key (dev-signing.key, kept so later builds keep the same identity) and sealed per file
 //        for a throwaway account key – sealed-pack/, sealed-preview/, access.json, access-preview.json. Then start the
@@ -208,25 +209,42 @@ function rasterize(svgFile, max) {
 }
 
 /**
- * The live theme preview pack: every skin's stylesheet, without its fonts (woff2 is not allowed in a preview pack – the
- * text falls back to the app's own fonts) and with its art as PNG of at most 512 px. The service checks both again
- * when the pack is registered.
+ * The live theme preview pack: every skin's stylesheet with its fonts and its art as PNG of at most 512 px. The fonts are
+ * the editions' own (SIL OFL 1.1 – free to pass on) and the same files as in the full pack: a preview sets its text in
+ * exactly the faces the skin is made for, so it lays out exactly like the skin a member gets (test/skin-proof.test.mjs
+ * proves it). The service checks the pack again when it is registered: stylesheets, PNG/WebP ≤ 512 px and WOFF2 fonts
+ * (≤ 128 KiB each, ≤ 16 fonts, ≤ 512 KiB together) only – no banners, frames, launch animations or scripts.
  */
+const PREVIEW_FONT_MAX = 128 * 1024;
+const PREVIEW_FONTS_MAX = 16;
+const PREVIEW_FONTS_TOTAL = 512 * 1024;
 function previewFiles() {
   const files = [];
   const art = new Map();
-  for (const f of skinFiles().filter((x) => x.path.startsWith('skins/'))) {
+  const fonts = new Map();
+  const all = skinFiles();
+  const bytesOf = new Map(all.map((f) => [f.path, f.bytes]));
+  for (const f of all.filter((x) => x.path.startsWith('skins/'))) {
     let css = new TextDecoder().decode(f.bytes);
-    css = css.replace(/@font-face\s*\{[^}]*pack:fonts\/[^}]*\}\s*/g, '');
+    for (const m of css.matchAll(/url\((['"]?)pack:(fonts\/[a-z0-9._-]+\.woff2)\1\)/g)) fonts.set(m[2], bytesOf.get(m[2]));
     css = css.replace(/url\((['"]?)pack:assets\/([a-z0-9._-]+)\.svg\1\)/g, (_, q, name) => {
       art.set(`assets/${name}.png`, join(DESIGN, 'themes', 'assets', `${name}.svg`));
       return `url('pack:assets/${name}.png')`;
     });
-    if (/pack:(?!assets\/[a-z0-9._-]+\.png)/.test(css)) throw new Error(`${f.path}: the preview would reference a file it can't carry`);
+    if (/pack:(?!assets\/[a-z0-9._-]+\.png|fonts\/[a-z0-9._-]+\.woff2)/.test(css)) throw new Error(`${f.path}: the preview would reference a file it can't carry`);
     files.push({ path: f.path, bytes: enc.encode(css) });
   }
+  let total = 0;
+  for (const [path, bytes] of fonts) {
+    const woff2 = bytes && bytes.length >= 4 && String.fromCharCode(...bytes.subarray(0, 4)) === 'wOF2';
+    if (!woff2) throw new Error(`${path}: not a WOFF2 font`);
+    if (bytes.length > PREVIEW_FONT_MAX) throw new Error(`${path}: ${bytes.length} bytes – a preview font may have at most ${PREVIEW_FONT_MAX}`);
+    total += bytes.length;
+    files.push({ path, bytes });
+  }
+  if (fonts.size > PREVIEW_FONTS_MAX || total > PREVIEW_FONTS_TOTAL) throw new Error(`preview fonts: ${fonts.size} files, ${total} bytes – over the service's limits`);
   for (const [path, svg] of art) files.push({ path, bytes: rasterize(svg, 512) });
-  // no contents.json: a preview pack holds stylesheets and images only – the page finds the skins by their paths
+  // no contents.json: a preview pack holds stylesheets, fonts and images only – the page finds the skins by their paths
   return files;
 }
 
