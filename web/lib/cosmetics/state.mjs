@@ -60,9 +60,10 @@ export function onChange(fn) {
 
 export const FREE_FRAME_IDS = new Set(CATALOG.frames.filter((f) => !f.plus).map((f) => f.id));
 
-/** Is this item usable right now (free, or premium with the pack loaded)? Preview content counts only for previews. */
+/** Is this item usable right now (free, or premium with the pack loaded)? Preview content counts only for previews.
+ * A nameplate is its banner's window: the catalog lists it under banners. */
 export function owned(kind, id) {
-  const item = CATALOG[kind]?.find((x) => x.id === id);
+  const item = CATALOG[kind === 'nameplates' ? 'banners' : kind]?.find((x) => x.id === id);
   if (!item) return false;
   if (!item.plus) return true;
   return state.entitled && has(kind, id);
