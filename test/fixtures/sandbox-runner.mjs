@@ -53,16 +53,48 @@ app.whenReady().then(async () => {
         w.onmessage = (e) => {
           got.messages.push(e.data.op);
           if (e.data.op === 'probe') got.probe = e.data.probe;
-          if (e.data.op === 'ready') got.readyIds = e.data.ids.length;
-          if (got.probe && got.readyIds !== undefined) {
+          if (e.data.op === 'ready') {
+            got.readyIds = e.data.ids.length;
+            // a real canvas of the page: the worker can't get it – it draws through the stand-in (canvas-proxy.mjs)
+            const c = document.createElement('canvas');
+            document.body.appendChild(c);
+            got.cv = c;
+            const off = c.transferControlToOffscreen();
+            got.size = () => [off.width, off.height];
+            w.postMessage({ op: 'mount', id: 1, recipe: e.data.ids[0], canvas: off, N: 64, O: 8, small: false }, [off]);
+            return;
+          }
+          if (e.data.op === 'meta') {
+            w.postMessage({ op: 'draw', id: 1, t: 2, noIntro: true });
+            setTimeout(() => {
+              const probe = document.createElement('canvas');
+              [probe.width, probe.height] = got.size();
+              const ctx = probe.getContext('2d');
+              ctx.drawImage(got.cv, 0, 0);
+              const px = ctx.getImageData(0, 0, probe.width, probe.height).data;
+              let n = 0;
+              for (let i = 3; i < px.length; i += 4) if (px[i]) n++;
+              got.drawn = { w: probe.width, pixels: n };
+              got.cv.remove();
+              delete got.cv;
+              delete got.size;
+              done();
+            }, 500);
+            return;
+          }
+          done();
+        };
+        const done = () => {
+          if (got.probe && got.readyIds !== undefined && got.drawn) {
             got.iframe = { sandbox: document.querySelector('iframe[sandbox]')?.getAttribute('sandbox') };
             w.terminate();
             got.iframeGone = !document.querySelector('iframe[sandbox]');
             resolve(got);
           }
         };
-        w.onerror = (e) => resolve({ error: e.message, ...got });
-        setTimeout(() => resolve({ timeout: true, ...got }), 20000);
+        const plain = () => { const { cv, size, ...rest } = got; void cv; void size; return rest; };
+        w.onerror = (e) => resolve({ error: e.message, ...plain() });
+        setTimeout(() => resolve({ timeout: true, ...plain() }), 20000);
       });
     })`);
     const cfg = await fetch(`${url.replace('localhost', '127.0.0.1')}/api/status`, { headers: { 'x-soullink': '1' } }).then((r) => r.json());

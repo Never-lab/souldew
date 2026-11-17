@@ -403,6 +403,11 @@ async function main(scratch) {
     await ev(0, `import('/lib/account.mjs').then((A) => A.updateMe(${JSON.stringify({ banner, frame, nameplate: banner, accent: 'tide' })})).then(() => true)`);
     const drawn = await until('banner + frame drawn', () => ev(0, `!!document.querySelector('.pf-banner canvas') && !!document.querySelector('.pf-mast .cos-frame canvas')`), 20000).catch(() => false);
     check('banner and frame drawn on the own profile', drawn);
+    // the frame's pixels really arrive from the sandboxed pack worker (web/lib/cosmetics/sandbox.mjs, canvas-proxy.mjs)
+    const framePixels = await until('frame pixels', () => ev(0, `(() => { const c = document.querySelector('.pf-mast .cos-frame canvas'); if (!c) return 0;
+      const p = document.createElement('canvas'); p.width = c.width || 1; p.height = c.height || 1; const x = p.getContext('2d'); x.drawImage(c, 0, 0);
+      const d = x.getImageData(0, 0, p.width, p.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; })()`), 20000).catch(() => 0);
+    check('the frame is painted by the sandboxed pack worker', framePixels > 100, `${framePixels} px`);
     check('own profile shows the souldew+ badge', await ev(0, `!!document.querySelector('.pf-mast .acct-badge.plus')`));
     await sleep(2500);
     await shot(0, '14-profile-banner-frame');

@@ -30,6 +30,7 @@ test('pack code in the sandboxed iframe: no account, no config, no network – a
   assert.equal(sb.probe.origin, 'null', 'an opaque origin');
   for (const k of ['exportData', 'entitlements', 'status', 'configWrite', 'outside', 'relay']) assert.equal(sb.probe[k], 'blocked', k);
   assert.ok(sb.readyIds > 0, 'the free frames are compiled in the sandbox');
+  assert.ok(sb.drawn.w > 0 && sb.drawn.pixels > 50, `a frame was drawn into the page's canvas: ${JSON.stringify(sb.drawn)}`);
   assert.equal(sb.iframe.sandbox, 'allow-scripts');
   assert.ok(sb.iframeGone, 'terminate removes the iframe');
   assert.equal(res.playerName, 'Proof', 'the config was not written');

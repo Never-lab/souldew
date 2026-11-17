@@ -1,8 +1,8 @@
 // The sandboxed iframe's only script (/cosmetics-sandbox.html, sandbox="allow-scripts" → an opaque origin, its CSP
 // allows no network, no images, no styles). It starts the pack code's module worker from the source the app page hands
-// over once, with a MessageChannel port, and relays: page → worker (OffscreenCanvases transferred), worker → page.
+// over once, with a MessageChannel port, and relays: page → worker, worker → page (pictures as ImageData – see canvas-proxy.mjs).
 // See web/lib/cosmetics/sandbox.mjs.
-/* global addEventListener, parent, Worker, OffscreenCanvas */
+/* global addEventListener, parent, Worker */
 (function () {
   'use strict';
   var started = false;
@@ -27,9 +27,7 @@
         port.close();
         return;
       }
-      var transfer = [];
-      if (x && typeof OffscreenCanvas !== 'undefined' && x.canvas instanceof OffscreenCanvas) transfer.push(x.canvas);
-      worker.postMessage(x, transfer);
+      worker.postMessage(x);
     };
   });
   parent.postMessage({ op: 'souldew-sandbox-ready' }, '*');

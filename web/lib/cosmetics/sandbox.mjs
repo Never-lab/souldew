@@ -7,8 +7,8 @@
 // pack's module text (already decrypted, its signature and hash verified by pack/format.mjs) becomes the worker's
 // source with its '@cosmetics/…' specifiers pointed at those modules.
 //
-// The page talks to the worker through a MessageChannel the iframe relays (sandbox-frame.js): it draws into
-// OffscreenCanvases it is handed and answers messages – that's all.
+// The page talks to the worker through a MessageChannel the iframe relays (sandbox-frame.js). Canvases stay in the page:
+// the worker draws into stand-ins (canvas-proxy.mjs) and sends the pictures back as ImageData – that's all it can do.
 
 const SPEC = "'@cosmetics/";
 
@@ -21,6 +21,8 @@ export const engineUrl = (path) => new URL(`/lib/cosmetics/${path}`, location.or
  */
 export function workerSource({ hostModule, freeModule = null, packText = null, packExport = null }) {
   const lines = [];
+  // first: the canvas stand-ins (canvas-proxy.mjs) – imports run in order, before the host takes its messages
+  lines.push(`import '${engineUrl('canvas-proxy.mjs')}';`);
   if (packText) lines.push(packText.replaceAll(SPEC, `'${engineUrl('')}`));
   lines.push(`import { host as __souldewHost } from '${engineUrl(hostModule)}';`);
   if (freeModule) lines.push(`import __souldewFree from '${engineUrl(freeModule)}';`);
@@ -41,13 +43,16 @@ class SandboxedWorker {
     this.onerror = null;
     this.listeners = { message: new Set(), error: new Set() };
     this.queue = [];
+    this.canvasSeq = 0;
     this.ready = false;
     this.dead = false;
     const ch = new MessageChannel();
     this.port = ch.port1;
+    this.canvases = new Map(); // id → { c, ctx } – the page's canvases the worker draws into (canvas-proxy.mjs)
     this.port.onmessage = (e) => {
       const d = e.data;
-      if (d && d.op === '__souldew_error') this.emit('error', { message: String(d.message || 'worker error') });
+      if (d && d.op === '__souldew_canvas') this.paint(d);
+      else if (d && d.op === '__souldew_error') this.emit('error', { message: String(d.message || 'worker error') });
       else this.emit('message', { data: d });
     };
     const frame = document.createElement('iframe');
@@ -80,8 +85,27 @@ class SandboxedWorker {
     }
   }
 
+  /** A picture from the worker → the page's canvas (only canvases the page handed over; sizes clamped). */
+  paint(d) {
+    const it = this.canvases.get(d.id);
+    if (!it) return;
+    const w = Math.max(1, Math.min(4096, d.w | 0));
+    const h = Math.max(1, Math.min(4096, d.h | 0));
+    if (it.c.width !== w) it.c.width = w;
+    if (it.c.height !== h) it.c.height = h;
+    if (d.clear) it.ctx.clearRect(0, 0, w, h);
+    else if (d.img instanceof ImageData) it.ctx.putImageData(d.img, d.x | 0, d.y | 0);
+  }
+
   postMessage(m, transfer = []) {
     if (this.dead) return;
+    // a canvas never crosses into the sandbox (another process): the page keeps it and draws what the worker sends
+    if (m && typeof OffscreenCanvas !== 'undefined' && m.canvas instanceof OffscreenCanvas) {
+      const id = ++this.canvasSeq;
+      this.canvases.set(id, { c: m.canvas, ctx: m.canvas.getContext('2d') });
+      transfer = transfer.filter((t) => t !== m.canvas);
+      m = { ...m, canvas: { __souldewCanvas: id } };
+    }
     if (this.ready) this.port.postMessage(m, transfer);
     else this.queue.push([m, transfer]);
   }
@@ -99,6 +123,7 @@ class SandboxedWorker {
     this.dead = true;
     removeEventListener('message', this.onReady);
     this.queue.length = 0;
+    this.canvases.clear();
     try {
       this.port.postMessage({ op: '__souldew_terminate' });
     } catch {
