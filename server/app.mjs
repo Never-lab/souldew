@@ -54,6 +54,7 @@ export function withoutDevSwitches(env) {
   return out;
 }
 import { createPlusPack, plusRoutes } from './lib/pluspack.mjs';
+import { createPlusPreviews, servePreview } from './lib/pluspreviews.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -857,6 +858,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // ---- souldew+ premium pack: the encrypted cache (server/lib/pluspack.mjs – never decrypted or run here) ----
   const plusPack = createPlusPack({ dir: join(DATA_DIR, DEV ? 'runs/.plus' : 'plus'), packaged, env, devDir: packaged ? '' : env.SLS_PLUS_DEV_PACK || '' });
   plusRoutes(route, plusPack, readBody);
+  // souldew+ preview media: signed pictures of every premium item – for everyone, signed in or not
+  const plusPreviews = createPlusPreviews({ dir: join(DATA_DIR, DEV ? 'runs/.plus' : 'plus'), packaged, env, devDir: packaged ? '' : env.SLS_PLUS_DEV_PACK || '' });
+  route('GET', /^\/api\/plus\/previews$/, () => plusPreviews.state());
   // ---- souldew account (sign-in, profile, friends, presence, invites): server/lib/accounts/index.mjs ----------------
   // a pack key that changed or went away (tier dropped, key rotated, signed out) takes the encrypted pack cache with it
   const accounts = createAccounts({ secure: secureStore, port: () => server.address()?.port, emit, openExternal, focus, lang: () => loadConfig().lang || 'en', packaged, env,
@@ -1861,6 +1865,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
           return serveFile(res, file, url.searchParams.get('inline') ? {} : { 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` }, req.method === 'HEAD');
         }
         if (path === '/api/account/avatar') return accounts.avatar(req, res, url);
+        if (path === '/api/plus/previews/file' && req.method === 'GET') return servePreview(plusPreviews, res, url);
         if (path === '/api/library/patched' && req.method === 'GET') {
           const r = preparePatchedRom(url.searchParams.get('romId'), url.searchParams.get('patchId'), () => {}, loadConfig());
           return serveFile(res, r.path);

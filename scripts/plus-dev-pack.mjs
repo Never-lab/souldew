@@ -1,16 +1,20 @@
 // The souldew+ pack from the design sources, in the ONE pack format (souldew-accounts docs/API.md §10: a signed manifest +
 // one encrypted envelope per file, web/lib/cosmetics/pack/format.mjs).
 //
-//   node scripts/plus-dev-pack.mjs --design <design/plus> --source <dir> [--preview-source <dir>]
+//   node scripts/plus-dev-pack.mjs --design <design/plus> --source <dir> [--preview-source <dir>] [--previews-source <dir>]
 //        the pack SOURCE folders, unsigned: the input of the owner's pack tool (souldew-accounts tools/pack-build.mjs),
 //        which signs them offline with the production key – the app never sees that key.
 //          <source>          contents.json, banners.json, frames.mjs, launch.mjs, skins/*.css, fonts/*.woff2, assets/*
 //          <preview-source>  the live theme preview pack (--kind preview): the skin stylesheets – nothing else (the
 //                            colour skins need no fonts or art; the builder would still carry fonts/*.woff2 and art as
 //                            PNG ≤ 512 px if a skin referenced them, within the service's limits)
+//          <previews-source> the PUBLIC preview media (--kind previews): a still and a short loop of every premium banner,
+//                            nameplate, frame and launch animation and a still of the app in every colour skin –
+//                            pictures only (scripts/plus-previews.mjs); the service hands them to anyone
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --out <dir>      a TEST pack to try the whole path locally:
 //        signed with a throwaway dev key (dev-signing.key, kept so later builds keep the same identity) and sealed per file
-//        for a throwaway account key – sealed-pack/, sealed-preview/, access.json, access-preview.json. Then start the
+//        for a throwaway account key – sealed-pack/, sealed-preview/, access.json, access-preview.json – plus the preview
+//        media (previews/, access-previews.json; public, so not sealed). Then start the
 //        server with SLS_PLUS_DEV_PACK=<dir>; the app trusts that key only then.
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --catalog        + the public catalog and the free content
 //
@@ -23,6 +27,7 @@ import { join, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { buildManifest, sealFile, makeSigner, b64encode, b64decode, b64url } from '../web/lib/cosmetics/pack/format.mjs';
+import { renderItemPreviews, renderSkinPreviews } from './plus-previews.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -34,17 +39,18 @@ const DESIGN = resolve(opt('design', join(ROOT, '..', 'design-plus', 'design', '
 const OUT = opt('out') ? resolve(opt('out')) : null;
 const SOURCE = opt('source') ? resolve(opt('source')) : null;
 const PREVIEW_SOURCE = opt('preview-source') ? resolve(opt('preview-source')) : null;
+const PREVIEWS_SOURCE = opt('previews-source') ? resolve(opt('previews-source')) : null;
 const CATALOG = args.includes('--catalog');
 const DAYS = Number(opt('days', 30));
 if (!existsSync(join(DESIGN, 'themes', 'skins.json'))) {
   console.error(`no design sources at ${DESIGN} (expected themes/, banners/, frames/, launch/) – pass --design`);
   process.exit(2);
 }
-if (!OUT && !CATALOG && !SOURCE && !PREVIEW_SOURCE) {
-  console.error('usage: node scripts/plus-dev-pack.mjs --design <dir> [--source <dir>] [--preview-source <dir>] [--out <dir>] [--catalog] [--days 30] [--version 1.0.0]');
+if (!OUT && !CATALOG && !SOURCE && !PREVIEW_SOURCE && !PREVIEWS_SOURCE) {
+  console.error('usage: node scripts/plus-dev-pack.mjs --design <dir> [--source <dir>] [--preview-source <dir>] [--previews-source <dir>] [--out <dir>] [--catalog] [--days 30] [--version 1.0.0]');
   process.exit(2);
 }
-for (const d of [OUT, SOURCE, PREVIEW_SOURCE]) {
+for (const d of [OUT, SOURCE, PREVIEW_SOURCE, PREVIEWS_SOURCE]) {
   if (d && (d + '/').startsWith(ROOT + '/')) {
     console.error('--out / --source / --preview-source must be outside the repository (premium content is never committed)');
     process.exit(2);
@@ -278,8 +284,24 @@ function writeSource(dir, files) {
   console.log(`${files.length} files → ${dir}`);
 }
 
+/**
+ * The public preview media into `dir` (pictures only): every premium banner, nameplate, frame and launch animation the
+ * catalog shows (monthly drops only once they are out) and every colour skin. Nothing else may end up in it.
+ */
+async function previewsMedia(dir) {
+  if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} is not empty`);
+  const files = [
+    ...await renderItemPreviews({ design: DESIGN, banners: plusBanners.filter((b) => !b.drop), frames: plusFrames, anims: plusAnims, out: dir }),
+    ...renderSkinPreviews({ skins: skinFiles().filter((f) => f.path.startsWith('skins/')).map((f) => ({ id: basename(f.path, '.css'), css: new TextDecoder().decode(f.bytes) })), out: dir }),
+  ];
+  for (const f of files) if (!/^(banners|nameplates|frames|launch|skins)\/[a-z0-9][a-z0-9-]*\.(png|webp)$/.test(f.path)) throw new Error(`not a preview picture: ${f.path}`);
+  console.log(`${files.length} preview pictures → ${dir}`);
+  return files;
+}
+
 if (SOURCE) writeSource(SOURCE, packFiles().files);
 if (PREVIEW_SOURCE) writeSource(PREVIEW_SOURCE, previewFiles());
+if (PREVIEWS_SOURCE) await previewsMedia(PREVIEWS_SOURCE);
 
 if (OUT) {
   mkdirSync(OUT, { recursive: true });
@@ -313,6 +335,14 @@ if (OUT) {
     extra: { until: new Date(Date.now() + DAYS * 86400e3).toISOString() } });
   await seal({ id: 'skins-preview', kind: 'preview', title: 'Skin preview (dev)', files: previewFiles(), dir: 'preview', accessFile: 'access-preview.json',
     kid: `pv_${b64url(globalThis.crypto.getRandomValues(new Uint8Array(16))).slice(0, 22)}`, extra: { preview: true } });
+  // the public preview media: plain files (anyone may have them), a manifest signed like every pack
+  if (!args.includes('--no-previews')) {
+    const pdir = join(OUT, 'previews');
+    if (existsSync(pdir)) rmSync(pdir, { recursive: true, force: true });
+    const media = await previewsMedia(pdir);
+    const { manifestBytes } = await buildManifest({ id: 'souldew-previews', version, kind: 'previews', title: 'souldew+ previews (dev)', files: media });
+    writeFileSync(join(OUT, 'access-previews.json'), JSON.stringify({ manifest: b64url(manifestBytes), signature: b64url(await signer.sign(manifestBytes)), publicKey: b64url(signer.publicKey) }, null, 2) + '\n');
+  }
   console.log(`  skins ${contents.skins.length} · banners ${plusBanners.length} · frames ${plusFrames.length} · launch ${plusAnims.length}`);
   console.log(`  start the server with SLS_PLUS_DEV_PACK=${OUT}`);
 }

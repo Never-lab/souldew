@@ -13,6 +13,7 @@ import { mountFrame } from './frames/runtime.mjs';
 import { onChange, state, owned, has, CATALOG } from './state.mjs';
 import { skinState, onSkinChange } from './skins.mjs';
 import { catalog } from './index.mjs';
+import { PreviewPicture, previewSrc, usePreviews } from './previews.mjs';
 
 /** Re-renders when the pack (and with it what's owned / available) changes. */
 export function useCosmetics() {
@@ -119,18 +120,30 @@ function Preview({ kind, item, on, reducedMotion }) {
   return null;
 }
 
+/** A locked item's real look from the preview media (a still; its loop while hovered / focused / chosen). */
+function PickPreview({ kind, id, loop }) {
+  if (kind === 'frames') return html`<span class="cos-pick-frame cos-pick-frame--pic"><span class="cos-pick-av" aria-hidden="true"></span><${PreviewPicture} kind="frames" id=${id} loop=${loop} /></span>`;
+  if (kind === 'nameplates') return html`<span class="cos-pick-plate cos-pick-plate--pic"><${PreviewPicture} kind="nameplates" id=${id} loop=${loop} /><span class="cos-pick-av" aria-hidden="true"></span><b>${t('cos.sampleName', 'Your name')}</b></span>`;
+  return html`<${PreviewPicture} kind=${kind} id=${id} loop=${loop} />`;
+}
+
 function PickCard({ kind, item, on, skin, onPick, reducedMotion }) {
   const ref = useRef(null);
   const seen = useSeen(ref);
+  const [hot, setHot] = useState(false); // hovered or focused: a locked item's preview plays its loop
+  usePreviews();
+  const picture = !item.available && previewSrc(kind, item.id);
   const rarity = RARITY_TEXT()[item.rarity] || item.rarity;
   const matches = skin && item.pairsWith?.includes(skin);
   const twin = kind === 'frames' && item.pair ? CATALOG.banners.find((b) => b.id === item.pair)?.name : null;
   const locked = !item.owned;
   const label = [item.name, rarity, locked ? t('cos.locked', 'souldew+') : '', matches ? t('cos.matchesTheme', 'Matches your theme') : ''].filter(Boolean).join(' · ');
   return html`<button ref=${ref} type="button" role="radio" aria-checked=${on} aria-label=${label} data-cos-id=${item.id}
-    class=${`cos-pick cos-pick--${kind}${on ? ' on' : ''}${locked ? ' locked' : ''}`} onClick=${() => onPick?.(item.id, item)}>
-    <span class="cos-pick-art" style=${!item.available ? `--cos-sw:${swatchBg(item.sw)}` : ''}>
-      ${seen && item.available ? html`<${Preview} kind=${kind} item=${item} on=${on} reducedMotion=${reducedMotion} />` : html`<span class="cos-ph" aria-hidden="true"></span>`}
+    class=${`cos-pick cos-pick--${kind}${on ? ' on' : ''}${locked ? ' locked' : ''}`} onClick=${() => onPick?.(item.id, item)}
+    onPointerEnter=${() => setHot(true)} onPointerLeave=${() => setHot(false)} onFocus=${() => setHot(true)} onBlur=${() => setHot(false)}>
+    <span class="cos-pick-art" style=${!item.available && !picture ? `--cos-sw:${swatchBg(item.sw)}` : ''}>
+      ${seen && item.available ? html`<${Preview} kind=${kind} item=${item} on=${on} reducedMotion=${reducedMotion} />`
+        : seen && picture ? html`<${PickPreview} kind=${kind} id=${item.id} loop=${hot || on} />` : html`<span class="cos-ph" aria-hidden="true"></span>`}
     </span>
     <span class="cos-pick-text">
       <b>${item.name}</b>

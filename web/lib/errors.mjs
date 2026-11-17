@@ -42,6 +42,7 @@ const TEXTS = {
   plusFormat: () => t('err.plusFormat', 'The download is not a souldew+ pack'),
   plusSignature: () => t('err.plusSignature', 'The souldew+ pack is not signed by souldew'),
   plusNone: () => t('err.plusNone', 'No souldew+ pack on this computer'),
+  plusPreviews: () => t('err.plusPreviews', 'The souldew+ previews can’t be loaded right now'),
   plusNoDev: () => t('err.plusNoDev', 'No test pack configured'),
   plusAnswer: () => t('err.plusAnswer', 'The account service’s souldew+ answer was incomplete'),
   fileTooLarge: () => t('err.fileTooLarge', 'File too large'),

@@ -26,7 +26,7 @@ test('skins never change a box or a text on the real app views', { skip, timeout
   let pack = process.env.SLS_PLUS_PROOF_PACK;
   if (!pack) {
     pack = mkdtempSync(join(tmpdir(), 'souldew-proof-pack-'));
-    const b = spawnSync(process.execPath, [join(ROOT, 'scripts', 'plus-dev-pack.mjs'), '--design', DESIGN, '--out', pack], { encoding: 'utf8' });
+    const b = spawnSync(process.execPath, [join(ROOT, 'scripts', 'plus-dev-pack.mjs'), '--design', DESIGN, '--out', pack, '--no-previews'], { encoding: 'utf8' });
     assert.equal(b.status, 0, b.stderr);
   }
   const data = mkdtempSync(join(tmpdir(), 'souldew-proof-data-'));

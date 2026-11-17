@@ -17,6 +17,8 @@
 //   7. the pack: downloaded per file, verified, decrypted in the page; a skin applied, banner + frame on the profile,
 //      a launch animation previewed
 //   8. Kim (no membership) tries a souldew+ theme for 15 minutes (POST …/preview) – the "Preview" state
+//   4b. the public preview media (a signed "previews" pack, registered free): Kim, signed OUT, sees the real pictures of
+//      souldew+ items in Settings › Account – no account needed
 //   9. Robin unlinks the membership → pack key rotated, tier gone → the encrypted cache is wiped, the theme goes back
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
@@ -133,6 +135,18 @@ async function main(scratch) {
     node([join(ACC, 'tools', 'pack-build.mjs'), srcDir, '--id', 'souldew-plus', '--version', VERSION, '--kind', 'mixed', '--title', 'souldew+', '--key', join(keysDir, 'pack-signing.jwk'), '--out', dist]);
     node([join(ACC, 'tools', 'pack-build.mjs'), pvDir, '--id', 'skins-preview', '--version', VERSION, '--kind', 'preview', '--title', 'Skin preview', '--key', join(keysDir, 'pack-signing.jwk'), '--out', dist]);
     check('owner pack tool signed both packs', existsSync(join(dist, 'souldew-plus', VERSION, 'manifest.sig')) && existsSync(join(dist, 'skins-preview', VERSION, 'manifest.sig')));
+    // the public preview media: rendered from the design sources, a few of each kind (uploading all ~700 to local R2
+    // one wrangler call at a time would take long), signed by the owner's tool as kind "previews"
+    const mediaAll = join(scratch, 'previews-all');
+    node([join(root, 'scripts', 'plus-dev-pack.mjs'), '--design', DESIGN, '--previews-source', mediaAll], { timeout: 900000 });
+    const mediaDir = join(scratch, 'previews-src');
+    for (const kind of ['banners', 'nameplates', 'frames', 'launch', 'skins']) {
+      mkdirSync(join(mediaDir, kind), { recursive: true });
+      const names = readdirSync(join(mediaAll, kind)).sort();
+      const ids = [...new Set(names.map((n) => n.replace(/\.(png|webp)$/, '')))].slice(0, 3);
+      for (const n of names.filter((x) => ids.includes(x.replace(/\.(png|webp)$/, '')))) writeFileSync(join(mediaDir, kind, n), readFileSync(join(mediaAll, kind, n)));
+    }
+    node([join(ACC, 'tools', 'pack-build.mjs'), mediaDir, '--id', 'souldew-previews', '--version', VERSION, '--kind', 'previews', '--title', 'souldew+ previews', '--key', join(keysDir, 'pack-signing.jwk'), '--out', dist]);
     const seedDir = join(scratch, 'seed');
     node([join(ACC, 'tools', 'catalog-seed.mjs'), '--app', root, '--out', seedDir]);
 
@@ -141,7 +155,7 @@ async function main(scratch) {
     wrangler(['d1', 'migrations', 'apply', 'souldew-accounts', '--local', '--persist-to', state]);
     const listFiles = (dir, base = dir) => readdirSync(dir, { withFileTypes: true }).flatMap((d) => (d.isDirectory() ? listFiles(join(dir, d.name), base) : [join(dir, d.name).slice(base.length + 1)]));
     let uploaded = 0;
-    for (const id of ['souldew-plus', 'skins-preview']) {
+    for (const id of ['souldew-plus', 'skins-preview', 'souldew-previews']) {
       const dir = join(dist, id, VERSION);
       for (const rel of listFiles(join(dir, 'files'))) {
         wrangler(['r2', 'object', 'put', `souldew-packs/packs/${id}/${VERSION}/files/${rel}`, '--file', join(dir, 'files', rel), '--local', '--persist-to', state]);
@@ -191,6 +205,14 @@ async function main(scratch) {
     for (const [id, kind, title] of [['souldew-plus', 'mixed', 'souldew+'], ['skins-preview', 'preview', 'Skin preview']]) {
       const r = await admin('PUT', `/v1/admin/packs/${id}`, { version: VERSION, title, kind, required_tier: 'plus', published: true });
       check(`pack ${id} registered (Worker verified the signature${kind === 'preview' ? ' and the ≤512 px images' : ''})`, r.status === 200, JSON.stringify(r.body).slice(0, 200));
+    }
+    {
+      const r = await admin('PUT', '/v1/admin/packs/souldew-previews', { version: VERSION, title: 'souldew+ previews', kind: 'previews', required_tier: 'free', published: true });
+      check('preview media registered (pictures only, checked in R2)', r.status === 200, JSON.stringify(r.body).slice(0, 200));
+      const pub = await svc('GET', '/v1/previews');
+      check('GET /v1/previews answers without an account', pub.status === 200 && pub.body.version === VERSION && pub.body.files.length > 20, `${pub.status}`);
+      const pic = await fetch(pub.body.files.find((f) => f.path.endsWith('.webp')).url);
+      check('a preview picture is public and cacheable', pic.ok && /^image\/webp/.test(pic.headers.get('content-type')) && /immutable/.test(pic.headers.get('cache-control') || ''));
     }
 
     // ------------------------------------------------------------------ 4 · two apps, the real sign-in
@@ -291,6 +313,23 @@ async function main(scratch) {
         .catch(async (e) => { console.error('browser at', page(), (await bev('document.body.innerText')).slice(0, 300)); throw e; });
       check('Kim: Cancel on the sign-in ends as "cancelled" in the app', page().startsWith(`${GUEST.base}/auth/done?r=denied&n=`), page());
       await capture(browser, '02d-browser-cancelled');
+    }
+    // ------------------------------------------------------------------ 4b · Kim, signed OUT, sees what souldew+ holds
+    {
+      const st = await api(GUEST, '/api/plus/previews');
+      check('signed out: the app has the verified preview list', st.version === VERSION && Object.keys(st.files || {}).length > 20, JSON.stringify(st).slice(0, 120));
+      await go(1, '#/settings?s=account', '.plus-show');
+      await ev(1, `document.querySelector('.plus-show').scrollIntoView({ block: 'start' }); true`);
+      const seen = async () => until('preview pictures', () => ev(1, `(() => { const i = [...document.querySelectorAll('.plus-show .cos-preview')]; return i.length && i.every((x) => x.complete && x.naturalWidth > 0) ? i.length : 0; })()`), 30000);
+      check('signed out: Settings › Account shows the themes as pictures', (await seen()) >= 3);
+      await shot(1, '06a-signed-out-plus-showcase');
+      await ev(1, `[...document.querySelectorAll('.plus-show .seg button')].find((b) => b.textContent === 'Banners').click(); true`);
+      await sleep(600);
+      check('signed out: … and the banners', (await seen()) >= 3);
+      await ev(1, `(() => { const li = document.querySelector('.plus-show-item'); li.focus(); return true; })()`);
+      await sleep(600);
+      check('focused: the banner plays its loop (animated WebP)', await ev(1, `document.querySelector('.plus-show-item img').getAttribute('src').includes('.webp')`));
+      await shot(1, '06b-signed-out-plus-banners');
     }
     const kim = await signIn(GUEST, { discordId: '200000000000000002', username: 'kimchi_k', name: 'Kim' }, 1);
 

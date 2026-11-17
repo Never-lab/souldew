@@ -128,14 +128,14 @@ export function FirstSteps({ mode } = {}) {
   const next = steps.find((s) => !s.done && !s.skipped);
   const hide = () => {
     hideFirstSteps();
-    toast?.({ kind: 'ok', title: t('fs.hiddenToast', 'First steps hidden'), text: t('fs.hiddenText', 'Settings › General or Help bring them back.') });
+    toast?.({ kind: 'ok', title: t('fs.hiddenToast', 'First steps hidden'), text: t('fs.hiddenText', 'Settings or Help bring them back.') });
   };
   return html`<section class="panel first-steps" aria-label=${t('fs.title', 'First steps')}>
     <div class="fs-head">
       <div><h2>${t('fs.title', 'First steps')}</h2><p class="small muted">${soloOnly ? t('fs.leadSolo', 'From zero to your first catch – {done} of {all} done.', { done: count, all: steps.length })
         : t('fs.lead', 'From zero to your first linked catch – {done} of {all} done.', { done: count, all: steps.length })}</p></div>
       <div class="fs-bar" role="progressbar" aria-valuemin="0" aria-valuemax=${steps.length} aria-valuenow=${count}><i style=${`width:${(count / steps.length) * 100}%`}></i></div>
-      <button class="btn small ghost fs-hide" onClick=${hide} title=${t('fs.hideHint', 'Hide the first steps here and in the sidebar – Settings › General or Help bring them back')}>
+      <button class="btn small ghost fs-hide" onClick=${hide} title=${t('fs.hideHint', 'Hide the first steps here and in the sidebar – Settings or Help bring them back')}>
         <${Icon} name="close" size=${14} />${t('fs.hide', 'Hide')}</button>
     </div>
     <ol class="fs-list">
@@ -162,8 +162,8 @@ export function FirstStepsPill() {
       <span class="fs-pill-ring" style=${`--p:${count / steps.length}`}></span>
       <span><b>${t('fs.title', 'First steps')}</b><span class="tiny muted">${t('fs.pillCount', '{done} of {all}', { done: count, all: steps.length })}</span></span>
     </button>
-    <button class="fs-pill-x" onClick=${() => { hideFirstSteps(); toast?.({ kind: 'ok', title: t('fs.hiddenToast', 'First steps hidden'), text: t('fs.hiddenText', 'Settings › General or Help bring them back.') }); }}
-      title=${t('fs.hideHint', 'Hide the first steps here and in the sidebar – Settings › General or Help bring them back')} aria-label=${t('fs.hideAria', 'Hide the first steps')}><${Icon} name="close" size=${12} /></button>
+    <button class="fs-pill-x" onClick=${() => { hideFirstSteps(); toast?.({ kind: 'ok', title: t('fs.hiddenToast', 'First steps hidden'), text: t('fs.hiddenText', 'Settings or Help bring them back.') }); }}
+      title=${t('fs.hideHint', 'Hide the first steps here and in the sidebar – Settings or Help bring them back')} aria-label=${t('fs.hideAria', 'Hide the first steps')}><${Icon} name="close" size=${12} /></button>
   </div>`;
 }
 

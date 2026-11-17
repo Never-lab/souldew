@@ -14,6 +14,7 @@ import { refreshPack, forgetPack } from '../../lib/cosmetics/index.mjs';
 import { askToJoinAllowed, setAskToJoin } from '../../lib/presence.mjs';
 import { Avatar, Badges, CodeChip } from '../social.mjs';
 import { Item, Group, Check } from './parts.mjs';
+import { PlusShowcase } from './cosmetics.mjs';
 
 const tierName = (tier) => ({ plus: 'souldew+', patron: t('acct.patronTier', 'souldew+ · Patron'), supporter: t('acct.supporter', 'Supporter') }[tier] || t('acct.tierNone', 'No membership'));
 const dateOf = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '');
@@ -160,6 +161,7 @@ function PlusGroup({ me, toast }) {
         <p class="small muted">${isPlus(ent.tier) ? t('acct.plusThanks', 'Thank you for supporting souldew! Your souldew+ banners, frames and nameplates are in the profile editor.')
           : t('acct.plusText', 'souldew stays free. If you support it on Buy Me a Coffee, the souldew+ membership adds banners, frames and nameplates for your profile – the other tiers get a Supporter badge.')}</p>
         ${!isPlus(ent.tier) && html`<div><button class="btn small" onClick=${() => openExternal(LINKS.coffee)}><${Icon} name="coffee" size=${14} />${t('acct.toCoffee', 'Buy Me a Coffee')}</button></div>`}
+        ${!isPlus(ent.tier) && html`<${PlusShowcase} />`}
         ${ent.tier !== 'none' && html`<div class="row"><button class="btn small ghost" onClick=${() => setUnlink(true)}>${t('acct.unlink', 'Unlink membership …')}</button>
           <span class="small muted">${t('acct.unlinkHint', 'Takes it off this account, e.g. to move it to another one. Re-linking the email waits 30 days.')}</span></div>`}
         ${unlink && html`<${UnlinkModal} tier=${ent.tier} toast=${toast} onClose=${() => setUnlink(false)} />`}
@@ -327,6 +329,9 @@ export function AccountSection({ toast }) {
     <//>
     ${on && parts.privacy && html`<${Group} title=${t('acct.privacy', 'Privacy')}><${Item} id="account-privacy">${parts.privacy}<//><//>`}
     ${on && parts.plus && html`<${Group} title="souldew+"><${Item} id="plus">${parts.plus}<//><//>`}
+    ${acct.loaded && !on && html`<${Group} title="souldew+"><${Item} id="plus-show"><div class="stack">
+      <p class="small muted">${t('acct.plusText', 'souldew stays free. If you support it on Buy Me a Coffee, the souldew+ membership adds banners, frames and nameplates for your profile – the other tiers get a Supporter badge.')}</p>
+      <${PlusShowcase} /></div><//><//>`}
     ${on && html`<${Group} title=${t('acct.devices', 'Signed-in devices')}><${Item} id="account-sessions">${parts.sessions}<//><//>`}
     ${on && html`<${Group} title=${t('acct.dataTitle', 'Your data')}><${Item} id="account-data">${parts.data}<//><//>`}`;
 }

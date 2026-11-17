@@ -20,7 +20,8 @@ export const FORMAT = 1;
 const ENVELOPE_MAGIC = 'SDP1';
 export const PACK_ID_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
 export const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
-export const KINDS = ['skins', 'banners', 'frames', 'launch', 'mixed', 'preview'];
+// 'previews': the public preview media (pictures only – scripts/plus-previews.mjs, API.md §10.6)
+export const KINDS = ['skins', 'banners', 'frames', 'launch', 'mixed', 'preview', 'previews'];
 /** Same table as the service and the pack tool: extension → media type. */
 export const TYPES = {
   css: 'text/css', json: 'application/json', png: 'image/png', webp: 'image/webp', svg: 'image/svg+xml', woff2: 'font/woff2',

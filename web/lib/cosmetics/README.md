@@ -125,6 +125,19 @@ Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fo
 - 71 frames;
 - 13 launch animations.
 
+## Preview media (`previews.mjs`) – what everyone sees before buying
+
+Nobody buys what they can't see. Every premium banner, nameplate, frame and launch animation has a still (PNG, display
+size ×2) and a short loop (animated WebP, native size, ≤ 150 KB), every colour skin a still of the app in it – rendered
+offline from the design sources (`scripts/plus-previews.mjs`, `scripts/plus-skin-shots.mjs`; `plus-dev-pack.mjs
+--previews-source`). Pictures only: no recipe, code or stylesheet, so the accounts service hands them to anyone (API.md
+§10.6, a pack of kind `previews`). The local server (`server/lib/pluspreviews.mjs`) fetches the manifest (no account
+needed), checks its signature against the pinned pack key and every picture's SHA-256, and serves them at
+`/api/plus/previews/file?path=<kind>/<id>.<png|webp>`. In the page: `previewSrc(kind, id, { loop })`, `<PreviewPicture>`.
+Where: a locked card in `<CosmeticPicker>` (the loop while hovered / focused / chosen, never with reduced motion), a
+locked theme for someone who can't try it live (signed out: a still of the app in it – signed-in non-members keep the
+15-minute live preview), and `PlusShowcase` ("What souldew+ holds", Settings › Account, signed in or out).
+
 ## Dev pack
 
 ```

@@ -8,6 +8,7 @@ import { signedIn } from '../../lib/account.mjs';
 import { useCosmetics, PlusMark } from '../../lib/cosmetics/components.mjs';
 import { openPlus } from '../../lib/cosmetics/plus.mjs';
 import { CartInsert } from '../cartinsert.mjs';
+import { PreviewPicture, previewSrc, usePreviews } from '../../lib/cosmetics/previews.mjs';
 import { Icon } from '../../lib/icons.mjs';
 
 function useSkinState() {
@@ -49,6 +50,7 @@ function SkinCard({ skin, compact, on, previewing, onClick }) {
 /** Settings › General › Appearance › Theme. save({ skin }) persists the committed choice. */
 export function SkinSetting({ cfg, save }) {
   useCosmetics();
+  usePreviews();
   const s = useSkinState();
   const pack = packState();
   const [locked, setLocked] = useState(null); // a souldew+ theme that can't be previewed here (no pack, no preview)
@@ -126,6 +128,9 @@ export function SkinSetting({ cfg, save }) {
       ${!pack.entitled && !signedIn() && html`<button type="button" class="btn small" onClick=${() => { location.hash = '#/settings?s=account'; }}>${t('acct.signIn', 'Sign in with Discord')}</button>`}
       ${!pack.loading && html`<button type="button" class="btn small go" onClick=${() => openPlus({ reason: 'skin', id: locked })}>${t('skin.getPlus', 'Get souldew+')}</button>`}
     </div>`}
+    ${lockedName && !canTry && previewSrc('skins', locked) && html`<figure class="skin-shot">
+      <${PreviewPicture} kind="skins" id=${locked} alt=${t('skin.shotAlt', 'souldew in {name}', { name: lockedName })} />
+      <figcaption class="small faint">${t('skin.shotCaption', 'How souldew looks in {name}.', { name: lockedName })}</figcaption></figure>`}
     ${ended && !previewName && !lockedName && html`<p class="small faint" role="status">${t('skin.previewEnded', 'The preview has ended – your own theme is back.')}</p>`}
     ${group(t('skin.dark', 'Colours · dark'), skins.filter((k) => k.group === 'dark'), true)}
     ${group(t('skin.light', 'Colours · light'), skins.filter((k) => k.group === 'light'), true)}
@@ -184,4 +189,47 @@ export function LaunchSetting({ cfg, save }) {
       : t('launch.hint', 'Plays over the game screen while the game starts – it never makes the game wait. A click or any key skips it.')}</span>
     ${!pack.entitled && html`<span class="small faint plus-note"><${PlusMark} /> ${t('launch.more', 'More launch animations come with souldew+.')}</span>`}
   </div>`;
+}
+
+const SHOW_KINDS = () => [
+  ['skins', t('plusShow.themes', 'Themes')], ['banners', t('cos.banners', 'Banners')], ['frames', t('cos.frames', 'Avatar frames')],
+  ['nameplates', t('cos.nameplates', 'Nameplates')], ['launch', t('launch.title', 'Launch animation')],
+];
+
+/** One item of the showcase: its picture (the loop while hovered / focused), its name. */
+function ShowItem({ kind, item }) {
+  const [hot, setHot] = useState(false);
+  return html`<li class=${`plus-show-item plus-show-item--${kind}`} tabIndex="0" onPointerEnter=${() => setHot(true)} onPointerLeave=${() => setHot(false)}
+    onFocus=${() => setHot(true)} onBlur=${() => setHot(false)}>
+    <span class="plus-show-art">${kind === 'frames' && html`<span class="cos-pick-av" aria-hidden="true"></span>`}<${PreviewPicture} kind=${kind} id=${item.id} loop=${hot} /></span>
+    <span class="plus-show-name small">${item.name}</span></li>`;
+}
+
+/**
+ * "What souldew+ holds": the real look of every premium theme, banner, frame, nameplate and launch animation, from the
+ * signed preview media – for everyone, signed in or not (nobody buys what they can't see). Nothing when the previews
+ * can't be reached.
+ */
+export function PlusShowcase() {
+  const pv = usePreviews();
+  const [kind, setKind] = useState('skins');
+  if (!pv?.files) return null;
+  const cat = catalog();
+  const lists = {
+    skins: cat.skins.filter((s) => s.plus), banners: cat.banners.filter((b) => b.plus && !b.drop), frames: cat.frames.filter((f) => f.plus),
+    nameplates: cat.nameplates.filter((n) => n.plus && !n.drop), launch: cat.launch.filter((a) => a.plus),
+  };
+  const kinds = SHOW_KINDS().filter(([k]) => lists[k].some((x) => previewSrc(k, x.id)));
+  if (!kinds.length) return null;
+  const k = kinds.some(([x]) => x === kind) ? kind : kinds[0][0];
+  const items = lists[k].filter((x) => previewSrc(k, x.id));
+  return html`<section class="plus-show stack-s" aria-label=${t('plusShow.title', 'What souldew+ holds')}>
+    <div class="row plus-show-head"><h3>${t('plusShow.title', 'What souldew+ holds')}</h3>
+      <span class="small muted">${t('plusShow.count', '{count} item|{count} items', { count: Object.entries(lists).reduce((n, [x, l]) => n + l.filter((i) => previewSrc(x, i.id)).length, 0) })}</span></div>
+    <div class="seg small" role="tablist" aria-label=${t('plusShow.title', 'What souldew+ holds')}>
+      ${kinds.map(([x, label]) => html`<button type="button" role="tab" aria-selected=${x === k} class=${x === k ? 'on' : ''} onClick=${() => setKind(x)}>${label}</button>`)}
+    </div>
+    <p class="small faint">${k === 'skins' ? t('plusShow.themesHint', 'Every theme recolours the whole app – never a box or a word.') : t('plusShow.hint', 'Hover or focus one to see it move.')}</p>
+    <ul class=${`plus-show-grid plus-show-grid--${k}`} role="list">${items.map((it) => html`<${ShowItem} key=${it.id} kind=${k} item=${it} />`)}</ul>
+  </section>`;
 }

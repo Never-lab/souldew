@@ -109,3 +109,39 @@
 .skin-preview-bar.live { background: color-mix(in srgb, var(--crs) 10%, var(--shell-3)); border-color: color-mix(in srgb, var(--crs) 40%, var(--edge)); }
 .skin-live-badge { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .02em;
   color: var(--shell); background: var(--crs); }
+
+/* ---- preview media (web/lib/cosmetics/previews.mjs): the real look of a locked item – pictures, scaled pixel-exact ---- */
+.cos-preview { display: block; image-rendering: pixelated; pointer-events: none; user-select: none; }
+.cos-pick-art > .cos-preview, .cos-pick-art > .cos-preview--banners { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+.cos-pick-frame--pic { position: relative; width: 56px; height: 56px; }
+/* the frame picture is the avatar box (40 native px) plus its overhang (6 a side): 52/40 of the box, centred on it */
+.cos-pick-frame--pic .cos-preview, .plus-show-item--frames .cos-preview { position: absolute; width: 130%; height: 130%; left: -15%; top: -15%; max-width: none; }
+.cos-pick-plate--pic { position: relative; overflow: hidden; }
+.cos-pick-plate--pic .cos-preview { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: right center; }
+.cos-pick-plate--pic > :not(.cos-preview) { position: relative; z-index: 1; }
+
+/* a locked theme for someone who can't try it live: how the app looks in it */
+.skin-shot { margin: 10px 0 0; display: grid; gap: 6px; max-width: 560px; }
+.skin-shot .cos-preview { width: 100%; height: auto; aspect-ratio: 16 / 10; border-radius: var(--r-m); border: 1px solid var(--sk-line, #0d0c10); image-rendering: auto; }
+
+/* "What souldew+ holds" */
+.plus-show { margin-top: 6px; }
+.plus-show-head { align-items: baseline; gap: 10px; }
+.plus-show-head h3 { margin: 0; font-size: 14px; }
+.plus-show-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); max-height: 460px; overflow: auto; padding-right: 4px; }
+.plus-show-grid--frames { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.plus-show-grid--skins { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.plus-show-item { display: grid; gap: 5px; padding: 6px; border-radius: var(--r-m); background: var(--shell-3); border: 1px solid var(--sk-line, #0d0c10); outline: none; }
+.plus-show-item:hover, .plus-show-item:focus-visible { border-color: var(--edge-hi); }
+.plus-show-item:focus-visible { box-shadow: 0 0 0 2px var(--focus); }
+.plus-show-art { position: relative; display: block; border-radius: 6px; overflow: hidden; background: var(--shell-2); }
+.plus-show-item--banners .plus-show-art { aspect-ratio: 768 / 112; }
+.plus-show-item--nameplates .plus-show-art { aspect-ratio: 320 / 52; }
+.plus-show-item--launch .plus-show-art { aspect-ratio: 3 / 2; }
+.plus-show-item--skins .plus-show-art { aspect-ratio: 16 / 10; }
+.plus-show-item--skins .cos-preview { image-rendering: auto; }
+.plus-show-item--frames .plus-show-art { width: 56px; height: 56px; margin: 12px auto; overflow: visible; background: none; }
+.plus-show-art > .cos-preview { width: 100%; height: 100%; object-fit: cover; }
+.plus-show-item--frames .plus-show-art > .cos-preview { width: 130%; height: 130%; object-fit: fill; }
+.plus-show-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); }
+.plus-show-item--frames .plus-show-name { text-align: center; }

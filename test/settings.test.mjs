@@ -98,7 +98,7 @@ test('the texts the search reads exist in English and every app language; the ta
 test('sections: tab order – the Account section (souldew account) sits between Online and About', () => {
   assert.deepEqual(SECTIONS.map((s) => s.id), ['general', 'play', 'controls', 'games', 'online', 'account', 'about']);
   assert.deepEqual(VISIBLE_SECTIONS, ['general', 'play', 'controls', 'games', 'online', 'account', 'about']);
-  assert.deepEqual(SETTINGS.filter((e) => e.section === 'account').map((e) => e.id), ['account', 'account-privacy', 'plus', 'account-sessions', 'account-data']);
+  assert.deepEqual(SETTINGS.filter((e) => e.section === 'account').map((e) => e.id), ['account', 'account-privacy', 'plus-show', 'plus', 'account-sessions', 'account-data']);
 });
 
 test('the URL picks the tab: s=, else the remembered tab, else General – and a deep link opens its setting’s own tab', () => {
