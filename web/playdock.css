@@ -73,7 +73,7 @@ html.platform-linux .frame.rail-folded.app-native .rail-open ~ .main .session.fu
 @keyframes dock-flash { 0%, 30% { box-shadow: 0 0 0 2px var(--tri), 0 0 18px color-mix(in srgb, var(--tri) 40%, transparent); } 100% { box-shadow: 0 0 0 2px transparent; } }
 
 /* folded: a slim strip – one button per section (with its dot), the partners' initials */
-.dock.folded { box-sizing: border-box; align-items: center; gap: 4px; padding: 6px; border-radius: 14px; background: #141318; box-shadow: inset 0 1px 2px #0008; }
+.dock.folded { box-sizing: border-box; align-items: center; gap: 4px; padding: 6px; border-radius: 14px; background: var(--sk-well, #141318); box-shadow: var(--lt-inset, inset 0 1px 2px #0008); }
 .dock.folded.right { flex-direction: column; align-self: start; width: 48px; }
 .dock.folded.bottom { flex-direction: row; justify-self: center; height: 48px; }
 .dock-btn, .dock-who { position: relative; flex: none; display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 10px;
@@ -122,7 +122,7 @@ html.platform-linux .frame.rail-folded.app-native .rail-open ~ .main .session.fu
 /* ---- "something happened": the card over the top edge of the game ------------------------------------------------ */
 .session-stage { position: relative; }
 .attn { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 9; width: min(520px, calc(100% - 24px)); box-sizing: border-box; overflow: hidden;
-  display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 14px; background: color-mix(in srgb, #141318 94%, transparent);
+  display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--sk-field, #141318) 94%, transparent);
   border: 1px solid var(--edge-hi); border-left: 3px solid var(--cir); box-shadow: 0 18px 44px #000c; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
   animation: attn-in .28s cubic-bezier(.2, .8, .2, 1); }
 .attn.catch { border-left-color: var(--tri); }
@@ -155,8 +155,8 @@ html.platform-linux .frame.rail-folded.app-native .rail-open ~ .main .session.fu
 
 /* ---- the first time the sidebar folds for the game: how it comes back ---------------------------------------------- */
 .rail-hint { position: fixed; top: 54px; left: 12px; z-index: 58; display: flex; align-items: center; gap: 10px; max-width: 340px; padding: 10px 10px 10px 14px; border-radius: 12px;
-  background: #18171c; border: 1px solid var(--edge-hi); box-shadow: 0 14px 34px #000b; color: var(--ink-2); font-size: 13px; line-height: 1.4; animation: attn-pop .2s ease-out; }
-.rail-hint::before { content: ''; position: absolute; top: -6px; left: 22px; width: 10px; height: 10px; background: #18171c; border-left: 1px solid var(--edge-hi); border-top: 1px solid var(--edge-hi); transform: rotate(45deg); }
+  background: var(--sk-field, #18171c); border: 1px solid var(--edge-hi); box-shadow: var(--lt-pop-shadow, 0 14px 34px #000b); color: var(--ink-2); font-size: 13px; line-height: 1.4; animation: attn-pop .2s ease-out; }
+.rail-hint::before { content: ''; position: absolute; top: -6px; left: 22px; width: 10px; height: 10px; background: var(--sk-field, #18171c); border-left: 1px solid var(--edge-hi); border-top: 1px solid var(--edge-hi); transform: rotate(45deg); }
 .app-native .rail-hint { top: 46px; left: 74px; }
 html.platform-win32 .app-native .rail-hint { left: 6px; }
 @keyframes attn-pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
@@ -168,7 +168,7 @@ html.platform-win32 .app-native .rail-hint { left: 6px; }
 .gstrip-wrap.fade-r .gstrip { -webkit-mask-image: linear-gradient(to left, transparent 0, #000 28px); mask-image: linear-gradient(to left, transparent 0, #000 28px); }
 .gstrip-wrap.fade-l.fade-r .gstrip { -webkit-mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%); mask-image: linear-gradient(to right, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%); }
 .gstrip-arrow { position: absolute; top: 50%; z-index: 2; display: grid; place-items: center; width: 26px; height: 44px; margin-top: -26px; padding: 0; border: 1px solid var(--edge-hi);
-  border-radius: 10px; background: color-mix(in srgb, #141318 92%, transparent); color: var(--ink); box-shadow: 0 6px 16px #000a; cursor: pointer; }
+  border-radius: 10px; background: color-mix(in srgb, var(--sk-field, #141318) 92%, transparent); color: var(--ink); box-shadow: var(--lt-pop-shadow, 0 6px 16px #000a); cursor: pointer; }
 .gstrip-arrow.l { left: -4px; } .gstrip-arrow.r { right: -4px; }
 .gstrip-arrow.l svg { transform: rotate(90deg); } .gstrip-arrow.r svg { transform: rotate(-90deg); }
 .gstrip-arrow:hover { background: var(--shell-3); }

@@ -18,7 +18,7 @@ html.platform-win32 .app-native .main:has(.set-bar) { scroll-padding-top: 120px;
 
 /* the search: the app's input as a pill, with its lens and a key hint */
 .set-search { display: flex; align-items: center; gap: 8px; flex: 0 1 280px; min-width: 150px; margin-left: auto; height: 38px; padding: 0 10px 0 13px;
-  border-radius: 999px; background: #121116; border: 1px solid #0b0a0e; box-shadow: inset 0 1px 2px #0007; color: var(--ink-3); cursor: text; }
+  border-radius: 999px; background: var(--sk-field, #121116); border: 1px solid var(--sk-line, #0b0a0e); box-shadow: var(--lt-inset, inset 0 1px 2px #0007); color: var(--ink-3); cursor: text; }
 .set-search:focus-within { border-color: var(--focus, var(--crs)); color: var(--ink-2); }
 .set-search > svg { flex: none; display: block; position: relative; top: 1px; } /* measured: the lens sat 0.6 px (bbox) / 1.3 px (ink) above the pill's centre */
 .set-search input[type='search'] { flex: 1; min-width: 0; width: auto; height: 100%; padding: 0; border: 0; background: transparent; box-shadow: none; }

@@ -3,7 +3,7 @@
 // (test/fixtures/skin-proof-runner.mjs). The automated form of the design's proof.py. Signed in (a fake accounts
 // service) the same for Friends, the profile and the sidebar's account chip – plus their text contrast in every skin and
 // the profile's banner (only the avatar overlaps it, 1024–1440 px) – and for the live theme PREVIEW pack, whose skins
-// must lay out exactly like the full ones.
+// must lay out exactly like the full ones. Light skins: no field, popover, menu, hint, toast or dialog on a dark ground.
 //
 // Skins are premium content and not in this repository, so the test needs a pack: SLS_PLUS_PROOF_PACK=<dev pack folder>
 // (scripts/plus-dev-pack.mjs), or the design sources next to the checkout (../design-plus/design/plus), from which it
@@ -59,6 +59,10 @@ test('skins never change a box or a text on the real app views', { skip, timeout
     assert.deepEqual(b.hits, [], `${b.width} px, ${b.skin}: over the banner – ${b.hits.join(', ')}`);
     assert.ok(b.avatarOverhang > 0, `${b.width} px, ${b.skin}: the avatar overhangs the banner`);
   }
+  // light skins: no field, popover, menu, hint, toast or dialog on a dark ground (every view, the profile editor)
+  assert.equal(res.surfaces.lightSkins, 5, 'Soft Light, Sunbleached, Glacier, Sakura, Cartridge Grey');
+  assert.ok(res.surfaces.checked > 200, `${res.surfaces.checked} surfaces checked`);
+  assert.deepEqual(res.surfaces.dark, [], `${res.surfaces.dark.length} dark surfaces in light skins: ${JSON.stringify(res.surfaces.dark.slice(0, 8))}`);
   const mins = Object.values(res.contrast.min).filter((x) => x != null);
   console.log(`skin proof: ${res.skins} skins × ${res.views} views (${res.previewSkins} as preview), ${res.boxes} element boxes, 0 differences, ${res.glyphRuns.length} title glyph runs; `
     + `${res.contrast.checked} texts ≥ 4.5:1 (lowest ${Math.min(...mins).toFixed(2)}); banner clear at 1024/1280/1440`);

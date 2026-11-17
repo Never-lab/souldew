@@ -10,6 +10,8 @@
 //   3. the profile's banner: nothing but the avatar (and its frame) overlaps it, at 1024 and 1440 px wide
 //   4. the live theme PREVIEW pack (what a non-member tries for 15 minutes): every preview skin lays out exactly like
 //      classic – and so like the full skin
+//   5. light skins: no field, popover, menu, hint, toast or dialog is drawn on a dark ground – on every view above and
+//      in the profile editor (a dialog), every light skin (the Settings search was a black pill on Soft Light)
 // Writes one JSON result: { ok, views, skins, previewSkins, boxes, contrast, banner, diffs: [...] }.
 import { app, BrowserWindow } from 'electron';
 import { writeFileSync } from 'node:fs';
@@ -70,6 +72,39 @@ const TEXTS = (scope) => `(() => {
       rect: [b.left, b.top, b.right, b.bottom], fg: [fg[0], fg[1], fg[2], fg[3] * op], need: large ? 3 : 4.5 });
   }
   return { rows, w: innerWidth, h: innerHeight };
+})()`;
+
+// Light skins: every field / popover / menu / hint / toast / dialog on screen and the ground it is drawn on (its own
+// background or the first ancestor's that is opaque; a gradient counts with its colours). Dark-by-design places (the
+// game screen, LCDs, banners and art) are left out.
+const SURFACES = `(() => {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 1;
+  const cx = cv.getContext('2d', { willReadFrequently: true });
+  const rgba = (c) => { cx.clearRect(0, 0, 1, 1); cx.fillStyle = '#000'; cx.fillStyle = c; cx.fillRect(0, 0, 1, 1); const d = cx.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2], d[3] / 255]; };
+  const lum = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+  const ground = (el) => {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      const grad = [...cs.backgroundImage.matchAll(/(rgba?|color)\\([^()]*\\)/g)].map((m) => rgba(m[0])).filter((c) => c[3] > 0.5);
+      if (grad.length) return { at: n, g: grad };
+      const c = rgba(cs.backgroundColor);
+      if (c[3] > 0.5) return { at: n, g: [c] };
+    }
+    return { at: null, g: [[255, 255, 255, 1]] };
+  };
+  const SEL = 'input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea, .set-search, .seg, .chip, .kbd, dialog.modal, .toast, details.group, .log, .rule-presets, [role=menu], [role=tooltip], [class*="-pop"], .rail-hint, .attn, .fs-pill, .update-card, .power, .inbox, .warning, .rail-me';
+  const out = { checked: 0, dark: [] };
+  for (const el of document.querySelectorAll(SEL)) {
+    if (el.closest('.screen, .console-screen, .launch-screen, canvas, .cos-art-host, .pf-banner, .fr-card-banner, .onboard, .session')) continue;
+    const b = el.getBoundingClientRect();
+    if (b.width < 4 || b.height < 4 || (el.checkVisibility && !el.checkVisibility({ visibilityProperty: true, opacityProperty: true }))) continue;
+    out.checked++;
+    const { at, g } = ground(el);
+    if (at && at.matches('.rail')) continue; // drawn straight on the skin's own side rail (Glacier and Sakura keep it dark on purpose)
+    const L = Math.max(...g.map(lum));
+    if (L < 0.06) out.dark.push(el.tagName.toLowerCase() + (typeof el.className === 'string' && el.className ? '.' + el.className.trim().split(/\\s+/).slice(0, 2).join('.') : '') + ' on rgb(' + g[0].slice(0, 3).join(',') + ')');
+  }
+  return out;
 })()`;
 
 const lumOf = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
@@ -169,7 +204,7 @@ function seed(fake) {
 }
 
 app.whenReady().then(async () => {
-  const result = { ok: false, views: 0, skins: 0, previewSkins: 0, boxes: 0, glyphRuns: [], diffs: [], contrast: { checked: 0, min: {}, fails: [] }, banner: [] };
+  const result = { ok: false, views: 0, skins: 0, previewSkins: 0, boxes: 0, glyphRuns: [], diffs: [], contrast: { checked: 0, min: {}, fails: [] }, banner: [], surfaces: { checked: 0, lightSkins: 0, dark: [] } };
   let fake = null;
   let seeded = null;
   try {
@@ -200,6 +235,14 @@ app.whenReady().then(async () => {
     await stillFrames();
     const skins = await C("m.listSkins().filter((s) => s.id !== 'classic' && s.available).map((s) => s.id)");
     result.skins = skins.length;
+    const lightSkins = new Set(await C("m.listSkins().filter((s) => s.group === 'light').map((s) => s.id)"));
+    result.surfaces.lightSkins = lightSkins.size;
+    const checkSurfaces = async (id, where) => {
+      if (!lightSkins.has(id)) return;
+      const r = await js(SURFACES);
+      result.surfaces.checked += r.checked;
+      for (const d of r.dark) result.surfaces.dark.push(`${id} · ${where} · ${d}`);
+    };
 
     let mark = 0;
     /** One view: classic, then every skin (applied – or previewed), compared box by box; contrast where asked. */
@@ -285,6 +328,7 @@ app.whenReady().then(async () => {
         }
         if (got.text !== baseline.text) diff('text', baseline.text.length, got.text.length);
         if (got.hidden !== baseline.hidden) diff('hidden text', baseline.hidden, got.hidden);
+        await checkSurfaces(id, view);
         await checkContrast(id);
       }
       if (mode === 'preview') await C('m.endPreview()');
@@ -319,6 +363,20 @@ app.whenReady().then(async () => {
     await until("!!document.querySelector('.fr-card')", 20000);
     await proveView('friends', { ready: '.fr-card', contrast: 'main.main' });
 
+    // ---- 5 · light skins: the profile editor (a dialog with fields, pickers, chips) on a light ground
+    for (const id of lightSkins) {
+      await C(`m.applySkin(${JSON.stringify(id)})`);
+      await js(`location.hash = '#/profile'`);
+      await until("!!document.querySelector('.pf-actions .btn')", 20000);
+      await js(`[...document.querySelectorAll('.pf-actions .btn')].find((b) => b.textContent.includes('Edit profile'))?.click(); true`);
+      await until("!!document.querySelector('.pf-editor')", 20000);
+      await sleep(400);
+      await checkSurfaces(id, 'profile editor');
+      await js(`document.querySelector('dialog.modal .modal-foot .btn.ghost')?.click(); true`);
+      await sleep(300);
+    }
+    await C('m.applySkin(null)');
+
     // ---- 3 · the profile banner: overlapped by nothing but the avatar, at 1024 and 1440 wide
     for (const width of [1024, 1280, 1440]) {
       win.setContentSize(width, 820);
@@ -351,7 +409,7 @@ app.whenReady().then(async () => {
     for (const view of [...VIEWS, 'friends', 'profile']) {
       await proveView(view, { list: previewSkins, mode: 'preview', skip: '.skin-preview-bar', ready: READY[view] });
     }
-    result.ok = result.diffs.length === 0 && result.contrast.fails.length === 0 && result.banner.every((b) => !b.error && !b.hits.length) && result.skins > 0 && result.previewSkins > 0;
+    result.ok = result.diffs.length === 0 && result.contrast.fails.length === 0 && result.surfaces.dark.length === 0 && result.banner.every((b) => !b.error && !b.hits.length) && result.skins > 0 && result.previewSkins > 0;
   } catch (e) {
     result.error = String(e?.stack || e);
   }
