@@ -384,13 +384,13 @@ async function main(scratch) {
     // apply a skin in Settings › General › Theme
     await go(0, '#/settings?s=general', '.skin-setting');
     await ev(0, `document.querySelector('.skin-setting').scrollIntoView({ block: 'start' }); true`);
-    await click(0, '[data-skin-preview="clearshell"]');
-    await until('skin preview', () => ev(0, `document.documentElement.dataset.skin === 'clearshell'`));
+    await click(0, '[data-skin-preview="dusk"]');
+    await until('skin preview', () => ev(0, `document.documentElement.dataset.skin === 'dusk'`));
     await sleep(700);
     await shot(0, '12-skin-preview-member');
     await click(0, '.skin-preview-bar .btn.go');
-    await until('skin kept', () => ev(0, `!document.querySelector('.skin-preview-bar') && document.documentElement.dataset.skin === 'clearshell'`));
-    check('skin applied and saved', (await api(HOST, '/api/status')).config.skin === 'clearshell');
+    await until('skin kept', () => ev(0, `!document.querySelector('.skin-preview-bar') && document.documentElement.dataset.skin === 'dusk'`));
+    check('skin applied and saved', (await api(HOST, '/api/status')).config.skin === 'dusk');
     await go(0, '#/library', '.nav');
     await sleep(800);
     await shot(0, '13-skin-applied-library');
@@ -398,9 +398,25 @@ async function main(scratch) {
     const catalog = await cos(0, '({ b: C.catalog().banners.filter((x) => x.plus && x.owned).map((x) => x.id), f: C.catalog().frames.filter((x) => x.plus && x.owned).map((x) => x.id) })');
     const banner = catalog.b.includes('night-marsh') ? 'night-marsh' : catalog.b[0];
     const frame = catalog.f[0];
-    // the profile editor's save (web/lib/account.mjs updateMe → PATCH /v1/me, the service checks the catalog tier)
+    // the profile editor itself: pick a souldew+ banner, frame and nameplate and press Save (the editor locks Save for
+    // a pick that isn't owned – a nameplate once always counted as not owned) → PATCH /v1/me, the service checks the tier
     await go(0, '#/profile', '.pf-mast');
-    await ev(0, `import('/lib/account.mjs').then((A) => A.updateMe(${JSON.stringify({ banner, frame, nameplate: banner, accent: 'tide' })})).then(() => true)`);
+    await click(0, '.pf-actions .btn', 'Edit profile');
+    await until('editor', () => ev(0, '!!document.querySelector(".pf-editor .cos-picker--nameplates")'));
+    const nameplate = catalog.b.find((x) => x !== banner) || banner;
+    for (const [kind, id] of [['banners', banner], ['frames', frame], ['nameplates', nameplate]]) {
+      check(`editor: ${kind} ${id} picked`, await ev(0, `(() => { const b = document.querySelector('.cos-picker--${kind} [data-cos-id=${JSON.stringify(id)}]'); if (!b) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true; })()`));
+      await sleep(300);
+    }
+    await ev(0, `document.querySelector('.pf-editor .cos-picker--nameplates').scrollIntoView({ block: 'center' }); true`);
+    await sleep(400);
+    check('editor: no "comes with souldew+" lock line for a member, Save enabled', await ev(0, `!document.querySelector('.acct-lockline') && !document.querySelector('.modal-foot .btn.primary').disabled`));
+    await shot(0, '13b-editor-nameplate-picked');
+    await click(0, '.modal-foot .btn.primary', 'Save');
+    await until('editor closed', () => ev(0, '!document.querySelector(".pf-editor")'), 20000);
+    const saved = (await api(HOST, '/api/account')).me;
+    check(`editor saved banner ${banner}, frame ${frame} and nameplate ${nameplate}`, saved.banner === banner && saved.frame === frame && saved.nameplate === nameplate, JSON.stringify({ b: saved.banner, f: saved.frame, n: saved.nameplate }));
+    await ev(0, `import('/lib/account.mjs').then((A) => A.updateMe({ accent: 'tide' })).then(() => true)`);
     const drawn = await until('banner + frame drawn', () => ev(0, `!!document.querySelector('.pf-banner canvas') && !!document.querySelector('.pf-mast .cos-frame canvas')`), 20000).catch(() => false);
     check('banner and frame drawn on the own profile', drawn);
     // the frame's pixels really arrive from the sandboxed pack worker (web/lib/cosmetics/sandbox.mjs, canvas-proxy.mjs)
@@ -412,7 +428,7 @@ async function main(scratch) {
     await sleep(2500);
     await shot(0, '14-profile-banner-frame');
     const kimSees = await api(GUEST, `/api/account/users/${robin.id}`);
-    check(`Kim sees Robin's banner ${banner}, frame ${frame} and the souldew+ badge`, kimSees.banner === banner && kimSees.frame === frame && kimSees.badges.includes('plus'), JSON.stringify({ b: kimSees.banner, f: kimSees.frame, badges: kimSees.badges }));
+    check(`Kim sees Robin's banner ${banner}, frame ${frame}, nameplate ${nameplate} and the souldew+ badge`, kimSees.banner === banner && kimSees.frame === frame && kimSees.nameplate === nameplate && kimSees.badges.includes('plus'), JSON.stringify({ b: kimSees.banner, f: kimSees.frame, n: kimSees.nameplate, badges: kimSees.badges }));
     await go(1, '#/friends', '.fr-list');
     await click(1, '.fr-pick', 'Robin');
     await sleep(2000);
@@ -431,11 +447,12 @@ async function main(scratch) {
     // ------------------------------------------------------------------ 8 · Kim tries a theme for 15 minutes
     await go(1, '#/settings?s=general', '.skin-setting');
     await ev(1, `document.querySelector('.skin-setting').scrollIntoView({ block: 'start' }); true`);
-    await click(1, '[data-skin-preview="fieldbook"]');
+    check('the theme picker holds colour skins only (no editions)', await ev(1, `!document.querySelector('[data-skin-preview="fieldbook"], [data-skin-preview="clearshell"], [data-skin-preview="woodgrain"], [data-skin-preview="enamel"]') && document.querySelectorAll('.skin-group').length === 2`));
+    await click(1, '[data-skin-preview="sakura"]');
     await until('locked bar', () => ev(1, `document.body.innerText.includes('try it on for 15 minutes')`));
     await shot(1, '17-preview-offer');
     await click(1, '.skin-preview-bar .btn', 'Try for 15 minutes');
-    await until('preview running', () => ev(1, `document.documentElement.dataset.skin === 'fieldbook' && !!document.querySelector('.skin-live-badge')`), 60000);
+    await until('preview running', () => ev(1, `document.documentElement.dataset.skin === 'sakura' && !!document.querySelector('.skin-live-badge')`), 60000);
     await sleep(800);
     await shot(1, '18-preview-running');
     const kimEnt = await api(GUEST, '/api/account/entitlements');

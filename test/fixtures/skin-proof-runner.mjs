@@ -9,7 +9,7 @@
 //      ≥ 4.5:1 (3:1 for large text) against what it is actually drawn on, in classic and every skin
 //   3. the profile's banner: nothing but the avatar (and its frame) overlaps it, at 1024 and 1440 px wide
 //   4. the live theme PREVIEW pack (what a non-member tries for 15 minutes): every preview skin lays out exactly like
-//      classic – and so like the full skin – because it carries the same fonts
+//      classic – and so like the full skin
 // Writes one JSON result: { ok, views, skins, previewSkins, boxes, contrast, banner, diffs: [...] }.
 import { app, BrowserWindow } from 'electron';
 import { writeFileSync } from 'node:fs';

@@ -127,7 +127,7 @@ function PickCard({ kind, item, on, skin, onPick, reducedMotion }) {
   const twin = kind === 'frames' && item.pair ? CATALOG.banners.find((b) => b.id === item.pair)?.name : null;
   const locked = !item.owned;
   const label = [item.name, rarity, locked ? t('cos.locked', 'souldew+') : '', matches ? t('cos.matchesTheme', 'Matches your theme') : ''].filter(Boolean).join(' · ');
-  return html`<button ref=${ref} type="button" role="radio" aria-checked=${on} aria-label=${label}
+  return html`<button ref=${ref} type="button" role="radio" aria-checked=${on} aria-label=${label} data-cos-id=${item.id}
     class=${`cos-pick cos-pick--${kind}${on ? ' on' : ''}${locked ? ' locked' : ''}`} onClick=${() => onPick?.(item.id, item)}>
     <span class="cos-pick-art" style=${!item.available ? `--cos-sw:${swatchBg(item.sw)}` : ''}>
       ${seen && item.available ? html`<${Preview} kind=${kind} item=${item} on=${on} reducedMotion=${reducedMotion} />` : html`<span class="cos-ph" aria-hidden="true"></span>`}

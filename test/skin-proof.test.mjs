@@ -39,16 +39,16 @@ test('skins never change a box or a text on the real app views', { skip, timeout
   assert.ok(existsSync(out), `the runner wrote no result (exit ${r.status}): ${String(r.stderr).slice(-2000)}`);
   const res = JSON.parse(readFileSync(out, 'utf8'));
   assert.equal(res.error, undefined, res.error);
-  assert.ok(res.skins >= 20, `${res.skins} skins in the pack`);
+  assert.equal(res.skins, 16, `${res.skins} skins in the pack – the colour skins, no editions`);
   assert.equal(res.previewSkins, res.skins, 'the preview pack carries every skin');
-  // the editions' fonts travel with the preview, so its text is set exactly as in the full skins
-  assert.ok(res.previewFonts.length >= 4, `preview fonts: ${res.previewFonts}`);
+  // colour skins are colour only: no fonts travel with the preview (or the full pack)
+  assert.deepEqual(res.previewFonts, [], `preview fonts: ${res.previewFonts}`);
   // 11 views signed out, Friends + profile + library signed in, a friend's card, 13 views with the preview pack
   assert.equal(res.views, 28);
   assert.deepEqual(res.diffs, [], `${res.diffs.length} differences: ${JSON.stringify(res.diffs.slice(0, 5))}`);
   assert.ok(res.boxes > 10000, `${res.boxes} element boxes compared`);
-  // glyph runs only where the design has them: page titles of the skins with their own display face
-  for (const g of res.glyphRuns) assert.match(g, /^(fieldbook|clearshell|woodgrain) · .* · H1/, g);
+  // no skin brings a display face any more, so no text may be set narrower anywhere
+  assert.deepEqual(res.glyphRuns, []);
   // readable: the account chip, Friends and the profile in classic and every skin
   assert.ok(res.contrast.checked > 1000, `${res.contrast.checked} texts checked`);
   assert.deepEqual(res.contrast.fails, [], `${res.contrast.fails.length} texts below 4.5:1 (3:1 large): ${JSON.stringify(res.contrast.fails.slice(0, 8))}`);

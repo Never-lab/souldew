@@ -127,7 +127,6 @@ export function SkinSetting({ cfg, save }) {
       ${!pack.loading && html`<button type="button" class="btn small go" onClick=${() => openPlus({ reason: 'skin', id: locked })}>${t('skin.getPlus', 'Get souldew+')}</button>`}
     </div>`}
     ${ended && !previewName && !lockedName && html`<p class="small faint" role="status">${t('skin.previewEnded', 'The preview has ended – your own theme is back.')}</p>`}
-    ${group(t('skin.editions', 'Editions'), skins.filter((k) => k.group === 'editions'), false)}
     ${group(t('skin.dark', 'Colours · dark'), skins.filter((k) => k.group === 'dark'), true)}
     ${group(t('skin.light', 'Colours · light'), skins.filter((k) => k.group === 'light'), true)}
     ${cfg.skin && s.pending && !pack.loading && !pack.entitled && html`<p class="small faint">${t('skin.pending', 'Your theme {name} is back as soon as souldew+ is active on this computer again.', { name: byId[s.pending]?.name || s.pending })}</p>`}

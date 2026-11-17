@@ -20,7 +20,8 @@ const resolved = new Map();
 const injectedGen = { gen: -1 };
 
 const root = () => (typeof document !== 'undefined' ? document.documentElement : null);
-const norm = (id) => (!id || id === 'classic' ? null : String(id));
+/** null = classic. A skin the catalog doesn't have (any more – the 2.x editions were dropped in 3.0) is classic too. */
+const norm = (id) => (!id || id === 'classic' || !CATALOG.skins.some((s) => s.id === String(id)) ? null : String(id));
 
 function emit() {
   for (const fn of [...listeners]) {
@@ -120,7 +121,7 @@ export function onSkinChange(fn) {
   return () => listeners.delete(fn);
 }
 
-/** The catalog's skins: { id, name, hint, group: 'editions' | 'dark' | 'light', plus, launch, sw, owned, available } */
+/** The catalog's skins: { id, name, hint, group: 'dark' | 'light', plus, launch, sw, owned, available } */
 export function listSkins() {
   return CATALOG.skins.map((s) => ({ id: s.id, name: s.name, hint: s.hint, group: s.group, plus: s.plus, launch: s.launch, sw: s.sw, owned: owned('skins', s.id), available: has('skins', s.id) }));
 }

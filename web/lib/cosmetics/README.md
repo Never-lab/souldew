@@ -12,7 +12,7 @@ Import from `index.mjs` (plain functions) and `components.mjs` (Preact). Treat t
 |---|---|
 | `applySkin(id \| null)` | Commits the player's skin. `null` or `'classic'` is the look the app ships with. Returns `false` while the skin isn't owned yet: the wish is remembered and applied once the pack is loaded and owns it. Persisting the choice is the caller's job (`save({ skin })`, config key `skin`). |
 | `previewSkin(id)` / `endPreview()` | Tries a skin on the whole app without saving it, then puts the committed one back. Settings calls `endPreview()` when it unmounts. `previewSkin` returns `false` when that skin's stylesheet isn't in memory. |
-| `listSkins()` | `[{ id, name, hint, group: 'editions' \| 'dark' \| 'light', plus, launch, sw, owned, available }]`. `launch` is the launch animation that comes with the skin, or `null`. |
+| `listSkins()` | `[{ id, name, hint, group: 'dark' \| 'light', plus, launch, sw, owned, available }]` – classic and the colour skins (souldew+ themes are colour only; an id the catalog doesn't have, e.g. a 2.x edition still in someone's config, is classic). `launch` is the launch animation that comes with the skin, or `null`. |
 | `skinState()` / `onSkinChange(fn)` | `{ committed, pending, previewing, visible }`. |
 
 ### Banners, nameplates, frames
@@ -95,7 +95,7 @@ envelope       one per file, made by the service per account at download time:
 - *Previews.* A preview pack is just another signed manifest (stylesheets + images ≤ 512 px, no `contents.json`) with
   a key for that preview only – no second container format.
 
-**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (with `url('pack:fonts/…')` / `pack:assets/…`), `fonts/*.woff2`, `assets/*.svg`, `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css`, the editions' fonts (`fonts/*.woff2`, the same OFL files as the full pack, so a preview lays out exactly like the skin) and `assets/*.png` (≤ 512 px).
+**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (colour only today; the format still allows `url('pack:fonts/…')` / `pack:assets/…` with `fonts/*.woff2`, `assets/*.svg`), `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css` (the service would also take `fonts/*.woff2` and `assets/*.png` ≤ 512 px, but the colour skins need neither).
 
 **Verification order (`openPack`):**
 1. Ed25519 over the manifest bytes against a pinned key (`pack/keys.mjs`: the owner's production key – the local server checks it too before it downloads anything; a dev key only when the local server offers one – `SLS_PLUS_DEV_PACK`, or `SLS_PLUS_DEV_KEY` with a service on this computer, never in a packaged build).
@@ -120,7 +120,7 @@ Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fo
 - the public catalog (`content/catalog.mjs`: names, collections, rarities, swatches, pairings).
 
 **Pack:**
-- 20 skins (with their fonts and the Clearshell board art);
+- 16 colour skins (colour only – no fonts, no art);
 - 133 banners (125 at launch plus 8 monthly drops) with their nameplate windows;
 - 71 frames;
 - 13 launch animations.

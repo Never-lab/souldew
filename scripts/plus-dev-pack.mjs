@@ -5,9 +5,9 @@
 //        the pack SOURCE folders, unsigned: the input of the owner's pack tool (souldew-accounts tools/pack-build.mjs),
 //        which signs them offline with the production key – the app never sees that key.
 //          <source>          contents.json, banners.json, frames.mjs, launch.mjs, skins/*.css, fonts/*.woff2, assets/*
-//          <preview-source>  the live theme preview pack (--kind preview): skin stylesheets, the editions' OFL fonts
-//                            (fonts/*.woff2 – the same files as the full pack, so a preview sets the same text) and their
-//                            art as PNG at most 512 px – nothing else
+//          <preview-source>  the live theme preview pack (--kind preview): the skin stylesheets – nothing else (the
+//                            colour skins need no fonts or art; the builder would still carry fonts/*.woff2 and art as
+//                            PNG ≤ 512 px if a skin referenced them, within the service's limits)
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --out <dir>      a TEST pack to try the whole path locally:
 //        signed with a throwaway dev key (dev-signing.key, kept so later builds keep the same identity) and sealed per file
 //        for a throwaway account key – sealed-pack/, sealed-preview/, access.json, access-preview.json. Then start the
@@ -54,14 +54,27 @@ const enc = new TextEncoder();
 const imp = (p) => import(pathToFileURL(join(DESIGN, p)).href);
 
 // ------------------------------------------------------------------ sources
-const SKINS = JSON.parse(readFileSync(join(DESIGN, 'themes', 'skins.json'), 'utf8'));
+// souldew+ themes are COLOUR skins only (the owner's decision for 3.0): the rich "editions" of the design sources
+// (kind "rich": Fieldbook, Clearshell, Woodgrain & Brass, Enamel) are not part of the app, the catalog or any pack.
+const SKINS_ALL = JSON.parse(readFileSync(join(DESIGN, 'themes', 'skins.json'), 'utf8'));
+const SKINS = SKINS_ALL.filter((s) => s.kind === 'classic' || s.kind === 'colour');
+const DROPPED_SKINS = new Set(SKINS_ALL.filter((s) => !SKINS.includes(s)).map((s) => s.id));
+/** pairings keep only the skins that exist */
+const livePairs = (list) => [].concat(list || []).filter((id) => !DROPPED_SKINS.has(id));
 const B = await imp('banners/recipes/index.mjs');
 const F = await imp('frames/recipes/index.mjs');
 const L = await imp('launch/anims/index.mjs');
 
-// launch animations that come with a skin (launch/README.md › "Suggested packaging")
-const SKIN_LAUNCH = { fieldbook: 'two-ink', moss: 'cedar-lid', dusk: 'tile-bloom', clearshell: 'tile-bloom' };
-const LAUNCH_PAIRS = { 'two-ink': ['fieldbook'], 'fold-away': ['fieldbook'], 'cedar-lid': ['moss'], gust: ['moss'], 'tile-bloom': ['dusk', 'clearshell'], hourglass: ['dusk'] };
+// launch animations that come with a skin (launch/README.md › "Suggested packaging"; Fieldbook's two paper-and-ink
+// animations went to Soft Light when the editions were dropped – the animations themselves stay)
+const SKIN_LAUNCH = { 'soft-light': 'two-ink', moss: 'cedar-lid', dusk: 'tile-bloom' };
+const LAUNCH_PAIRS = { 'two-ink': ['soft-light'], 'fold-away': ['soft-light'], 'cedar-lid': ['moss'], gust: ['moss'], 'tile-bloom': ['dusk'], hourglass: ['dusk'] };
+const LAUNCH_COLLECTION = { 'two-ink': 'Soft Light skin', 'fold-away': 'Soft Light skin' };
+// the Theme Matches banners of the dropped editions stay, as ordinary banners in the collection closest to their art
+const BANNER_REHOME = {
+  'field-notes': 'wild', 'pressed-flowers': 'seasons', 'cyanotype-plate': 'fields', 'trace-current': 'console',
+  'amber-readout': 'console', 'walnut-and-brass': 'console', 'enamel-pins': 'wild',
+};
 
 /** a few colours of a palette for the locked card's swatch strip (no art – just the mood) */
 const swatch = (pal, n = 6) => {
@@ -76,6 +89,12 @@ function assertData(v, where) {
   if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) assertData(x, `${where}.${k}`);
 }
 
+for (const b of B.BANNERS) {
+  if (b.pairsWith) b.pairsWith = livePairs(b.pairsWith);
+  if (BANNER_REHOME[b.id] && b.set === 'themes' && !b.pairsWith?.length) b.set = BANNER_REHOME[b.id];
+  if (b.set === 'themes' && !b.pairsWith?.length) throw new Error(`banner ${b.id}: a Theme Match without a skin – give it a collection in BANNER_REHOME`);
+}
+for (const f of F.FRAMES) if (f.pairsWith) f.pairsWith = livePairs(f.pairsWith);
 const bannerByName = new Map(B.BANNERS.map((b) => [b.name, b.id]));
 const freeBanners = B.BANNERS.filter((b) => b.set === 'basics');
 const plusBanners = B.BANNERS.filter((b) => b.set !== 'basics');
@@ -140,7 +159,7 @@ const collName = (list, id) => list.find((c) => c.id === id)?.name || id;
 function catalogData() {
   const skins = SKINS.map((s) => ({
     id: s.id, name: s.name, hint: s.hint, plus: s.kind !== 'classic',
-    group: s.kind === 'colour' ? s.tone : 'editions', tone: s.tone, sw: s.sw, launch: SKIN_LAUNCH[s.id] || null,
+    group: s.tone === 'light' ? 'light' : 'dark', tone: s.tone, sw: s.sw, launch: SKIN_LAUNCH[s.id] || null,
   }));
   const bannerPairs = (b) => (b.pairsWith ? [].concat(b.pairsWith) : []);
   const banners = B.BANNERS.map((b) => ({
@@ -152,7 +171,7 @@ function catalogData() {
     pair: f.pair ? bannerByName.get(f.pair) || null : null, sw: swatch(f.pal),
   }));
   const launch = [{ id: 'cartridge', name: 'Cartridge', collection: 'basics', rarity: 'free', plus: false, pairsWith: [], dur: 1.5, revealAt: 0.9 },
-    ...plusAnims.map((a) => ({ id: a.id, name: a.name, collection: a.collection.replace(/^Basics · /, ''), rarity: 'rare', plus: true, pairsWith: LAUNCH_PAIRS[a.id] || [], dur: a.dur, revealAt: a.revealAt, sw: swatch(Object.fromEntries((a.pal || []).map((c, i) => [i, c]))) }))];
+    ...plusAnims.map((a) => ({ id: a.id, name: a.name, collection: LAUNCH_COLLECTION[a.id] || a.collection.replace(/^Basics · /, ''), rarity: 'rare', plus: true, pairsWith: LAUNCH_PAIRS[a.id] || [], dur: a.dur, revealAt: a.revealAt, sw: swatch(Object.fromEntries((a.pal || []).map((c, i) => [i, c]))) }))];
   const collections = {
     banners: B.COLLECTIONS.map((c) => ({ id: c.id, name: c.name.replace(/ \(free\)$/, '') })),
     frames: F.COLLECTIONS.map((c) => ({ id: c.id, name: c.name.replace(/ \(free\)$/, '') })),
@@ -209,11 +228,11 @@ function rasterize(svgFile, max) {
 }
 
 /**
- * The live theme preview pack: every skin's stylesheet with its fonts and its art as PNG of at most 512 px. The fonts are
- * the editions' own (SIL OFL 1.1 – free to pass on) and the same files as in the full pack: a preview sets its text in
- * exactly the faces the skin is made for, so it lays out exactly like the skin a member gets (test/skin-proof.test.mjs
- * proves it). The service checks the pack again when it is registered: stylesheets, PNG/WebP ≤ 512 px and WOFF2 fonts
- * (≤ 128 KiB each, ≤ 16 fonts, ≤ 512 KiB together) only – no banners, frames, launch animations or scripts.
+ * The live theme preview pack: every skin's stylesheet. The colour skins are colour only – no fonts, no art – so today
+ * the preview is stylesheets and nothing else. Should a skin reference a font or art again, the builder carries it
+ * (fonts as the same WOFF2 files as the full pack, art as PNG of at most 512 px) within what the service checks when the
+ * pack is registered: stylesheets, PNG/WebP ≤ 512 px and WOFF2 fonts (≤ 128 KiB each, ≤ 16 fonts, ≤ 512 KiB together)
+ * only – no banners, frames, launch animations or scripts.
  */
 const PREVIEW_FONT_MAX = 128 * 1024;
 const PREVIEW_FONTS_MAX = 16;

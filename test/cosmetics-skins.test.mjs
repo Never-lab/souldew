@@ -19,7 +19,7 @@ globalThis.localStorage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v
 const S = await import('../web/lib/cosmetics/state.mjs');
 const K = await import('../web/lib/cosmetics/skins.mjs');
 const html = document.documentElement;
-const packWith = (entitled, skins = ['moss', 'fieldbook']) => {
+const packWith = (entitled, skins = ['moss', 'sakura']) => {
   S.setContent({
     skinCss: skins.map((id) => [id, `html[data-skin='${id}'] { --shell: #123; } @font-face { font-family: X; src: url('pack:fonts/x.woff2') format('woff2'); } .y { background: url('pack:assets/missing.svg'); }`]),
     files: [['fonts/x.woff2', new Uint8Array([119, 79, 70, 50])]],
@@ -51,9 +51,9 @@ test('the pack assets become data: URLs (the app CSP allows data: fonts and imag
 test('preview → revert puts the committed skin back; the preview is never saved', () => {
   packWith(true);
   K.applySkin('moss');
-  assert.equal(K.previewSkin('fieldbook'), true);
-  assert.equal(html.dataset.skin, 'fieldbook');
-  assert.deepEqual([K.skinState().committed, K.skinState().previewing], ['moss', 'fieldbook']);
+  assert.equal(K.previewSkin('sakura'), true);
+  assert.equal(html.dataset.skin, 'sakura');
+  assert.deepEqual([K.skinState().committed, K.skinState().previewing], ['moss', 'sakura']);
   assert.equal(store.get('sl-skin'), 'moss');
   K.previewSkin('classic');
   assert.equal(html.dataset.skin, undefined, 'previewing the plain look');
@@ -76,25 +76,37 @@ test('without the membership a preview pack can preview but not keep', () => {
 
 test('the membership ends: back to classic, the choice is remembered for when it returns', () => {
   packWith(true);
-  K.applySkin('fieldbook');
-  assert.equal(html.dataset.skin, 'fieldbook');
+  K.applySkin('sakura');
+  assert.equal(html.dataset.skin, 'sakura');
   noPack();
   assert.equal(html.dataset.skin, undefined);
   assert.equal(styles.length, 0, 'premium CSS removed from the page');
-  assert.equal(K.skinState().pending, 'fieldbook');
+  assert.equal(K.skinState().pending, 'sakura');
   packWith(true);
-  assert.equal(html.dataset.skin, 'fieldbook');
+  assert.equal(html.dataset.skin, 'sakura');
 });
 
 test('listSkins: the catalog with groups, the souldew+ flag, owned / available', () => {
   packWith(true, ['moss']);
   const list = K.listSkins();
-  assert.equal(list.length, 21);
-  assert.deepEqual([...new Set(list.map((s) => s.group))].sort(), ['dark', 'editions', 'light']);
+  assert.equal(list.length, 17, 'classic and the 16 colour skins – no editions');
+  assert.deepEqual([...new Set(list.map((s) => s.group))].sort(), ['dark', 'light']);
   const classic = list.find((s) => s.id === 'classic');
   assert.deepEqual([classic.plus, classic.owned], [false, true]);
   const moss = list.find((s) => s.id === 'moss');
   assert.deepEqual([moss.plus, moss.owned, moss.available, moss.launch], [true, true, true, 'cedar-lid']);
-  assert.equal(list.find((s) => s.id === 'enamel').owned, false);
-  for (const s of list) assert.ok(s.name && s.sw.length >= 5 && ['editions', 'dark', 'light'].includes(s.group), s.id);
+  assert.equal(list.find((s) => s.id === 'glacier').owned, false);
+  for (const gone of ['fieldbook', 'clearshell', 'woodgrain', 'enamel']) assert.equal(list.some((s) => s.id === gone), false, `${gone} is not a souldew+ theme any more`);
+  for (const s of list) assert.ok(s.name && s.sw.length >= 5 && ['dark', 'light'].includes(s.group), s.id);
+});
+
+test('a stored theme the catalog no longer has (the 2.x editions) is classic – not a wish that waits forever', () => {
+  packWith(true, ['moss', 'fieldbook']);
+  store.set('sl-skin', 'fieldbook');
+  K.applyStoredSkin();
+  assert.equal(html.dataset.skin, undefined);
+  assert.deepEqual([K.skinState().committed, K.skinState().pending], ['classic', null]);
+  assert.equal(store.has('sl-skin'), false, 'forgotten');
+  assert.equal(K.applySkin('woodgrain'), true, 'classic is always owned');
+  assert.equal(K.skinState().pending, null);
 });

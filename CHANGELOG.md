@@ -72,8 +72,8 @@ Plus a new play view that gives the game the room it deserves.
   sessions use. New in Settings › Play › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
   original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver
   and Crystal are always in colour. The cartridge clock of Gold, Silver and Crystal carries over.
-- **souldew+ looks (groundwork).** Settings › General › Appearance gets a Theme row: souldew plus 20 themes in three
-  groups (Editions, Colours · dark, Colours · light). One click tries a theme on the whole app, “Back to …” or leaving
+- **souldew+ looks (groundwork).** Settings › General › Appearance gets a Theme row: souldew plus 16 colour themes in two
+  groups (Colours · dark, Colours · light). One click tries a theme on the whole app, “Back to …” or leaving
   Settings puts yours back – a theme only ever changes the look, never a box or a word (checked on every screen).
   Settings › Play gets a Launch animation row: the cartridge stays the free default, souldew+ adds animations that
   play over the game screen while it starts, never making the game wait. Banners, avatar frames and nameplates for
