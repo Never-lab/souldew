@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPlusPack, packUrlAllowed, GRACE_MS } from '../server/lib/pluspack.mjs';
 import { buildManifest, sealFile, makeSigner, b64url } from '../web/lib/cosmetics/pack/format.mjs';
-// the pinned production key is a placeholder: the tests sign with their own key and trust it through the keys module
+// the tests sign with throwaway keys (never the owner's) and trust them through the keys module
 // (the server checks the manifest signature before it stores anything, the page checks everything again)
 import * as K from '../web/lib/cosmetics/pack/keys.mjs';
 
@@ -346,7 +346,7 @@ test('client: offline grace – works from the cache for 7 days, then the cache 
 test('client: a pack that does not verify is wiped and never used', async () => {
   const p = await makePack();
   installFetch(p);
-  // the production key is still the placeholder: nothing verifies
+  // signed with a throwaway key, not the pinned production key: nothing verifies
   C.setPackAccessProvider(async () => access(p));
   await C.refreshPack();
   assert.equal(C.packState().entitled, false);

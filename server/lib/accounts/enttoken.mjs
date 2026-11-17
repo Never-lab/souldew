@@ -3,10 +3,10 @@
 // entitlement key. Only the token counts: every souldew+ decision of the app (pack key and pack access, the preview
 // offer, the badges shown for the own account) is made from its VERIFIED claims, never from the JSON next to it.
 //
-// The public key is pinned here, like the pack keys (web/lib/cosmetics/pack/keys.mjs). PRODUCTION_ENTITLEMENT_KEYS is a
-// placeholder until the owner generates the real key (souldew-accounts: node tools/keygen.mjs entitlement – the public
-// half it prints) and pastes it in: a placeholder never decodes to 32 bytes, so until then no token verifies and nobody
-// has souldew+ in the app (fail closed). Rotation: add the new key next to the old one, ship, switch the Worker's
+// The public key is pinned here, like the pack keys (web/lib/cosmetics/pack/keys.mjs): the owner's entitlement key
+// (souldew-accounts: node tools/keygen.mjs entitlement – the Worker's ENTITLEMENT_SIGNING_KEY), public half as base64url,
+// kid k59fr__FUE5V. An entry that isn't a real key never verifies anything (fail closed), and scripts/check-pinned-keys.mjs
+// stops a release while one is there. Rotation: add the new key next to the old one, ship, switch the Worker's
 // ENTITLEMENT_SIGNING_KEY, drop the old one later.
 //
 // A development / test key is trusted only when SLS_ACCOUNTS_DEV_ENT_KEY is set AND the app is not a packaged build AND
@@ -16,7 +16,7 @@ import { createHash, createPublicKey, verify as cryptoVerify } from 'node:crypto
 import { fileURLToPath } from 'node:url';
 import { accountsBase } from './contract.mjs';
 
-export const PRODUCTION_ENTITLEMENT_KEYS = ['REPLACE_WITH_PRODUCTION_ENTITLEMENT_PUBLIC_KEY'];
+export const PRODUCTION_ENTITLEMENT_KEYS = ['mP7NpP8pV7QjDJITvGFUgPNLUBjObblQQtUHWMyJjsM'];
 export const ENT_TYP = 'souldew-ent+jwt';
 export const ENT_AUD = 'souldew-entitlement';
 /** How far the computer's clock may be off from the service's (both ways) before a token counts as expired / not yet valid. */

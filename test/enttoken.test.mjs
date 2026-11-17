@@ -68,15 +68,15 @@ test('expired and clock skew: 5 minutes each way, offline the grace counts inste
   assert.equal(check(unlinked, { now: NOW + SKEW_S + 1, offline: true }).reason, 'grace');
 });
 
-test('the pinned key: a placeholder fails closed; a dev key only unpackaged, with a dev flag and a service on this computer', () => {
-  assert.ok(PRODUCTION_ENTITLEMENT_KEYS.every((k) => publicKey(k) === null), 'the production key is still the placeholder');
-  assert.deepEqual(entitlementKeys({ env: {}, packaged: false }), [], 'no key at all → nothing verifies');
-  assert.equal(verifyEntitlementToken(signer.sign(claims()), { keys: entitlementKeys({ env: {} }), iss: ISS, sub: 'u_robin', sid: 'ses_robin', now: NOW }).reason, 'key');
+test('the pinned key: the owner’s production key only; a dev key only unpackaged, with a dev flag and a service on this computer', () => {
+  assert.deepEqual(PRODUCTION_ENTITLEMENT_KEYS.map((k) => publicKey(k)?.kid), ['k59fr__FUE5V'], 'the owner’s entitlement key is pinned');
+  assert.deepEqual(entitlementKeys({ env: {}, packaged: false }).map((k) => k.kid), ['k59fr__FUE5V'], 'production: only that key');
+  assert.equal(verifyEntitlementToken(signer.sign(claims()), { keys: entitlementKeys({ env: {} }), iss: ISS, sub: 'u_robin', sid: 'ses_robin', now: NOW }).reason, 'key', 'a throwaway key is not trusted');
   const dev = { SLS_ACCOUNTS_DEV_ENT_KEY: signer.publicKey, SLS_ACCOUNTS_URL: 'http://127.0.0.1:8788' };
-  assert.equal(entitlementKeys({ env: dev, packaged: false }).length, 1);
-  assert.equal(entitlementKeys({ env: dev, packaged: true }).length, 0, 'never in a packaged build');
-  assert.equal(entitlementKeys({ env: { SLS_ACCOUNTS_DEV_ENT_KEY: signer.publicKey }, packaged: false }).length, 0, 'never with the production service');
-  assert.equal(entitlementKeys({ env: { ...dev, SLS_ACCOUNTS_URL: 'https://evil.example' }, packaged: false }).length, 0, 'never with a service elsewhere');
-  assert.equal(publicKey('AAAA'), null);
+  assert.equal(entitlementKeys({ env: dev, packaged: false }).length, 2);
+  assert.equal(entitlementKeys({ env: dev, packaged: true }).length, 1, 'never in a packaged build');
+  assert.equal(entitlementKeys({ env: { SLS_ACCOUNTS_DEV_ENT_KEY: signer.publicKey }, packaged: false }).length, 1, 'never with the production service');
+  assert.equal(entitlementKeys({ env: { ...dev, SLS_ACCOUNTS_URL: 'https://evil.example' }, packaged: false }).length, 1, 'never with a service elsewhere');
+  assert.equal(publicKey('AAAA'), null, 'something that isn’t a key never verifies (fail closed)');
   assert.equal(isPackagedBuild('/Applications/souldew.app/Contents/Resources/app/server/lib/accounts/enttoken.mjs'), false, 'not inside this process’ resources');
 });

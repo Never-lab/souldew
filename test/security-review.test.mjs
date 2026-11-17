@@ -256,8 +256,9 @@ test('#8 an unsigned pack is never downloaded or stored; pack URLs only on the a
 
 test('#9 the release gate: a packaged build stops while a pinned souldew+ key is a placeholder', async () => {
   const { pinnedKeyProblems } = await import('../scripts/check-pinned-keys.mjs');
-  assert.equal(pinnedKeyProblems().length, 2, 'both production keys are still placeholders in this repository');
+  assert.deepEqual(pinnedKeyProblems(), [], 'the owner’s pack and entitlement keys are pinned');
   const real = 'O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik';
   assert.deepEqual(pinnedKeyProblems({ pack: [real], entitlement: [real] }), []);
+  assert.equal(pinnedKeyProblems({ pack: ['REPLACE_WITH_PRODUCTION_PACK_PUBLIC_KEY'], entitlement: [real] }).length, 1, 'a placeholder fails');
   assert.equal(pinnedKeyProblems({ pack: [], entitlement: [real] }).length, 1, 'an empty list fails too');
 });
