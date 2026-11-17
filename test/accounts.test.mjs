@@ -152,6 +152,11 @@ test('clean: answers become plain shapes – unknown fields, bad avatars, raw co
   assert.throws(() => mePatch({ hack: 1 }), /Nothing to change/);
   assert.equal(imageType(Buffer.from('<svg onload=alert(1)>          ')), null);
   assert.equal(shortGameTitle('Pokémon Yellow Version: Special Pikachu Edition'), 'Yellow');
+  // whatever follows "Version" stays: the sequels are not their originals
+  assert.equal(shortGameTitle('Pokémon Black Version 2'), 'Black 2');
+  assert.equal(shortGameTitle('Pokémon White Version 2'), 'White 2');
+  assert.equal(shortGameTitle('Pokémon Black Version'), 'Black');
+  assert.equal(shortGameTitle('Pokémon Ultra Sun'), 'Ultra Sun');
 });
 
 test('the service address: https, or http only on this computer; the default otherwise', () => {
@@ -614,4 +619,18 @@ test('signed out: nothing leaves the computer and the rest of the app answers as
   assert.equal(s.status, 200);
   assert.ok(Array.isArray(s.body.runs));
   assert.equal((await a.get('/api/account/diagnostics')).body.signedIn, false);
+});
+
+test('short game names (profile stats, presence, invites): every game keeps a name of its own', () => {
+  const games = JSON.parse(readFileSync(join(import.meta.dirname, '..', 'shared', 'data', 'catalog.json'), 'utf8')).games.filter((g) => !g.variantOf);
+  const names = new Map();
+  for (const g of games) {
+    const n = social.shortGameName(g.title);
+    assert.ok(n && !/Pok[eé]mon|Version/i.test(n), `${g.title} → ${n}`);
+    assert.equal(shortGameTitle(g.title), n, 'the server uploads the same name the page shows');
+    assert.ok(!names.has(n) || names.get(n) === g.title, `${g.title} and ${names.get(n)} both become "${n}"`);
+    names.set(n, g.title);
+  }
+  assert.equal(social.shortGameName('Pokémon Black Version 2'), 'Black 2');
+  assert.equal(social.shortGameName('Pokémon White Version 2'), 'White 2');
 });

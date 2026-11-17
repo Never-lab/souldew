@@ -7,6 +7,7 @@ import { reportPresence } from './account.mjs';
 import { gameById, hackById } from './data.mjs';
 import { locationName } from './run.mjs';
 import { slotsOf, runMode } from '/shared/slots.mjs';
+import { shortGameName } from '/shared/social.mjs';
 
 const ASK_KEY = 'sl-ask-to-join';
 /** "Friends may ask to join my SoulLink when a seat is free" (Settings › Account) – a choice of this computer. */
@@ -25,13 +26,13 @@ export function setAskToJoin(on) {
   }
 }
 
-/** "Pokémon Emerald Version" → "Emerald"; a hack by its own name. */
+/** "Pokémon Emerald Version" → "Emerald", "Pokémon Black Version 2" → "Black 2"; a hack by its own name. */
 export function shortTitle({ gameId, hackId, title } = {}) {
   const h = hackId ? hackById(hackId) : null;
   if (h) return h.name;
   const g = gameId ? gameById(gameId) : null;
   const t = g?.title || title || '';
-  return String(t).replace(/^Pok[eé]mon\s+/i, '').replace(/\s+Version\b.*$/i, '').replace(/:.*$/, '').trim().slice(0, 60);
+  return Array.from(shortGameName(t)).slice(0, 60).join('');
 }
 
 /**

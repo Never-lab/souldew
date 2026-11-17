@@ -8,13 +8,13 @@ import { join } from 'node:path';
 import { runDir } from '../build.mjs';
 import { catalog } from '../library.mjs';
 import { runDigests, unlockedAchievements } from '../trophies.mjs';
-import { cleanText, withoutFileNames, RUN_NAME_MAX } from '../../../shared/social.mjs';
+import { cleanText, withoutFileNames, shortGameName, RUN_NAME_MAX } from '../../../shared/social.mjs';
 
 const clamp = (n) => Math.max(0, Math.min(10000000, Math.round(Number(n) || 0)));
 
-/** "Pokémon Emerald Version" → "Emerald" (a hack keeps its own name). */
+/** "Pokémon Emerald Version" → "Emerald", "Pokémon Black Version 2" → "Black 2" (a hack keeps its own name). */
 export function shortGameTitle(title) {
-  return cleanText(String(title || '').replace(/^Pok[eé]mon\s+/i, '').replace(/\s+Version\b.*$/i, '').replace(/:.*$/, ''), 60);
+  return cleanText(shortGameName(title), 60);
 }
 
 function gameTitleOf(d) {

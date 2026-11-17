@@ -17,6 +17,15 @@ export const RUN_NAME_MAX = 40;
 // eslint-disable-next-line no-control-regex -- control characters are exactly what this strips
 const INVISIBLE = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff\ufff9-\ufffb]/g;
 
+/**
+ * A game's short name for profiles, presence and invites: without "Pokémon", the word "Version" and a subtitle after a
+ * colon – but with whatever else follows "Version": "Pokémon Emerald Version" → "Emerald", "Pokémon Black Version 2" →
+ * "Black 2", "Pokémon Yellow Version: Special Pikachu Edition" → "Yellow", "Pokémon Ultra Sun" → "Ultra Sun".
+ */
+export function shortGameName(title) {
+  return String(title || '').replace(/^Pok[eé]mon\s+/i, '').replace(/:.*$/s, '').replace(/\s+Version\b/gi, '').replace(/\s+/g, ' ').trim();
+}
+
 /** Plain text of at most `max` characters (by code point) – never null. */
 export function cleanText(v, max = 80) {
   if (typeof v !== 'string') return '';
