@@ -1,8 +1,10 @@
-// Settings › General: language, name, start-up animations, app sounds, the welcome tour, the colour scheme.
+// Settings › General: language, name, start-up animations, app sounds, the welcome tour, the colour scheme and the
+// souldew+ theme.
 import { html, useState, useEffect } from '/vendor/htm-preact.mjs';
 import { t, LANGS, setLang, currentLang } from '../../lib/i18n.mjs';
 import { applyTheme } from '../../lib/theme.mjs';
 import { Item, Group, Check } from './parts.mjs';
+import { SkinSetting } from './cosmetics.mjs';
 
 const THEMES = () => [
   ['classic', t('theme.classic', 'Classic'), t('theme.classicHint', 'Dark, the original colours')],
@@ -49,5 +51,6 @@ export function GeneralSection({ cfg, save }) {
     <//>
     <${Group} title=${t('set.appearance', 'Appearance')} note=${t('set.themeText', 'Colour scheme of the whole app. The colour-blind schemes replace the green/red signals (alive, dead, warnings) with colours that stay apart with that colour vision.')}>
       <${Item} id="theme"><${ThemePicker} value=${cfg.theme} onPick=${(id) => save({ theme: id })} /><//>
+      <${Item} id="skin"><${SkinSetting} cfg=${cfg} save=${save} /><//>
     <//>`;
 }

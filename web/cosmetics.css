@@ -1,0 +1,106 @@
+/* souldew+ cosmetics: the theme and launch pickers in Settings, the souldew+ mark, and the banner / frame / nameplate
+   components (web/lib/cosmetics/components.mjs). Every rule here is app UI; the skins themselves come from the pack. */
+
+/* the quiet souldew+ mark – one fixed gold on every skin (a light skin's dark --warn would hide the plus) */
+.plus-mark { display: inline-grid; place-items: center; flex: none; width: 18px; height: 18px; border-radius: 5px; color: #1b1a1f; background: #e1b05a;
+  box-shadow: inset 0 -1px 0 #0003, 0 0 0 1px #0000001a; line-height: 0; }
+.plus-mark svg { display: block; }
+
+/* ---- Settings › General › Appearance › Theme (themes design v3, picker.css) ---- */
+.skin-picker-head { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.skin-card { position: relative; }
+.skin-card .plus-mark { position: absolute; top: 10px; right: 10px; }
+.theme-card.previewing { border-color: var(--warn); box-shadow: 0 0 0 1px var(--warn), 0 0 0 4px color-mix(in srgb, var(--warn) 18%, transparent); }
+.skin-preview-bar { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; margin-top: 10px; border-radius: var(--r-m); font-size: 13.5px;
+  background: color-mix(in srgb, var(--warn) 9%, var(--shell-3)); border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--edge)); }
+.skin-preview-bar .spacer { flex: 1; }
+.skin-preview-bar .led { flex: none; }
+.skin-group { display: grid; gap: 6px; margin-top: 10px; }
+.skin-group-label { padding-left: 2px; }
+.skin-picker.compact { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 8px; }
+.skin-card.compact { padding: 9px 10px 10px; gap: 6px; }
+.skin-card.compact .theme-swatches { gap: 0; margin-bottom: 0; border-radius: 5px; overflow: hidden; box-shadow: inset 0 0 0 1px #0004; }
+.skin-card.compact .theme-swatches .sw { flex: 1; width: auto; height: 14px; border-radius: 0; box-shadow: none; }
+.skin-card.compact b { font-size: 13px; font-weight: 600; padding-right: 22px; }
+.skin-card.compact .plus-mark { top: auto; bottom: 9px; right: 9px; }
+
+/* ---- Settings › Play › Launch animation ---- */
+.launch-picker { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 14px; align-items: start; }
+.launch-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; align-content: start; }
+.launch-card { position: relative; display: grid; gap: 3px; text-align: left; padding: 9px 10px 10px; border-radius: var(--r-l); background: var(--shell-3);
+  border: 1px solid var(--edge); color: var(--ink); font: inherit; cursor: pointer; }
+.launch-card:hover { border-color: var(--edge-hi); }
+.launch-card.on { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.launch-card b { font-size: 13px; font-weight: 600; padding-right: 22px; }
+.launch-card .hint { font-size: 12px; color: var(--ink-2); }
+.launch-card .plus-mark { position: absolute; top: 9px; right: 9px; }
+.launch-stage { display: grid; gap: 8px; justify-items: stretch; }
+.launch-screen { position: relative; aspect-ratio: 240 / 160; border-radius: var(--r-m); overflow: hidden; background: #000;
+  box-shadow: 0 0 0 1px var(--edge), inset 0 0 0 1px #0008; }
+.launch-screen > canvas { image-rendering: pixelated; }
+.launch-screen .cart-insert { position: absolute; inset: 0; z-index: 1; overflow: hidden; }
+.launch-screen .ci-stage { transform: scale(.34); }
+.launch-stage .btn { justify-self: start; }
+@media (max-width: 760px) { .launch-picker { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---- components ---- */
+.cos-art-host { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; pointer-events: none; }
+.cos-banner { position: relative; overflow: hidden; width: 100%; background: var(--shell-3); }
+.cos-banner--profile { height: 160px; border-radius: var(--r-l); box-shadow: inset 0 0 0 1px #0007, 0 1px 0 #ffffff08; }
+.cos-banner--friend { height: 92px; }
+.cos-banner--card { height: 54px; border-radius: var(--r-m); }
+.cos-banner--fill { height: 100%; }
+/* the fade under the name: mixed from the skin's own surface, so a paper skin fades to paper instead of smudging the
+   banner dark (the design's fixed #1b1a1fcc did that on every light skin) */
+.cos-banner.cos-shade::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(180deg, transparent 40%, color-mix(in srgb, var(--shell) 80%, transparent)); }
+.cos-banner--friend.cos-shade::after { background: linear-gradient(180deg, transparent 30%, var(--shell-2)); }
+.cos-banner > :not(.cos-art-host):not(.cos-ph) { position: relative; z-index: 1; }
+/* no content (locked, or the pack isn't loaded): the banner's palette as a quiet strip, never a broken box */
+.cos-ph { position: absolute; inset: 0; background: var(--cos-sw, var(--shell-3)); opacity: .55; border-radius: inherit;
+  -webkit-mask: repeating-linear-gradient(90deg, #000 0 2px, #0009 2px 4px); mask: repeating-linear-gradient(90deg, #000 0 2px, #0009 2px 4px); }
+
+.cos-frame { --av: 40px; position: relative; display: inline-block; flex: none; width: var(--av); height: var(--av); vertical-align: middle; }
+.cos-frame > img { display: block; width: 100%; height: 100%; border-radius: 26%; image-rendering: pixelated; }
+.cos-frame > canvas.sd-frame { z-index: 1; }
+/* a presence dot or badge after the img stays above the frame, however Preact orders the nodes */
+.cos-frame > :not(img):not(canvas) { z-index: 2; }
+
+.cos-nameplate { position: relative; isolation: isolate; }
+.cos-nameplate > .cos-art-host { z-index: -1; }
+
+/* ---- the profile editor's picker ---- */
+.cos-picker { display: grid; gap: 12px; }
+.cos-picker-head { align-items: center; gap: 12px; }
+.cos-picker-note { display: inline-flex; align-items: center; gap: 6px; }
+.cos-group { display: grid; gap: 6px; }
+.cos-group-label { padding-left: 2px; }
+.cos-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(176px, 1fr)); gap: 8px; }
+.cos-picker--frames .cos-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
+.cos-pick { position: relative; display: grid; gap: 7px; text-align: left; padding: 8px; border-radius: var(--r-l); background: var(--shell-3);
+  border: 1px solid var(--edge); color: var(--ink); font: inherit; cursor: pointer; min-width: 0; }
+.cos-pick:hover { border-color: var(--edge-hi); }
+.cos-pick.on { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.cos-pick-art { position: relative; display: block; height: 54px; border-radius: var(--r-m); overflow: hidden; background: var(--shell-2); }
+.cos-picker--frames .cos-pick-art { height: 92px; display: grid; place-items: center; overflow: visible; }
+.cos-pick-art .cos-banner--card { height: 100%; }
+.cos-pick-text { display: grid; gap: 2px; min-width: 0; padding-right: 20px; }
+.cos-pick-text b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cos-pick-meta { display: flex; flex-wrap: wrap; column-gap: 6px; row-gap: 1px; align-items: baseline; color: var(--ink-2); min-width: 0; }
+.cos-pick .plus-mark { position: absolute; right: 8px; bottom: 9px; }
+.cos-pick.locked .cos-pick-art { filter: saturate(.8); }
+.cos-rarity.r-common { color: var(--ink-2); } .cos-rarity.r-rare { color: var(--crs); } .cos-rarity.r-epic { color: var(--p4, #a993e6); } .cos-rarity.r-legendary { color: var(--warn); }
+.cos-pair { color: var(--ok-ink, var(--tri)); }
+.cos-pick-frame { display: grid; place-items: center; }
+.cos-pick-av { display: block; width: 100%; height: 100%; border-radius: 26%; background: linear-gradient(160deg, var(--shell-4, #3a3942), var(--shell-2)); box-shadow: 0 0 0 1px #0d0c10; }
+.cos-pick-plate { display: flex; align-items: center; gap: 10px; height: 100%; padding: 0 10px; }
+.cos-pick-plate .cos-pick-av { width: 30px; height: 30px; flex: none; }
+.cos-pick-plate b { font-size: 13px; }
+.cos-pick--none .cos-pick-art { background: repeating-linear-gradient(135deg, var(--shell-2) 0 6px, var(--shell-3) 6px 12px); }
+
+@media (prefers-reduced-motion: reduce) { .cos-pick, .launch-card { transition: none; } }
+.plus-note { display: inline-flex; align-items: center; gap: 6px; }
+.launch-title { font-size: 13px; color: var(--ink-2); }
+
+/* ---- the play view: a souldew+ launch animation over the game box (views/launch.mjs) ---- */
+.console-screen .launch-host { position: absolute; inset: 0; z-index: 4; border-radius: inherit; overflow: hidden; }

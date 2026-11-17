@@ -1,23 +1,39 @@
-// ============================================================================================================
-// STUB – replaced at merge by the real cosmetics module of branch feat/plus-cosmetics (web/lib/cosmetics/index.mjs).
-// Only the names the account screens use, with the real module's signatures (its README › Public interface).
-// ============================================================================================================
+// souldew+ cosmetics – the public interface (README.md in this folder documents every name; keep them stable, the
+// profile / friends UI and the account client import them).
+import { CATALOG, state, onChange, owned, has } from './state.mjs';
 
-let provider = null;
-let plusHandler = null;
-export const applySkin = () => false;
-export const listSkins = () => [];
-export const catalog = () => ({ banners: [], frames: [], nameplates: [], skins: [], launch: [], collections: { banners: [], frames: [] } });
-export const packState = () => ({ entitled: false, preview: false, until: null, packVersion: null, loading: false, error: null });
-export const refreshPack = async () => (provider ? provider({ purpose: 'pack' }) : null);
-export const forgetPack = async () => {};
-/** The account client's hook (lib/account.mjs cosmeticsPackAccess). */
-export function setPackAccessProvider(fn) {
-  provider = typeof fn === 'function' ? fn : null;
+export { applySkin, previewSkin, endPreview, listSkins, skinState, onSkinChange, applyStoredSkin } from './skins.mjs';
+export { mountBanner, mountNameplate, bannerStats } from './banners/runtime.mjs';
+export { mountFrame, frameStats, sizing as frameSizing } from './frames/runtime.mjs';
+export { playLaunch, previewLaunch, launchAvailable, layoutKey } from './launch/player.mjs';
+export { refreshPack, forgetPack, packState, setPackAccessProvider, getPackAccess, GRACE_MS } from './pack/client.mjs';
+export { setReducedMotion } from './motion.mjs';
+export { setPlusHandler, openPlus } from './plus.mjs';
+export { onChange, owned, has };
+
+const KINDS = ['banners', 'frames', 'nameplates', 'skins', 'launch'];
+const RARITY = ['free', 'common', 'rare', 'epic', 'legendary'];
+
+/**
+ * Everything there is, owned or not – for pickers and profile editors:
+ *   { banners, frames, nameplates, skins, launch: [{ id, name, collection, collectionName, rarity, pairsWith, plus,
+ *     owned, available, sw, … }], collections: { banners, frames } }
+ * owned: usable now (free, or souldew+ with the pack loaded). available: its content is in memory (owned or preview).
+ */
+export function catalog() {
+  const tag = (kind, list) => list.map((x) => ({ ...x, owned: owned(kind, x.id), available: has(kind, x.id) }));
+  const nameplates = CATALOG.banners.map((b) => ({ id: b.id, name: b.name, collection: b.collection, collectionName: b.collectionName, rarity: b.rarity, pairsWith: b.pairsWith, plus: b.plus, sw: b.sw }));
+  return {
+    banners: tag('banners', CATALOG.banners),
+    frames: tag('frames', CATALOG.frames),
+    nameplates: tag('nameplates', nameplates),
+    skins: tag('skins', CATALOG.skins),
+    launch: tag('launch', CATALOG.launch),
+    collections: CATALOG.collections,
+  };
 }
-export const getPackAccess = (opts = {}) => (provider ? provider(opts) : Promise.resolve(null));
-export function setPlusHandler(fn) {
-  plusHandler = typeof fn === 'function' ? fn : null;
-}
-export const openPlus = (info = {}) => plusHandler?.(info);
-export const onChange = () => () => {};
+
+export const COSMETIC_KINDS = KINDS;
+export const RARITIES = RARITY;
+/** current generation of loaded content (changes when a pack loads or is wiped) */
+export const contentGeneration = () => state.generation;

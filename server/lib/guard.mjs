@@ -49,6 +49,8 @@ export const PRIVATE_GETS = [
   /^\/live\/soullink\.lua$/,
   // the souldew account: profile, friends, invites, entitlements (and the avatars, which an <img> loads same-origin)
   /^\/api\/account(\/.*)?$/,
+  // souldew+: the account's encrypted pack and the dev pack's key
+  /^\/api\/plus\/(pack|pack\/meta|dev\/access)$/,
 ];
 
 /**

@@ -44,6 +44,7 @@ import { randomBytes } from 'node:crypto';
 import { syncTrophies } from './lib/trophies.mjs';
 import * as liveRuns from './lib/liveruns.mjs';
 import { createAccounts } from './lib/accounts/index.mjs';
+import { createPlusPack, plusRoutes } from './lib/pluspack.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -94,6 +95,9 @@ function discordWebhookFor(runId) {
   const hook = loadConfig().discordWebhooks?.[runId];
   return typeof hook === 'string' && isDiscordWebhook(hook) ? hook : '';
 }
+
+/** A souldew+ skin / launch animation id as the catalog writes them – anything else is no choice at all. */
+const validSkinId = (v) => (typeof v === 'string' && /^[a-z0-9][a-z0-9-]{0,39}$/.test(v) ? v : null);
 
 function send(res, status, body, headers = {}) {
   const isBuf = Buffer.isBuffer(body) || body instanceof Uint8Array;
@@ -842,6 +846,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   const accounts = createAccounts({ secure: secureStore, port: () => server.address()?.port, emit, openExternal, focus, lang: () => loadConfig().lang || 'en' });
   routes.push(...accounts.routes);
   route('GET', /^\/api\/account\/diagnostics$/, () => accounts.diagnostics());
+  // ---- souldew+ premium pack: the encrypted cache (server/lib/pluspack.mjs – never decrypted or run here) ----
+  const plusPack = createPlusPack({ dir: join(DATA_DIR, DEV ? 'runs/.plus' : 'plus') });
+  plusRoutes(route, plusPack, readBody);
 
   // ---- status & config ------------------------------------------------------------
   route('GET', /^\/api\/status$/, () => {
@@ -888,7 +895,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         ctrRenderer: validRenderer(config.ctrRenderer),
         ctrScale: validScale(config.ctrScale),
         wholePixels: config.wholePixels === true,
+        skin: validSkinId(config.skin),
+        launchAnimation: validSkinId(config.launchAnimation) || 'cartridge',
       },
+      plusDev: plusPack.dev,
     };
   });
 
@@ -897,7 +907,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation']) {
       if (k in body) allowed[k] = body[k];
     }
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
@@ -910,6 +920,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     // the joke license window (web/lib/nag.mjs): launch count + when it last showed, and its off switch
     if ('nagOff' in allowed) allowed.nagOff = allowed.nagOff === true;
     if ('wholePixels' in allowed) allowed.wholePixels = allowed.wholePixels === true;
+    // souldew+ look (web/lib/cosmetics): an id from the catalog – whether the account owns it is the page's business
+    // (the pack is only there when it does); the config just must not hold anything but an id
+    if ('skin' in allowed) allowed.skin = validSkinId(allowed.skin);
+    if ('launchAnimation' in allowed) allowed.launchAnimation = validSkinId(allowed.launchAnimation) || 'cartridge';
     if ('nag' in allowed) {
       const n = allowed.nag;
       if (!n || typeof n !== 'object' || Array.isArray(n)) delete allowed.nag;

@@ -33,6 +33,13 @@ const TEXTS = {
   acctOffline: () => t('acctErr.offline', 'Can’t reach the souldew account service. Check your internet connection.'),
   acctSignedOut: () => t('acctErr.signedOut', 'You’re signed out of your souldew account.'),
   requestTooLarge: () => t('err.requestTooLarge', 'Request too large'),
+  // souldew+ pack (server/lib/pluspack.mjs) – the pack client handles these itself, the texts are for diagnostics
+  plusDownload: () => t('err.plusDownload', 'The souldew+ download failed'),
+  plusTooLarge: () => t('err.plusTooLarge', 'The souldew+ download is too large'),
+  plusUrl: () => t('err.plusUrl', 'This souldew+ download address isn’t allowed'),
+  plusFormat: () => t('err.plusFormat', 'The download is not a souldew+ pack'),
+  plusNone: () => t('err.plusNone', 'No souldew+ pack on this computer'),
+  plusNoDev: () => t('err.plusNoDev', 'No test pack configured'),
   fileTooLarge: () => t('err.fileTooLarge', 'File too large'),
   emptyFile: () => t('err.emptyFile', 'Empty file'),
   badJson: () => t('err.badJson', 'Invalid JSON'),
