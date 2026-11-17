@@ -74,3 +74,8 @@ html[data-theme='contrast'] .set-elsewhere { border-top-color: var(--edge); }
   .set-tabs { max-width: 100%; }
   .set-search { flex: 1 1 100%; margin-left: 0; }
 }
+
+/* Settings › Account › Signed-in devices (web/views/settings/account.mjs Sessions) */
+.acct-sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.acct-sessions li { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-m); border: 1px solid var(--edge); }
+.acct-sessions b { font-weight: 600; }

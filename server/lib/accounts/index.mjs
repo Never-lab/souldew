@@ -5,12 +5,13 @@
 //
 // Signed out, none of this does anything: no timer runs, no request leaves the computer – the app works exactly as
 // it does without an account.
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { httpError } from '../fsutil.mjs';
 import { createTokenStore } from './store.mjs';
 import { createSession, errorCode } from './session.mjs';
 import { API, accountsBase } from './contract.mjs';
 import { authPage, AUTH_PAGE_HEADERS, AUTH_RESULTS } from './authpage.mjs';
+import { entitlementKeys, verifyEntitlementToken, serviceClock, isPackagedBuild, SKEW_S } from './enttoken.mjs';
 import { currentStats, editorChoices } from './stats.mjs';
 import {
   cleanMe, cleanProfile, cleanFriend, cleanRequest, cleanPresence, cleanInvite, cleanJoinRequest, cleanCatalog, cleanEntitlements,
@@ -18,7 +19,7 @@ import {
 } from './clean.mjs';
 import {
   cleanText, withoutFileNames, safeAvatarUrl, parseFriendQuery, normalizeHandle, oneOf, presenceSystem,
-  PROFILE_VISIBILITY, PRESENCE_VISIBILITY, STATUS_MAX, NAME_MAX, TRUSTED_MAX, FAVORITE_MAX, RUN_NAME_MAX,
+  PROFILE_VISIBILITY, PRESENCE_VISIBILITY, ACCENTS, STATUS_MAX, NAME_MAX, TRUSTED_MAX, FAVORITE_MAX, RUN_NAME_MAX,
 } from '../../../shared/social.mjs';
 
 const ID = '[A-Za-z0-9_-]{3,64}';
@@ -29,6 +30,9 @@ const PAGE_ALIVE = 3 * 60000; // the page reports presence at least this often w
 const STATS_EVERY = 10 * 60000;
 const AVATAR_MAX = 512 * 1024;
 const AVATAR_CACHE = 200;
+const ENT_FRESH = 15 * 60000; // the verified entitlement behind the own badges is re-read this often (the token lives 1 hour)
+const OFFLINE_DELETE_MS = 1500; // quitting: how long "I'm offline now" may hold the app up
+const NO_ENT = Object.freeze({ tier: 'none', badges: [], until: null });
 
 async function readJson(req) {
   const len = Number(req.headers['content-length']);
@@ -68,10 +72,12 @@ function serviceError(r) {
  * secure: Electron's safeStorage wrapper (./store.mjs) or null; port(): this server's port; emit(event, data): the
  * page's event stream; openExternal(url): the system browser (desktop app) – without it the page opens the URL;
  * focus(): bring the app window forward. onPackKeyChange(): the souldew+ pack key changed or went away (tier dropped, key
- * rotated, signed out) – the encrypted pack cache must go (server/lib/pluspack.mjs wipe). fetchImpl / env / now / stats: for tests.
+ * rotated, signed out) – the encrypted pack cache must go (server/lib/pluspack.mjs wipe). packaged: an installed build (no
+ * dev entitlement key, ./enttoken.mjs). fetchImpl / env / now / stats / entKeys: for tests.
  */
-export function createAccounts({ secure = null, port, emit = () => {}, openExternal = null, focus = () => {}, lang = () => 'en', onPackKeyChange = () => {}, fetchImpl = fetch, env = process.env, now = Date.now, stats = currentStats, choices = editorChoices } = {}) {
+export function createAccounts({ secure = null, port, emit = () => {}, openExternal = null, focus = () => {}, lang = () => 'en', onPackKeyChange = () => {}, fetchImpl = fetch, env = process.env, now = Date.now, stats = currentStats, choices = editorChoices, packaged = isPackagedBuild(), entKeys = null } = {}) {
   const service = accountsBase(env);
+  const trusted = entKeys || entitlementKeys({ env, packaged });
   const store = createTokenStore(secure);
   let me = null;
   let meAt = 0;
@@ -86,6 +92,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
       if (!s.signedIn) {
         me = null;
         pending = null;
+        own = null;
         stopHeartbeat();
         dropPackKey();
       }
@@ -104,7 +111,96 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
 
   /** What survives offline next to the tokens: the name and picture for Settings and the sidebar. */
   function brief(m) {
-    return m ? { id: m.id, handle: m.handle, name: m.name, avatar: m.avatar, tier: m.entitlement?.tier || 'none' } : null;
+    return m ? { id: m.id, handle: m.handle, name: m.name, avatar: m.avatar, tier: own?.tier || 'none' } : null;
+  }
+
+  // ---- souldew+: the VERIFIED entitlement ---------------------------------------------------------------------------
+  // Every souldew+ decision (pack key → pack access, the preview offer, the own badges) comes from the entitlement
+  // token's verified claims (./enttoken.mjs). The JSON fields next to the token – and the entitlement inside /v1/me –
+  // are never trusted for any of it.
+  let own = null; // { tier, badges, until, graceUntil, packKeyId, at } – the last verified claims (memory)
+  let ownLoading = null;
+  const ms = (sec) => (Number.isFinite(sec) ? sec * 1000 : null); // the page's times are numbers (clean.mjs)
+  const accountId = () => me?.id || session.publicState().account?.id || null;
+
+  /** The service's GET /v1/entitlements answer → what the page gets, from the verified token only. */
+  function verifiedView(body, headers) {
+    const ent = cleanEntitlements(body);
+    const nowS = serviceClock(headers) ?? Math.floor(now() / 1000);
+    const v = verifyEntitlementToken(ent.token, { keys: trusted, iss: service, sub: accountId(), sid: session.sid, now: nowS });
+    if (!v.ok) console.warn('souldew+ entitlement token not accepted –', v.reason);
+    return viewOf(v.ok ? v.claims : null, ent, v.ok ? null : v.reason);
+  }
+  /** Verified claims (or null: not verified) + the answer's other fields → the page's entitlement. */
+  function viewOf(c, ent, reason = null) {
+    const plus = !!c && isPlusTier(c.tier);
+    return {
+      tier: c ? c.tier : 'none', badges: c ? c.badges : [], until: c ? ms(c.until) : null, graceUntil: c ? ms(c.graceUntil) : null,
+      packKeyId: c?.packKeyId || null,
+      // the pack key only for a verified souldew+ tier, and only the key the token names
+      packKey: plus && ent.packKey && ent.packKeyId === c.packKeyId ? ent.packKey : null,
+      sources: c ? ent.sources : [], offlineGraceDays: ent.offlineGraceDays,
+      preview: ent.preview, verified: !!c, ...(reason ? { unverified: reason } : {}),
+    };
+  }
+  function setOwn(view) {
+    const before = own?.tier;
+    own = { tier: view.tier, badges: view.badges, until: view.until, graceUntil: view.graceUntil, packKeyId: view.packKeyId, at: now() };
+    if (me) session.rememberAccount(brief(me));
+    if (before !== undefined && before !== own.tier) emit('account', { kind: 'session' });
+  }
+  /** The own account as the page sees it: entitlement and badges are the verified ones. */
+  function self(m) {
+    if (!m) return m;
+    const e = own || NO_ENT;
+    return { ...m, entitlement: { tier: e.tier, until: e.until, badges: e.badges }, badges: e.badges };
+  }
+
+  /** Reads and verifies the entitlement; wipes the pack cache when the key went away or changed. → the page's view. */
+  async function readEntitlement() {
+    const r = await session.request(API.entitlements);
+    const kept = session.extra('entitlement');
+    if (r.status === 200) {
+      const view = verifiedView(r.body, r.headers);
+      // §8.2: the tier dropped below souldew+ or pack_key_id changed (sign out everywhere, unlink, takeover) – or the
+      // token didn't verify → the cached pack can't be used any more: wipe
+      if (kept?.packKey && (!view.packKey || kept.packKeyId !== view.packKeyId)) {
+        dropPackKey();
+        session.setExtra('pack', null);
+      }
+      // kept for the offline grace: the token itself (re-verified offline), the key it allows and the latest time seen
+      // (the service's clock or this computer's, whichever is later) – a clock set back behind it counts as expired
+      const seen = Math.max(serviceClock(r.headers) ?? 0, Math.floor(now() / 1000), kept?.seen || 0);
+      session.setExtra('entitlement', view.verified ? { token: cleanEntitlements(r.body).token, packKey: view.packKey, packKeyId: view.packKeyId, offlineGraceDays: view.offlineGraceDays, at: now(), seen } : null);
+      setOwn(view);
+      return view;
+    }
+    if (r.status === 0 && kept?.token) {
+      // offline: the kept token, verified again with this computer's clock – valid until its grace_until (which is
+      // never later than the membership's end). A clock behind the latest time already seen was set back: expired.
+      const nowS = Math.floor(now() / 1000);
+      const rolledBack = Number.isFinite(kept.seen) && nowS < kept.seen - SKEW_S;
+      const v = rolledBack ? { ok: false, reason: 'clock' } : verifyEntitlementToken(kept.token, { keys: trusted, iss: service, sub: accountId(), sid: session.sid, now: nowS, offline: true });
+      if (v.ok) {
+        if (nowS > (kept.seen || 0)) session.setExtra('entitlement', { ...kept, seen: nowS });
+        const view = { ...viewOf(v.claims, { packKey: kept.packKey, packKeyId: kept.packKeyId, sources: [], offlineGraceDays: kept.offlineGraceDays, preview: null }), offline: true, preview: null, lastPack: session.extra('pack') };
+        setOwn(view);
+        return view;
+      }
+      // the grace is over (or the kept token no longer verifies): no souldew+ offline – the cache goes
+      if (kept.packKey) dropPackKey();
+      session.setExtra('entitlement', null);
+      session.setExtra('pack', null);
+      setOwn({ ...NO_ENT, graceUntil: null, packKeyId: null });
+    }
+    throw serviceError(r);
+  }
+  /** The verified entitlement when it is older than ENT_FRESH (single flight; failures keep the last one). */
+  function freshOwn(force = false) {
+    if (!session.signedIn) return Promise.resolve(null);
+    if (!force && own && now() - own.at < ENT_FRESH) return Promise.resolve(own);
+    ownLoading ||= readEntitlement().catch(() => own).finally(() => { ownLoading = null; });
+    return ownLoading;
   }
 
   /** An authorized call; any failure becomes the page's error. */
@@ -123,6 +219,8 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     if (r.status === 200) {
       me = cleanMe(r.body, service);
       meAt = now();
+      keepPrivacy(me);
+      await freshOwn();
       session.rememberAccount(brief(me));
       startHeartbeat();
     }
@@ -154,13 +252,21 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
 
   /** The presence body for the service, or null when nothing about the player may leave the computer. */
   function presenceBody() {
-    const vis = me?.privacy?.presence || 'friends';
-    if (vis !== 'friends' || !report) return null; // hidden / appear offline: no heartbeat at all, only the counters
+    // the privacy setting from /v1/me, else the one kept with the session; unknown (the profile couldn't be read and
+    // nothing is kept) counts as hidden – "appear offline" must never fail open
+    const priv = me?.privacy || session.extra('privacy');
+    if (priv?.presence !== 'friends' || !report) return null; // hidden / appear offline: no heartbeat at all, only the counters
     const body = { state: report.state };
     if ((report.state === 'playing' || report.state === 'in_run') && report.game) body.game = report.game;
     if (report.state === 'in_run' && report.run) body.run = report.run;
-    if (report.location && me?.privacy?.showLocation) body.location = report.location;
+    if (report.location && priv.showLocation === true) body.location = report.location;
     return body;
+  }
+  /** Keeps the presence privacy with the session (encrypted), for a start where /v1/me can't be read. */
+  function keepPrivacy(m) {
+    const p = m?.privacy ? { presence: m.privacy.presence, showLocation: m.privacy.showLocation === true } : null;
+    const kept = session.extra('privacy');
+    if (p && (kept?.presence !== p.presence || kept?.showLocation !== p.showLocation)) session.setExtra('privacy', p);
   }
 
   function setPending(p) {
@@ -251,20 +357,24 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   route('GET', '', async () => {
     let m = null;
     if (session.signedIn) m = (await loadMe().catch(() => null)) || null;
-    return { session: session.publicState(), me: m, brief: session.publicState().account, pending, service: new URL(service).host };
+    return { session: session.publicState(), me: self(m), brief: session.publicState().account, pending, service: new URL(service).host };
   });
   route('POST', '/login', () => {
+    // signed in: no second sign-in on top (it would replace this session without ending it) – sign out first
+    if (session.signedIn) throw httpError(409, 'Already signed in', 'acct', { code: 'signed_in' });
     const { url } = session.startLogin();
-    let opened = false;
     if (openExternal) {
+      // the desktop app: the system browser opens it; the sign-in address (its state) is never handed to the caller,
+      // so nobody but the browser the player sees can finish this sign-in
       try {
         openExternal(url);
-        opened = true;
+        return { opened: true };
       } catch {
-        // the page opens it instead
+        session.cancelLogin();
+        throw httpError(500, 'The browser could not be opened', 'acctBrowser');
       }
     }
-    return { url, opened };
+    return { url, opened: false }; // the browser build: the page opens the tab itself
   });
   route('POST', '/login/cancel', () => {
     session.cancelLogin();
@@ -272,8 +382,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   });
   route('POST', '/logout', async (req) => {
     const { everywhere } = await readJson(req);
-    if (session.signedIn && lastSent) await session.request(API.presence, { method: 'DELETE' }).catch(() => {});
-    lastSent = null;
+    await goOffline();
     report = null;
     return session.signOut({ everywhere: everywhere === true });
   });
@@ -286,10 +395,11 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     me = body;
     meAt = now();
     meGen++;
+    keepPrivacy(me);
     session.rememberAccount(brief(me));
     if (patch.privacy?.show_runs === true) uploadStats(true).catch(() => {});
     if (patch.privacy?.presence) startHeartbeat(0);
-    return body;
+    return self(body);
   });
   route('PUT', '/handle', async (req) => {
     signedIn();
@@ -299,12 +409,12 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     meAt = now();
     meGen++;
     session.rememberAccount(brief(me));
-    return me;
+    return self(me);
   });
   route('POST', '/friend-code', async () => {
     signedIn();
     await call(API.friendCode, { method: 'POST' });
-    return loadMe(true);
+    return self(await loadMe(true));
   });
   route('GET', '/export', async () => {
     signedIn();
@@ -319,6 +429,8 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     return { ok: true };
   });
   route('GET', '/catalog', async () => {
+    // signed out nothing leaves the computer – not even this public list: the app's own palette, no premium list
+    if (!session.signedIn) return { cosmetics: [], accents: ACCENTS.map((a) => ({ key: a.key, hex: a.hex })), local: true };
     if (catalog && now() - catalogAt < CATALOG_TTL) return catalog;
     const r = await fetchPublic(API.catalog);
     if (r.status !== 200) {
@@ -332,6 +444,23 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   route('GET', '/choices', () => {
     signedIn();
     return choices();
+  });
+
+  // §1.7 the account's sessions ("Signed-in devices"): this computer's is marked, the others can be signed out one by one
+  route('GET', '/sessions', async () => {
+    signedIn();
+    const mine = session.sid;
+    return { items: list(await call(API.sessions)).map((x) => cleanSession(x, mine)).filter(Boolean).slice(0, 50) };
+  });
+  route('DELETE', `/sessions/(${ID})`, async (req, m) => {
+    signedIn();
+    if (m[1] === session.sid) {
+      // this computer: an ordinary sign-out (tokens go here as well)
+      await goOffline();
+      return { ...(await session.signOut()), current: true };
+    }
+    await call(API.session(m[1]), { method: 'DELETE' });
+    return { ok: true };
   });
 
   // other players
@@ -467,33 +596,19 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     return { ok: true };
   });
 
-  // souldew+
-  // the entitlement is kept with the session (encrypted): offline, the cosmetics keep working for its grace days
+  // souldew+ – only the verified token counts (readEntitlement above); kept with the session (encrypted) for the
+  // offline grace, where the kept token is verified again until its grace_until
   route('GET', '/entitlements', async () => {
     signedIn();
-    const r = await session.request(API.entitlements);
-    if (r.status === 200) {
-      const ent = cleanEntitlements(r.body);
-      const kept = session.extra('entitlement');
-      // §8.2: the tier dropped below souldew+ or pack_key_id changed (sign out everywhere, unlink, takeover) → wipe
-      if (kept?.packKey && (!ent.packKey || !isPlusTier(ent.tier) || kept.packKeyId !== ent.packKeyId)) {
-        dropPackKey();
-        session.setExtra('pack', null);
-      }
-      session.setExtra('entitlement', { ...ent, token: null, preview: null, at: now() });
-      return ent;
-    }
-    const kept = r.status === 0 ? session.extra('entitlement') : null;
-    if (kept && now() - kept.at < (kept.offlineGraceDays || 7) * 86400000) return { ...kept, offline: true, preview: null, lastPack: session.extra('pack') };
-    throw serviceError(r);
+    return readEntitlement();
   });
   // §8.3: the service answers "submitted" whatever the email is (no supporter oracle) – the result is read from the
-  // entitlement: linked when the tier or its sources changed
+  // verified entitlement: linked when the tier or its sources changed
   route('POST', '/link-email', async (req) => {
     signedIn();
     const email = String((await readJson(req)).email || '').trim();
     if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw httpError(400, 'Invalid email', 'acct', { code: 'invalid_field', field: 'email' });
-    const before = await session.request(API.entitlements);
+    const before = await readEntitlement().catch(() => null);
     const sig = (b) => JSON.stringify([b?.tier, (b?.sources || []).map((x) => [x.kind, x.tier, x.status, x.until])]);
     const r = await call(API.linkEmail, { method: 'POST', json: { email } });
     if (r.submitted !== true) throw httpError(502, 'Unexpected answer', 'acct', { code: 'internal' });
@@ -501,21 +616,27 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     // written right away but the entitlement read may land on a replica a moment behind
     let after = null;
     for (let i = 0; i < 3; i++) {
-      after = await call(API.entitlements);
-      if (before.status !== 200 || sig(before.body) !== sig(after)) break;
+      after = await readEntitlement();
+      if (!before || sig(before) !== sig(after)) break;
       await new Promise((res) => setTimeout(res, 700));
     }
     await loadMe(true).catch(() => null);
-    const ent = cleanEntitlements(after);
-    return { submitted: true, linked: before.status === 200 && sig(before.body) !== sig(after), tier: ent.tier, badges: ent.badges, until: ent.until };
+    return { submitted: true, linked: !!before && sig(before) !== sig(after), tier: after.tier, badges: after.badges, until: after.until };
   });
+  // §8.5: unlink every membership from this account. The pack key rotates – nothing cached can be read any more, so it
+  // goes at once; the payer email stays locked for relinking (30 days from the link, at least 7 days from now)
   route('DELETE', '/link', async () => {
     signedIn();
     await call(API.unlink, { method: 'DELETE' });
-    dropPackKey(); // §8.5: the key rotates – nothing cached can be read any more
+    dropPackKey();
     session.setExtra('pack', null);
+    session.setExtra('entitlement', null);
+    const after = await readEntitlement().catch(() => {
+      setOwn({ ...NO_ENT, graceUntil: null, packKeyId: null }); // offline right after: no souldew+ until the service says so
+      return null;
+    });
     await loadMe(true).catch(() => null);
-    return { ok: true };
+    return { ok: true, tier: after?.tier || 'none' };
   });
   route('GET', '/packs', async () => {
     signedIn();
@@ -569,9 +690,14 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     const navigation = (h['sec-fetch-mode'] === undefined || h['sec-fetch-mode'] === 'navigate') && (h['sec-fetch-dest'] === undefined || h['sec-fetch-dest'] === 'document');
     if (!hostOk || !navigation || h.origin !== undefined) return page(403, 'failed');
     const keys = [...url.searchParams.keys()];
-    if (new Set(keys).size !== keys.length || keys.some((k) => !['code', 'state', 'error', 'r'].includes(k))) return page(400, 'bad');
+    if (new Set(keys).size !== keys.length || keys.some((k) => !['code', 'state', 'error', 'r', 'n'].includes(k))) return page(400, 'bad');
     const q = Object.fromEntries(url.searchParams);
-    if ('r' in q) return keys.length === 1 && AUTH_RESULTS.includes(q.r) ? page(q.r === 'ok' ? 200 : 400, q.r) : page(400, 'bad');
+    if ('r' in q) {
+      // the outcome page only for the redirect this server just made (a one-time nonce): a web page can't show
+      // "You're signed in" by linking to /auth/done?r=ok
+      const shown = keys.length === 2 && AUTH_RESULTS.includes(q.r) && takeOutcome(q.n) === q.r;
+      return shown ? page(q.r === 'ok' ? 200 : 400, q.r) : page(400, 'bad');
+    }
     if (!('state' in q)) return page(400, 'bad');
     const out = await session.finishLogin({ code: q.code, state: q.state, error: q.error ? cleanText(q.error, 40) : null });
     const result = out.ok ? 'ok' : out.error;
@@ -582,8 +708,23 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
         focus();
       } catch {}
     }
-    res.writeHead(303, { Location: `/auth/done?r=${AUTH_RESULTS.includes(result) ? result : 'failed'}`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
+    const shown = AUTH_RESULTS.includes(result) ? result : 'failed';
+    res.writeHead(303, { Location: `/auth/done?r=${shown}&n=${putOutcome(shown)}`, 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' });
     return res.end();
+  }
+  const outcomes = new Map(); // nonce → { result, at } – single use, 5 minutes
+  function putOutcome(result) {
+    for (const [k, v] of outcomes) if (now() - v.at > 5 * 60000) outcomes.delete(k);
+    if (outcomes.size > 50) outcomes.delete(outcomes.keys().next().value);
+    const n = randomBytes(18).toString('base64url');
+    outcomes.set(n, { result, at: now() });
+    return n;
+  }
+  function takeOutcome(n) {
+    const v = typeof n === 'string' && n.length === 24 ? outcomes.get(n) : null;
+    if (!v) return null;
+    outcomes.delete(n);
+    return now() - v.at <= 5 * 60000 ? v.result : null;
   }
 
   // ---- avatars --------------------------------------------------------------------------------------------------------
@@ -618,19 +759,47 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     return res.end(hit.buf);
   }
 
-  /** The page asks whether this computer may keep the session (keychain) – part of GET /api/account. */
-  function close() {
+  /**
+   * "I'm offline now" (API.md §5.2) – the app quits, the player signs out. Without it friends would see the player
+   * online for another 180 s. Best effort and bounded: it never holds the caller up longer than `ms` (a refresh of
+   * the access token, a slow network …). → true when the service confirmed it.
+   */
+  async function goOffline(ms = OFFLINE_DELETE_MS) {
     stopHeartbeat();
-    if (session.signedIn && lastSent) session.request(API.presence, { method: 'DELETE', timeout: 2000 }).catch(() => {});
+    if (!session.signedIn || !lastSent) return false;
+    lastSent = null;
+    let t = null;
+    const gone = session.request(API.presence, { method: 'DELETE', timeout: ms }).then((r) => r.status === 200).catch(() => false);
+    const late = new Promise((res) => { t = setTimeout(() => res(false), ms + 100); t.unref?.(); });
+    try {
+      return await Promise.race([gone, late]);
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  /** The server closes: stop the heartbeat, say offline (not awaited – the desktop app awaits goOffline() before). */
+  function close() {
+    goOffline().catch(() => {});
   }
 
   /** For "Save diagnostics": signed in yes / no and the tier – nothing else. */
-  const diagnostics = () => ({ signedIn: session.signedIn, tier: session.signedIn ? me?.entitlement?.tier || session.publicState().account?.tier || 'none' : null });
+  const diagnostics = () => ({ signedIn: session.signedIn, tier: session.signedIn ? own?.tier || session.publicState().account?.tier || 'none' : null });
 
-  return { routes, authDone, avatar, close, diagnostics, session, setReport, get service() { return service; } };
+  return { routes, authDone, avatar, close, goOffline, diagnostics, session, setReport, get service() { return service; } };
 }
 
 const list = (body) => (Array.isArray(body?.items) ? body.items : []);
+
+/** One session of the list (§1.7) → { id, device, platform, createdAt, lastUsedAt, current }. */
+export function cleanSession(x, mine) {
+  if (!x || typeof x !== 'object' || typeof x.id !== 'string' || !/^ses_[A-Za-z0-9_-]{1,64}$/.test(x.id)) return null;
+  const time = (v) => (typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null);
+  return {
+    id: x.id, device: cleanText(x.device_name, 40) || null, platform: oneOf(x.platform, ['mac', 'win', 'linux'], null),
+    createdAt: time(x.created_at), lastUsedAt: time(x.last_used_at), current: x.current === true || (!!mine && x.id === mine),
+  };
+}
 
 function idOf(v) {
   if (typeof v !== 'string' || !/^[A-Za-z0-9_-]{3,64}$/.test(v)) throw httpError(400, 'Invalid id', 'acct', { code: 'invalid_field', field: 'user_id' });

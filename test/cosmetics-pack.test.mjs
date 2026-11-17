@@ -59,9 +59,9 @@ test('signature: valid, invalid, tampered manifest, wrong key – checked before
   await assert.rejects(f.open({ signature: 'not base64 !' }), { code: 'signature' });
 });
 
-test('the production key is a placeholder until the owner sets it: nothing verifies (fail closed)', async () => {
+test('only the pinned production key (or a dev key passed in) verifies; a throwaway key does not', async () => {
   const f = await fixture();
-  assert.ok(PRODUCTION_KEYS.every((k) => !b64decode(k) || b64decode(k).length !== 32));
+  assert.ok(PRODUCTION_KEYS.length > 0 && PRODUCTION_KEYS.every((k) => b64decode(k)?.length === 32), 'the owner’s pack key is pinned');
   assert.equal(await verifySignature(f.manifestBytes, f.sig, trustedKeys()), false);
   assert.equal(await verifySignature(f.manifestBytes, f.sig, trustedKeys(b64url(f.signer.publicKey))), true, 'the dev key only when passed in');
   await assert.rejects(f.open({ keys: trustedKeys() }), { code: 'signature' });

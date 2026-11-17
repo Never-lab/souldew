@@ -14,6 +14,7 @@ process.env.SLS_DATA_DIR = DATA;
 const { startFakeAccounts, rawGet } = await import('./fixtures/fakeaccounts.mjs');
 const fake = await startFakeAccounts();
 process.env.SLS_ACCOUNTS_URL = fake.base;
+process.env.SLS_ACCOUNTS_DEV_ENT_KEY = fake.ent.publicKey; // the fake's entitlement key (server/lib/accounts/enttoken.mjs)
 
 const social = await import('../shared/social.mjs');
 const clean = await import('../server/lib/accounts/clean.mjs');
@@ -327,14 +328,17 @@ test('loopback hand-off on the local server: a real navigation to 127.0.0.1:<por
   // our code with a forged state: not used, the sign-in keeps waiting
   const forged = await rawGet(url(`code=${loop.searchParams.get('code')}&state=${'A'.repeat(43)}`), nav);
   assert.equal(forged.status, 303);
-  assert.equal(forged.headers.location, '/auth/done?r=mismatch');
+  assert.match(forged.headers.location, /^\/auth\/done\?r=mismatch&n=[A-Za-z0-9_-]{24}$/);
   assert.equal((await a.get('/api/account')).body.session.pending, true);
   // the real one
   const ok = await rawGet(loop.href, nav);
   assert.equal(ok.status, 303);
-  assert.equal(ok.headers.location, '/auth/done?r=ok', 'the code leaves the address bar');
+  assert.match(ok.headers.location, /^\/auth\/done\?r=ok&n=[A-Za-z0-9_-]{24}$/, 'the code leaves the address bar');
   assert.equal(ok.headers['cache-control'], 'no-store');
-  const page = await rawGet(url('r=ok'), nav);
+  // a page of its own can't show "You're signed in": without the one-time nonce (or with a used one) it's "bad"
+  assert.equal((await rawGet(url('r=ok'), nav)).status, 400);
+  assert.equal((await rawGet(url('r=ok&n=AAAAAAAAAAAAAAAAAAAAAAAA'), nav)).status, 400);
+  const page = await rawGet(new URL(ok.headers.location, loop).href, nav);
   assert.equal(page.status, 200);
   assert.match(page.body, /You’re signed in/);
   assert.match(page.body, /close this tab/);
@@ -344,8 +348,9 @@ test('loopback hand-off on the local server: a real navigation to 127.0.0.1:<por
   assert.equal(page.headers['referrer-policy'], 'no-referrer');
   assert.equal(page.headers['x-frame-options'], 'DENY');
   assert.ok(!page.body.includes(loop.searchParams.get('code')));
+  assert.equal((await rawGet(new URL(ok.headers.location, loop).href, nav)).status, 400, 'the nonce works once');
   // replayed: nothing is waiting any more
-  assert.equal((await rawGet(loop.href, nav)).headers.location, '/auth/done?r=none');
+  assert.match((await rawGet(loop.href, nav)).headers.location, /^\/auth\/done\?r=none&n=/);
   assert.equal((await rawGet(url('r=<script>'), nav)).status, 400);
   const st = (await a.get('/api/account')).body;
   assert.equal(st.session.signedIn, true);
@@ -506,7 +511,8 @@ test('export, deletion, entitlements and pack access', async () => {
   fake.offlinePaths.add('/v1/entitlements');
   const kept = (await a.get('/api/account/entitlements')).body;
   fake.offlinePaths.delete('/v1/entitlements');
-  assert.deepEqual([kept.offline, kept.tier, kept.packKey, kept.token], [true, 'plus', ent.packKey, null], 'no stale signed token is handed out');
+  assert.deepEqual([kept.offline, kept.tier, kept.packKey, kept.token, kept.verified], [true, 'plus', ent.packKey, undefined, true], 'offline: the kept token verified again; no token is handed out');
+  assert.equal(ent.token, undefined, 'the page never gets the token, only its verified claims');
   assert.equal((await quiet(() => a.post('/api/account/link-email', { email: 'not an email' }))).status, 400);
   assert.equal((await quiet(() => a.del('/api/account', { confirm: 'robin' }))).status, 400, 'deleting needs the own handle');
   assert.equal((await a.del('/api/account', { confirm: '@tempo' })).status, 200);

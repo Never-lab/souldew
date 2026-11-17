@@ -22,7 +22,11 @@ const RETRY_CODES = ['decrypt', 'hash', 'envelope', 'watermark', 'missing'];
 const headers = { 'x-soullink': '1' };
 async function call(method, url, body) {
   const res = await fetch(url, { method, headers: { ...headers, ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
-  if (!res.ok) throw packError(res.status === 404 ? 'none' : 'server', `${method} ${url}: ${res.status}`);
+  if (!res.ok) {
+    // the local server checks the manifest signature before it downloads or stores anything (server/lib/pluspack.mjs)
+    const code = res.headers.get('content-type')?.includes('json') ? (await res.json().catch(() => ({})))?.code : null;
+    throw packError(code === 'plusSignature' ? 'signature' : res.status === 404 ? 'none' : 'server', `${method} ${url}: ${res.status}`);
+  }
   return res.headers.get('content-type')?.includes('json') ? res.json() : new Uint8Array(await res.arrayBuffer());
 }
 

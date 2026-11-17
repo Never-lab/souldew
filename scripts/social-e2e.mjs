@@ -113,7 +113,7 @@ async function main(scratch) {
     mkdirSync(lib, { recursive: true });
     writeFileSync(join(lib, 'Pokemon Emerald.gba'), fakeEmerald());
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang, playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nagOff: true }));
-    const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_ACCOUNTS_URL: fake.base }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_ACCOUNTS_URL: fake.base, SLS_ACCOUNTS_DEV_ENT_KEY: fake.ent.publicKey }, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stderr.on('data', (d) => process.stderr.write(`[${id}] ${d}`));
     servers.push(p);
     return { id, name, port, dir, base: `http://127.0.0.1:${port}` };
@@ -144,6 +144,7 @@ async function main(scratch) {
     fake.nextLogin = user.id;
     const b = await fake.browse(url);
     if (b.done !== '/auth/done?r=ok') throw new Error(`${pr.id}: sign-in ${b.done}`);
+    pr.okPage = b.doneUrl; // the outcome page shows once, with the loopback's nonce
     return b;
   };
   try {
@@ -194,7 +195,7 @@ async function main(scratch) {
     await shot(0, '02-account-signed-in');
     // the browser tab after signing in (rendered from the loopback page itself)
     const tab = new BrowserWindow({ width: 900, height: 560, show: false, webPreferences: { partition: 'social-e2e-browser' } });
-    await tab.loadURL(`${HOST.base}/auth/done?r=ok`);
+    await tab.loadURL(`${HOST.base}${HOST.okPage}`);
     await sleep(600);
     writeFileSync(join(out, '02c-browser-tab.png'), (await tab.webContents.capturePage()).toPNG());
     tab.destroy();

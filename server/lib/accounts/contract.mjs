@@ -34,6 +34,8 @@ export const API = {
   friendCode: '/v1/me/friend-code',
   stats: '/v1/me/stats',
   exportData: '/v1/me/export',
+  sessions: '/v1/me/sessions?limit=50',
+  session: (id) => `/v1/me/sessions/${seg(id)}`,
   catalog: '/v1/catalog',
   // §3 other users
   user: (id) => `/v1/users/${seg(id)}`,

@@ -1,13 +1,20 @@
 // souldew+ pack cache and lifecycle: the server's encrypted per-file cache (allow-listed downloads, small updates,
 // offline grace, wipe) and the page's pack client on top of it (load, not a member, membership ended, the pack key
 // changed, offline within / beyond the grace period, a pack that doesn't verify, a damaged download, the live preview).
-import { test, beforeEach } from 'node:test';
+import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPlusPack, packUrlAllowed, GRACE_MS } from '../server/lib/pluspack.mjs';
 import { buildManifest, sealFile, makeSigner, b64url } from '../web/lib/cosmetics/pack/format.mjs';
+// the tests sign with throwaway keys (never the owner's) and trust them through the keys module
+// (the server checks the manifest signature before it stores anything, the page checks everything again)
+import * as K from '../web/lib/cosmetics/pack/keys.mjs';
+
+const PINNED = [...K.PRODUCTION_KEYS];
+const trustKey = (p) => K.PRODUCTION_KEYS.push(b64url(p.signer.publicKey));
+afterEach(() => K.PRODUCTION_KEYS.splice(0, K.PRODUCTION_KEYS.length, ...PINNED));
 
 const enc = new TextEncoder();
 const DAY = 86400e3;
@@ -44,10 +51,9 @@ const fakeFetch = (packs, log = []) => async (url) => {
 };
 
 // ------------------------------------------------------------------ server cache
-test('pack URLs: https on souldew.app, or the configured local service only (no SSRF)', () => {
+test('pack URLs: the accounts service origin only, or the configured local service (no SSRF)', () => {
   assert.ok(packUrlAllowed(`${BASE}/1.0.0/file?path=a`, { env: NO_ENV }));
-  assert.ok(packUrlAllowed('https://packs.souldew.app/x', { env: NO_ENV }));
-  for (const u of ['http://accounts.souldew.app/x', 'https://souldew.app.evil.com/x', 'https://evil.com/souldew.app', 'https://127.0.0.1/x', 'http://127.0.0.1:8788/x',
+  for (const u of ['https://packs.souldew.app/x', 'https://souldew.app/x', 'https://evil.souldew.app/x', 'http://accounts.souldew.app/x', 'https://souldew.app.evil.com/x', 'https://evil.com/souldew.app', 'https://127.0.0.1/x', 'http://127.0.0.1:8788/x',
     'https://user:pw@accounts.souldew.app/x', 'https://accounts.souldew.app:8443/x', 'file:///etc/passwd', 'souldew-dev:pack/a.css', '', null]) {
     assert.equal(packUrlAllowed(u, { env: NO_ENV }), false, String(u));
   }
@@ -64,6 +70,7 @@ test('pack URLs: https on souldew.app, or the configured local service only (no 
 
 test('server cache: per-file download, meta, file, touch only forward, wipe; the bytes stay encrypted', async () => {
   const p = await makePack();
+  trustKey(p);
   const dir = mkdtempSync(join(tmpdir(), 'souldew-plus-'));
   let now = Date.parse('2026-11-17T12:00:00Z');
   const plus = createPlusPack({ dir, devDir: '', fetchImpl: fakeFetch(p), now: () => now, env: NO_ENV });
@@ -92,6 +99,7 @@ test('server cache: an update downloads only the files that changed; a new key d
   const v1 = await makePack({ signer, key });
   const v2 = await makePack({ signer, key, version: '1.1.0', files: FILES('--shell: #000000;') });
   const v2k = await makePack({ signer, key, version: '1.1.0', kid: '2', files: FILES('--shell: #000000;') });
+  trustKey(v1);
   const dir = mkdtempSync(join(tmpdir(), 'souldew-plus-'));
   const log = [];
   const plus = createPlusPack({ dir, devDir: '', fetchImpl: fakeFetch([v1, v2, v2k], log), env: NO_ENV });
@@ -104,6 +112,7 @@ test('server cache: an update downloads only the files that changed; a new key d
 
 test('server cache: wiped once the offline grace (7 days) is over, also when the clock jumps', async () => {
   const p = await makePack();
+  trustKey(p);
   const dir = mkdtempSync(join(tmpdir(), 'souldew-plus-'));
   let now = Date.parse('2026-11-17T12:00:00Z');
   const plus = createPlusPack({ dir, devDir: '', fetchImpl: fakeFetch(p), now: () => now, env: NO_ENV });
@@ -116,10 +125,36 @@ test('server cache: wiped once the offline grace (7 days) is over, also when the
   await plus.fetch(p.answer);
   now -= 30 * DAY; // the clock was set back far
   assert.ok(plus.meta().none);
+  // set back a little, day after day, to stay inside the window: the latest time seen counts (security review #4)
+  await plus.fetch(p.answer);
+  now += 6 * DAY;
+  assert.ok(!plus.meta().none, 'day 6');
+  now -= 6 * DAY;
+  assert.ok(plus.meta().none, 'the clock went back behind a time already seen → wiped');
+  // past the membership's end it goes as well, even inside the grace
+  await plus.fetch({ ...p.answer, until: new Date(now + DAY).toISOString() });
+  now += 2 * DAY;
+  assert.ok(plus.meta().none, 'membership ended → wiped');
+});
+
+test('server cache: nothing is downloaded or stored for a manifest the pinned key did not sign (security review #8)', async () => {
+  const p = await makePack();
+  const dir = mkdtempSync(join(tmpdir(), 'souldew-plus-'));
+  const log = [];
+  const plus = createPlusPack({ dir, devDir: '', fetchImpl: fakeFetch(p, log), env: NO_ENV });
+  await assert.rejects(plus.fetch(p.answer), { code: 'plusSignature' }, 'signed with a key the app does not pin');
+  await assert.rejects(plus.fetch({ ...p.answer, signature: b64url(new Uint8Array(64)) }), { code: 'plusSignature' });
+  assert.deepEqual(log, [], 'not a single download');
+  assert.ok(!existsSync(join(dir, 'files')) && !existsSync(join(dir, 'pack.json')), 'nothing on disk');
+  trustKey(p);
+  // signed, but for another pack than the answer names
+  await assert.rejects(plus.fetch({ ...p.answer, packId: 'other-pack' }), { code: 'plusAnswer' });
+  assert.equal((await plus.fetch(p.answer)).downloaded, 5);
 });
 
 test('server cache: refuses non-envelopes, oversized and failed downloads; a preview file is never stored', async () => {
   const p = await makePack();
+  trustKey(p);
   const dir = mkdtempSync(join(tmpdir(), 'souldew-plus-'));
   const html = async () => bodyOf(enc.encode('<html>login</html> and some more bytes'));
   await assert.rejects(createPlusPack({ dir, devDir: '', fetchImpl: html, env: NO_ENV }).fetch(p.answer), { code: 'plusFormat' });
@@ -180,7 +215,7 @@ function installFetch(packs, { devKey = null } = {}) {
       if (url.startsWith('/api/plus/pack/file?')) return bytes(server.file(new URL(url, 'http://x').searchParams.get('path')));
       if (url === '/api/plus/fetch') return bytes(await server.fetchOne(body));
     } catch (e) {
-      return { ok: false, status: e.status || 500, headers: { get: () => 'application/json' }, json: async () => ({}) };
+      return { ok: false, status: e.status || 500, headers: { get: () => 'application/json' }, json: async () => ({ code: e.code }) };
     }
     return { ok: false, status: 404, headers: { get: () => 'application/json' }, json: async () => ({}) };
   };
@@ -190,8 +225,6 @@ function installFetch(packs, { devKey = null } = {}) {
 const C = await import('../web/lib/cosmetics/pack/client.mjs');
 const S = await import('../web/lib/cosmetics/state.mjs');
 const access = (p, extra = {}) => ({ ...p.answer, key: b64url(p.key), until: new Date(realNow() + 30 * DAY).toISOString(), ...extra });
-// the pinned production key is a placeholder: the tests sign with their own key and trust it through the keys module
-const K = await import('../web/lib/cosmetics/pack/keys.mjs');
 async function trusting(p, fn) {
   K.PRODUCTION_KEYS.push(b64url(p.signer.publicKey));
   try {
@@ -313,7 +346,7 @@ test('client: offline grace – works from the cache for 7 days, then the cache 
 test('client: a pack that does not verify is wiped and never used', async () => {
   const p = await makePack();
   installFetch(p);
-  // the production key is still the placeholder: nothing verifies
+  // signed with a throwaway key, not the pinned production key: nothing verifies
   C.setPackAccessProvider(async () => access(p));
   await C.refreshPack();
   assert.equal(C.packState().entitled, false);

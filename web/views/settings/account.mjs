@@ -2,14 +2,15 @@
 // app needs it). Signed in – who you are (Discord name and picture, handle, friend code), privacy and presence, the
 // opt-in for showing your runs, souldew+ and linking a membership, your data (export, delete) and signing out.
 import { html, useState, useEffect } from '/vendor/htm-preact.mjs';
-import { t } from '../../lib/i18n.mjs';
+import { t, ago } from '../../lib/i18n.mjs';
 import { Icon } from '../../lib/icons.mjs';
 import { Modal, download, openExternal } from '../../lib/ui.mjs';
 import { LINKS } from '../../lib/links.mjs';
 import {
   useAccount, signIn, cancelSignIn, signOut, updateMe, setHandle, newFriendCode, exportData, deleteAccount, linkEmail, reloadAccount, isPlus,
+  unlinkMembership, listSessions, signOutSession,
 } from '../../lib/account.mjs';
-import { refreshPack } from '../../lib/cosmetics/index.mjs';
+import { refreshPack, forgetPack } from '../../lib/cosmetics/index.mjs';
 import { askToJoinAllowed, setAskToJoin } from '../../lib/presence.mjs';
 import { Avatar, Badges, CodeChip } from '../social.mjs';
 import { Item, Group, Check } from './parts.mjs';
@@ -93,8 +94,40 @@ function HandleField({ me, toast }) {
     <span class="hint">${t('acct.handleHint', '3–20 letters, digits or _. Friends can find you by it. You can change it 3 times a week.')}</span></label>`;
 }
 
+/** "Unlink membership" – asks first: what goes away, that the payment itself isn't cancelled, the 30-day re-link wait. */
+function UnlinkModal({ tier, onClose, toast }) {
+  const [busy, setBusy] = useState(false);
+  const go = async () => {
+    setBusy(true);
+    try {
+      await unlinkMembership();
+      // the local server wiped the encrypted cache already; the page drops what it had in memory
+      await forgetPack().catch(() => {});
+      refreshPack().catch(() => {});
+      toast({ kind: 'ok', title: t('acct.unlinked', 'Membership unlinked'), text: t('acct.unlinkedText', 'This account no longer has it. You can link the same email again in 30 days.') });
+      onClose();
+    } catch (e) {
+      toast({ kind: 'death', title: t('acct.unlinkFailed', 'Couldn’t unlink the membership'), text: e.vars?.code === 'rate_limited' ? t('acct.unlinkLimit', 'Unlinking works 5 times a day – try again tomorrow.') : e.message });
+      setBusy(false);
+    }
+  };
+  return html`<${Modal} open onClose=${onClose} title=${t('acct.unlinkTitle', 'Unlink the membership from this account?')}
+    footer=${html`<button class="btn ghost" onClick=${onClose}>${t('common.cancel', 'Cancel')}</button>
+      <button class="btn danger" disabled=${busy} onClick=${go}>${t('acct.unlinkNow', 'Unlink membership')}</button>`}>
+    <div class="stack">
+      <ul class="acct-gets">
+        <li><${Icon} name="close" size=${14} /><span>${isPlus(tier) ? t('acct.unlinkPlus', 'souldew+ ends for this account on every device: your profile goes back to the free banners and frames, the souldew+ look on this computer is deleted.')
+          : t('acct.unlinkSupporter', 'The Supporter badge goes away from this account on every device.')}</span></li>
+        <li><${Icon} name="clock" size=${14} /><span>${t('acct.unlinkCooldown', 'The membership’s email can be linked again – to this or another account – only 30 days after it was linked, and at least 7 days from now.')}</span></li>
+        <li><${Icon} name="coffee" size=${14} /><span>${t('acct.unlinkPayment', 'Your membership on Buy Me a Coffee keeps running – cancel it there if you want to stop paying.')}</span></li>
+      </ul>
+    </div>
+  <//>`;
+}
+
 function PlusGroup({ me, toast }) {
   const ent = me.entitlement || { tier: 'none', badges: [] };
+  const [unlink, setUnlink] = useState(false);
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
@@ -127,6 +160,9 @@ function PlusGroup({ me, toast }) {
         <p class="small muted">${isPlus(ent.tier) ? t('acct.plusThanks', 'Thank you for supporting souldew! Your souldew+ banners, frames and nameplates are in the profile editor.')
           : t('acct.plusText', 'souldew stays free. If you support it on Buy Me a Coffee, the souldew+ membership adds banners, frames and nameplates for your profile – the other tiers get a Supporter badge.')}</p>
         ${!isPlus(ent.tier) && html`<div><button class="btn small" onClick=${() => openExternal(LINKS.coffee)}><${Icon} name="coffee" size=${14} />${t('acct.toCoffee', 'Buy Me a Coffee')}</button></div>`}
+        ${ent.tier !== 'none' && html`<div class="row"><button class="btn small ghost" onClick=${() => setUnlink(true)}>${t('acct.unlink', 'Unlink membership …')}</button>
+          <span class="small muted">${t('acct.unlinkHint', 'Takes it off this account, e.g. to move it to another one. Re-linking the email waits 30 days.')}</span></div>`}
+        ${unlink && html`<${UnlinkModal} tier=${ent.tier} toast=${toast} onClose=${() => setUnlink(false)} />`}
         <details class="group"><summary>${t('acct.linkTitle', 'Link a membership you already have')}</summary>
           <div class="stack" style="padding:6px 14px 14px">
             ${busy && html`<p class="small muted" role="status">${t('acct.linkChecking', 'Checking the membership …')}</p>`}
@@ -142,6 +178,43 @@ function PlusGroup({ me, toast }) {
               <button class="btn small ghost" onClick=${check}>${t('acct.claimedDiscord', 'I already claimed on Discord')}</button></div>
           </div></details>
       </div>`;
+}
+
+const PLATFORM = { mac: 'Mac', win: 'Windows', linux: 'Linux' };
+/** "Signed-in devices" (§1.7): every session of the account, compact – this computer marked, the others signed out one by one. */
+function Sessions({ toast }) {
+  const [items, setItems] = useState(null);
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(null);
+  const load = () => listSessions().then((r) => {
+    setItems(r.items || []);
+    setFailed(false);
+  }).catch(() => setFailed(true));
+  useEffect(() => {
+    load();
+  }, []);
+  const out = async (x) => {
+    setBusy(x.id);
+    try {
+      await signOutSession(x.id);
+      toast({ kind: 'ok', title: t('acct.deviceOut', 'Device signed out'), text: t('acct.deviceOutText', 'It needs to sign in again to use your account.') });
+      await load();
+    } catch (e) {
+      toast({ kind: 'death', title: t('acct.deviceOutFailed', 'Couldn’t sign that device out'), text: e.message });
+    }
+    setBusy(null);
+  };
+  const name = (x) => (x.platform ? t('acct.devicePlatform', 'souldew on {platform}', { platform: PLATFORM[x.platform] }) : x.device || 'souldew');
+  return html`<div class="stack">
+    <p class="small muted">${t('acct.devicesText', 'Everywhere you’re signed in to this account. Sign out a device you don’t use or don’t recognise.')}</p>
+    ${failed && html`<p class="warning info small" role="status">${t('acct.devicesFailed', 'The list can’t be loaded right now.')}</p>`}
+    ${items && html`<ul class="acct-sessions">${[...items].sort((a, b) => (b.current ? 1 : 0) - (a.current ? 1 : 0)).map((x) => html`<li key=${x.id}>
+      <span class="stack-s grow" style="gap:0"><b>${name(x)}</b>
+        <span class="tiny muted">${x.lastUsedAt ? t('acct.deviceUsed', 'Last used {when}', { when: ago(Date.parse(x.lastUsedAt)) }) : ''}${x.createdAt ? ` · ${t('acct.deviceSince', 'signed in {date}', { date: dateOf(x.createdAt) })}` : ''}</span></span>
+      ${x.current ? html`<span class="chip ok">${t('acct.thisDevice', 'This computer')}</span>`
+        : html`<button class="btn small ghost" disabled=${busy === x.id} onClick=${() => out(x)}>${t('acct.deviceSignOut', 'Sign out')}</button>`}
+    </li>`)}</ul>`}
+  </div>`;
 }
 
 /** The signed-in bodies of the section's settings (hooks inside – called as a hook by AccountSection). */
@@ -237,7 +310,7 @@ function useSignedIn(acct, toast) {
           </div>
           ${del && me && html`<${DeleteModal} me=${me} toast=${toast} onClose=${() => setDel(false)} />`}
         </div>`;
-  return { who, privacy, data, plus: me && html`<${PlusGroup} me=${me} toast=${toast} />` };
+  return { who, privacy, data, plus: me && html`<${PlusGroup} me=${me} toast=${toast} />`, sessions: html`<${Sessions} toast=${toast} />` };
 }
 
 /**
@@ -254,5 +327,6 @@ export function AccountSection({ toast }) {
     <//>
     ${on && parts.privacy && html`<${Group} title=${t('acct.privacy', 'Privacy')}><${Item} id="account-privacy">${parts.privacy}<//><//>`}
     ${on && parts.plus && html`<${Group} title="souldew+"><${Item} id="plus">${parts.plus}<//><//>`}
+    ${on && html`<${Group} title=${t('acct.devices', 'Signed-in devices')}><${Item} id="account-sessions">${parts.sessions}<//><//>`}
     ${on && html`<${Group} title=${t('acct.dataTitle', 'Your data')}><${Item} id="account-data">${parts.data}<//><//>`}`;
 }

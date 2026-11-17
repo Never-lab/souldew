@@ -7,11 +7,16 @@ import { readFileSync, mkdirSync } from 'node:fs';
 import { setupUpdater } from './updater.mjs';
 import { appImageFromEnv, appImageRelaunch } from './update-core.mjs';
 import { writeFileAtomic } from '../server/lib/fsutil.mjs';
+import { RENDERER_COOKIE } from '../server/lib/guard.mjs';
+import { randomBytes } from 'node:crypto';
 import { grantPicked } from '../server/lib/grants.mjs';
 import { chromiumSwitches, startDecision, crashDecision, gpuInfoSummary, safeGraphicsRequested, withoutSafeGraphics } from '../shared/gpu.mjs';
 import { sameOrigin, safeExternalUrl, subframeNavigationAllowed, permissionAllowed, isTrustedIpcSender, titleBarColors, initialWindowSize, signInUrl } from './guards.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// An installed app takes no account service, dev pack or dev key from the environment (server/app.mjs DEV_SWITCHES –
+// the server drops them as well): only development (`npm run app`) and tests may point it elsewhere.
+if (app.isPackaged) for (const k of ['SLS_ACCOUNTS_URL', 'SLS_PLUS_DEV_PACK', 'SLS_PLUS_DEV_KEY', 'SLS_ACCOUNTS_DEV_ENT_KEY']) delete process.env[k];
 const MAC = process.platform === 'darwin';
 const WIN = process.platform === 'win32';
 const LINUX = process.platform === 'linux';
@@ -114,17 +119,24 @@ app.on('child-process-gone', (e, details) => {
 
 let win = null;
 let serverUrl = null;
+let goOffline = null; // the souldew account's "I'm offline now" (server/lib/accounts) – awaited once before quitting
 
 async function boot() {
   const { startServer } = await import('../server/app.mjs');
   // A fixed port keeps the page origin stable, so localStorage and EmulatorJS' IndexedDB survive
   // restarts; only if it's taken fall back to a random one.
-  const accountHelpers = { secureStore, openExternal: openSignIn, focus: focusWindow };
-  const { url } = await startServer({ port: 47390, ...accountHelpers }).catch((e) => {
+  // the window's per-launch secret for the account and souldew+ routes (server/lib/guard.mjs rendererSecretError): an
+  // HttpOnly, SameSite=Strict cookie in the window's own cookie jar – the server never serves it, so another program on
+  // this computer that talks HTTP to 127.0.0.1 can't learn it
+  const rendererSecret = randomBytes(32).toString('base64url');
+  const accountHelpers = { secureStore, openExternal: openSignIn, focus: focusWindow, packaged: app.isPackaged, rendererSecret };
+  const started = await startServer({ port: 47390, ...accountHelpers }).catch((e) => {
     if (e.code !== 'EADDRINUSE') throw e;
     return startServer({ port: 0, ...accountHelpers });
   });
-  serverUrl = url;
+  serverUrl = started.url;
+  goOffline = started.goOffline;
+  await session.defaultSession.cookies.set({ url: serverUrl, name: RENDERER_COOKIE, value: rendererSecret, httpOnly: true, sameSite: 'strict', path: '/' });
   createWindow();
 }
 
@@ -438,6 +450,25 @@ app.on('will-quit', () => {
   const argv = gpu.safe ? withoutSafeGraphics(process.argv) : process.argv;
   if (appImage) app.relaunch(appImageRelaunch(appImage, argv));
   else app.relaunch(gpu.safe ? { args: argv.slice(1) } : undefined);
+});
+
+// Quitting for real (every window is closed, nothing can call it off any more): tell the account service the player is
+// offline before the process ends – otherwise friends see them online for another 3 minutes. Every will-quit listener
+// (the relaunch above, the updater's installer) has run in this same round; the process then ends with app.exit(),
+// which keeps a planned relaunch and doesn't emit will-quit again. Bounded: goOffline gives up after 1.5 s and returns
+// at once when signed out or invisible; OFFLINE_WAIT_MS is the outer limit.
+const OFFLINE_WAIT_MS = 2000;
+let offlineSent = false;
+app.on('will-quit', (e) => {
+  if (offlineSent || !goOffline) return;
+  offlineSent = true;
+  e.preventDefault();
+  let timer = null;
+  const timeout = new Promise((res) => { timer = setTimeout(res, OFFLINE_WAIT_MS); });
+  Promise.race([Promise.resolve().then(() => goOffline()).catch(() => {}), timeout]).finally(() => {
+    clearTimeout(timer);
+    app.exit(0);
+  });
 });
 
 app.on('second-instance', () => {

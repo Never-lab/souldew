@@ -21,11 +21,26 @@ import { API, accountsBase } from './contract.mjs';
 // 5 after Discord said yes – the loopback keeps waiting for all of it (API.md §1.3a: at least 10 minutes).
 const LOGIN_TTL = 15 * 60000;
 const REFRESH_EARLY = 60000; // refresh this long before the access token runs out (clock skew, slow networks)
-const MAX_BAD_STATES = 5; // /auth/done with a wrong state this often → the pending sign-in is dropped
+const MAX_BAD_STATES = 20; // /auth/done with a wrong state: counted, never ends the pending sign-in (a web page could)
 const CODE = /^[A-Za-z0-9._~-]{16,512}$/;
 const TOKEN = /^[\x21-\x7e]{16,4096}$/; // printable, no spaces: whatever the service issues, but nothing that can break a header
 // 401 codes that end the session at once (no refresh can cure them)
 const ENDED = ['session_revoked', 'refresh_reused'];
+const SID = /^ses_[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * The session id the service put into its own access token (the `sid` claim). Read, not verified: the token came
+ * straight from the service over its own connection; the id only tells this computer's session apart from the
+ * others in the session list and binds the entitlement token to it (./enttoken.mjs).
+ */
+export function sidOf(access) {
+  try {
+    const c = JSON.parse(Buffer.from(String(access).split('.')[1] || '', 'base64url').toString('utf8'));
+    return SID.test(c?.sid || '') ? c.sid : null;
+  } catch {
+    return null;
+  }
+}
 
 const b64url = (buf) => Buffer.from(buf).toString('base64url');
 export const pkceChallenge = (verifier) => b64url(createHash('sha256').update(verifier).digest());
@@ -44,8 +59,18 @@ export function sameSecret(a, b) {
  */
 export function createSession({ store, port, fetchImpl = fetch, env = process.env, now = Date.now, onChange = () => {}, toAccount = () => null, platform = process.platform } = {}) {
   const base = accountsBase(env);
-  let saved = store.load(); // { access, accessExp, refresh, account }
+  let saved = store.load(); // { access, accessExp, refresh, sid, service, account }
   if (saved && !(TOKEN.test(saved.refresh || '') && saved.account)) saved = null;
+  // tokens belong to the service that issued them: a session kept for another address (a development service, a changed
+  // environment) is dropped, never sent to the address in use now
+  if (saved && saved.service !== base) {
+    saved = null;
+    try {
+      store.clear();
+    } catch {
+      // nothing stored
+    }
+  }
   let pending = null; // { state, verifier, at, bad }
   let refreshing = null;
   // what the page is told besides signed-in or not: 'offline' (no answer), 'expired' (the session ended elsewhere)
@@ -124,7 +149,8 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
     const refresh = body?.refresh_token;
     const ttl = Number(body?.expires_in);
     if (!TOKEN.test(access || '') || !TOKEN.test(refresh || '') || !Number.isFinite(ttl) || ttl <= 0) return null;
-    return { access, refresh, accessExp: now() + Math.min(ttl, 3600) * 1000, account: account || saved?.account || null, ...(saved?.extra ? { extra: saved.extra } : {}) };
+    const sid = SID.test(body?.session_id || '') ? body.session_id : sidOf(access) || saved?.sid || null;
+    return { access, refresh, accessExp: now() + Math.min(ttl, 3600) * 1000, sid, service: base, account: account || saved?.account || null, ...(saved?.extra ? { extra: saved.extra } : {}) };
   }
 
   // ---- sign in -----------------------------------------------------------------------------------------------
@@ -156,10 +182,9 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
       return { ok: false, error: 'expired' };
     }
     if (!sameSecret(String(state || ''), pending.state)) {
-      if (++pending.bad >= MAX_BAD_STATES) {
-        pending = null;
-        changed();
-      }
+      // any web page can navigate here with a made-up state: that must not cancel the player's sign-in. Past
+      // MAX_BAD_STATES the answer stays "mismatch" without comparing (the state is 256 bit – nothing to guess anyway).
+      pending.bad = Math.min(MAX_BAD_STATES, pending.bad + 1);
       return { ok: false, error: 'mismatch' };
     }
     const { verifier } = pending;
@@ -285,7 +310,12 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
   }
   const extra = (key) => saved?.extra?.[key] ?? null;
 
-  return { base, publicState, startLogin, setExtra, extra, cancelLogin, finishLogin, request, refresh, signOut, forget, rememberAccount, get signedIn() { return !!saved; } };
+  return {
+    base, publicState, startLogin, setExtra, extra, cancelLogin, finishLogin, request, refresh, signOut, forget, rememberAccount,
+    get signedIn() { return !!saved; },
+    /** this computer's session id (ses_…) – from the token answer, else the access token's sid claim */
+    get sid() { return saved ? saved.sid || sidOf(saved.access) : null; },
+  };
 }
 
 /** The error code of a service answer ({ error: { code } }, API.md §0.3) or null. */

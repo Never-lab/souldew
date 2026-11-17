@@ -33,7 +33,7 @@ import { moveToGraveyard, parseHgssSave } from '../shared/gen4save.mjs';
 import { listPresets, savePreset, deletePreset } from './lib/presets.mjs';
 import { pageHeaders } from './lib/csp.mjs';
 import { gpuBackends, validBackend, fallbackNotice } from '../shared/gpu.mjs';
-import { hostAllowed, apiRequestError, privateRequestError } from './lib/guard.mjs';
+import { hostAllowed, apiRequestError, privateRequestError, rendererSecretError } from './lib/guard.mjs';
 import { overlaySnapshot, TEST_SPECIES, currentRunId } from '../shared/overlay.mjs';
 import { startPokelinkBridge, pokelinkPlayers, POKELINK_PORT } from './lib/pokelink.mjs';
 import { romDataFor } from './lib/romloc.mjs';
@@ -44,6 +44,15 @@ import { randomBytes } from 'node:crypto';
 import { syncTrophies } from './lib/trophies.mjs';
 import * as liveRuns from './lib/liveruns.mjs';
 import { createAccounts } from './lib/accounts/index.mjs';
+import { isPackagedBuild } from './lib/accounts/enttoken.mjs';
+
+/** The environment switches only development and tests may use (an installed app ignores them). */
+export const DEV_SWITCHES = ['SLS_ACCOUNTS_URL', 'SLS_PLUS_DEV_PACK', 'SLS_PLUS_DEV_KEY', 'SLS_ACCOUNTS_DEV_ENT_KEY'];
+export function withoutDevSwitches(env) {
+  const out = { ...env };
+  for (const k of DEV_SWITCHES) delete out[k];
+  return out;
+}
 import { createPlusPack, plusRoutes } from './lib/pluspack.mjs';
 
 const MIME = {
@@ -470,7 +479,10 @@ export function errorBody(e) {
  * safeStorage – without it a session is kept in memory only), openExternal (the system browser for "Sign in with
  * Discord") and focus (bring the window forward when the browser hands the sign-in back).
  */
-export function startServer({ port = 7373, host = '127.0.0.1', background = true, secureStore = null, openExternal = null, focus = () => {} } = {}) {
+export function startServer({ port = 7373, host = '127.0.0.1', background = true, secureStore = null, openExternal = null, focus = () => {}, packaged = isPackagedBuild(), rendererSecret = null } = {}) {
+  // An installed app never takes the account service, a dev pack or a dev key from the environment (only development
+  // and tests do) – otherwise a changed environment could send the tokens elsewhere or make the app trust another key.
+  const env = packaged ? withoutDevSwitches(process.env) : process.env;
   const GEN4 = JSON.parse(readFileSync(join(SHARED_DIR, 'data', 'gen4.json'), 'utf8'));
   // The stream API's localPages switch (server/lib/streamapi.mjs streamMigration): an install set up before it
   // existed keeps reading from local pages without a token, a new one starts strict. A config that can't be read
@@ -843,11 +855,11 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   const route = (method, pattern, handler) => routes.push({ method, pattern, handler });
 
   // ---- souldew+ premium pack: the encrypted cache (server/lib/pluspack.mjs – never decrypted or run here) ----
-  const plusPack = createPlusPack({ dir: join(DATA_DIR, DEV ? 'runs/.plus' : 'plus') });
+  const plusPack = createPlusPack({ dir: join(DATA_DIR, DEV ? 'runs/.plus' : 'plus'), packaged, env, devDir: packaged ? '' : env.SLS_PLUS_DEV_PACK || '' });
   plusRoutes(route, plusPack, readBody);
   // ---- souldew account (sign-in, profile, friends, presence, invites): server/lib/accounts/index.mjs ----------------
   // a pack key that changed or went away (tier dropped, key rotated, signed out) takes the encrypted pack cache with it
-  const accounts = createAccounts({ secure: secureStore, port: () => server.address()?.port, emit, openExternal, focus, lang: () => loadConfig().lang || 'en',
+  const accounts = createAccounts({ secure: secureStore, port: () => server.address()?.port, emit, openExternal, focus, lang: () => loadConfig().lang || 'en', packaged, env,
     onPackKeyChange: () => { if (!plusPack.dev) plusPack.wipe(); } });
   routes.push(...accounts.routes);
   route('GET', /^\/api\/account\/diagnostics$/, () => accounts.diagnostics());
@@ -1807,8 +1819,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       // the open stream API has its own rules (localhost pages or the token, CORS, read-only): server/lib/streamapi.mjs
       if ((path === '/api/v1' || path.startsWith('/api/v1/')) && await streamHub.handle(req, res, path, url)) return;
       if (path.startsWith('/api/')) {
-        // Origin / Sec-Fetch-Site / x-soullink checks (server/lib/guard.mjs) – before any API route, SSE included.
-        const denied = apiRequestError(req, server.address()?.port) || privateRequestError(req, path);
+        // Origin / Sec-Fetch-Site / x-soullink checks (server/lib/guard.mjs) – before any API route, SSE included – and,
+        // in the desktop app, the window's per-launch secret for the account and souldew+ routes.
+        const denied = apiRequestError(req, server.address()?.port) || privateRequestError(req, path) || rendererSecretError(req, path, rendererSecret);
         if (denied) return send(res, 403, { error: denied });
       }
       const overlayEvents = path.match(/^\/api\/runs\/(current|[a-f0-9]{8})\/overlay\/events$/);
@@ -1965,7 +1978,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         live.start().catch((e) => console.warn('live bridge unavailable:', e.message));
         prefetchSprites().catch(() => {});
       }
-      resolvePromise({ server, port: actual, url: `http://localhost:${actual}` });
+      // goOffline: the desktop app awaits it (bounded) before it quits – friends see the player go offline at once
+      resolvePromise({ server, port: actual, url: `http://localhost:${actual}`, goOffline: () => accounts.goOffline() });
     });
   });
 }

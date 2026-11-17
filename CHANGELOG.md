@@ -104,7 +104,10 @@ Plus a new play view that gives the game the room it deserves.
   and frame. Signed in without souldew+, you can try any theme on the whole app for 15 minutes (“Try for 15 minutes”,
   a Preview badge counts down, then your own look comes back). The looks arrive as one signed pack, encrypted for
   your account, checked file by file before anything is shown; updates only download what changed, and the pack is
-  removed from your computer when the membership ends or you sign out.
+  removed from your computer when the membership ends or you sign out. “Unlink membership” takes it off your account
+  again (to move it to another one; the email can be linked again after 30 days), and Settings › Account lists every
+  device you're signed in on, each with its own “Sign out”. Quitting souldew tells your friends you're offline right
+  away.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
