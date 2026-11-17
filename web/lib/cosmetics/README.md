@@ -98,7 +98,7 @@ envelope       one per file, made by the service per account at download time:
 **Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (with `url('pack:fonts/…')` / `pack:assets/…`), `fonts/*.woff2`, `assets/*.svg`, `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css`, the editions' fonts (`fonts/*.woff2`, the same OFL files as the full pack, so a preview lays out exactly like the skin) and `assets/*.png` (≤ 512 px).
 
 **Verification order (`openPack`):**
-1. Ed25519 over the manifest bytes against a pinned key (`pack/keys.mjs`: a production placeholder that fails closed; a dev key only when the local server offers one – `SLS_PLUS_DEV_PACK`, or `SLS_PLUS_DEV_KEY` with a service on this computer).
+1. Ed25519 over the manifest bytes against a pinned key (`pack/keys.mjs`: the owner's production key – the local server checks it too before it downloads anything; a dev key only when the local server offers one – `SLS_PLUS_DEV_PACK`, or `SLS_PLUS_DEV_KEY` with a service on this computer, never in a packaged build).
 2. Manifest shape, and id / version equal to what the service issued.
 3. For every file: envelope framing, header bound to this pack / path / key id, GCM tag, watermark trailer, size, SHA-256.
 
@@ -106,7 +106,7 @@ Only then is anything used.
 
 ## Where code from a pack runs (`sandbox.mjs`)
 
-`frames.mjs` and `launch.mjs` run in a dedicated **module worker** created from a blob. The app's CSP is unchanged: `script-src 'self'` still blocks importing a blob into the page, and `worker-src 'self' blob:` already allows the worker. The worker's imports are rewritten (`'@cosmetics/…'`) to the app's own same-origin engine modules. Inside the worker there is no DOM, no page state, no localStorage and no tokens. It draws into OffscreenCanvases and answers messages. Nothing from a pack ever runs in the Node / main process: the local server only stores, serves and wipes the encrypted envelope (`server/lib/pluspack.mjs`).
+`frames.mjs` and `launch.mjs` run in a **module worker inside a sandboxed iframe** (`/cosmetics-sandbox.html`, `sandbox="allow-scripts"` – an opaque origin; its own CSP has `connect-src 'none'`, no images, styles or fonts). Pack code there can't call the local API (the server refuses `Origin: null`, and the app window's secret cookie is never sent from there), can't read the page, its storage or the account, and has no network. The worker's imports are rewritten (`'@cosmetics/…'`) to the app's public engine modules (served with CORS for this). Canvases never cross into the sandbox: the page keeps them, the worker draws into stand-ins (`canvas-proxy.mjs`) and sends the pictures back as ImageData through the iframe's relay (`sandbox-frame.js`). Nothing from a pack ever runs in the Node / main process: the local server only checks the manifest signature, stores, serves and wipes the encrypted envelopes (`server/lib/pluspack.mjs`).
 
 Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fonts and art become `data:` URLs (allowed by `font-src` / `img-src data:`). Banner recipes are plain data, run by the public engine on the main thread.
 
@@ -145,4 +145,5 @@ localStorage['sl-plus-dev-preview'] = '1'      # try the non-member flow (previe
 | `test/cosmetics-skins.test.mjs` | Apply, preview and revert; pending wishes; losing the membership; `data:` asset inlining. |
 | `test/cosmetics-launch.test.mjs` | Timing: early, late and missing first frame, skip, reduced motion; the worker host. |
 | `test/cosmetics-runtime.test.mjs` | Draw, pause off-screen, reduced motion, worker wiring, destroy without leaks. |
+| `test/cosmetics-sandbox.test.mjs` | Real Chromium: pack code in the sandboxed iframe reaches no API, no config, no network – and its frame still paints. |
 | `test/skin-proof.test.mjs` | Every skin on 11 real app views in Electron, comparing element boxes, text and generated text with classic. Needs a pack: set `SLS_PLUS_PROOF_PACK`, or have the design folder next to the checkout. |
