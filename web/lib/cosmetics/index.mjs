@@ -6,7 +6,7 @@ export { applySkin, previewSkin, endPreview, listSkins, skinState, onSkinChange,
 export { mountBanner, mountNameplate, bannerStats } from './banners/runtime.mjs';
 export { mountFrame, frameStats, sizing as frameSizing } from './frames/runtime.mjs';
 export { playLaunch, previewLaunch, launchAvailable, layoutKey } from './launch/player.mjs';
-export { refreshPack, forgetPack, packState, setPackAccessProvider, getPackAccess, GRACE_MS } from './pack/client.mjs';
+export { refreshPack, forgetPack, packState, setPackAccessProvider, getPackAccess, startPackPreview, endPackPreview, GRACE_MS } from './pack/client.mjs';
 export { setReducedMotion } from './motion.mjs';
 export { setPlusHandler, openPlus } from './plus.mjs';
 export { onChange, owned, has };

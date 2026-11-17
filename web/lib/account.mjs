@@ -5,6 +5,7 @@
 import { useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { api } from './api.mjs';
 import { openExternal } from './ui.mjs';
+import { ACCENTS } from '/shared/social.mjs';
 
 let state = { loaded: false, session: { signedIn: false, persistent: true, condition: null, pending: false, account: null }, me: null, pending: null, service: '' };
 let inflight = null;
@@ -136,7 +137,7 @@ export function useCatalog() {
   return c;
 }
 /** An accent key → its colour (only from the catalog's palette – shared/social.mjs safeHex checked it). */
-export const accentHex = (cat, key) => cat?.accents?.find((a) => a.key === key)?.hex || null;
+export const accentHex = (cat, key) => (cat?.accents?.length ? cat.accents : ACCENTS).find((a) => a.key === key)?.hex || null;
 
 // ---- lists that a screen shows (polled while it is open) ------------------------------------------------------------
 function usePolled(url, every, enabled) {
@@ -195,44 +196,49 @@ export function reportPresence(p) {
 }
 
 // ---- souldew+ packs (web/lib/cosmetics/ uses this) -------------------------------------------------------------------
-/**
- * What the cosmetics module needs to fetch premium packs (souldew-accounts docs/API.md §8.2, §10):
- *   { signedIn, tier, until, badges, token (signed entitlement JWS – verify with the pinned key), packKey (base64url
- *     AES-256-GCM key, only with souldew+), packKeyId, offlineGraceDays, packs: [{ id, version, kind, title,
- *     requiredTier, entitled }], download(packId) → { packId, version, manifest, signature, watermarkId, packKeyId,
- *     expiresAt, files: [{ path, url }] } }
- * Signed out → { signedIn: false, tier: 'none', … } and no request is made.
- */
-export async function getPackAccess() {
-  if (!state.loaded) await reloadAccount();
-  const none = { signedIn: false, tier: 'none', until: null, badges: [], token: null, packKey: null, packKeyId: null, offlineGraceDays: 7, packs: [], download: async () => null };
-  if (!signedIn()) return none;
-  const [ent, packs] = await Promise.all([entitlements(), api.get('/api/account/packs').catch(() => ({ items: [] }))]);
-  return {
-    signedIn: true, tier: ent.tier, until: ent.until, badges: ent.badges, token: ent.token, packKey: ent.packKey, packKeyId: ent.packKeyId,
-    offlineGraceDays: ent.offlineGraceDays, packs: packs.items || [],
-    download: (packId) => api.post(`/api/account/packs/${encodeURIComponent(packId)}/download`),
-  };
-}
+/** souldew+ = tier plus or patron (API.md §8.0); supporter is a badge only. */
+export const isPlus = (tier) => tier === 'plus' || tier === 'patron';
+const isoOf = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
+const accessOf = (dl, key, until) => ({
+  packId: dl.packId, version: dl.version, manifest: dl.manifest, signature: dl.signature, keyId: dl.packKeyId, watermark: dl.watermarkId,
+  key, files: dl.files || [], until,
+});
 
-const b64 = (u) => (u ? u.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (u.length % 4)) % 4) : null);
 /**
- * The cosmetics module's pack access provider (web/lib/cosmetics: setPackAccessProvider). Resolves to
- * { url, key, manifestSig, until, packVersion } for a souldew+ account, { …, offline: true } from the kept entitlement
- * while the service can't be reached (its grace days), or null (signed out, no souldew+). Throws when it can't tell.
- * (API.md §10 hands out per-file URLs; the cosmetics pack is one envelope – the first file is taken as that envelope.)
+ * The cosmetics module's pack access provider (web/lib/cosmetics: setPackAccessProvider, API.md §8.2 / §10):
+ *   purpose 'pack'    – a souldew+ account: the service's download answer for its pack + the account's pack key
+ *                       ({ packId, version, manifest, signature, keyId, watermark, key, files, until }); offline (the
+ *                       service can't be reached) the kept entitlement's key: { key, keyId, until, offline: true };
+ *                       null when signed out or without souldew+.
+ *   purpose 'preview' – a 15-minute live theme preview (§10.4) of the service's preview pack, with a key for this
+ *                       preview only: { …, expiresAt, preview: true }. Throws with e.code ('rate_limited',
+ *                       'limit_reached', 'none') when the service says no; null when signed out.
+ * Throws when it can't tell (counts as offline).
  */
 export async function cosmeticsPackAccess({ purpose = 'pack' } = {}) {
   if (!state.loaded) await reloadAccount();
-  if (!signedIn() || purpose === 'preview') return null;
-  const ent = await entitlements();
-  if (ent.tier !== 'plus' || !ent.packKey) return null;
-  if (ent.offline) {
-    return { key: b64(ent.packKey), manifestSig: b64(ent.lastPack?.signature), until: ent.until, packVersion: ent.lastPack?.version || null, offline: true };
+  if (!signedIn()) return null;
+  if (purpose === 'preview') {
+    const packs = await api.get('/api/account/packs');
+    const pack = (packs.items || []).find((p) => p.previewable);
+    if (!pack) throw Object.assign(new Error('No preview pack'), { code: 'none' });
+    try {
+      const pv = await api.post(`/api/account/packs/${encodeURIComponent(pack.id)}/preview`);
+      return { ...accessOf(pv, pv.key, null), expiresAt: pv.expiresAt, preview: true };
+    } catch (e) {
+      throw Object.assign(new Error(e.message), { code: e.vars?.code || e.code || 'server', retryAfter: e.vars?.retryAfter });
+    }
   }
+  const ent = await entitlements();
+  if (!isPlus(ent.tier) || !ent.packKey) return null;
+  const until = isoOf(ent.until);
+  if (ent.offline) return { key: ent.packKey, keyId: ent.packKeyId, until, offline: true };
   const packs = await api.get('/api/account/packs');
-  const pack = (packs.items || []).find((p) => p.entitled);
+  // the members' pack: the one souldew+ pack (kind "mixed" first), never the preview pack
+  const items = (packs.items || []).filter((p) => p.entitled && !p.previewable);
+  const pack = items.find((p) => p.kind === 'mixed') || items[0];
   if (!pack) return null;
   const dl = await api.post(`/api/account/packs/${encodeURIComponent(pack.id)}/download`);
-  return { url: dl.files?.[0]?.url || null, key: b64(ent.packKey), manifestSig: b64(dl.signature), until: ent.until, packVersion: dl.version };
+  if (dl.packKeyId !== ent.packKeyId) throw Object.assign(new Error('pack key changed meanwhile'), { code: 'key' });
+  return accessOf(dl, ent.packKey, until);
 }

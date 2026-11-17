@@ -9,7 +9,7 @@ export const authTexts = () => ({
   failTitle: t('auth.failTitle', 'Signing in didn’t work'),
   failText: t('auth.failText', 'Go back to souldew and try again.'),
   deniedTitle: t('auth.deniedTitle', 'Sign-in cancelled'),
-  deniedText: t('auth.deniedText', 'You cancelled on Discord – nothing was shared. You can close this tab.'),
+  deniedText: t('auth.cancelledText', 'You cancelled the sign-in – nothing was shared with souldew. You can close this tab.'),
   mismatchText: t('auth.mismatchText', 'This sign-in link doesn’t belong to the sign-in souldew started. Go back to souldew and start again.'),
   expiredText: t('auth.expiredText', 'This sign-in took too long. Go back to souldew and start again.'),
   offlineText: t('auth.offlineText', 'souldew couldn’t reach the account service. Check your internet connection, then try again in souldew.'),

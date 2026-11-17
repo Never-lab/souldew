@@ -34,7 +34,7 @@ export function authPage(result, lang = 'en') {
     mismatch: tr('auth.mismatchText', 'This sign-in link doesn’t belong to the sign-in souldew started. Go back to souldew and start again.'),
     expired: tr('auth.expiredText', 'This sign-in took too long. Go back to souldew and start again.'),
     none: tr('auth.expiredText', 'This sign-in took too long. Go back to souldew and start again.'),
-    denied: tr('auth.deniedText', 'You cancelled on Discord – nothing was shared. You can close this tab.'),
+    denied: tr('auth.cancelledText', 'You cancelled the sign-in – nothing was shared with souldew. You can close this tab.'),
     offline: tr('auth.offlineText', 'souldew couldn’t reach the account service. Check your internet connection, then try again in souldew.'),
     suspended: tr('auth.suspendedText', 'This souldew account is suspended.'),
   }[result] || tr('auth.failText', 'Go back to souldew and try again.');

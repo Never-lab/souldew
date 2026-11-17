@@ -1,9 +1,12 @@
-// souldew+ pack format: the signature (valid / invalid / tampered / wrong key / no production key yet), the per-account
-// encryption (wrong key, edited ciphertext, edited header), the file hashes, and the manifest's shape.
+// souldew+ pack format (the accounts service's: a signed manifest + one AES-256-GCM envelope per file): the signature
+// (valid / invalid / tampered / wrong key / no production key yet), the per-file envelopes (wrong key, edited
+// ciphertext, edited header, another file's or another pack's envelope, the watermark trailer), the file hashes, the
+// manifest's shape – and an envelope made exactly the way the Worker makes it opens here (interoperability).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { webcrypto, createCipheriv, randomBytes } from 'node:crypto';
 import {
-  buildArchive, sealEnvelope, openEnvelope, openPack, parseArchive, verifySignature, makeSigner, checkManifest, b64encode, b64decode, sha256, FORMAT,
+  buildManifest, sealFile, openFile, openPack, parseEnvelope, verifySignature, makeSigner, checkManifest, b64url, b64decode, sha256, FORMAT,
 } from '../web/lib/cosmetics/pack/format.mjs';
 import { PRODUCTION_KEYS, trustedKeys } from '../web/lib/cosmetics/pack/keys.mjs';
 
@@ -12,101 +15,149 @@ const files = [
   { path: 'contents.json', bytes: enc.encode(JSON.stringify({ skins: [{ id: 'moss', css: 'skins/moss.css' }], banners: 'banners.json' })) },
   { path: 'skins/moss.css', bytes: enc.encode("html[data-skin='moss'] { --shell: #1f2a20; }") },
   { path: 'banners.json', bytes: enc.encode('[{"id":"x","pal":{},"layers":[]}]') },
+  { path: 'assets/a.png', bytes: new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]) },
 ];
-const randKey = () => globalThis.crypto.getRandomValues(new Uint8Array(32));
+const randKey = () => webcrypto.getRandomValues(new Uint8Array(32));
+const WM = 'wm_acct42';
 
-async function fixture() {
+async function fixture({ kid = '3' } = {}) {
   const signer = await makeSigner();
-  const { archive, sig, manifestBytes } = await buildArchive({ packVersion: 't-1', files }, signer.sign);
+  const { manifest, manifestBytes } = await buildManifest({ id: 'souldew-plus', version: '1.0.0', kind: 'mixed', title: 'Test', files });
+  const sig = await signer.sign(manifestBytes);
   const key = randKey();
-  const env = await sealEnvelope(archive, key, { watermark: 'acct-42', packVersion: 't-1' });
-  return { signer, archive, sig, manifestBytes, key, env, keys: [signer.publicKey] };
+  const envs = new Map();
+  for (const f of files) envs.set(f.path, await sealFile({ pack: 'souldew-plus', version: '1.0.0', path: f.path, wm: WM, kid, key, bytes: f.bytes }));
+  const open = (patch = {}) => openPack({ manifest: manifestBytes, signature: sig, keys: [signer.publicKey], key, kid, envelope: (p) => envs.get(p), ...patch });
+  return { signer, manifest, manifestBytes, sig, key, envs, kid, open };
 }
 
-test('a valid pack opens: every file, its watermark and version', async () => {
+test('a valid pack opens: every file, the watermark, the manifest', async () => {
   const f = await fixture();
-  const p = await openPack(f.env, { key: b64encode(f.key), manifestSig: b64encode(f.sig), keys: [b64encode(f.signer.publicKey)] });
-  assert.equal(p.packVersion, 't-1');
-  assert.equal(p.watermark, 'acct-42');
+  const p = await f.open({ signature: b64url(f.sig), manifest: b64url(f.manifestBytes), key: b64url(f.key), keys: [b64url(f.signer.publicKey)] });
   assert.deepEqual([...p.files.keys()], files.map((x) => x.path));
-  assert.equal(new TextDecoder().decode(p.files.get('skins/moss.css')), "html[data-skin='moss'] { --shell: #1f2a20; }");
+  assert.equal(new TextDecoder().decode(p.files.get('skins/moss.css')), "html[data-skin='moss'] { --shell: #1f2a20; }", 'the trailer is stripped');
+  assert.deepEqual([...p.watermarks], [WM]);
   assert.equal(p.manifest.format, FORMAT);
 });
 
-test('signature: valid, invalid, tampered manifest, wrong key', async () => {
+test('signature: valid, invalid, tampered manifest, wrong key – checked before anything else', async () => {
   const f = await fixture();
-  assert.equal(await verifySignature(f.manifestBytes, f.sig, f.keys), true);
+  const keys = [f.signer.publicKey];
+  assert.equal(await verifySignature(f.manifestBytes, f.sig, keys), true);
   const bad = f.sig.slice();
   bad[10] ^= 1;
-  assert.equal(await verifySignature(f.manifestBytes, bad, f.keys), false, 'flipped signature bit');
+  assert.equal(await verifySignature(f.manifestBytes, bad, keys), false, 'flipped signature bit');
   const edited = f.manifestBytes.slice();
   edited[edited.length - 3] ^= 1;
-  assert.equal(await verifySignature(edited, f.sig, f.keys), false, 'edited manifest');
+  assert.equal(await verifySignature(edited, f.sig, keys), false, 'edited manifest');
   const other = await makeSigner();
   assert.equal(await verifySignature(f.manifestBytes, f.sig, [other.publicKey]), false, 'another key');
-  assert.equal(await verifySignature(f.manifestBytes, f.sig.subarray(0, 63), f.keys), false, 'short signature');
-  // a pack signed by another key is refused as a whole, even with a matching manifestSig
-  const forged = await buildArchive({ packVersion: 't-1', files }, other.sign);
-  const env = await sealEnvelope(forged.archive, f.key);
-  await assert.rejects(openPack(env, { key: f.key, manifestSig: forged.sig, keys: f.keys }), { code: 'signature' });
+  assert.equal(await verifySignature(f.manifestBytes, f.sig.subarray(0, 63), keys), false, 'short signature');
+  let asked = 0;
+  await assert.rejects(f.open({ keys: [other.publicKey], envelope: () => { asked++; return null; } }), { code: 'signature' });
+  assert.equal(asked, 0, 'no file is even looked at before the signature holds');
+  await assert.rejects(f.open({ signature: 'not base64 !' }), { code: 'signature' });
 });
 
 test('the production key is a placeholder until the owner sets it: nothing verifies (fail closed)', async () => {
   const f = await fixture();
   assert.ok(PRODUCTION_KEYS.every((k) => !b64decode(k) || b64decode(k).length !== 32));
   assert.equal(await verifySignature(f.manifestBytes, f.sig, trustedKeys()), false);
-  assert.equal(await verifySignature(f.manifestBytes, f.sig, trustedKeys(f.signer.publicKey)), true, 'the dev key only when passed in');
-  await assert.rejects(openPack(f.env, { key: f.key, manifestSig: f.sig, keys: trustedKeys() }), { code: 'signature' });
+  assert.equal(await verifySignature(f.manifestBytes, f.sig, trustedKeys(b64url(f.signer.publicKey))), true, 'the dev key only when passed in');
+  await assert.rejects(f.open({ keys: trustedKeys() }), { code: 'signature' });
 });
 
-test('the account service must vouch for exactly this pack (manifestSig must match)', async () => {
+test('the service must have issued exactly this pack (id / version)', async () => {
   const f = await fixture();
-  const older = await buildArchive({ packVersion: 't-0', files: files.slice(0, 1) }, f.signer.sign);
-  await assert.rejects(openPack(f.env, { key: f.key, manifestSig: older.sig, keys: f.keys }), { code: 'signature' });
-  await assert.rejects(openPack(f.env, { key: f.key, manifestSig: 'not base64 !', keys: f.keys }), { code: 'signature' });
+  await assert.rejects(f.open({ expect: { id: 'souldew-plus', version: '0.9.0' } }), { code: 'manifest' });
+  await assert.rejects(f.open({ expect: { id: 'other-pack' } }), { code: 'manifest' });
+  await f.open({ expect: { id: 'souldew-plus', version: '1.0.0' } });
 });
 
-test('decryption: wrong key, edited ciphertext, edited header (the watermark is authenticated)', async () => {
+test('envelopes: wrong key, edited ciphertext, edited header, swapped files, other key id, other pack', async () => {
   const f = await fixture();
-  assert.deepEqual((await openEnvelope(f.env, f.key)).archive, f.archive);
-  await assert.rejects(openEnvelope(f.env, randKey()), { code: 'decrypt' });
-  const ct = f.env.slice();
+  const entry = f.manifest.files[1];
+  const env = f.envs.get(entry.path);
+  const o = { pack: 'souldew-plus', kid: '3', entry };
+  assert.equal(new TextDecoder().decode((await openFile(env, f.key, o)).bytes), "html[data-skin='moss'] { --shell: #1f2a20; }");
+  await assert.rejects(openFile(env, randKey(), o), { code: 'decrypt' });
+  const ct = env.slice();
   ct[ct.length - 20] ^= 0x40;
-  await assert.rejects(openEnvelope(ct, f.key), { code: 'decrypt' });
-  // swap the watermark in the plaintext header: the GCM tag covers it
-  const text = new TextDecoder().decode(f.env.subarray(7, 7 + ((f.env[5] << 8) | f.env[6])));
-  const swapped = f.env.slice();
-  swapped.set(enc.encode(text.replace('acct-42', 'acct-43')), 7);
-  await assert.rejects(openEnvelope(swapped, f.key), { code: 'decrypt' });
-  await assert.rejects(openEnvelope(f.env, f.key.subarray(0, 16)), { code: 'key' });
-  await assert.rejects(openEnvelope(enc.encode('PK\u0003\u0004 not a pack at all'), f.key), { code: 'envelope' });
-  await assert.rejects(openEnvelope(f.env.subarray(0, 12), f.key), { code: 'envelope' });
+  await assert.rejects(openFile(ct, f.key, o), { code: 'decrypt' });
+  // the header (watermark, path, key id) is the GCM additional data: edit it and the tag fails
+  const { headerBytes } = parseEnvelope(env);
+  const text = new TextDecoder().decode(headerBytes);
+  const swapped = env.slice();
+  swapped.set(enc.encode(text.replace('wm_acct42', 'wm_acct43')), 6);
+  await assert.rejects(openFile(swapped, f.key, o), { code: 'decrypt' });
+  // another file's envelope under this path, another key epoch, another pack: refused before decrypting
+  await assert.rejects(openFile(f.envs.get('banners.json'), f.key, o), { code: 'envelope' });
+  await assert.rejects(openFile(env, f.key, { ...o, kid: '4' }), { code: 'envelope' });
+  await assert.rejects(openFile(env, f.key, { ...o, pack: 'other-pack' }), { code: 'envelope' });
+  await assert.rejects(f.open({ envelope: (p) => (p === 'banners.json' ? f.envs.get('contents.json') : f.envs.get(p)) }), { code: 'envelope' });
+  await assert.rejects(openFile(env, f.key.subarray(0, 16), o), { code: 'key' });
+  await assert.rejects(openFile(enc.encode('PK\u0003\u0004 not a pack at all, longer than 22 bytes'), f.key, o), { code: 'envelope' });
+  await assert.rejects(openFile(env.subarray(0, 12), f.key, o), { code: 'envelope' });
 });
 
-test('file hashes: a file changed after signing is refused, so are unlisted or missing bytes', async () => {
+test('file hashes and the watermark trailer: a changed file, a missing file, no trailer – all refused, nothing used', async () => {
   const f = await fixture();
-  const reseal = async (archive) => sealEnvelope(archive, f.key);
-  // change one byte of the last file's body (the manifest and signature stay valid)
-  const a = f.archive.slice();
-  a[a.length - 2] ^= 1;
-  await assert.rejects(openPack(await reseal(a), { key: f.key, manifestSig: f.sig, keys: f.keys }), { code: 'hash' });
-  const extra = new Uint8Array(f.archive.length + 1);
-  extra.set(f.archive);
-  await assert.rejects(openPack(await reseal(extra), { key: f.key, manifestSig: f.sig, keys: f.keys }), { code: 'hash' });
-  await assert.rejects(openPack(await reseal(f.archive.subarray(0, f.archive.length - 5)), { key: f.key, manifestSig: f.sig, keys: f.keys }), { code: 'hash' });
+  const reseal = (path, bytes) => sealFile({ pack: 'souldew-plus', version: '1.0.0', path, wm: WM, kid: f.kid, key: f.key, bytes });
+  // a different CSS sealed correctly – the manifest's hash catches it
+  const changed = await reseal('skins/moss.css', enc.encode("html[data-skin='moss'] { --shell: #ff0000; }"));
+  await assert.rejects(f.open({ envelope: (p) => (p === 'skins/moss.css' ? changed : f.envs.get(p)) }), { code: 'hash' });
+  await assert.rejects(f.open({ envelope: (p) => (p === 'banners.json' ? null : f.envs.get(p)) }), { code: 'missing' });
+  // a text file without the trailer: made like the Worker would for an image, but under the css path
+  const noTrailer = await (async () => {
+    const nonce = webcrypto.getRandomValues(new Uint8Array(12));
+    const header = enc.encode(JSON.stringify({ v: 1, pack: 'souldew-plus', version: '1.0.0', path: 'skins/moss.css', wm: WM, kid: f.kid, nonce: b64url(nonce) }));
+    const k = await webcrypto.subtle.importKey('raw', f.key, 'AES-GCM', false, ['encrypt']);
+    const ct = new Uint8Array(await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: header }, k, files[1].bytes));
+    const out = new Uint8Array(6 + header.length + ct.length);
+    out.set(enc.encode('SDP1'));
+    out[5] = header.length;
+    out.set(header, 6);
+    out.set(ct, 6 + header.length);
+    return out;
+  })();
+  await assert.rejects(f.open({ envelope: (p) => (p === 'skins/moss.css' ? noTrailer : f.envs.get(p)) }), { code: 'watermark' });
 });
 
-test('manifest shape: paths, sizes, hashes, format are checked even when signed', async () => {
-  const ok = { format: FORMAT, packVersion: 'v1', files: [{ path: 'skins/a.css', size: 1, sha256: await sha256(new Uint8Array(1)) }] };
+test('interoperability: an envelope built with node:crypto exactly like the Worker (src/routes/packs.ts) opens', async () => {
+  const f = await fixture();
+  const entry = f.manifest.files[0];
+  const wm = 'wm_AbCdEfGhIjKlMnOpQrStUv';
+  const nonce = randomBytes(12);
+  const header = Buffer.from(JSON.stringify({ v: 1, pack: 'souldew-plus', version: '1.0.0', path: entry.path, wm, kid: 'pv_0123456789abcdefABCDEF', nonce: nonce.toString('base64url') }));
+  const c = createCipheriv('aes-256-gcm', f.key, nonce);
+  c.setAAD(header);
+  const plain = Buffer.concat([files[0].bytes, Buffer.from(`\n/*sdwm:${wm}*/\n`)]);
+  const ct = Buffer.concat([c.update(plain), c.final(), c.getAuthTag()]);
+  const env = Buffer.concat([Buffer.from('SDP1'), Buffer.from([header.length >> 8, header.length & 255]), header, ct]);
+  const r = await openFile(new Uint8Array(env), f.key, { pack: 'souldew-plus', kid: 'pv_0123456789abcdefABCDEF', entry });
+  assert.equal(r.wm, wm);
+  assert.deepEqual(r.bytes, files[0].bytes);
+});
+
+test('manifest shape: format, ids, paths, types, sizes, hashes, executable flags are checked even when signed', async () => {
+  const ok = { format: FORMAT, id: 'souldew-plus', version: '1.0.0', kind: 'mixed', title: 't', created: '2026-11-17T00:00:00Z',
+    files: [{ path: 'skins/a.css', size: 1, sha256: await sha256(new Uint8Array(1)), type: 'text/css', executable: false }] };
   assert.doesNotThrow(() => checkManifest(ok));
-  const bad = (patch) => assert.throws(() => checkManifest({ ...ok, ...patch }), { code: 'manifest' });
-  bad({ format: 'other@1' });
-  bad({ packVersion: '../x' });
-  bad({ files: [{ ...ok.files[0], path: '../etc/passwd' }] });
-  bad({ files: [{ ...ok.files[0], path: '/abs.css' }] });
-  bad({ files: [{ ...ok.files[0], path: 'a\\b.css' }] });
+  const bad = (patch, file) => assert.throws(() => checkManifest({ ...ok, ...patch, ...(file ? { files: [{ ...ok.files[0], ...file }] } : {}) }), { code: 'manifest' });
+  bad({ format: 2 });
+  bad({ id: 'Bad_Id' });
+  bad({ version: '1.0' });
+  bad({ kind: 'themes' });
+  bad({ files: [] });
   bad({ files: [ok.files[0], ok.files[0]] });
-  bad({ files: [{ ...ok.files[0], size: -1 }] });
-  bad({ files: [{ ...ok.files[0], sha256: 'xyz' }] });
-  assert.throws(() => parseArchive(enc.encode('SDPA\u0000\u0000\u0000\u0002{}')), { code: 'archive' });
+  bad(null, { path: '../etc/passwd.css' });
+  bad(null, { path: '/abs.css' });
+  bad(null, { path: 'a\\b.css' });
+  bad(null, { path: 'a.exe', type: 'application/octet-stream' });
+  bad(null, { type: 'text/plain' });
+  bad(null, { size: -1 });
+  bad(null, { size: 9 * 1024 * 1024 });
+  bad(null, { sha256: 'xyz' });
+  bad(null, { executable: true });
+  bad(null, { path: 'frames.mjs', type: 'text/javascript', executable: false });
 });

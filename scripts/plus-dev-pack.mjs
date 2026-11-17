@@ -1,22 +1,27 @@
-// Builds a TEST souldew+ pack from the design sources, signed with a throwaway dev key, so the whole premium path
-// (download → decrypt → verify → load) can be tried locally. Real packs are built and signed by the accounts repo's
-// pack builder with the production key – this script never sees that key, and the app never trusts this one unless the
-// local server is started with SLS_PLUS_DEV_PACK.
+// The souldew+ pack from the design sources, in the ONE pack format (souldew-accounts docs/API.md §10: a signed manifest +
+// one encrypted envelope per file, web/lib/cosmetics/pack/format.mjs).
 //
-//   node scripts/plus-dev-pack.mjs --design <design/plus folder> --out <folder>      # the test pack
-//   node scripts/plus-dev-pack.mjs --design <design/plus folder> --catalog           # + the public catalog and free content
-//
-// Output (--out, never inside the repo): pack.sdpk (the encrypted envelope one account would download), access.json
-// (what getPackAccess() would return: key, manifestSig, until, packVersion – plus the dev public key), and
-// dev-signing.key (the private key, so later builds keep the same identity). Then start the server with
-//   SLS_PLUS_DEV_PACK=<folder> node server/index.mjs
+//   node scripts/plus-dev-pack.mjs --design <design/plus> --source <dir> [--preview-source <dir>]
+//        the pack SOURCE folders, unsigned: the input of the owner's pack tool (souldew-accounts tools/pack-build.mjs),
+//        which signs them offline with the production key – the app never sees that key.
+//          <source>          contents.json, banners.json, frames.mjs, launch.mjs, skins/*.css, fonts/*.woff2, assets/*
+//          <preview-source>  the live theme preview pack (--kind preview): skin stylesheets only, their art as PNG at
+//                            most 512 px, no fonts (the preview falls back to the app's own), nothing else
+//   node scripts/plus-dev-pack.mjs --design <design/plus> --out <dir>      a TEST pack to try the whole path locally:
+//        signed with a throwaway dev key (dev-signing.key, kept so later builds keep the same identity) and sealed per file
+//        for a throwaway account key – sealed-pack/, sealed-preview/, access.json, access-preview.json. Then start the
+//        server with SLS_PLUS_DEV_PACK=<dir>; the app trusts that key only then.
+//   node scripts/plus-dev-pack.mjs --design <design/plus> --catalog        + the public catalog and the free content
 //
 // --catalog rewrites web/lib/cosmetics/content/{catalog,banners-free,frames-free}.mjs: the PUBLIC part (names,
 // collections, rarities, swatches, pairings – what a locked card shows) and the free banners and frames.
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from 'node:fs';
+// Never write a pack inside the repository: premium content is never committed.
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync, rmdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { buildArchive, sealEnvelope, makeSigner, b64encode, b64decode } from '../web/lib/cosmetics/pack/format.mjs';
+import { spawnSync } from 'node:child_process';
+import { buildManifest, sealFile, makeSigner, b64encode, b64decode, b64url } from '../web/lib/cosmetics/pack/format.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -26,19 +31,23 @@ const opt = (name, fallback = null) => {
 };
 const DESIGN = resolve(opt('design', join(ROOT, '..', 'design-plus', 'design', 'plus')));
 const OUT = opt('out') ? resolve(opt('out')) : null;
+const SOURCE = opt('source') ? resolve(opt('source')) : null;
+const PREVIEW_SOURCE = opt('preview-source') ? resolve(opt('preview-source')) : null;
 const CATALOG = args.includes('--catalog');
 const DAYS = Number(opt('days', 30));
 if (!existsSync(join(DESIGN, 'themes', 'skins.json'))) {
   console.error(`no design sources at ${DESIGN} (expected themes/, banners/, frames/, launch/) – pass --design`);
   process.exit(2);
 }
-if (!OUT && !CATALOG) {
-  console.error('usage: node scripts/plus-dev-pack.mjs --design <dir> [--out <dir>] [--catalog] [--days 30]');
+if (!OUT && !CATALOG && !SOURCE && !PREVIEW_SOURCE) {
+  console.error('usage: node scripts/plus-dev-pack.mjs --design <dir> [--source <dir>] [--preview-source <dir>] [--out <dir>] [--catalog] [--days 30] [--version 1.0.0]');
   process.exit(2);
 }
-if (OUT && resolve(OUT).startsWith(ROOT)) {
-  console.error('--out must be outside the repository (a test pack is premium content and is never committed)');
-  process.exit(2);
+for (const d of [OUT, SOURCE, PREVIEW_SOURCE]) {
+  if (d && (d + '/').startsWith(ROOT + '/')) {
+    console.error('--out / --source / --preview-source must be outside the repository (premium content is never committed)');
+    process.exit(2);
+  }
 }
 const enc = new TextEncoder();
 const imp = (p) => import(pathToFileURL(join(DESIGN, p)).href);
@@ -168,10 +177,9 @@ if (CATALOG) {
   console.log(`catalog: ${cat.skins.length} skins, ${cat.banners.length} banners, ${cat.frames.length} frames, ${cat.launch.length} launch animations → web/lib/cosmetics/content/`);
 }
 
-if (OUT) {
-  mkdirSync(OUT, { recursive: true });
+// ------------------------------------------------------------------ the pack's files
+function packFiles() {
   for (const b of plusBanners) assertData(b, b.id);
-  const packVersion = opt('version', `dev-${new Date().toISOString().slice(0, 10)}`);
   const contents = {
     skins: SKINS.filter((k) => k.kind !== 'classic').map((s) => ({ id: s.id, css: `skins/${s.id}.css` })),
     banners: 'banners.json', frames: { module: 'frames.mjs', ids: plusFrames.map((f) => f.id) },
@@ -184,17 +192,90 @@ if (OUT) {
     { path: 'launch.mjs', bytes: enc.encode(launchModule) },
     ...skinFiles(),
   ];
+  return { files, contents };
+}
+
+/** An SVG → PNG of at most `max` px per side, rendered by Electron's Chromium (the app's own dev dependency). */
+function rasterize(svgFile, max) {
+  const out = join(mkdtempSync(join(tmpdir(), 'souldew-raster-')), `${basename(svgFile)}.png`);
+  const electron = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron');
+  const r = spawnSync(electron, [join(ROOT, 'scripts', 'svg-raster.mjs'), svgFile, out, String(max)], { stdio: ['ignore', 'pipe', 'inherit'], timeout: 60000, env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'ELECTRON_RUN_AS_NODE')) } });
+  if (r.status !== 0 || !existsSync(out)) throw new Error(`could not rasterize ${svgFile}`);
+  const bytes = new Uint8Array(readFileSync(out));
+  rmSync(out, { force: true });
+  rmdirSync(dirname(out));
+  return bytes;
+}
+
+/**
+ * The live theme preview pack: every skin's stylesheet, without its fonts (woff2 is not allowed in a preview pack – the
+ * text falls back to the app's own fonts) and with its art as PNG of at most 512 px. The service checks both again
+ * when the pack is registered.
+ */
+function previewFiles() {
+  const files = [];
+  const art = new Map();
+  for (const f of skinFiles().filter((x) => x.path.startsWith('skins/'))) {
+    let css = new TextDecoder().decode(f.bytes);
+    css = css.replace(/@font-face\s*\{[^}]*pack:fonts\/[^}]*\}\s*/g, '');
+    css = css.replace(/url\((['"]?)pack:assets\/([a-z0-9._-]+)\.svg\1\)/g, (_, q, name) => {
+      art.set(`assets/${name}.png`, join(DESIGN, 'themes', 'assets', `${name}.svg`));
+      return `url('pack:assets/${name}.png')`;
+    });
+    if (/pack:(?!assets\/[a-z0-9._-]+\.png)/.test(css)) throw new Error(`${f.path}: the preview would reference a file it can't carry`);
+    files.push({ path: f.path, bytes: enc.encode(css) });
+  }
+  for (const [path, svg] of art) files.push({ path, bytes: rasterize(svg, 512) });
+  // no contents.json: a preview pack holds stylesheets and images only – the page finds the skins by their paths
+  return files;
+}
+
+/** Writes a pack source folder (refuses to overwrite a non-empty folder). */
+function writeSource(dir, files) {
+  if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} is not empty`);
+  for (const f of files) {
+    const target = join(dir, ...f.path.split('/'));
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, f.bytes);
+  }
+  console.log(`${files.length} files → ${dir}`);
+}
+
+if (SOURCE) writeSource(SOURCE, packFiles().files);
+if (PREVIEW_SOURCE) writeSource(PREVIEW_SOURCE, previewFiles());
+
+if (OUT) {
+  mkdirSync(OUT, { recursive: true });
+  const version = opt('version', '0.0.1');
   const keyFile = join(OUT, 'dev-signing.key');
   const signer = await makeSigner(existsSync(keyFile) ? b64decode(readFileSync(keyFile, 'utf8').trim()) : null);
   if (!existsSync(keyFile)) writeFileSync(keyFile, b64encode(await signer.pkcs8()) + '\n', { mode: 0o600 });
-  const { archive, sig } = await buildArchive({ packVersion, files }, signer.sign);
   const key = globalThis.crypto.getRandomValues(new Uint8Array(32));
-  const envelope = await sealEnvelope(archive, key, { watermark: 'dev-account', packVersion });
-  writeFileSync(join(OUT, 'pack.sdpk'), envelope);
-  const access = { key: b64encode(key), manifestSig: b64encode(sig), until: new Date(Date.now() + DAYS * 86400e3).toISOString(), packVersion, publicKey: b64encode(signer.publicKey) };
-  writeFileSync(join(OUT, 'access.json'), JSON.stringify(access, null, 2) + '\n', { mode: 0o600 });
   const kb = (n) => `${Math.round(n / 1024)} KB`;
-  console.log(`test pack ${packVersion}: ${files.length} files, archive ${kb(archive.length)}, envelope ${kb(envelope.length)} → ${OUT}`);
+  /** signs the manifest, seals every file the way the service does for one account, writes the access answer */
+  const seal = async ({ id, kind, title, files, dir, accessFile, kid, extra }) => {
+    const { manifest, manifestBytes } = await buildManifest({ id, version, kind, title, files });
+    const signature = await signer.sign(manifestBytes);
+    let size = 0;
+    for (const f of files) {
+      const env = await sealFile({ pack: id, version, path: f.path, wm: 'wm_dev', kid, key, bytes: f.bytes });
+      const target = join(OUT, `sealed-${dir}`, ...f.path.split('/'));
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, env);
+      size += env.length;
+    }
+    const access = {
+      packId: id, version, manifest: b64url(manifestBytes), signature: b64url(signature), keyId: kid, watermark: 'wm_dev', key: b64url(key),
+      files: manifest.files.map((f) => ({ path: f.path, url: `souldew-dev:${dir}/${f.path}` })), publicKey: b64url(signer.publicKey), ...extra,
+    };
+    writeFileSync(join(OUT, accessFile), JSON.stringify(access, null, 2) + '\n', { mode: 0o600 });
+    console.log(`${kind} pack ${id}@${version}: ${files.length} files, ${kb(size)} sealed → ${join(OUT, `sealed-${dir}`)}`);
+  };
+  const { files, contents } = packFiles();
+  await seal({ id: 'souldew-plus', kind: 'mixed', title: 'souldew+ (dev)', files, dir: 'pack', accessFile: 'access.json', kid: '1',
+    extra: { until: new Date(Date.now() + DAYS * 86400e3).toISOString() } });
+  await seal({ id: 'skins-preview', kind: 'preview', title: 'Skin preview (dev)', files: previewFiles(), dir: 'preview', accessFile: 'access-preview.json',
+    kid: `pv_${b64url(globalThis.crypto.getRandomValues(new Uint8Array(16))).slice(0, 22)}`, extra: { preview: true } });
   console.log(`  skins ${contents.skins.length} · banners ${plusBanners.length} · frames ${plusFrames.length} · launch ${plusAnims.length}`);
   console.log(`  start the server with SLS_PLUS_DEV_PACK=${OUT}`);
 }

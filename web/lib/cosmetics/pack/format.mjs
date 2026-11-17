@@ -1,27 +1,41 @@
-// souldew+ premium pack: the container format and its cryptography. Isomorphic (WebCrypto only), so the app's renderer,
-// the dev pack builder (scripts/plus-dev-pack.mjs) and the tests share one implementation. Nothing in here touches the
-// DOM, the network or the disk.
+// souldew+ premium pack: the format and its cryptography – the accounts service's contract (souldew-accounts
+// docs/API.md §10), one format end to end. Isomorphic (WebCrypto only), so the renderer, the dev pack builder
+// (scripts/plus-dev-pack.mjs) and the tests share one implementation. Nothing in here touches the DOM, the network or
+// the disk.
 //
-// Two layers (README.md › "Pack format"):
+//   manifest  – built and signed ONCE, offline, by the owner's pack tool (souldew-accounts tools/pack-build.mjs) with
+//               the pack signing key; the same bytes for every account (UTF-8 JSON):
+//               { format: 1, id, version, kind, title, created, files: [{ path, sha256, size, type, executable }] }
+//               The Ed25519 signature covers the manifest's exact bytes, and through its hashes every byte of every file.
+//   envelope  – one per file, made by the service for one account at download time (AES-256-GCM, a fresh nonce each):
+//               "SDP1" | u16 headerLength (big-endian) | header (UTF-8 JSON) | ciphertext+tag
+//               header = { v: 1, pack, version, path, wm, kid, nonce }   – the header is the GCM additional data
+//               plaintext = the file; text files (.css .js .mjs .json .txt) end with the trailer "\n/*sdwm:<wm>*/\n"
 //
-//   archive  – the pack as built and signed once, identical for every account:
-//              "SDPA" | u32 manifestLength | manifest (UTF-8 JSON) | u32 sigLength | Ed25519 signature | file bodies …
-//              The manifest lists every file with its size and SHA-256; the signature covers the manifest's exact bytes.
-//   envelope – what one account downloads: the archive encrypted for that account (AES-256-GCM):
-//              "SDPK" | u8 version | u16 headerLength | header (UTF-8 JSON: alg, iv, wm, issued, packVersion) | ciphertext
-//              The header (with the account's watermark) is the GCM additional data, so it can't be swapped or edited.
-//
-// Order of trust on the way in: decrypt (GCM tag) → parse → the signature from the account service must equal the one in
-// the archive → verify it against a pinned key → every file's size and hash → only then is anything used.
+// Order of trust on the way in (openPack): the manifest's signature against a PINNED key → the manifest's shape → for
+// every file: framing, header bound to this pack / path / key id, GCM tag, watermark trailer, size, SHA-256 → only when
+// ALL files passed is anything handed out. A pack is used whole or not at all.
 
-export const FORMAT = 'souldew-plus-pack@1';
-const ARCHIVE_MAGIC = 'SDPA';
-const ENVELOPE_MAGIC = 'SDPK';
-const ENVELOPE_VERSION = 1;
-/** Hard caps: a pack is a few MB; anything bigger is refused before any work is done. */
+export const FORMAT = 1;
+const ENVELOPE_MAGIC = 'SDP1';
+export const PACK_ID_RE = /^[a-z0-9][a-z0-9-]{1,47}$/;
+export const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
+export const KINDS = ['skins', 'banners', 'frames', 'launch', 'mixed', 'preview'];
+/** Same table as the service and the pack tool: extension → media type. */
+export const TYPES = {
+  css: 'text/css', json: 'application/json', png: 'image/png', webp: 'image/webp', svg: 'image/svg+xml', woff2: 'font/woff2',
+  mjs: 'text/javascript', js: 'text/javascript', txt: 'text/plain',
+};
+/** Files that carry the per-account watermark trailer (images and fonts can't). */
+export const WATERMARKED = /\.(css|js|mjs|json|txt)$/;
+/** Hard caps (the service's): refused before any work is done. */
+export const MAX_FILE_BYTES = 8 * 1024 * 1024;
 export const MAX_PACK_BYTES = 64 * 1024 * 1024;
-const MAX_MANIFEST_BYTES = 1024 * 1024;
-const MAX_FILES = 4096;
+export const MAX_FILES = 2000;
+const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+const MAX_HEADER_BYTES = 2048;
+const WM_RE = /^wm_[A-Za-z0-9_-]{1,40}$/;
+const KID_RE = /^(\d{1,9}|pv_[A-Za-z0-9_-]{22})$/;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder('utf-8', { fatal: true });
@@ -44,6 +58,7 @@ export function b64encode(bytes) {
   for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
   return btoa(s);
 }
+export const b64url = (bytes) => b64encode(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 /** base64 or base64url → bytes; null for anything that isn't */
 export function b64decode(text) {
   if (typeof text !== 'string' || !/^[A-Za-z0-9+/_-]*={0,2}$/.test(text)) return null;
@@ -60,81 +75,75 @@ export const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(1
 export async function sha256(bytes) {
   return hex(await subtle().digest('SHA-256', bytes));
 }
-function equalBytes(a, b) {
-  if (!a || !b || a.length !== b.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a[i] ^ b[i];
-  return d === 0;
+const bytesOf = (v) => (typeof v === 'string' ? b64decode(v) : v instanceof Uint8Array ? v : v instanceof ArrayBuffer ? new Uint8Array(v) : null);
+function endsWith(b, tail) {
+  if (b.length < tail.length) return false;
+  for (let i = 0; i < tail.length; i++) if (b[b.length - tail.length + i] !== tail[i]) return false;
+  return true;
 }
-const u32 = (n) => new Uint8Array([(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255]);
-const readU32 = (b, o) => ((b[o] << 24) | (b[o + 1] << 16) | (b[o + 2] << 8) | b[o + 3]) >>> 0;
-function concat(parts) {
-  const out = new Uint8Array(parts.reduce((a, p) => a + p.length, 0));
-  let o = 0;
-  for (const p of parts) {
-    out.set(p, o);
-    o += p.length;
-  }
-  return out;
-}
+export const trailerOf = (wm) => enc.encode(`\n/*sdwm:${wm}*/\n`);
 
-// ------------------------------------------------------------------ manifest shape
-const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*){0,3}$/;
-/** The manifest is data from outside until its signature is checked – and even then its shape is checked strictly. */
+// ------------------------------------------------------------------ manifest
+/** One path segment: letters, digits, . _ - (the service's validPackPath), never . or .. */
+export function validPackPath(p) {
+  return typeof p === 'string' && p.length <= 200 && /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*$/.test(p) && !p.split('/').some((s) => s === '.' || s === '..');
+}
+const extOf = (p) => p.split('.').pop().toLowerCase();
+
+/** The manifest is data from outside – even signed, its shape is checked strictly (the service does the same). */
 export function checkManifest(m) {
-  if (!m || typeof m !== 'object' || Array.isArray(m)) throw packError('manifest', 'manifest is not an object');
-  if (m.format !== FORMAT) throw packError('manifest', `unknown pack format ${String(m.format).slice(0, 40)}`);
-  if (typeof m.packVersion !== 'string' || !/^[A-Za-z0-9._-]{1,40}$/.test(m.packVersion)) throw packError('manifest', 'bad packVersion');
-  if (!Array.isArray(m.files) || m.files.length > MAX_FILES) throw packError('manifest', 'bad file list');
+  const bad = (why) => packError('manifest', `manifest invalid: ${why}`);
+  if (!m || typeof m !== 'object' || Array.isArray(m)) throw bad('not an object');
+  if (m.format !== FORMAT) throw bad(`unknown format ${String(m.format).slice(0, 20)}`);
+  if (!PACK_ID_RE.test(m.id || '') || !VERSION_RE.test(m.version || '') || !KINDS.includes(m.kind)) throw bad('id/version/kind');
+  if (typeof m.title !== 'string' || m.title.length > 80 || typeof m.created !== 'string') throw bad('title/created');
+  if (!Array.isArray(m.files) || m.files.length < 1 || m.files.length > MAX_FILES) throw bad('files');
   const seen = new Set();
+  let total = 0;
   for (const f of m.files) {
-    if (!f || typeof f.path !== 'string' || !PATH_RE.test(f.path) || f.path.includes('..')) throw packError('manifest', 'bad file path');
-    if (seen.has(f.path)) throw packError('manifest', `duplicate file ${f.path}`);
+    if (!f || !validPackPath(f.path) || seen.has(f.path)) throw bad(`path ${String(f?.path).slice(0, 60)}`);
     seen.add(f.path);
-    if (!Number.isInteger(f.size) || f.size < 0 || f.size > MAX_PACK_BYTES) throw packError('manifest', `bad size for ${f.path}`);
-    if (typeof f.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(f.sha256)) throw packError('manifest', `bad hash for ${f.path}`);
+    const ext = extOf(f.path);
+    if (!Object.hasOwn(TYPES, ext) || TYPES[ext] !== f.type) throw bad(`type of ${f.path}`);
+    if (typeof f.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(f.sha256)) throw bad(`sha256 of ${f.path}`);
+    if (!Number.isInteger(f.size) || f.size < 0 || f.size > MAX_FILE_BYTES) throw bad(`size of ${f.path}`);
+    if (f.executable !== (ext === 'js' || ext === 'mjs')) throw bad(`executable flag of ${f.path}`);
+    total += f.size;
   }
+  if (total > MAX_PACK_BYTES) throw bad('pack too large');
   return m;
 }
 
-// ------------------------------------------------------------------ archive (build + parse)
-/** files: [{ path, bytes: Uint8Array }]; sign(bytes) → 64-byte signature. Returns { archive, manifest, manifestBytes, sig }. */
-export async function buildArchive({ packVersion, files, extra = {} }, sign) {
-  const list = [];
-  for (const f of files) list.push({ path: f.path, size: f.bytes.length, sha256: await sha256(f.bytes) });
-  const manifest = checkManifest({ format: FORMAT, packVersion, created: new Date().toISOString(), ...extra, files: list });
-  const manifestBytes = enc.encode(JSON.stringify(manifest));
-  const sig = new Uint8Array(await sign(manifestBytes));
-  const archive = concat([enc.encode(ARCHIVE_MAGIC), u32(manifestBytes.length), manifestBytes, u32(sig.length), sig, ...files.map((f) => f.bytes)]);
-  return { archive, manifest, manifestBytes, sig };
-}
-
-/** Splits an archive. Checks only the framing – the caller verifies the signature and the hashes. */
-export function parseArchive(bytes) {
-  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  if (b.length < 12 || dec.decode(b.subarray(0, 4)) !== ARCHIVE_MAGIC) throw packError('archive', 'not a souldew+ pack');
-  const mLen = readU32(b, 4);
-  if (mLen > MAX_MANIFEST_BYTES || 8 + mLen + 4 > b.length) throw packError('archive', 'bad manifest length');
-  const manifestBytes = b.subarray(8, 8 + mLen);
-  const sLen = readU32(b, 8 + mLen);
-  if (sLen !== 64 || 12 + mLen + sLen > b.length) throw packError('archive', 'bad signature length');
-  const sig = b.subarray(12 + mLen, 12 + mLen + sLen);
-  let manifest;
+export function parseManifest(bytes) {
+  const b = bytesOf(bytes);
+  if (!b || b.length > MAX_MANIFEST_BYTES) throw packError('manifest', 'manifest missing or too large');
+  let m;
   try {
-    manifest = JSON.parse(dec.decode(manifestBytes));
+    m = JSON.parse(dec.decode(b));
   } catch {
     throw packError('manifest', 'manifest is not JSON');
   }
-  return { manifest, manifestBytes, sig, body: b.subarray(12 + mLen + sLen) };
+  return checkManifest(m);
+}
+
+/**
+ * Builds a manifest exactly like the owner's pack tool does (tests and the dev pack builder – production manifests are
+ * built and signed by souldew-accounts tools/pack-build.mjs, never by the app). files: [{ path, bytes }].
+ */
+export async function buildManifest({ id, version, kind, title, created = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), files }) {
+  const list = [];
+  for (const f of files) {
+    const ext = extOf(f.path);
+    list.push({ path: f.path, sha256: await sha256(f.bytes), size: f.bytes.length, type: TYPES[ext], executable: ext === 'js' || ext === 'mjs' });
+  }
+  const manifest = checkManifest({ format: FORMAT, id, version, kind, title, created, files: list });
+  return { manifest, manifestBytes: enc.encode(JSON.stringify(manifest, null, 2)) };
 }
 
 // ------------------------------------------------------------------ signatures
-async function importPublic(raw) {
-  return subtle().importKey('raw', raw, { name: 'Ed25519' }, false, ['verify']);
-}
 /**
- * True when `sig` is a valid Ed25519 signature of `bytes` by ANY of `keys` (raw 32-byte public keys, or base64 text).
- * Keys that don't decode to 32 bytes (the placeholder before a production key is configured) never verify anything.
+ * True when `sig` is a valid Ed25519 signature of `bytes` by ANY of `keys` (raw 32-byte public keys, or base64/base64url
+ * text). Keys that don't decode to 32 bytes (the placeholder before a production key is configured) never verify.
  */
 export async function verifySignature(bytes, sig, keys) {
   if (!(sig instanceof Uint8Array) || sig.length !== 64) return false;
@@ -142,7 +151,8 @@ export async function verifySignature(bytes, sig, keys) {
     const raw = typeof k === 'string' ? b64decode(k) : k;
     if (!(raw instanceof Uint8Array) || raw.length !== 32) continue;
     try {
-      if (await subtle().verify({ name: 'Ed25519' }, await importPublic(raw), sig, bytes)) return true;
+      const pub = await subtle().importKey('raw', raw, { name: 'Ed25519' }, false, ['verify']);
+      if (await subtle().verify({ name: 'Ed25519' }, pub, sig, bytes)) return true;
     } catch {
       // a malformed key is simply not a match
     }
@@ -150,14 +160,13 @@ export async function verifySignature(bytes, sig, keys) {
   return false;
 }
 
-/** Ed25519 key pair for the dev builder and the tests: { publicKey (raw 32 bytes), sign(bytes) } */
+/** Ed25519 key pair for the dev builder and the tests: { publicKey (raw 32 bytes), pkcs8(), sign(bytes) } */
 export async function makeSigner(pkcs8) {
   const s = subtle();
   let priv, pubRaw;
   if (pkcs8) {
     priv = await s.importKey('pkcs8', pkcs8, { name: 'Ed25519' }, true, ['sign']);
-    const jwk = await s.exportKey('jwk', priv);
-    pubRaw = b64decode(jwk.x);
+    pubRaw = b64decode((await s.exportKey('jwk', priv)).x);
   } else {
     const kp = await s.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
     priv = kp.privateKey;
@@ -170,74 +179,101 @@ export async function makeSigner(pkcs8) {
   };
 }
 
-// ------------------------------------------------------------------ per-account envelope
-function envelopeHead(header) {
-  const h = enc.encode(JSON.stringify(header));
-  if (h.length > 4096) throw packError('envelope', 'header too large');
-  return concat([enc.encode(ENVELOPE_MAGIC), new Uint8Array([ENVELOPE_VERSION, (h.length >> 8) & 255, h.length & 255]), h]);
+// ------------------------------------------------------------------ per-file envelopes
+/**
+ * Encrypts one file for one account, exactly as the service's file endpoint does (dev pack builder and tests only).
+ * { pack, version, path, wm, kid, key (32 bytes), bytes }
+ */
+export async function sealFile({ pack, version, path, wm, kid, key, bytes }) {
+  if (!(key instanceof Uint8Array) || key.length !== 32) throw packError('key', 'the pack key must be 32 bytes');
+  let plain = bytes;
+  if (WATERMARKED.test(path)) {
+    const t = trailerOf(wm);
+    plain = new Uint8Array(bytes.length + t.length);
+    plain.set(bytes);
+    plain.set(t, bytes.length);
+  }
+  const nonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const header = enc.encode(JSON.stringify({ v: 1, pack, version, path, wm, kid, nonce: b64url(nonce) }));
+  const k = await subtle().importKey('raw', key, { name: 'AES-GCM' }, false, ['encrypt']);
+  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv: nonce, additionalData: header }, k, plain));
+  const out = new Uint8Array(6 + header.length + ct.length);
+  out.set(enc.encode(ENVELOPE_MAGIC), 0);
+  out[4] = (header.length >> 8) & 0xff;
+  out[5] = header.length & 0xff;
+  out.set(header, 6);
+  out.set(ct, 6 + header.length);
+  return out;
 }
 
-/** Encrypts an archive for one account (the accounts service does this per download; here for the dev builder and tests). */
-export async function sealEnvelope(archive, keyBytes, { watermark = 'dev', packVersion = '', issued = new Date().toISOString() } = {}) {
-  if (!(keyBytes instanceof Uint8Array) || keyBytes.length !== 32) throw packError('key', 'the pack key must be 32 bytes');
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const head = envelopeHead({ alg: 'A256GCM', iv: b64encode(iv), wm: String(watermark).slice(0, 80), issued, packVersion });
-  const key = await subtle().importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
-  const ct = new Uint8Array(await subtle().encrypt({ name: 'AES-GCM', iv, additionalData: head }, key, archive));
-  return concat([head, ct]);
-}
-
-/** Envelope → { header, archive }. Throws 'envelope' for framing errors and 'decrypt' for a wrong key or edited bytes. */
-export async function openEnvelope(bytes, keyBytes) {
-  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  if (b.length > MAX_PACK_BYTES) throw packError('envelope', 'pack too large');
-  if (b.length < 7 || dec.decode(b.subarray(0, 4)) !== ENVELOPE_MAGIC) throw packError('envelope', 'not a souldew+ envelope');
-  if (b[4] !== ENVELOPE_VERSION) throw packError('envelope', `unknown envelope version ${b[4]}`);
-  const hLen = (b[5] << 8) | b[6];
-  if (7 + hLen + 16 > b.length) throw packError('envelope', 'truncated envelope');
-  const head = b.subarray(0, 7 + hLen);
+/** Envelope framing → { header, headerBytes, body }. Checks the shape only. */
+export function parseEnvelope(bytes) {
+  const b = bytesOf(bytes);
+  if (!b || b.length < 6 + 16 || dec.decode(b.subarray(0, 4)) !== ENVELOPE_MAGIC) throw packError('envelope', 'not a souldew+ file envelope');
+  if (b.length > MAX_FILE_BYTES + MAX_HEADER_BYTES + 1024) throw packError('envelope', 'file too large');
+  const hLen = (b[4] << 8) | b[5];
+  if (hLen < 2 || hLen > MAX_HEADER_BYTES || 6 + hLen + 16 > b.length) throw packError('envelope', 'bad envelope header length');
+  const headerBytes = b.subarray(6, 6 + hLen);
   let header;
   try {
-    header = JSON.parse(dec.decode(b.subarray(7, 7 + hLen)));
+    header = JSON.parse(dec.decode(headerBytes));
   } catch {
     throw packError('envelope', 'bad envelope header');
   }
-  const iv = b64decode(header?.iv);
-  if (header?.alg !== 'A256GCM' || !iv || iv.length !== 12) throw packError('envelope', 'unsupported envelope');
-  if (!(keyBytes instanceof Uint8Array) || keyBytes.length !== 32) throw packError('key', 'the pack key must be 32 bytes');
-  const key = await subtle().importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
-  try {
-    const archive = new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv, additionalData: head }, key, b.subarray(7 + hLen)));
-    return { header, archive };
-  } catch {
-    throw packError('decrypt', 'the pack could not be decrypted (wrong key or damaged download)');
-  }
+  if (!header || header.v !== 1 || typeof header.pack !== 'string' || typeof header.path !== 'string' || !VERSION_RE.test(header.version || '')
+    || !WM_RE.test(header.wm || '') || !KID_RE.test(header.kid || '') || b64decode(header.nonce)?.length !== 12) throw packError('envelope', 'unsupported envelope header');
+  return { header, headerBytes, body: b.subarray(6 + hLen) };
 }
 
 /**
- * The whole way in: envelope bytes + the account's key + the signature the account service handed out → verified files.
- * Returns { manifest, files: Map(path → Uint8Array), watermark, packVersion }. Throws with e.code on any failure.
+ * Opens one file: the envelope must be for this pack, this path and this key id; the GCM tag must hold; text files must
+ * end with the trailer of the header's watermark (stripped); size and SHA-256 must equal the manifest entry.
+ * expect: { pack, kid, entry: { path, sha256, size } }. Returns { bytes, wm, version }.
  */
-export async function openPack(envelope, { key, manifestSig, keys }) {
-  const keyBytes = typeof key === 'string' ? b64decode(key) : key;
-  const { header, archive } = await openEnvelope(envelope, keyBytes);
-  const { manifest, manifestBytes, sig, body } = parseArchive(archive);
-  const expected = typeof manifestSig === 'string' ? b64decode(manifestSig) : manifestSig;
-  // the account service vouches for exactly this pack: a valid but different (older, other tier) pack is refused too
-  if (!equalBytes(expected, sig)) throw packError('signature', 'the pack is not the one the account service issued');
-  if (!(await verifySignature(manifestBytes, sig, keys))) throw packError('signature', 'the pack signature is not valid');
-  checkManifest(manifest);
-  const files = new Map();
-  let o = 0;
-  for (const f of manifest.files) {
-    if (o + f.size > body.length) throw packError('hash', `file ${f.path} is truncated`);
-    const bytes = body.slice(o, o + f.size);
-    o += f.size;
-    if ((await sha256(bytes)) !== f.sha256) throw packError('hash', `file ${f.path} does not match its hash`);
-    files.set(f.path, bytes);
+export async function openFile(envelope, keyBytes, { pack, kid, entry }) {
+  const { header, headerBytes, body } = parseEnvelope(envelope);
+  if (header.pack !== pack || header.path !== entry.path || header.kid !== String(kid)) throw packError('envelope', `envelope is not for ${entry.path}`);
+  if (!(keyBytes instanceof Uint8Array) || keyBytes.length !== 32) throw packError('key', 'the pack key must be 32 bytes');
+  let plain;
+  try {
+    const k = await subtle().importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['decrypt']);
+    plain = new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: b64decode(header.nonce), additionalData: headerBytes }, k, body));
+  } catch {
+    throw packError('decrypt', `${entry.path} could not be decrypted (wrong key or damaged download)`);
   }
-  if (o !== body.length) throw packError('hash', 'the pack has unlisted bytes');
-  return { manifest, files, watermark: String(header.wm || ''), packVersion: manifest.packVersion };
+  if (WATERMARKED.test(entry.path)) {
+    const t = trailerOf(header.wm);
+    if (!endsWith(plain, t)) throw packError('watermark', `${entry.path} has no valid watermark`);
+    plain = plain.subarray(0, plain.length - t.length);
+  }
+  if (plain.length !== entry.size || (await sha256(plain)) !== entry.sha256) throw packError('hash', `${entry.path} does not match its hash`);
+  return { bytes: plain.slice(), wm: header.wm, version: header.version };
+}
+
+/**
+ * The whole way in. { manifest (bytes or base64url), signature (base64/base64url or bytes), keys (pinned), key (account
+ * or preview key, 32 bytes or base64url), kid, envelope(path) → bytes (may be async), expect: { id, version } }.
+ * Returns { manifest, files: Map(path → Uint8Array), watermarks: Set } – only after every file verified.
+ */
+export async function openPack({ manifest, signature, keys, key, kid, envelope, expect = {} }) {
+  const manifestBytes = bytesOf(manifest);
+  const sig = bytesOf(signature);
+  if (!manifestBytes || !sig) throw packError('signature', 'manifest or signature missing');
+  // the signature first: nothing of an unsigned manifest is even parsed
+  if (!(await verifySignature(manifestBytes, sig, keys))) throw packError('signature', 'the pack signature is not valid');
+  const m = parseManifest(manifestBytes);
+  if ((expect.id && m.id !== expect.id) || (expect.version && m.version !== expect.version)) throw packError('manifest', 'not the pack the account service issued');
+  const keyBytes = bytesOf(key);
+  const files = new Map();
+  const watermarks = new Set();
+  for (const entry of m.files) {
+    const env = await envelope(entry.path);
+    if (!env) throw packError('missing', `${entry.path} is missing`);
+    const f = await openFile(env, keyBytes, { pack: m.id, kid, entry });
+    files.set(entry.path, f.bytes);
+    if (WATERMARKED.test(entry.path)) watermarks.add(f.wm);
+  }
+  return { manifest: m, files, watermarks };
 }
 
 export const text = (bytes) => dec.decode(bytes);

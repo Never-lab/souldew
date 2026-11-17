@@ -17,7 +17,9 @@
 import { randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { API, accountsBase } from './contract.mjs';
 
-const LOGIN_TTL = 10 * 60000; // the service's own state lives as long
+// The service's state lives 10 minutes and its confirmation page ("Sign in to souldew on this computer as …?") another
+// 5 after Discord said yes – the loopback keeps waiting for all of it (API.md §1.3a: at least 10 minutes).
+const LOGIN_TTL = 15 * 60000;
 const REFRESH_EARLY = 60000; // refresh this long before the access token runs out (clock skew, slow networks)
 const MAX_BAD_STATES = 5; // /auth/done with a wrong state this often → the pending sign-in is dropped
 const CODE = /^[A-Za-z0-9._~-]{16,512}$/;

@@ -232,8 +232,8 @@ test('sign-in: a wrong state is ignored (the real one still works), a wrong veri
   assert.equal(four.back.searchParams.get('error'), 'access_denied');
   assert.deepEqual(await four.s.finishLogin({ state: four.back.searchParams.get('state'), error: 'access_denied' }), { ok: false, error: 'denied' });
 
-  const five = await sessionFor(kim, { now: (() => { let n = Date.now(); return () => (n += 6 * 60000); })() });
-  assert.deepEqual(await five.finish(), { ok: false, error: 'expired' }, 'a sign-in left open for more than 10 minutes');
+  const five = await sessionFor(kim, { now: (() => { let n = Date.now(); return () => (n += 8 * 60000); })() });
+  assert.deepEqual(await five.finish(), { ok: false, error: 'expired' }, 'a sign-in left open for more than 15 minutes (start + confirmation page)');
   assert.deepEqual(await (await sessionFor(kim)).s.finishLogin({ code: 'short', state: 'nope' }), { ok: false, error: 'mismatch' });
 });
 
@@ -494,8 +494,9 @@ test('export, deletion, entitlements and pack access', async () => {
   await a.signIn(temp);
   assert.equal((await a.get('/api/account/export')).body.account.handle, 'tempo');
   // §8.3: the service always says "submitted" – the result is read from the entitlement
-  assert.deepEqual((await a.post('/api/account/link-email', { email: 'nobody@example.com' })).body, { submitted: true, linked: false, tier: 'none' });
-  assert.deepEqual((await a.post('/api/account/link-email', { email: 'payer@example.com' })).body, { submitted: true, linked: true, tier: 'plus' });
+  assert.deepEqual((await a.post('/api/account/link-email', { email: 'nobody@example.com' })).body, { submitted: true, linked: false, tier: 'none', badges: [], until: null });
+  const linked = (await a.post('/api/account/link-email', { email: 'payer@example.com' })).body;
+  assert.deepEqual([linked.submitted, linked.linked, linked.tier], [true, true, 'plus']);
   assert.equal((await a.get('/api/account')).body.me.entitlement.tier, 'plus');
   const ent = (await a.get('/api/account/entitlements')).body;
   assert.equal(ent.tier, 'plus');
@@ -512,6 +513,64 @@ test('export, deletion, entitlements and pack access', async () => {
   const st = (await a.get('/api/account')).body.session;
   assert.equal(st.signedIn, false);
   assert.ok(!fake.users.has(temp.id));
+});
+
+test('souldew+: patron is souldew+, the live preview answer is cleaned, a rotated or lost pack key wipes the pack cache', async () => {
+  const a = await app();
+  const pat = fake.addUser({ handle: 'patty', display_name: 'Patty' });
+  fake.memberships.set('patron@example.com', 'patron');
+  await a.signIn(pat);
+  // a non-member's live preview: own key, the end time, file URLs only on the service
+  const pv = (await a.post('/api/account/packs/skins-preview/preview')).body;
+  assert.match(pv.key, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(pv.packKeyId, /^pv_[A-Za-z0-9_-]{22}$/);
+  assert.ok(Date.parse(pv.expiresAt) > Date.now());
+  assert.equal(pv.offlineGrace, false);
+  assert.deepEqual(pv.files.map((f) => f.path), ['skins/ember.css'], 'a URL to another host is dropped');
+  const ent0 = (await a.get('/api/account/entitlements')).body;
+  assert.deepEqual([ent0.tier, ent0.preview?.packId], ['none', 'skins-preview'], '"Preview" state from the service');
+  assert.equal(ent0.packKey, null);
+  const packs = (await a.get('/api/account/packs')).body.items;
+  assert.deepEqual(packs.map((p) => [p.id, p.kind, p.previewable]), [['skins-autumn', 'skins', false], ['skins-preview', 'preview', true]]);
+  // patron (tier 3) = souldew+ with the patron badge
+  const linked = (await a.post('/api/account/link-email', { email: 'patron@example.com' })).body;
+  assert.deepEqual([linked.linked, linked.tier, linked.badges], [true, 'patron', ['plus', 'patron']]);
+  const ent = (await a.get('/api/account/entitlements')).body;
+  assert.match(ent.packKey, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(ent.packKeyId, '1');
+  assert.ok((await a.get('/api/account/packs')).body.items[0].entitled);
+  // an encrypted pack cache on disk (as the pack client leaves it)
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const plusDir = join(DATA, 'plus');
+  const plant = () => {
+    mkdirSync(join(plusDir, 'files'), { recursive: true });
+    writeFileSync(join(plusDir, 'pack.json'), JSON.stringify({ packId: 'skins-autumn', keyId: '1', files: {} }));
+    writeFileSync(join(plusDir, 'files', `${'a'.repeat(64)}.sdp`), 'SDP1');
+  };
+  plant();
+  await a.get('/api/account/entitlements');
+  assert.ok(existsSync(join(plusDir, 'pack.json')), 'same key: kept');
+  // §8.5 unlink: the key rotates and the tier is gone → the cache goes
+  await a.del('/api/account/link');
+  assert.ok(!existsSync(join(plusDir, 'pack.json')) && !existsSync(join(plusDir, 'files')), 'wiped on unlink');
+  // the key rotated elsewhere (sign out everywhere on another device): the next entitlement read wipes too
+  fake.memberships.set('patron2@example.com', 'patron');
+  await a.post('/api/account/link-email', { email: 'patron2@example.com' });
+  await a.get('/api/account/entitlements');
+  plant();
+  fake.users.get(pat.id).keyEpoch = 7;
+  assert.equal((await a.get('/api/account/entitlements')).body.packKeyId, '7');
+  assert.ok(!existsSync(join(plusDir, 'pack.json')), 'wiped when pack_key_id changed');
+  // signing out takes it as well
+  plant();
+  await a.post('/api/account/logout');
+  assert.ok(!existsSync(join(plusDir, 'pack.json')), 'wiped on sign-out');
+  // the preview limit comes through with the service's code
+  await a.signIn(pat);
+  fake.previewCount.set(pat.id, 10);
+  const limited = await quiet(() => a.post('/api/account/packs/skins-preview/preview'));
+  assert.deepEqual([limited.status, limited.body.vars?.code], [429, 'rate_limited']);
+  await a.post('/api/account/logout');
 });
 
 test('avatars: fetched by the local server from the allowed source only, and only when it is a picture', async () => {

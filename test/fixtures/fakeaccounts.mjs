@@ -6,6 +6,7 @@
 import { createServer, request as httpRequest } from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { deflateSync, crc32 } from 'node:zlib';
+import { ACCENTS } from '../../shared/social.mjs';
 
 const rid = (prefix) => `${prefix}_${randomBytes(16).toString('base64url').slice(0, 22)}`;
 const tok = () => randomBytes(32).toString('base64url');
@@ -69,7 +70,7 @@ export const CATALOG = {
     { kind: 'title', id: 'win-nuzlocke', tier: 'free' }, { kind: 'title', id: 'win-soul-link', tier: 'free' }, { kind: 'title', id: 'first-catch', tier: 'free' },
     { kind: 'trophy', id: 'win-nuzlocke', tier: 'free' }, { kind: 'trophy', id: 'win-soul-link', tier: 'free' }, { kind: 'trophy', id: 'badges16', tier: 'free' }, { kind: 'trophy', id: 'first-catch', tier: 'free' },
   ],
-  accents: [{ key: 'moss', hex: '#5f8a4e' }, { key: 'dusk', hex: '#9a6fb0' }, { key: 'ember', hex: '#d0704a' }, { key: 'tide', hex: '#4f8fb8' }, { key: 'sand', hex: '#c9a35a' }],
+  accents: ACCENTS, // the same palette as the service (shared/social.mjs)
 };
 
 const ME_FIELDS = ['display_name', 'banner', 'frame', 'nameplate', 'title', 'accent', 'status', 'showcase', 'privacy'];
@@ -91,7 +92,7 @@ export async function startFakeAccounts({ port = 0 } = {}) {
   const f = {
     users: new Map(), loginCodes: new Map(), states: new Map(), sessions: new Map(), access: new Map(), refresh: new Map(),
     friends: new Map(), requests: new Map(), blocks: new Set(), presence: new Map(), invites: new Map(), joins: new Map(), reports: [],
-    log: [], nextLogin: null, denyNext: false, accessTtl: 900, offlinePaths: new Set(), memberships: new Map(), keepStats: new Set(), pinPresence: new Set(),
+    log: [], previewCount: new Map(), nextLogin: null, denyNext: false, accessTtl: 900, offlinePaths: new Set(), memberships: new Map(), keepStats: new Set(), pinPresence: new Set(),
   };
   let base = '';
 
@@ -116,7 +117,8 @@ export async function startFakeAccounts({ port = 0 } = {}) {
   const areFriends = (a, b) => f.friends.has(pairKey(a, b));
   const blocked = (a, b) => f.blocks.has(`${a}>${b}`) || f.blocks.has(`${b}>${a}`);
   const avatarUrl = (u) => (u.avatar_hash ? `${base}/v1/avatars/${u.id}/${u.avatar_hash}.png?size=128` : null);
-  const plusOk = (u) => u.entitlement.tier === 'plus';
+  const packKey = (u) => createHash('sha256').update(`pack|${u.id}|${u.keyEpoch || 1}`).digest('base64url');
+  const plusOk = (u) => u.entitlement.tier === 'plus' || u.entitlement.tier === 'patron'; // §8.0: patron = souldew+
   const premium = (kind, id) => CATALOG.cosmetics.find((c) => c.kind === kind && c.id === id)?.tier === 'plus';
   const shown = (u, k) => (u[k] && premium(k, u[k]) && !plusOk(u) ? null : u[k]);
   const card = (u) => ({ id: u.id, handle: u.handle, display_name: u.display_name, avatar_url: avatarUrl(u), frame: shown(u, 'frame'), nameplate: shown(u, 'nameplate'), accent: u.accent, title: u.title, badges: u.entitlement.badges });
@@ -525,18 +527,34 @@ export async function startFakeAccounts({ port = 0 } = {}) {
     if (path === '/v1/entitlements' && req.method === 'GET') {
       const e = u.entitlement;
       return json(res, 200, { ...e, sources: e.tier === 'none' ? [] : [{ kind: 'bmc', tier: e.tier, status: 'active', until: e.until }], token: `${tok()}.${tok()}.${tok()}`,
-        pack_key: e.tier === 'plus' ? randomBytes(32).toString('base64url') : null, pack_key_id: '1', offline_grace_days: 7 });
+        pack_key: plusOk(u) ? packKey(u) : null, pack_key_id: String(u.keyEpoch || 1), offline_grace_days: 7,
+        preview: u.preview && u.preview.expires > Date.now() ? { id: u.preview.id, pack_id: 'skins-preview', expires_at: iso(u.preview.expires) } : null });
     }
     if (path === '/v1/entitlements/link-email' && req.method === 'POST') {
       const tier = f.memberships.get(String(body.email || '').toLowerCase());
-      if (tier) u.entitlement = { tier, until: iso(Date.now() + 30 * 86400000), badges: tier === 'plus' ? ['supporter', 'plus'] : ['supporter'] };
+      if (tier) u.entitlement = { tier, until: iso(Date.now() + 30 * 86400000), badges: { plus: ['plus'], patron: ['plus', 'patron'] }[tier] || ['supporter'] };
       return json(res, 200, { submitted: true }); // the same answer either way (no supporter oracle)
     }
     if (path === '/v1/entitlements/link' && req.method === 'DELETE') {
       u.entitlement = { tier: 'none', until: null, badges: [] };
+      u.keyEpoch = (u.keyEpoch || 1) + 1; // §8.5: unlinking rotates the pack key
       return json(res, 200, { ok: true });
     }
-    if (path === '/v1/packs' && req.method === 'GET') return json(res, 200, { items: [{ id: 'skins-autumn', version: '1.0.0', kind: 'skins', title: 'Autumn skins', required_tier: 'plus', entitled: plusOk(u) }] });
+    if (path === '/v1/packs' && req.method === 'GET') {
+      return json(res, 200, { items: [{ id: 'skins-autumn', version: '1.0.0', kind: 'skins', title: 'Autumn skins', required_tier: 'plus', entitled: plusOk(u), previewable: false },
+        { id: 'skins-preview', version: '1.0.0', kind: 'preview', title: 'Skin preview', required_tier: 'plus', entitled: plusOk(u), previewable: true }] });
+    }
+    // §10.4 live preview (shape only – the files behind the URLs are not served by this fake)
+    if (path === '/v1/packs/skins-preview/preview' && req.method === 'POST') {
+      f.previewCount.set(u.id, (f.previewCount.get(u.id) || 0) + 1);
+      if (f.previewCount.get(u.id) > 10) return err(res, 429, 'rate_limited', { retry_after: 3600 });
+      const id = `pv_${randomBytes(16).toString('base64url').slice(0, 22)}`;
+      u.preview = { id, expires: Date.now() + 15 * 60000 };
+      const q = (p) => `${base}/v1/packs/skins-preview/1.0.0/file?path=${encodeURIComponent(p)}&u=${u.id}&k=${id}&exp=1&sig=x`;
+      return json(res, 201, { preview_id: id, pack_id: 'skins-preview', version: '1.0.0', manifest: Buffer.from('{}').toString('base64url'), signature: randomBytes(64).toString('base64url'),
+        watermark_id: 'wm_fake', key_id: id, preview_key: randomBytes(32).toString('base64url'), expires_at: iso(u.preview.expires), offline_grace: false,
+        files: [{ path: 'skins/ember.css', url: q('skins/ember.css') }, { path: 'https://evil.example/x', url: 'https://evil.example/x' }] });
+    }
     return err(res, 404, 'not_found');
   }
   function joinView(j) {

@@ -98,6 +98,13 @@ Plus a new play view that gives the game the room it deserves.
   your run. Friends can ask to join a run with a free seat if you allow it. Privacy is yours to set (who sees your
   profile, appear offline, where you are in the game), and you can export or delete your data any time. Without an
   account everything works exactly as before.
+- **souldew+ with your account.** Support souldew on Buy Me a Coffee and link it in Settings › Account › souldew+ (or
+  with /supporter claim in the souldew Discord): the souldew+ and Patron memberships unlock every theme, banner,
+  avatar frame, nameplate and launch animation, the small one adds a Supporter badge – friends see your badge, banner
+  and frame. Signed in without souldew+, you can try any theme on the whole app for 15 minutes (“Try for 15 minutes”,
+  a Preview badge counts down, then your own look comes back). The looks arrive as one signed pack, encrypted for
+  your account, checked file by file before anything is shown; updates only download what changed, and the pack is
+  removed from your computer when the membership ends or you sign out.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

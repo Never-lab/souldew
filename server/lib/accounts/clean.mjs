@@ -9,8 +9,11 @@ import {
 } from '../../../shared/social.mjs';
 
 const KINDS = ['banner', 'frame', 'nameplate', 'title', 'trophy'];
-const TIERS = ['none', 'supporter', 'plus'];
-const BADGES = ['supporter', 'plus'];
+// API.md §8.0: supporter = badge only; plus and patron = souldew+ (patron adds its own badge, nothing else)
+const TIERS = ['none', 'supporter', 'plus', 'patron'];
+const BADGES = ['supporter', 'plus', 'patron'];
+/** souldew+ is tier plus OR patron (never decided from anything else). */
+export const isPlusTier = (tier) => tier === 'plus' || tier === 'patron';
 const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v) ? v : null);
 const arr = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
 
@@ -95,6 +98,8 @@ export function cleanMe(v, service) {
     },
     stats: cleanStats(o.stats),
     entitlement: cleanEntitlementSummary(o.entitlement),
+    // the own badges are the entitlement's (§8.0) – shown on the own profile like on everyone else's card
+    badges: card.badges.length ? card.badges : cleanEntitlementSummary(o.entitlement).badges,
     locked: arr(o.locked, 5).filter((k) => ['banner', 'frame', 'nameplate', 'title'].includes(k)),
     createdAt: time(o.created_at),
   };
@@ -200,5 +205,8 @@ export function cleanEntitlements(v) {
     packKey: typeof o.pack_key === 'string' && o.pack_key.length === 43 && B64URL.test(o.pack_key) ? o.pack_key : null,
     packKeyId: typeof o.pack_key_id === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(o.pack_key_id) ? o.pack_key_id : null,
     offlineGraceDays: int(o.offline_grace_days, 0, 60) ?? 7,
+    // §10.4: the running live theme preview, or null
+    preview: obj(o.preview) && /^pv_[A-Za-z0-9_-]{22}$/.test(o.preview.id || '') && catalogId(o.preview.pack_id) && time(o.preview.expires_at)
+      ? { id: o.preview.id, packId: o.preview.pack_id, expiresAt: time(o.preview.expires_at) } : null,
   };
 }

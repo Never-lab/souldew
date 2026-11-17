@@ -1,20 +1,23 @@
 // souldew+ pack client (renderer). Gets the pack access from the account client, has the local server download and cache
-// the ENCRYPTED pack, decrypts and verifies it here in the page, and loads its CSS / data / signed modules into memory.
-// Nothing premium is ever stored in plain form, and nothing from a pack runs in the Node or main process.
+// the ENCRYPTED files (one envelope per file, API.md §10), verifies the signed manifest and decrypts + checks every file
+// here in the page, and loads the CSS / data / signed modules into memory only when ALL of them passed. Nothing premium
+// is ever stored in plain form, and nothing from a pack runs in the Node or main process.
 //
 // The account client plugs in with setPackAccessProvider(fn). fn({ purpose: 'pack' | 'preview' }) resolves to
-//   { url, key, manifestSig, until, packVersion }   – the account owns souldew+ (key and signature from the entitlement)
-//   { ..., preview: true }                            – a preview pack: every look can be tried, none kept
-//   { ..., offline: true }                            – the service is unreachable; the last access from safeStorage
-//   null                                              – signed out / no membership (the cache is wiped)
-// and throws (any error) when it can't tell – that counts as offline.
+//   { packId, version, manifest, signature, keyId, watermark, key, files: [{ path, url }], until }
+//                                     – purpose 'pack': the account owns souldew+ (the service's download answer + key)
+//   { …same…, expiresAt, preview: true } – purpose 'preview': a 15-minute live theme preview (key for this preview only)
+//   { key, keyId, until, offline: true } – the service is unreachable; the last entitlement kept in safeStorage
+//   null                               – signed out / no membership (the cache is wiped)
+// and throws when it can't tell (counts as offline). For 'preview' it throws with e.code from the service
+// ('rate_limited', 'limit_reached', 'signed_out', 'none') so Settings can say why.
 import { openPack, packError, text } from './format.mjs';
 import { trustedKeys } from './keys.mjs';
 import { state, update, setContent } from '../state.mjs';
 
 export const GRACE_MS = 7 * 24 * 3600 * 1000;
 const RECHECK_MS = 6 * 3600 * 1000;
-const DEV = Symbol('dev-access');
+const RETRY_CODES = ['decrypt', 'hash', 'envelope', 'watermark', 'missing'];
 
 const headers = { 'x-soullink': '1' };
 async function call(method, url, body) {
@@ -24,21 +27,19 @@ async function call(method, url, body) {
 }
 
 /** Without an account client: the dev pack, when the local server was started with one (SLS_PLUS_DEV_PACK). */
-async function devProvider({ purpose } = {}) {
-  let a;
+async function devProvider({ purpose = 'pack' } = {}) {
+  let previewOnly = false;
   try {
-    a = await call('GET', '/api/plus/dev/access');
-  } catch {
-    return null;
-  }
-  let preview = false;
-  try {
-    preview = localStorage.getItem('sl-plus-dev-preview') === '1'; // try the non-member preview flow with the test pack
+    previewOnly = localStorage.getItem('sl-plus-dev-preview') === '1'; // try the non-member flow with the test pack
   } catch {
     // storage blocked
   }
-  if (preview && purpose === 'pack') return null;
-  return { ...a, preview, [DEV]: true };
+  if (previewOnly && purpose === 'pack') return null;
+  try {
+    return await call('GET', `/api/plus/dev/access?purpose=${purpose === 'preview' ? 'preview' : 'pack'}`);
+  } catch {
+    return null;
+  }
 }
 
 let provider = devProvider;
@@ -50,9 +51,18 @@ export async function getPackAccess(opts = {}) {
   return provider(opts);
 }
 
+/** The keys a pack must be signed with: the pinned production key, plus a dev key only when the local server offers one. */
+async function keys() {
+  const devKey = await call('GET', '/api/plus/dev/key').then((r) => r?.publicKey || null).catch(() => null);
+  return trustedKeys(devKey);
+}
+
 let inflight = null;
 let timer = 0;
-const clearContent = () => setContent(null);
+let preview = null; // { until, timer } while a live theme preview is in memory
+const clearContent = () => {
+  if (!preview) setContent(null); // a running preview keeps its skins until it ends
+};
 
 async function wipe(error = null) {
   clearContent();
@@ -61,13 +71,15 @@ async function wipe(error = null) {
   } catch {
     // the server wipes an expired cache on its own as well
   }
-  update({ entitled: false, preview: false, until: null, packVersion: null, error });
+  update({ entitled: false, until: null, packVersion: null, error });
 }
 
 /** Turns the verified files into in-memory content. */
-export function contentFrom(files) {
+export function contentFrom(files, { skinsByPath = false } = {}) {
   const json = (p) => (files.has(p) ? JSON.parse(text(files.get(p))) : null);
-  const contents = json('contents.json') || {};
+  const contents = skinsByPath
+    ? { skins: [...files.keys()].map((p) => /^skins\/([a-z0-9-]{1,40})\.css$/.exec(p)).filter(Boolean).map((m) => ({ id: m[1], css: m[0] })) }
+    : json('contents.json') || {};
   const skinCss = [];
   for (const s of contents.skins || []) if (files.has(s.css) && /^[a-z0-9-]{1,40}$/.test(s.id)) skinCss.push([s.id, text(files.get(s.css))]);
   const assets = [...files].filter(([p]) => /^(fonts|assets)\//.test(p));
@@ -82,63 +94,67 @@ export function contentFrom(files) {
   };
 }
 
-async function accessFor(purpose) {
-  try {
-    return { access: await provider({ purpose }), offline: false };
-  } catch {
-    return { access: null, offline: true };
-  }
-}
+const fetchAnswer = (access) => call('POST', '/api/plus/pack/fetch', {
+  packId: access.packId, version: access.version, manifest: access.manifest, signature: access.signature, keyId: access.keyId,
+  watermark: access.watermark, files: access.files, until: access.until || null,
+});
+const openCached = async (meta, key, expect) => openPack({
+  manifest: meta.manifest, signature: meta.signature, keys: await keys(), key, kid: meta.keyId, expect,
+  envelope: (path) => call('GET', `/api/plus/pack/file?path=${encodeURIComponent(path)}`),
+});
 
 async function run() {
   update({ loading: true });
   try {
-    let { access, offline } = await accessFor('pack');
-    if (!access && !offline) {
-      const p = await accessFor('preview');
-      if (p.access) access = { ...p.access, preview: true };
+    let access = null;
+    let offline = false;
+    try {
+      access = await provider({ purpose: 'pack' });
+    } catch {
+      offline = true;
     }
     if (access?.offline) offline = true;
     let meta = await call('GET', '/api/plus/pack/meta').catch(() => ({ none: true }));
-    if (!access && !offline) return wipe(null); // signed out or no membership
+    if (!access && !offline) return wipe(null); // signed out or no souldew+
+    let pack;
     if (offline) {
       // the server has already dropped a cache older than the grace period
       if (meta.none) {
-        clearContent(); // nothing cached, or the grace period ran out on the server's side
-        return update({ entitled: false, preview: false, until: null, packVersion: null, error: 'offline' });
+        clearContent();
+        return update({ entitled: false, until: null, packVersion: null, error: 'offline' });
       }
       if (!(Date.now() - Date.parse(meta.lastOnline) <= GRACE_MS)) return wipe('expired');
       if (!access?.key) return update({ error: 'offline' }); // can't decrypt without the account's key – keep the cache for later
-    } else if (access.until && Date.parse(access.until) < Date.now()) {
-      return wipe('expired');
-    } else if (meta.none || !access.packVersion || meta.packVersion !== access.packVersion) {
-      meta = await call('POST', '/api/plus/pack/fetch', { url: access.url, packVersion: access.packVersion, until: access.until });
+      if (access.keyId && access.keyId !== meta.keyId) return wipe('key'); // the key changed before we went offline
+      pack = await openCached(meta, access.key, { id: meta.packId, version: meta.version });
     } else {
-      meta = await call('POST', '/api/plus/pack/meta', { lastOnline: new Date().toISOString(), until: access.until || null });
-    }
-    const keys = trustedKeys(access[DEV] ? access.publicKey : null);
-    let pack;
-    for (let attempt = 0; ; attempt++) {
+      if (access.until && Date.parse(access.until) < Date.now()) return wipe('expired');
+      // the pack key changed (sign out everywhere, membership unlinked or taken over): everything cached goes first
+      if (!meta.none && meta.keyId !== access.keyId) {
+        await call('DELETE', '/api/plus/pack');
+        meta = { none: true };
+      }
+      const same = !meta.none && meta.packId === access.packId && meta.version === access.version && meta.signature === access.signature;
+      meta = same ? await call('POST', '/api/plus/pack/meta', { lastOnline: new Date().toISOString(), until: access.until || null }) : await fetchAnswer(access);
+      const expect = { id: access.packId, version: access.version };
       try {
-        pack = await openPack(await call('GET', '/api/plus/pack'), { key: access.key, manifestSig: access.manifestSig, keys });
-        break;
+        pack = await openCached(meta, access.key, expect);
       } catch (e) {
-        // a damaged download (or one cached for another key): fetch it once more while online
-        if (attempt === 0 && !offline && ['decrypt', 'hash', 'envelope', 'archive'].includes(e.code)) {
-          meta = await call('POST', '/api/plus/pack/fetch', { url: access.url, packVersion: access.packVersion, until: access.until });
-          continue;
-        }
-        throw e;
+        if (!RETRY_CODES.includes(e.code)) throw e;
+        // a damaged download (or a cache for another key): everything once more, from scratch
+        await call('DELETE', '/api/plus/pack');
+        meta = await fetchAnswer(access);
+        pack = await openCached(meta, access.key, expect);
       }
     }
     setContent(contentFrom(pack.files));
-    update({ entitled: !access.preview, preview: !!access.preview, until: access.until || meta.until || null, packVersion: pack.packVersion, error: offline ? 'offline' : null });
+    update({ entitled: true, until: access?.until || meta.until || null, packVersion: pack.manifest.version, error: offline ? 'offline' : null });
   } catch (e) {
     const code = e?.code || 'error';
     if (code === 'signature' || code === 'manifest') await wipe(code); // never keep a pack that doesn't verify
     else {
       clearContent();
-      update({ entitled: false, preview: false, error: code === 'server' || code === 'none' ? 'download' : code });
+      update({ entitled: false, error: code === 'server' || code === 'none' ? 'download' : code });
     }
   } finally {
     update({ loading: false });
@@ -162,12 +178,67 @@ export function refreshPack() {
   return inflight;
 }
 
-/** Signed out / "remove souldew+ from this computer": forget everything now. */
+/** Signed out / "remove souldew+ from this computer": forget everything now (a running preview too). */
 export async function forgetPack() {
   clearTimeout(timer);
+  endPackPreview();
   await wipe(null);
 }
 
+// ------------------------------------------------------------------ live theme preview (API.md §10.4)
+let previewing = null;
+/**
+ * Starts a 15-minute live theme preview for a non-member: the preview pack (skin stylesheets, small images) is fetched
+ * through the local server WITHOUT being stored, verified like any pack, and kept in memory until `expiresAt` – then it
+ * is dropped and the app goes back to its own look. Resolves to { until }; rejects with e.code ('rate_limited',
+ * 'limit_reached', 'signed_out', 'none', 'signature', …).
+ */
+export function startPackPreview() {
+  if (state.entitled) return Promise.resolve({ until: null, member: true });
+  if (preview && Date.parse(preview.until) > Date.now()) return Promise.resolve({ until: preview.until });
+  previewing ||= (async () => {
+    update({ previewLoading: true });
+    try {
+      const access = await provider({ purpose: 'preview' });
+      if (!access) throw packError('signed_out', 'Sign in to preview');
+      const until = access.expiresAt;
+      if (!(Date.parse(until) > Date.now())) throw packError('expired', 'The preview has ended');
+      const urls = new Map((access.files || []).map((f) => [f.path, f.url]));
+      const pack = await openPack({
+        manifest: access.manifest, signature: access.signature, keys: await keys(), key: access.key, kid: access.keyId,
+        expect: { id: access.packId, version: access.version },
+        envelope: (path) => (urls.has(path) ? call('POST', '/api/plus/fetch', { url: urls.get(path) }) : null),
+      });
+      if (pack.manifest.kind !== 'preview') throw packError('manifest', 'not a preview pack');
+      if (state.entitled) return { until: null, member: true }; // became a member meanwhile – nothing to preview
+      // a preview pack has no contents.json (stylesheets and images only): its skins are skins/<id>.css
+      const c = contentFrom(pack.files, { skinsByPath: true });
+      // a preview only ever carries skins: banners, frames and launch animations are never part of it
+      setContent({ skinCss: c.skinCss, files: c.files });
+      clearTimeout(preview?.timer);
+      preview = { until, timer: setTimeout(() => endPackPreview(), Math.max(0, Date.parse(until) - Date.now())) };
+      update({ preview: true, previewUntil: until });
+      return { until };
+    } finally {
+      update({ previewLoading: false });
+      previewing = null;
+    }
+  })();
+  return previewing;
+}
+
+/** Ends the live preview now (its time is up, sign-out): key and content are dropped, the app's own look is back. */
+export function endPackPreview() {
+  if (!preview) return;
+  clearTimeout(preview.timer);
+  preview = null;
+  if (!state.entitled) setContent(null);
+  update({ preview: false, previewUntil: null });
+}
+
 export function packState() {
-  return { entitled: state.entitled, preview: state.preview, until: state.until, packVersion: state.packVersion, loading: state.loading, error: state.error };
+  return {
+    entitled: state.entitled, preview: state.preview, previewUntil: state.previewUntil || null, previewLoading: !!state.previewLoading,
+    until: state.until, packVersion: state.packVersion, loading: state.loading, error: state.error,
+  };
 }

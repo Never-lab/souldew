@@ -3,7 +3,8 @@
 // it changes the look only, never the layout or a text. The machinery is web/lib/cosmetics (skins.mjs, launch/).
 import { html, useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { t } from '../../lib/i18n.mjs';
-import { listSkins, previewSkin, endPreview, applySkin, skinState, onSkinChange, packState, previewLaunch, launchAvailable, catalog } from '../../lib/cosmetics/index.mjs';
+import { listSkins, previewSkin, endPreview, applySkin, skinState, onSkinChange, packState, previewLaunch, launchAvailable, catalog, startPackPreview } from '../../lib/cosmetics/index.mjs';
+import { signedIn } from '../../lib/account.mjs';
 import { useCosmetics, PlusMark } from '../../lib/cosmetics/components.mjs';
 import { openPlus } from '../../lib/cosmetics/plus.mjs';
 import { CartInsert } from '../cartinsert.mjs';
@@ -13,6 +14,27 @@ function useSkinState() {
   const [s, setS] = useState(skinState);
   useEffect(() => onSkinChange(setS), []);
   return s;
+}
+
+/** "14:32" – the time left of a live preview, ticking every second while it runs. */
+function useTimeLeft(until) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (!until) return undefined;
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [until]);
+  if (!until) return null;
+  const s = Math.max(0, Math.round((Date.parse(until) - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Why the service said no to a live preview, in words. */
+function previewError(e) {
+  if (e?.code === 'rate_limited') return t('skin.previewDay', 'You’ve used today’s previews – try again tomorrow, or get souldew+ to keep every theme.');
+  if (e?.code === 'limit_reached') return t('skin.previewBusy', 'Too many previews are running on your account – wait until one ends.');
+  if (e?.code === 'none') return t('skin.previewNone', 'Previews aren’t available right now.');
+  return t('skin.previewFailed', 'The preview couldn’t be loaded. Check your connection and try again.');
 }
 
 function SkinCard({ skin, compact, on, previewing, onClick }) {
@@ -30,6 +52,15 @@ export function SkinSetting({ cfg, save }) {
   const s = useSkinState();
   const pack = packState();
   const [locked, setLocked] = useState(null); // a souldew+ theme that can't be previewed here (no pack, no preview)
+  const [trying, setTrying] = useState(null); // { error } after a failed "Try for 15 minutes"
+  const [ended, setEnded] = useState(false);
+  const left = useTimeLeft(pack.preview ? pack.previewUntil : null);
+  const wasPreview = useRef(false);
+  // the live preview's time is up: its skins are gone (the app's own look is back) – say so once
+  useEffect(() => {
+    if (wasPreview.current && !pack.preview) setEnded(true);
+    wasPreview.current = pack.preview;
+  }, [pack.preview]);
   const skins = listSkins();
   const byId = Object.fromEntries(skins.map((k) => [k.id, k]));
   // leaving Settings puts your theme back – a preview is never saved
@@ -38,6 +69,8 @@ export function SkinSetting({ cfg, save }) {
   const shown = s.previewing || committed;
   const pick = (k) => {
     setLocked(null);
+    setTrying(null);
+    setEnded(false);
     if (k.id === committed && !s.previewing) return;
     if (k.id === committed) return endPreview();
     if (!previewSkin(k.id)) setLocked(k.id);
@@ -57,11 +90,24 @@ export function SkinSetting({ cfg, save }) {
         onClick=${() => pick(k)} />`)}
     </div></div>`;
   const lockedName = locked ? byId[locked]?.name : null;
+  const tryIt = async (id) => {
+    setTrying({ busy: true });
+    try {
+      await startPackPreview();
+      setTrying(null);
+      setEnded(false);
+      if (previewSkin(id)) setLocked(null);
+    } catch (e) {
+      setTrying({ error: e });
+    }
+  };
+  const canTry = !pack.entitled && !pack.preview && signedIn();
   return html`<div class="stack-s skin-setting">
     <h3 class="skin-picker-head">${t('skin.title', 'Theme')} <span class="plus-mark" aria-hidden="true"><${Icon} name="plus" size=${10} /></span></h3>
     <p class="small muted">${t('skin.note', 'Changes the look, never the layout. Click a theme to try it on the whole app – leaving Settings puts yours back.')}</p>
-    ${previewName && html`<div class="skin-preview-bar" role="status">
-      <span class="led amber on" aria-hidden="true"></span>
+    ${previewName && html`<div class=${`skin-preview-bar${pack.preview && !byId[s.previewing]?.owned ? ' live' : ''}`} role="status">
+      ${pack.preview && !byId[s.previewing]?.owned ? html`<span class="skin-live-badge" title=${t('skin.liveHint', 'A souldew+ theme to try for 15 minutes – it goes back by itself.')}>${t('skin.live', 'Preview')} · ${t('skin.left', '{time} left', { time: left || '0:00' })}</span>`
+        : html`<span class="led amber on" aria-hidden="true"></span>`}
       <span>${t('skin.previewing', 'Previewing {name} – nothing is saved.', { name: '\u0000' }).split('\u0000').flatMap((part, i) => (i ? [html`<b>${previewName}</b>`, part] : [part]))}</span>
       <span class="spacer"></span>
       <button type="button" class="btn small ghost" onClick=${() => endPreview()}>${t('skin.back', 'Back to {name}', { name: backName })}</button>
@@ -70,11 +116,17 @@ export function SkinSetting({ cfg, save }) {
     </div>`}
     ${lockedName && html`<div class="skin-preview-bar" role="status">
       <${PlusMark} />
-      <span>${pack.loading ? t('skin.loading', 'Loading souldew+ themes …') : t('skin.lockedText', '{name} comes with souldew+.', { name: lockedName })}</span>
+      <span>${pack.loading || trying?.busy ? t('skin.loading', 'Loading souldew+ themes …') : trying?.error ? previewError(trying.error)
+        : canTry ? t('skin.lockedTry', '{name} comes with souldew+ – try it on for 15 minutes.', { name: lockedName })
+        : !pack.entitled && !signedIn() ? t('skin.lockedSignIn', '{name} comes with souldew+. Sign in to try it on for 15 minutes.', { name: lockedName })
+        : t('skin.lockedText', '{name} comes with souldew+.', { name: lockedName })}</span>
       <span class="spacer"></span>
-      <button type="button" class="btn small ghost" onClick=${() => setLocked(null)}>${t('skin.back', 'Back to {name}', { name: backName })}</button>
+      <button type="button" class="btn small ghost" onClick=${() => { setLocked(null); setTrying(null); }}>${t('skin.back', 'Back to {name}', { name: backName })}</button>
+      ${canTry && !trying && html`<button type="button" class="btn small" onClick=${() => tryIt(locked)}>${t('skin.try', 'Try for 15 minutes')}</button>`}
+      ${!pack.entitled && !signedIn() && html`<button type="button" class="btn small" onClick=${() => { location.hash = '#/settings?s=account'; }}>${t('acct.signIn', 'Sign in with Discord')}</button>`}
       ${!pack.loading && html`<button type="button" class="btn small go" onClick=${() => openPlus({ reason: 'skin', id: locked })}>${t('skin.getPlus', 'Get souldew+')}</button>`}
     </div>`}
+    ${ended && !previewName && !lockedName && html`<p class="small faint" role="status">${t('skin.previewEnded', 'The preview has ended – your own theme is back.')}</p>`}
     ${group(t('skin.editions', 'Editions'), skins.filter((k) => k.group === 'editions'), false)}
     ${group(t('skin.dark', 'Colours · dark'), skins.filter((k) => k.group === 'dark'), true)}
     ${group(t('skin.light', 'Colours · light'), skins.filter((k) => k.group === 'light'), true)}

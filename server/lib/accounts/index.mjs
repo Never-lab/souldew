@@ -14,7 +14,7 @@ import { authPage, AUTH_PAGE_HEADERS, AUTH_RESULTS } from './authpage.mjs';
 import { currentStats, editorChoices } from './stats.mjs';
 import {
   cleanMe, cleanProfile, cleanFriend, cleanRequest, cleanPresence, cleanInvite, cleanJoinRequest, cleanCatalog, cleanEntitlements,
-  catalogId, inviteCode,
+  catalogId, inviteCode, isPlusTier,
 } from './clean.mjs';
 import {
   cleanText, withoutFileNames, safeAvatarUrl, parseFriendQuery, normalizeHandle, oneOf, presenceSystem,
@@ -67,13 +67,15 @@ function serviceError(r) {
 /**
  * secure: Electron's safeStorage wrapper (./store.mjs) or null; port(): this server's port; emit(event, data): the
  * page's event stream; openExternal(url): the system browser (desktop app) – without it the page opens the URL;
- * focus(): bring the app window forward. fetchImpl / env / now / stats: for tests.
+ * focus(): bring the app window forward. onPackKeyChange(): the souldew+ pack key changed or went away (tier dropped, key
+ * rotated, signed out) – the encrypted pack cache must go (server/lib/pluspack.mjs wipe). fetchImpl / env / now / stats: for tests.
  */
-export function createAccounts({ secure = null, port, emit = () => {}, openExternal = null, focus = () => {}, lang = () => 'en', fetchImpl = fetch, env = process.env, now = Date.now, stats = currentStats, choices = editorChoices } = {}) {
+export function createAccounts({ secure = null, port, emit = () => {}, openExternal = null, focus = () => {}, lang = () => 'en', onPackKeyChange = () => {}, fetchImpl = fetch, env = process.env, now = Date.now, stats = currentStats, choices = editorChoices } = {}) {
   const service = accountsBase(env);
   const store = createTokenStore(secure);
   let me = null;
   let meAt = 0;
+  let meGen = 0; // bumps on every local write of `me`: a read that started before it must not overwrite it
   let pending = null;
   let catalog = null;
   let catalogAt = 0;
@@ -85,10 +87,20 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
         me = null;
         pending = null;
         stopHeartbeat();
+        dropPackKey();
       }
       emit('account', { kind: 'session' });
     },
   });
+
+  /** The pack key is gone or changed: the cached envelopes are useless (and must not linger) – wipe them. */
+  function dropPackKey() {
+    try {
+      onPackKeyChange();
+    } catch (e) {
+      console.warn('souldew+ pack wipe failed –', e.message);
+    }
+  }
 
   /** What survives offline next to the tokens: the name and picture for Settings and the sidebar. */
   function brief(m) {
@@ -105,7 +117,9 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   async function loadMe(force = false) {
     if (!session.signedIn) return null;
     if (!force && me && now() - meAt < ME_TTL) return me;
+    const gen = meGen;
     const r = await session.request(API.me);
+    if (r.status === 200 && gen !== meGen) return me; // an edit (PATCH, handle) landed meanwhile – it is newer
     if (r.status === 200) {
       me = cleanMe(r.body, service);
       meAt = now();
@@ -119,6 +133,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   let report = null; // what the page says the player does: { state, game, run, location }
   let reportAt = 0;
   let timer = null;
+  let timerAt = 0;
   let every = 60;
   let lastBeat = 0;
   let statsHash = null;
@@ -132,6 +147,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   function startHeartbeat(delay = 0) {
     if (!session.signedIn) return;
     clearTimeout(timer);
+    timerAt = now() + delay;
     timer = setTimeout(beat, delay);
     timer.unref?.();
   }
@@ -218,7 +234,11 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     reportAt = now();
     if (!session.signedIn) return;
     if (!wasAlive || !timer) startHeartbeat(0);
-    else if (changed) startHeartbeat(Math.max(0, 10000 - (now() - lastBeat)));
+    else if (changed) {
+      // a change goes out within 10 s – but never later than a beat that is already due sooner (e.g. "appear offline")
+      const delay = Math.max(0, 10000 - (now() - lastBeat));
+      if (now() + delay < timerAt) startHeartbeat(delay);
+    }
   }
 
   // ---- the page's routes --------------------------------------------------------------------------------------------
@@ -265,6 +285,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     const body = cleanMe(await call(API.me, { method: 'PATCH', json: patch }), service);
     me = body;
     meAt = now();
+    meGen++;
     session.rememberAccount(brief(me));
     if (patch.privacy?.show_runs === true) uploadStats(true).catch(() => {});
     if (patch.privacy?.presence) startHeartbeat(0);
@@ -276,6 +297,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     if (!handle) throw httpError(400, 'Invalid handle', 'acct', { code: 'invalid_field', field: 'handle' });
     me = cleanMe(await call(API.handle, { method: 'PUT', json: { handle } }), service);
     meAt = now();
+    meGen++;
     session.rememberAccount(brief(me));
     return me;
   });
@@ -452,11 +474,17 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     const r = await session.request(API.entitlements);
     if (r.status === 200) {
       const ent = cleanEntitlements(r.body);
-      session.setExtra('entitlement', { ...ent, token: null, at: now() });
+      const kept = session.extra('entitlement');
+      // §8.2: the tier dropped below souldew+ or pack_key_id changed (sign out everywhere, unlink, takeover) → wipe
+      if (kept?.packKey && (!ent.packKey || !isPlusTier(ent.tier) || kept.packKeyId !== ent.packKeyId)) {
+        dropPackKey();
+        session.setExtra('pack', null);
+      }
+      session.setExtra('entitlement', { ...ent, token: null, preview: null, at: now() });
       return ent;
     }
     const kept = r.status === 0 ? session.extra('entitlement') : null;
-    if (kept && now() - kept.at < (kept.offlineGraceDays || 7) * 86400000) return { ...kept, offline: true, lastPack: session.extra('pack') };
+    if (kept && now() - kept.at < (kept.offlineGraceDays || 7) * 86400000) return { ...kept, offline: true, preview: null, lastPack: session.extra('pack') };
     throw serviceError(r);
   });
   // §8.3: the service answers "submitted" whatever the email is (no supporter oracle) – the result is read from the
@@ -466,15 +494,26 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     const email = String((await readJson(req)).email || '').trim();
     if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw httpError(400, 'Invalid email', 'acct', { code: 'invalid_field', field: 'email' });
     const before = await session.request(API.entitlements);
-    const sig = (b) => JSON.stringify([b?.tier, (b?.sources || []).map((x) => [x.kind, x.tier, x.status])]);
-    await call(API.linkEmail, { method: 'POST', json: { email } });
-    const after = await call(API.entitlements);
+    const sig = (b) => JSON.stringify([b?.tier, (b?.sources || []).map((x) => [x.kind, x.tier, x.status, x.until])]);
+    const r = await call(API.linkEmail, { method: 'POST', json: { email } });
+    if (r.submitted !== true) throw httpError(502, 'Unexpected answer', 'acct', { code: 'internal' });
+    // the answer never says whether it matched (no supporter oracle): read the entitlement – a few times, the link is
+    // written right away but the entitlement read may land on a replica a moment behind
+    let after = null;
+    for (let i = 0; i < 3; i++) {
+      after = await call(API.entitlements);
+      if (before.status !== 200 || sig(before.body) !== sig(after)) break;
+      await new Promise((res) => setTimeout(res, 700));
+    }
     await loadMe(true).catch(() => null);
-    return { submitted: true, linked: before.status === 200 && sig(before.body) !== sig(after), tier: cleanEntitlements(after).tier };
+    const ent = cleanEntitlements(after);
+    return { submitted: true, linked: before.status === 200 && sig(before.body) !== sig(after), tier: ent.tier, badges: ent.badges, until: ent.until };
   });
   route('DELETE', '/link', async () => {
     signedIn();
     await call(API.unlink, { method: 'DELETE' });
+    dropPackKey(); // §8.5: the key rotates – nothing cached can be read any more
+    session.setExtra('pack', null);
     await loadMe(true).catch(() => null);
     return { ok: true };
   });
@@ -487,6 +526,12 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     const d = cleanDownload(await call(API.packDownload(m[1]), { method: 'POST' }), service);
     session.setExtra('pack', { packId: d.packId, version: d.version, signature: d.signature, packKeyId: d.packKeyId });
     return d;
+  });
+
+  // §10.4: a 15-minute live theme preview (signed-in users; meant for non-members). Memory only on the page.
+  route('POST', `/packs/(${ID})/preview`, async (req, m) => {
+    signedIn();
+    return cleanPreview(await call(API.packPreview(m[1]), { method: 'POST' }), service);
   });
 
   /** A no-auth GET of the service (the catalog). */
@@ -655,16 +700,27 @@ function cleanPack(p) {
   if (!p || typeof p !== 'object' || !catalogId(p.id)) return null;
   return {
     id: p.id, version: typeof p.version === 'string' && /^[0-9A-Za-z.+-]{1,32}$/.test(p.version) ? p.version : null,
-    kind: oneOf(p.kind, ['skins', 'banners', 'frames', 'launch', 'mixed'], 'mixed'), title: cleanText(p.title, 60),
-    requiredTier: oneOf(p.required_tier, ['free', 'supporter', 'plus'], 'plus'), entitled: p.entitled === true,
+    kind: oneOf(p.kind, ['skins', 'banners', 'frames', 'launch', 'mixed', 'preview'], 'mixed'), title: cleanText(p.title, 60),
+    requiredTier: oneOf(p.required_tier, ['free', 'supporter', 'plus'], 'plus'), entitled: p.entitled === true, previewable: p.previewable === true,
   };
+}
+
+const b64 = (v, max) => (typeof v === 'string' && v.length <= max && /^[A-Za-z0-9_-]+$/.test(v) ? v : null);
+
+/** A live preview answer (§10.4): like a download, with its own key (for this preview only) and its end. */
+function cleanPreview(d, service) {
+  const base = cleanDownload(d, service);
+  const keyId = typeof d?.key_id === 'string' && /^pv_[A-Za-z0-9_-]{22}$/.test(d.key_id) ? d.key_id : null;
+  const key = typeof d?.preview_key === 'string' && d.preview_key.length === 43 && /^[A-Za-z0-9_-]+$/.test(d.preview_key) ? d.preview_key : null;
+  const expiresAt = typeof d?.expires_at === 'string' && Number.isFinite(Date.parse(d.expires_at)) ? new Date(d.expires_at).toISOString() : null;
+  if (!keyId || !key || !expiresAt || !base.manifest || !base.signature || !base.files.length) throw httpError(502, 'Bad preview answer', 'acct', { code: 'internal' });
+  return { ...base, packKeyId: keyId, previewId: keyId, key, expiresAt, offlineGrace: false };
 }
 
 /** A pack download answer (§10.2): manifest and signature as base64url, file URLs only on the service itself. */
 function cleanDownload(d, service) {
-  const b64 = (v, max) => (typeof v === 'string' && v.length <= max && /^[A-Za-z0-9_-]+$/.test(v) ? v : null);
   const origin = new URL(service).origin;
-  const files = (Array.isArray(d?.files) ? d.files : []).slice(0, 500).map((f) => {
+  const files = (Array.isArray(d?.files) ? d.files : []).slice(0, 2000).map((f) => {
     let u = null;
     try {
       u = new URL(f.url);

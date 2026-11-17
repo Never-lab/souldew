@@ -101,6 +101,17 @@ export const PRESENCE_STATES = ['offline', 'online', 'library', 'playing', 'in_r
 export const presenceSystem = (sys) => ({ gb: 'gb', gbc: 'gb', gba: 'gba', nds: 'nds', '3ds': '3ds' }[sys] || null);
 /** An accent colour of the curated palette: #rrggbb only – never anything that could end a CSS declaration. */
 export const safeHex = (v) => (typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v.toLowerCase() : null);
+/**
+ * The curated accent palette (profile accent colour). The accounts service's palette is generated from / checked against
+ * this list (souldew-accounts tools/catalog-seed.mjs) – keys and colours must stay identical on both sides.
+ */
+export const ACCENTS = [
+  { key: 'moss', hex: '#5f8a4e' }, { key: 'fern', hex: '#3f7d5c' }, { key: 'tide', hex: '#2f7f9e' },
+  { key: 'glacier', hex: '#6fb3c9' }, { key: 'ink', hex: '#2d3a55' }, { key: 'dusk', hex: '#6b5a9e' },
+  { key: 'sakura', hex: '#d9739a' }, { key: 'berry', hex: '#9b3d5c' }, { key: 'ember', hex: '#c4572f' },
+  { key: 'copper', hex: '#b06a3b' }, { key: 'amber', hex: '#d49a2a' }, { key: 'slate', hex: '#5b6b7a' },
+];
+export const DEFAULT_ACCENT = 'moss';
 
 // file names and paths the service refuses in run names, game titles and locations (API.md §0.6): a run named after
 // its ROM ("Robin – Emerald.gba") would be rejected – such words are left out before anything is sent

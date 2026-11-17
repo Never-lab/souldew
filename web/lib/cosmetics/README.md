@@ -38,7 +38,8 @@ Import from `index.mjs` (plain functions) and `components.mjs` (Preact). Treat t
 | Name | What it does |
 |---|---|
 | `catalog()` | `{ banners, frames, nameplates, skins, launch, collections }`. Each item is `{ id, name, collection, collectionName, rarity, pairsWith, plus, owned, available, sw, … }`. `owned` means usable now; `available` means the content is in memory (owned, or from a preview pack). This catalog is public data: names and swatches only, no art or recipes. |
-| `packState()` | `{ entitled, preview, until, packVersion, loading, error }`. `error` is one of `null`, `'offline'`, `'expired'`, `'signature'`, `'decrypt'`, `'hash'` or `'download'`. |
+| `packState()` | `{ entitled, preview, previewUntil, previewLoading, until, packVersion, loading, error }`. `error` is one of `null`, `'offline'`, `'expired'`, `'key'`, `'signature'`, `'manifest'`, `'decrypt'`, `'hash'`, `'watermark'` or `'download'`. |
+| `startPackPreview()` / `endPackPreview()` | The 15-minute live theme preview for non-members (see below). |
 | `refreshPack()` / `forgetPack()` | Loads or re-checks the pack, or forgets it right away (sign-out). The app calls `refreshPack()` at boot, and it re-checks every 6 h and at `until`. |
 | `onChange(fn)` | Notifies when content or entitlement changes. |
 | `setPackAccessProvider(fn)` / `getPackAccess(opts)` | The account client's hook (see below). |
@@ -62,40 +63,44 @@ Every component destroys its runtime on unmount, so no timer, observer or worker
 
 | Value | Meaning |
 |---|---|
-| `{ url, key, manifestSig, until, packVersion }` | The account owns souldew+. `url` is the short-lived signed download URL (https on `*.souldew.app`). `key` is the account's pack key (32 bytes, base64). `manifestSig` is the signature the service vouches for (base64). |
-| `{ …, preview: true }` | Optional, for purpose `'preview'`: a preview pack. Everything can be tried, nothing can be kept. |
-| `{ …, offline: true }` | The service is unreachable. The account client returns the last access it kept in safeStorage, so the cached pack keeps working for the 7-day grace period. |
+| `{ packId, version, manifest, signature, keyId, watermark, key, files: [{ path, url }], until }` | purpose `'pack'`: the account owns souldew+ (tier `plus` or `patron`). This is the service's download answer (API.md §10.2) plus the account's pack key (§8.2, base64url). |
+| `{ …same…, expiresAt, preview: true }` | purpose `'preview'`: a 15-minute live theme preview (§10.4). `key` is the preview's own key, `keyId` its `pv_…` id. |
+| `{ key, keyId, until, offline: true }` | The service is unreachable. The account client returns the entitlement it kept in safeStorage, so the cached pack keeps working for the 7-day grace period. |
 | `null` | Signed out, or no souldew+. The cache is wiped. |
-| throw | Counts as offline (without a key, the cache is kept but can't be read). |
+| throw | Counts as offline (without a key, the cache is kept but can't be read). For `'preview'` the error carries `code`: `rate_limited`, `limit_reached`, `none`, `signed_out`. |
+
+The member pack is loaded by `refreshPack()` (boot, every 6 h, at `until`). A preview is never started on its own: Settings calls `startPackPreview()` when a signed-in non-member presses "Try for 15 minutes", and `endPackPreview()` (or the timer at `expiresAt`) drops it. A preview is fetched through the local server without being stored, kept in memory only, and carries skins only.
 
 Without a provider, the default reads the dev pack from `/api/plus/dev/access`, which only exists when the server runs with `SLS_PLUS_DEV_PACK`.
 
-## Pack format (`pack/format.mjs`)
-
-**archive** (built and signed once, the same for every account):
+## Pack format (`pack/format.mjs`) – one format, the accounts service's
 
 ```
-"SDPA" | u32 len | manifest JSON | u32 64 | Ed25519 sig | files…
-manifest = { format: 'souldew-plus-pack@1', packVersion, created, files: [{ path, size, sha256 }] }
+manifest.json  { format: 1, id, version, kind, title, created, files: [{ path, sha256, size, type, executable }] }
+               signed ONCE, offline, by the owner's pack tool (souldew-accounts tools/pack-build.mjs) – Ed25519
+envelope       one per file, made by the service per account at download time:
+               "SDP1" | u16 headerLength | header JSON { v: 1, pack, version, path, wm, kid, nonce } | AES-256-GCM(file)
+               the header is the GCM additional data; text files (.css .js .mjs .json .txt) end with "\n/*sdwm:<wm>*/\n"
 ```
 
-**envelope** (what one account downloads):
+**Why this one and not a single encrypted archive** (the format this module started with):
+- *Security is the same.* The signature covers the manifest, and the manifest's SHA-256 covers every byte of every file;
+  the key is per account (per preview for previews); GCM authenticates every file and its header (pack, path, key id,
+  watermark); the page uses nothing until **all** files passed (`openPack` is all or nothing). Only the owner's machine
+  signs – the Worker only verifies and encrypts.
+- *It fits the Worker.* Encrypting a whole archive per download means holding a pack-sized plaintext and ciphertext in a
+  128 MB isolate; per-file envelopes are at most 8 MB each and R2 keeps the plain, signed files the Worker re-checks.
+- *Smaller updates.* The local cache keys envelopes by path + content hash + key id: a new pack version downloads only
+  the files that changed. A new key (sign out everywhere, unlink, takeover) downloads everything again.
+- *Previews.* A preview pack is just another signed manifest (stylesheets + images ≤ 512 px, no `contents.json`) with
+  a key for that preview only – no second container format.
 
-```
-"SDPK" | u8 1 | u16 len | header JSON { alg: 'A256GCM', iv, wm, issued, packVersion } | AES-256-GCM(archive)
-```
+**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (with `url('pack:fonts/…')` / `pack:assets/…`), `fonts/*.woff2`, `assets/*.svg`, `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css` without fonts and `assets/*.png` (≤ 512 px).
 
-The header, including the per-account watermark `wm`, is the GCM additional data, so it can't be edited or swapped.
-
-**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (with `url('pack:fonts/…')` / `pack:assets/…`), `fonts/*.woff2`, `assets/*.svg`, `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`).
-
-**Verification order:**
-1. GCM tag.
-2. Framing.
-3. The archive's signature must equal the account service's `manifestSig`.
-4. Ed25519 against a pinned key (`pack/keys.mjs`: a production placeholder that fails closed; the dev key is trusted only through the dev provider).
-5. Manifest shape.
-6. Every file's size and SHA-256, with no unlisted bytes.
+**Verification order (`openPack`):**
+1. Ed25519 over the manifest bytes against a pinned key (`pack/keys.mjs`: a production placeholder that fails closed; a dev key only when the local server offers one – `SLS_PLUS_DEV_PACK`, or `SLS_PLUS_DEV_KEY` with a service on this computer).
+2. Manifest shape, and id / version equal to what the service issued.
+3. For every file: envelope framing, header bound to this pack / path / key id, GCM tag, watermark trailer, size, SHA-256.
 
 Only then is anything used.
 
@@ -129,14 +134,14 @@ SLS_PLUS_DEV_PACK=<dir> node server/index.mjs
 localStorage['sl-plus-dev-preview'] = '1'      # try the non-member flow (preview pack, "Keep … with souldew+")
 ```
 
-Production packs are built and signed by the accounts repo's pack builder, which uses the same `pack/format.mjs` functions.
+`--source <dir>` / `--preview-source <dir>` write the unsigned pack folders the owner's pack tool signs for production (`node tools/pack-build.mjs <dir> --id souldew-plus --kind mixed …` and `--id skins-preview --kind preview`). `scripts/plus-e2e.mjs` runs the whole chain against the real service in `wrangler dev`.
 
 ## Tests
 
 | File | What it covers |
 |---|---|
-| `test/cosmetics-pack.test.mjs` | Signatures, encryption, hashes, manifest shape. |
-| `test/cosmetics-cache.test.mjs` | The server cache (SSRF allow-list, grace, wipe) and the client lifecycle (member, signed out, expired, offline grace, bad signature, damaged download, preview). |
+| `test/cosmetics-pack.test.mjs` | Signatures, per-file envelopes, watermark trailers, hashes, manifest shape, an envelope made like the Worker makes it. |
+| `test/cosmetics-cache.test.mjs` | The server cache (SSRF allow-list, small updates, grace, wipe) and the client lifecycle (member, signed out, expired, key changed, offline grace, bad signature, damaged download, live preview). |
 | `test/cosmetics-skins.test.mjs` | Apply, preview and revert; pending wishes; losing the membership; `data:` asset inlining. |
 | `test/cosmetics-launch.test.mjs` | Timing: early, late and missing first frame, skip, reduced motion; the worker host. |
 | `test/cosmetics-runtime.test.mjs` | Draw, pause off-screen, reduced motion, worker wiring, destroy without leaks. |

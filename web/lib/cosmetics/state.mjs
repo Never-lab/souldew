@@ -8,7 +8,9 @@ export { CATALOG };
 const listeners = new Set();
 export const state = {
   entitled: false, // the account owns souldew+ and its pack is loaded and verified
-  preview: false, // a preview pack is loaded: everything can be tried, nothing can be kept
+  preview: false, // a live theme preview is in memory (API.md §10.4): its skins can be tried, nothing can be kept
+  previewUntil: null, // when the preview ends (ISO) – its content is dropped then
+  previewLoading: false,
   until: null,
   packVersion: null,
   loading: false,

@@ -66,4 +66,5 @@ export const API = {
   // §10 packs
   packs: '/v1/packs',
   packDownload: (id) => `/v1/packs/${seg(id)}/download`,
+  packPreview: (id) => `/v1/packs/${seg(id)}/preview`,
 };

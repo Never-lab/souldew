@@ -62,8 +62,8 @@ async function main(scratch) {
   const D = 24 * H;
 
   // ---- the people ----
-  const plus = { tier: 'plus', until: new Date(Date.now() + 30 * D).toISOString(), badges: ['supporter', 'plus'] };
-  const robin = fake.addUser({ handle: 'robin_dew', display_name: 'Robin', entitlement: plus, title: 'win-nuzlocke', accent: 'sand', status: 'grinding Victory Road', banner: 'night-train', nameplate: 'night-train',
+  const plus = { tier: 'plus', until: new Date(Date.now() + 30 * D).toISOString(), badges: ['plus'] };
+  const robin = fake.addUser({ handle: 'robin_dew', display_name: 'Robin', entitlement: plus, title: 'win-nuzlocke', accent: 'amber', status: 'grinding Victory Road', banner: 'night-train', nameplate: 'night-train',
     showcase: { trophies: ['win-nuzlocke', 'win-soul-link', 'badges16'], trusted: 'Breloom line – on 6 teams, fell once (Crystal, to Whitney)', favorite_game: 'Emerald' },
     privacy: { show_runs: true, profile: 'friends' }, createdAt: Date.parse('2025-03-12'),
     stats: { totals: { runs_started: 23, runs_completed: 7, runs_failed: 14, soullink_runs: 13, nuzlocke_runs: 10, badges_earned: 61, pokemon_caught: 412, deaths: 168, playtime_minutes: 12840 },
@@ -82,7 +82,7 @@ async function main(scratch) {
         { name: 'Robin & Kim', game: 'HeartGold', mode: 'soullink', result: 'won', badges: 16, deaths: 14, ended_at: '2026-10-21T20:00:00Z' },
         { name: 'Johto Trio', game: 'SoulSilver', mode: 'soullink', result: 'won', badges: 16, deaths: 18, ended_at: '2026-05-30T20:00:00Z' },
       ] } });
-  const others = [['lou_lou', 'Lou', 'moss'], ['ida_plays', 'Ida', 'tide'], ['sam_s', 'Sam', 'ember'], ['mo_mo', 'Mo', 'moss'], ['tim_t', 'Tim', 'dusk'], ['lena_l', 'Lena', 'sand']]
+  const others = [['lou_lou', 'Lou', 'moss'], ['ida_plays', 'Ida', 'tide'], ['sam_s', 'Sam', 'ember'], ['mo_mo', 'Mo', 'moss'], ['tim_t', 'Tim', 'dusk'], ['lena_l', 'Lena', 'amber']]
     .map(([handle, name, accent]) => fake.addUser({ handle, display_name: name, accent, avatar: handle !== 'tim_t' }));
   const [lou, ida, sam, mo, tim, lena] = others;
   for (const u of [kim, ...others]) fake.befriend(robin.id, u.id, Date.now() - (60 + others.indexOf(u) * 20) * D);

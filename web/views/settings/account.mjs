@@ -7,13 +7,14 @@ import { Icon } from '../../lib/icons.mjs';
 import { Modal, download, openExternal } from '../../lib/ui.mjs';
 import { LINKS } from '../../lib/links.mjs';
 import {
-  useAccount, signIn, cancelSignIn, signOut, updateMe, setHandle, newFriendCode, exportData, deleteAccount, linkEmail, reloadAccount,
+  useAccount, signIn, cancelSignIn, signOut, updateMe, setHandle, newFriendCode, exportData, deleteAccount, linkEmail, reloadAccount, isPlus,
 } from '../../lib/account.mjs';
+import { refreshPack } from '../../lib/cosmetics/index.mjs';
 import { askToJoinAllowed, setAskToJoin } from '../../lib/presence.mjs';
 import { Avatar, Badges, CodeChip } from '../social.mjs';
 import { Item, Group, Check } from './parts.mjs';
 
-const tierName = (tier) => ({ plus: 'souldew+', supporter: t('acct.supporter', 'Supporter') }[tier] || t('acct.tierNone', 'No membership'));
+const tierName = (tier) => ({ plus: 'souldew+', patron: t('acct.patronTier', 'souldew+ · Patron'), supporter: t('acct.supporter', 'Supporter') }[tier] || t('acct.tierNone', 'No membership'));
 const dateOf = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '');
 
 function SignedOut({ acct, toast }) {
@@ -101,34 +102,42 @@ function PlusGroup({ me, toast }) {
     setBusy(true);
     setResult(null);
     try {
+      // the service answers "submitted" whatever the email is; the local server reads the entitlement afterwards
       const r = await linkEmail(email.trim());
-      setResult(r.linked || r.tier !== 'none' ? 'linked' : 'nomatch');
-      if (r.linked) setEmail('');
+      setResult(r.linked ? 'linked' : 'nomatch');
+      if (r.linked) {
+        setEmail('');
+        if (isPlus(r.tier)) refreshPack().catch(() => {});
+      }
     } catch (e) {
-      toast({ kind: 'death', title: t('acct.linkFailed', 'Couldn’t link the membership'), text: e.message });
+      if (e.vars?.code === 'locked_out' || e.vars?.code === 'rate_limited') setResult('locked');
+      else toast({ kind: 'death', title: t('acct.linkFailed', 'Couldn’t link the membership'), text: e.message });
     }
     setBusy(false);
   };
   const check = async () => {
-    await reloadAccount();
-    toast({ kind: 'ok', title: t('acct.checked', 'Membership checked'), text: tierName(me.entitlement?.tier) });
+    const s = await reloadAccount();
+    refreshPack().catch(() => {});
+    toast({ kind: 'ok', title: t('acct.checked', 'Membership checked'), text: tierName(s.me?.entitlement?.tier || me.entitlement?.tier) });
   };
   return html`
       <div class="stack">
-        <div class="row"><span class=${`chip ${ent.tier === 'plus' ? 'ok' : ''}`}>${tierName(ent.tier)}</span>
+        <div class="row"><span class=${`chip ${isPlus(ent.tier) ? 'ok' : ''}`}>${tierName(ent.tier)}</span>
           ${ent.until && html`<span class="small muted">${t('acct.until', 'until {date}', { date: dateOf(ent.until) })}</span>`}<${Badges} badges=${ent.badges} /></div>
-        <p class="small muted">${ent.tier === 'plus' ? t('acct.plusThanks', 'Thank you for supporting souldew! Your souldew+ banners, frames and nameplates are in the profile editor.')
+        <p class="small muted">${isPlus(ent.tier) ? t('acct.plusThanks', 'Thank you for supporting souldew! Your souldew+ banners, frames and nameplates are in the profile editor.')
           : t('acct.plusText', 'souldew stays free. If you support it on Buy Me a Coffee, the souldew+ membership adds banners, frames and nameplates for your profile – the other tiers get a Supporter badge.')}</p>
-        ${ent.tier !== 'plus' && html`<div><button class="btn small" onClick=${() => openExternal(LINKS.coffee)}><${Icon} name="coffee" size=${14} />${t('acct.toCoffee', 'Buy Me a Coffee')}</button></div>`}
+        ${!isPlus(ent.tier) && html`<div><button class="btn small" onClick=${() => openExternal(LINKS.coffee)}><${Icon} name="coffee" size=${14} />${t('acct.toCoffee', 'Buy Me a Coffee')}</button></div>`}
         <details class="group"><summary>${t('acct.linkTitle', 'Link a membership you already have')}</summary>
           <div class="stack" style="padding:6px 14px 14px">
+            ${busy && html`<p class="small muted" role="status">${t('acct.linkChecking', 'Checking the membership …')}</p>`}
             <label class="field"><span>${t('acct.linkEmail', 'The email you used on Buy Me a Coffee')}</span>
               <div class="row nowrap"><input type="email" class="grow" value=${email} autocomplete="email" spellcheck="false" onInput=${(e) => setEmail(e.target.value)}
                 onKeyDown=${(e) => e.key === 'Enter' && email.includes('@') && link()} />
               <button class="btn" disabled=${busy || !email.includes('@')} onClick=${link}>${t('acct.link', 'Link')}</button></div>
               <span class="hint">${t('acct.linkHint', 'souldew sends nothing to this address – the service only compares it with the membership. It isn’t stored.')}</span></label>
             ${result === 'linked' && html`<p class="note small" role="status">${t('acct.linked', 'Linked – thank you!')}</p>`}
-            ${result === 'nomatch' && html`<p class="warning info small" role="status">${t('acct.noMatch', 'No membership found for this email (or it’s linked to another account). Check the spelling – it’s the address Buy Me a Coffee has.')}</p>`}
+            ${result === 'nomatch' && html`<p class="warning info small" role="status">${t('acct.noMatchClaim', 'No membership found for this email. Check the spelling – it’s the address Buy Me a Coffee has – or use /supporter claim in the souldew Discord, or contact support.')}</p>`}
+            ${result === 'locked' && html`<p class="warning info small" role="status">${t('acct.linkLocked', 'Too many tries – linking by email is paused for a while. /supporter claim in the souldew Discord works any time.')}</p>`}
             <div class="row"><span class="small muted grow">${t('acct.discordClaim', 'Already claimed with /supporter claim in the souldew Discord? That links it too.')}</span>
               <button class="btn small ghost" onClick=${check}>${t('acct.claimedDiscord', 'I already claimed on Discord')}</button></div>
           </div></details>

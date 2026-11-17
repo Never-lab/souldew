@@ -45,11 +45,15 @@ export function presenceText(p) {
 /** A free seat a friend opened for "Ask to join". */
 export const canAskToJoin = (p) => p?.state === 'in_run' && p.run?.freeSlot && p.run?.joinable;
 
-/** Supporter / souldew+ badges – small, quiet. */
+/** Supporter / souldew+ / Patron badges (API.md §8.0) – small, quiet. souldew+ and Patron show together. */
 export function Badges({ badges = [] }) {
   if (!badges.length) return null;
-  return html`<span class="acct-badges">${badges.includes('plus') ? html`<span class="acct-badge plus" title=${t('acct.plusBadge', 'souldew+ member')}><${Icon} name="star" size=${11} />souldew+</span>`
-    : badges.includes('supporter') ? html`<span class="acct-badge" title=${t('acct.supporterBadge', 'Supports souldew')}><${Icon} name="heart" size=${11} />${t('acct.supporter', 'Supporter')}</span>` : ''}</span>`;
+  const plus = badges.includes('plus');
+  return html`<span class="acct-badges">
+    ${plus && html`<span class="acct-badge plus" title=${t('acct.plusBadge', 'souldew+ member')}><${Icon} name="star" size=${11} />souldew+</span>`}
+    ${badges.includes('patron') && html`<span class="acct-badge patron" title=${t('acct.patronBadge', 'souldew Patron')}><${Icon} name="heart" size=${11} />${t('acct.patron', 'Patron')}</span>`}
+    ${!plus && badges.includes('supporter') && html`<span class="acct-badge" title=${t('acct.supporterBadge', 'Supports souldew')}><${Icon} name="heart" size=${11} />${t('acct.supporter', 'Supporter')}</span>`}
+  </span>`;
 }
 
 /** A title (an earned trophy's name) as the small plate next to the name. */

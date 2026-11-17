@@ -842,13 +842,15 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   const routes = [];
   const route = (method, pattern, handler) => routes.push({ method, pattern, handler });
 
-  // ---- souldew account (sign-in, profile, friends, presence, invites): server/lib/accounts/index.mjs ----------------
-  const accounts = createAccounts({ secure: secureStore, port: () => server.address()?.port, emit, openExternal, focus, lang: () => loadConfig().lang || 'en' });
-  routes.push(...accounts.routes);
-  route('GET', /^\/api\/account\/diagnostics$/, () => accounts.diagnostics());
   // ---- souldew+ premium pack: the encrypted cache (server/lib/pluspack.mjs – never decrypted or run here) ----
   const plusPack = createPlusPack({ dir: join(DATA_DIR, DEV ? 'runs/.plus' : 'plus') });
   plusRoutes(route, plusPack, readBody);
+  // ---- souldew account (sign-in, profile, friends, presence, invites): server/lib/accounts/index.mjs ----------------
+  // a pack key that changed or went away (tier dropped, key rotated, signed out) takes the encrypted pack cache with it
+  const accounts = createAccounts({ secure: secureStore, port: () => server.address()?.port, emit, openExternal, focus, lang: () => loadConfig().lang || 'en',
+    onPackKeyChange: () => { if (!plusPack.dev) plusPack.wipe(); } });
+  routes.push(...accounts.routes);
+  route('GET', /^\/api\/account\/diagnostics$/, () => accounts.diagnostics());
 
   // ---- status & config ------------------------------------------------------------
   route('GET', /^\/api\/status$/, () => {

@@ -20,7 +20,7 @@ import { SignInFirst, InviteModal, coverForTitle } from './friends.mjs';
 import { Banner, CosmeticPicker } from '../lib/cosmetics/components.mjs';
 import { STATUS_MAX, TRUSTED_MAX, FAVORITE_MAX } from '/shared/social.mjs';
 
-const RANK = { none: 0, supporter: 1, plus: 2 };
+const RANK = { none: 0, supporter: 1, plus: 2, patron: 2 }; // patron = souldew+ (and a badge)
 const NEEDS = { free: 0, supporter: 1, plus: 2 };
 /** May this tier wear this catalog item? (Others see a locked item as nothing – the service decides that.) */
 const allowed = (item, tier) => !item || (RANK[tier] || 0) >= (NEEDS[item.tier] ?? 2);

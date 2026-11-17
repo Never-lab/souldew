@@ -104,3 +104,8 @@
 
 /* ---- the play view: a souldew+ launch animation over the game box (views/launch.mjs) ---- */
 .console-screen .launch-host { position: absolute; inset: 0; z-index: 4; border-radius: inherit; overflow: hidden; }
+
+/* ---- live theme preview (a non-member trying a souldew+ theme for 15 minutes) ---- */
+.skin-preview-bar.live { background: color-mix(in srgb, var(--crs) 10%, var(--shell-3)); border-color: color-mix(in srgb, var(--crs) 40%, var(--edge)); }
+.skin-live-badge { flex: none; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: .02em;
+  color: var(--shell); background: var(--crs); }
