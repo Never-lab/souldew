@@ -71,7 +71,8 @@ export function frameStats() {
 }
 
 /**
- * Mounts frame `recipeId` on the avatar box `el`. size: the avatar's css size (default: the box's measured width).
+ * Mounts frame `recipeId` on the avatar box `el`. size: the avatar's css size – used until the box is laid out; from then
+ * on the frame follows the box's own width (and re-sizes with it).
  * opts: { intro = true, reducedMotion (true/false overrides the OS), animate: 'always' | 'hover' | 'never', hoverTarget }
  */
 export function mountFrame(el, recipeId, size, opts = {}) {
@@ -141,7 +142,9 @@ export function mountFrame(el, recipeId, size, opts = {}) {
   function layout() {
     if (st.destroyed || st.missing) return;
     const dpr = globalThis.devicePixelRatio || 1;
-    const css = size || el.getBoundingClientRect().width;
+    // the box as laid out (offsetWidth: CSS may resize it – the editor's preview shows the 104 px avatar at 76 px – and
+    // an opening dialog's scale transform must not count); `size` only while the box isn't laid out yet
+    const css = el.offsetWidth || size || el.getBoundingClientRect().width;
     const z = sizing(css, dpr);
     if (!z) {
       if (st.cv) st.cv.style.display = 'none';

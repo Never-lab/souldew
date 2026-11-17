@@ -16,7 +16,7 @@ let puts = 0;
 function el(tag, size = [0, 0]) {
   const e = {
     ...evt, tagName: tag.toUpperCase(), nodeType: 1, children: [], style: {}, dataset: {}, className: '', parentElement: null, size,
-    setAttribute() {}, getBoundingClientRect: () => ({ width: e.size[0], height: e.size[1] }),
+    setAttribute() {}, getBoundingClientRect: () => ({ width: e.size[0], height: e.size[1] }), get offsetWidth() { return e.size[0]; },
     appendChild(c) { c.parentElement = e; e.children.push(c); return c; },
     prepend(c) { c.parentElement = e; e.children.unshift(c); },
     insertBefore(c, ref) { c.parentElement = e; e.children.splice(e.children.indexOf(ref), 0, c); },
@@ -168,6 +168,24 @@ test('frames: a pack loaded later → a new worker with the pack module, every f
   S.update({});
   assert.equal(workers.size, 0, 'no frames mounted → no worker kept');
   assert.equal(count(), 0);
+});
+
+test('frames: sized to the avatar box as laid out – a 104 px avatar the CSS shows at 76 px gets a 76 px frame, and follows a resize', () => {
+  const av = el('span', [76, 76]); // the profile editor's preview: <Avatar size=104> shrunk by .pf-preview .av-104
+  av.appendChild(el('img'));
+  const f = mountFrame(av, 'plain', 104);
+  const w = [...workers].find((x) => x.sent.some((m) => m.op === 'mount' && m.recipe === 'plain'));
+  const mount = w.sent.find((m) => m.op === 'mount');
+  assert.deepEqual([mount.N, mount.O], [38, 5], 'the grid of a 76 px box at 2× (k 4) – not the 104 px one (N 42)');
+  w.reply({ op: 'meta', id: mount.id, G: mount.N + 2 * mount.O, fps: 12, animated: false, still: 0, intro: null, small: false });
+  const cv = av.children[1];
+  const over = (parseFloat(cv.style.width) - 76) / 2;
+  assert.ok(over > 0 && over <= 76 * 0.15 + 0.5, `overhang ${over} px ≤ 15 % of 76 px`);
+  av.size = [104, 104];
+  for (const o of observers) if (o instanceof ResizeObserver && o.t === av) o.cb([]);
+  const resized = w.sent.filter((m) => m.op === 'size' && m.id === mount.id).pop();
+  assert.equal(resized?.N, 42, 'resized with the box');
+  f.destroy();
 });
 
 test('worker source: no pack → only the free content; the pack text is used as given otherwise', () => {
