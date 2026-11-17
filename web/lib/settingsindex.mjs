@@ -31,7 +31,11 @@ export const SETTINGS = [
   { id: 'tour', section: 'general', keys: ['set.replayOnboarding'], kw: 'onboarding welcome intro tutorial first start willkommen bienvenue bienvenida benvenuto' },
   { id: 'theme', section: 'general', keys: ['set.appearance', 'set.theme', 'set.themeText', 'theme.classic', 'theme.contrast', 'theme.deutan', 'theme.tritan'],
     kw: 'appearance colour color colors colours dark mode high contrast colour-blind colorblind color blind accessibility a11y design look darstellung farbe farbenblind kontrast couleur daltonien contraste color daltónico colore daltonico' },
+  { id: 'skin', section: 'general', keys: ['skin.title', 'skin.note', 'skin.editions', 'skin.dark', 'skin.light'],
+    kw: 'theme themes skin skins souldew+ plus look style edition light mode dark mode fieldbook clearshell woodgrain enamel thema design aussehen hell dunkel thème apparence clair sombre tema aspecto claro oscuro aspetto chiaro scuro' },
   // Play
+  { id: 'launch', section: 'play', keys: ['launch.title', 'launch.hint', 'set.gameStart'],
+    kw: 'launch start startup start-up boot intro animation cartridge module slot souldew+ plus spielstart startanimation modul démarrage lancement inicio arranque avvio' },
   { id: 'full-turbo', section: 'play', keys: ['set.fullTurbo', 'set.fullTurboHint'], kw: `${TURBO} performance` },
   { id: 'speed-guard', section: 'play', keys: ['set.speedGuard', 'set.speedGuardHint'], kw: `${TURBO} slow lag stutter performance` },
   { id: 'turbo-max', section: 'play', keys: ['set.turboMax', 'set.turboMaxHint'], kw: `${TURBO} unlimited maximum` },

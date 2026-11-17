@@ -47,6 +47,8 @@ export const PRIVATE_GETS = [
   /^\/api\/saves\/(solo|solo\/download|states|state|state\/thumb)$/,
   /^\/api\/(stream|status|events)$/,
   /^\/live\/soullink\.lua$/,
+  // souldew+: the account's encrypted pack and the dev pack's key
+  /^\/api\/plus\/(pack|pack\/meta|dev\/access)$/,
 ];
 
 /**

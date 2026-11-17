@@ -22,6 +22,8 @@ import { gymCapsFamily } from '/shared/routes.mjs';
 import { shiftEntry } from '/shared/live/romwram.mjs';
 import { RulesTab } from './board.mjs';
 import { CartInsert } from './cartinsert.mjs';
+import { LaunchOverlay } from './launch.mjs';
+import { launchAvailable } from '../lib/cosmetics/index.mjs';
 import { play as playCue } from '../lib/sound.mjs';
 import { addSample, typicalReach, offeredSteps, beyondReach, HELD } from '../lib/reach.mjs';
 import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
@@ -235,13 +237,19 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
 export function GameSession({ session, mode }) {
   const { manifest, doc, me, applySnap, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus } = useApp();
   const target = session.target;
-  // the module slides into the console while the game boots (Settings › animations; never with reduced motion)
-  const [inserting, setInserting] = useState(() => mode === 'full' && status?.config?.bootAnimation !== false
+  // the module slides into the console while the game boots (Settings › animations; never with reduced motion) – or,
+  // with souldew+, the chosen launch animation plays over the screen itself (views/launch.mjs; it has its own
+  // reduced-motion form, so it runs then too). The cartridge stays the default and the fallback.
+  const animsOn = mode === 'full' && status?.config?.bootAnimation !== false;
+  const launchKind = status?.config?.launchAnimation || 'cartridge';
+  const [launching, setLaunching] = useState(() => animsOn && launchAvailable(launchKind));
+  const [inserting, setInserting] = useState(() => animsOn && !launching
     && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
   // The emulator stays invisible until the module is home and the core has started: no black canvas or RetroArch
   // menu flashing behind the animation. It loads all the while – only its visibility waits.
   const [screenShown, setScreenShown] = useState(mode !== 'full');
-  const animated = useRef(inserting); // the animation plays the click itself
+  const animated = useRef(inserting || launching); // the animation plays the click itself (a launch animation: silent)
+  const overlaid = useRef(launching); // the picture comes up under a launch animation: no fade-in of its own
   const game = gameById(target.gameId);
   const frame = useRef(null);
   const [phase, setPhase] = useState('loading'); // loading | running | error
@@ -1402,7 +1410,9 @@ export function GameSession({ session, mode }) {
   const screenEl = html`<div class="session-screen" onClick=${focusGame}>
           <div class="console-screen" style=${`--arn:${arn}`}>
             <iframe ref=${frame} src=${src} title=${t('play.screenTitle', 'Game screen')} allow="autoplay; fullscreen; gamepad"
-              class=${screenShown ? 'ci-shown' : 'ci-wait'} onLoad=${focusGame}></iframe>
+              class=${screenShown ? (overlaid.current ? 'ci-under' : 'ci-shown') : 'ci-wait'} onLoad=${focusGame}></iframe>
+            ${launching && html`<${LaunchOverlay} kind=${launchKind} system=${target.system} dsLayout=${layout} ctrLayout=${layout3ds}
+              ready=${phase !== 'loading'} onDone=${() => { setLaunching(false); focusGame(); }} />`}
             ${osd && html`<div class="osd">${osd}</div>`}
             ${pendingLoad && html`<div class="screen-confirm" role="alertdialog" aria-live="assertive">
               <span class="grow">${pendingLoad.slot <= 4 ? t('play.loadConfirm', 'Load state {n}? Progress since then is lost. Press {n} again or click Load.', { n: pendingLoad.slot })
