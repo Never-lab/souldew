@@ -33,6 +33,11 @@
 //    error replies (denial of service) is always possible on a public broker.
 // Relay only, no Trystero: its room password would be the bare 6-digit code, and the handshake is a few messages.
 //
+// Friend invites (souldew account, web/lib/friendinvite.mjs) use the same handshake with a long code instead: "F" + 22
+// random URL-safe characters (132 bits), delivered by the accounts service to that one friend only – never typed, never
+// shown. Nobody can find that code behind the topic or guess it, so nobody else can even ask to join; the 4 digits
+// then can't catch anybody in the middle and the host's app fills them in itself. The host still decides with "Allow".
+//
 // Wire format, <T> = slstudio/invite/v1/<topic id>, rid = the partner's random request id, nothing retained:
 //   req/<rid>    partner → host  JSON { v, key: masked B }               resent until answered
 //   res/<rid>    host → partner  JSON { v, key: masked A } | { v, error }
@@ -96,8 +101,16 @@ export function newCode() {
   return String(n[0] % 1000000).padStart(6, '0');
 }
 
-/** "123 456", "123-456", " 123456 " → "123456"; anything else → null. */
+/** A friend invite's code: "F" + 22 random URL-safe characters (see the threat model above). */
+export function newFriendCode() {
+  const abc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  return `F${[...crypto.getRandomValues(new Uint8Array(22))].map((b) => abc[b & 63]).join('')}`;
+}
+export const isFriendCode = (c) => typeof c === 'string' && /^F[A-Za-z0-9_-]{22}$/.test(c);
+
+/** "123 456", "123-456", " 123456 " → "123456"; a friend invite's code as it is; anything else → null. */
 export function normalizeCode(s) {
+  if (isFriendCode(String(s ?? '').trim())) return String(s).trim();
   const d = String(s ?? '').replace(/[\s\-–.]/g, '');
   return /^\d{6}$/.test(d) ? d : null;
 }

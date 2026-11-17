@@ -38,6 +38,11 @@ import { mySlotIn } from './lib/restart.mjs';
 import { IS_MAC, IS_WIN, PLATFORM, shortcut } from './lib/platform.mjs';
 import { TrophiesView, TrophyToasts } from './views/trophies.mjs';
 import { syncTrophies, rememberSlots, watchRun, onTrophyUnlock } from './lib/trophies.mjs';
+import { FriendsView } from './views/friends.mjs';
+import { ProfileView } from './views/profile.mjs';
+import { accountEvent } from './lib/account.mjs';
+import { useSocial } from './lib/socialapp.mjs';
+import { Avatar } from './views/social.mjs';
 
 applyStoredTheme(); // before the first render: no flash of the wrong colours
 
@@ -587,6 +592,8 @@ function App() {
     // a zipped 3DS game being unpacked into the library (server/lib/library.mjs unpackZipGames) – what came of it is
     // told by the page that added it (web/lib/libadded.mjs addedMessage, or the error)
     unpack: (p) => toast(unpackToast(p)),
+    // the souldew account: signed in / out, new counters of friend requests and invites (server/lib/accounts)
+    account: (p) => accountEvent(p),
   }), [runId]);
 
   // ---- live link -----------------------------------------------------------------
@@ -739,6 +746,8 @@ function App() {
   // render (toasts, live frames from an external emulator …)
   const checkCount = useMemo(() => (runDoc ? checks(runDoc, manifest, runData).length : 0), [runDoc, docVersion, manifest, runData]);
   const warnCount = runDoc ? checkCount + inbox.inbox.length + inbox.alerts.length : 0;
+  // the souldew account (lib/socialapp.mjs): presence, notices, the Friends entry – nothing at all while signed out
+  const social = useSocial({ ready, route, session, manifest, doc: runDoc, me, linkStatus, toast, navigate });
   const ctx = {
     status, reloadStatus, library, reloadLibrary, runId, setRunId, manifest, missingRun, reloadManifest, doc: runDoc, docVersion, runData, me, setMe,
     navigate, route, link: linkRef.current, linkStatus, linkPlay, linkSessions: linkPlayRef.current, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, toast, liveInfo,
@@ -758,7 +767,7 @@ function App() {
     return html`<div class="boot"><div class="boot-screen"></div></div>`;
   }
   const showOnboarding = !!status && !status.config?.onboarded;
-  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView }[route.route] || LibraryView;
+  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView, friends: FriendsView, profile: ProfileView }[route.route] || LibraryView;
   const names = runDoc ? getPlayers(runDoc, manifest) : null;
   // Fullscreen – the window's (macOS: green button, Windows: F11) or the game's (F): the side rail folds away, the game gets the room
   const [winFs, setWinFs] = useState(false);
@@ -823,6 +832,8 @@ function App() {
     { id: 'soullink', label: t('nav.soullink', 'SoulLink'), icon: 'link', count: manifest && runMode(manifest) === 'soullink' ? warnCount : 0, accent: '#d77fc6' },
     { id: 'nuzlocke', label: t('nav.nuzlocke', 'Nuzlocke'), icon: 'nuzlocke', count: manifest && runMode(manifest) === 'nuzlocke' ? warnCount : 0, accent: '#e8735f' },
     { id: 'link', label: t('nav.link', 'Connection'), icon: 'signal', accent: '#6f9bff' },
+    // signed in only: the souldew account's friends (green: how many are online; the badge: requests and invites)
+    ...(social.signedIn ? [{ id: 'friends', label: t('nav.friends', 'Friends'), icon: 'friends', accent: '#6fb39b', online: social.online, count: social.toAnswer, countHint: t('nav.friendsHint', 'Friend requests and invites') }] : []),
     { id: 'stream', label: t('nav.stream', 'Stream'), icon: 'stream', accent: '#ff5b6e', onAir: streamer },
     { id: 'trophies', label: t('nav.trophies', 'Trophies'), icon: 'trophy', accent: '#e7c24f' },
     { id: 'settings', label: t('nav.settings', 'Settings'), icon: 'gear', accent: '#9a8ee6' },
@@ -847,13 +858,16 @@ function App() {
             <${NavIcon} name=${n.icon} /><span class="nav-label">${n.label}</span>
             <span class="nav-end">${n.onAir && html`<span class="nav-onair" title=${t('stream.onAirHint', 'Streamer mode is on – codes, keys, paths and spoilers are covered')}><span class="sr-only">${t('stream.mode', 'Streamer mode')}</span></span>`}${playingIn === n.id && html`<span class="nav-live" title=${t('nav.playing', 'Running now: {game}', { game: session.target.label || session.target.name || '' })}><${Led} on color="green" />
                 <span class="sr-only">${t('nav.playing', 'Running now: {game}', { game: session.target.label || session.target.name || '' })}</span></span>`}
-              ${n.count > 0 && html`<span class="nav-badge" title=${t('nav.countHint', 'Things to check on the board')}>${n.count > 99 ? '99+' : n.count}<span class="sr-only"> ${t('nav.countSr', 'to check')}</span></span>`}</span>
+              ${n.online > 0 && html`<span class="nav-online" title=${t('nav.onlineHint', '{count} friend online|{count} friends online', { count: n.online })}><${Led} on color="green" />${n.online}<span class="sr-only"> ${t('nav.onlineSr', 'online')}</span></span>`}
+              ${n.count > 0 && html`<span class="nav-badge" title=${n.countHint || t('nav.countHint', 'Things to check on the board')}>${n.count > 99 ? '99+' : n.count}<span class="sr-only"> ${t('nav.countSr', 'to check')}</span></span>`}</span>
           </a>`)}
         </nav>
         <div class="rail-foot no-drag">
           <${FirstStepsPill} />
           ${native && html`<${UpdateBanner} />`}
           ${manifest && names && html`<${RailRun} manifest=${manifest} names=${names} me=${me} onlineSlots=${onlineSlots} linkStatus=${linkStatus} session=${session} navigate=${navigate} />`}
+          ${social.signedIn && social.me && html`<a class="rail-me" href="#/profile" aria-current=${route.route === 'profile' && !route.params.id ? 'page' : undefined} title=${t('pf.yours', 'Your profile')}>
+            <${Avatar} user=${social.me} size=${30} /><span class="stack-s" style="gap:0"><b class="ellipsis">${social.me.name}</b><span class="tiny ellipsis">${social.me.status || `@${social.me.handle || ''}`}</span></span></a>`}
           <${CoffeeLink} fx=${!folded || peek ? coffee.fx : null} onOpen=${coffee.clicked} />
         </div>
       </aside>

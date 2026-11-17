@@ -2,7 +2,36 @@
 // httpError); its `error` text is German and stays the fallback for codes this table doesn't know.
 import { t } from './i18n.mjs';
 
+/** The accounts service's error codes (souldew-accounts docs/API.md §0.3), passed on by the local server as vars.code. */
+function accountError({ code, field, retryAfter } = {}) {
+  const fields = {
+    friends: t('acctErr.limitFriends', 'Your friends list is full.'),
+    outgoing_requests: t('acctErr.limitRequests', 'You have too many open friend requests – wait until some are answered.'),
+    invites: t('acctErr.limitInvites', 'You have too many open invites – cancel one first.'),
+  };
+  return {
+    rate_limited: retryAfter ? t('acctErr.rateIn', 'Slow down a little – try again in {n} s.', { n: retryAfter }) : t('acctErr.rate', 'Too many tries – try again a bit later.'),
+    locked_out: t('acctErr.locked', 'Too many tries – this is locked for a while. Try again tomorrow.'),
+    text_rejected: t('acctErr.text', 'That text isn’t allowed – links, mentions and some words are filtered.'),
+    handle_taken: t('acctErr.handleTaken', 'That handle is taken – try another one.'),
+    already_friends: t('acctErr.alreadyFriends', 'You’re already friends.'),
+    limit_reached: fields[field] || t('acctErr.limit', 'A limit is reached.'),
+    not_found: t('acctErr.notFound', 'Nobody found – check the handle or friend code.'),
+    not_friends: t('acctErr.notFriends', 'You can only do that with friends.'),
+    not_entitled: t('acctErr.notEntitled', 'That needs souldew+.'),
+    forbidden: t('acctErr.forbidden', 'That isn’t possible – you may have blocked this player.'),
+    account_suspended: t('acctErr.suspended', 'This souldew account is suspended.'),
+    conflict: t('acctErr.conflict', 'That isn’t possible any more – it may have expired.'),
+    invalid_field: t('acctErr.invalid', 'That doesn’t look right – check what you typed.'),
+    opt_in_required: t('acctErr.optIn', 'Turn on “Show my runs on my profile” first.'),
+    not_configured: t('acctErr.notConfigured', 'The account service isn’t ready yet – try again later.'),
+  }[code] || t('acctErr.other', 'The account service had a problem – try again later.');
+}
+
 const TEXTS = {
+  acct: (v) => accountError(v),
+  acctOffline: () => t('acctErr.offline', 'Can’t reach the souldew account service. Check your internet connection.'),
+  acctSignedOut: () => t('acctErr.signedOut', 'You’re signed out of your souldew account.'),
   requestTooLarge: () => t('err.requestTooLarge', 'Request too large'),
   fileTooLarge: () => t('err.fileTooLarge', 'File too large'),
   emptyFile: () => t('err.emptyFile', 'Empty file'),

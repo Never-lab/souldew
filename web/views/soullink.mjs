@@ -16,6 +16,8 @@ import { suggestSlot } from '../lib/invitecode.mjs';
 import { Board, InviteBody } from './board.mjs';
 import { JoinCode } from './invitecode.mjs';
 import { NuzlockeRules, TypeHelpRule } from './nuzrules.mjs';
+import { useAccount, useFriends } from '../lib/account.mjs';
+import { acceptInvite } from '../lib/friendinvite.mjs';
 import { FirstSteps } from './firststeps.mjs';
 
 /**
@@ -41,7 +43,7 @@ export function SoulLinkView({ mode = 'soullink' }) {
       : p.run && p.new === undefined && manifest?.id === p.run ? runMode(manifest) : null);
   if (!own) return null;
   if (p.new !== undefined && p.from) return html`<${RestartRun} key=${p.from} from=${p.from} mode=${mode} />`;
-  if (p.new !== undefined) return html`<${NewRun} key=${mode} mode=${mode} gameId=${p.new} hackId=${p.hack} patchPick=${p.patch} romPick=${p.rom} />`;
+  if (p.new !== undefined) return html`<${NewRun} key=${mode} mode=${mode} gameId=${p.new} hackId=${p.hack} patchPick=${p.patch} romPick=${p.rom} friendPick=${p.friend} />`;
   if (p.join !== undefined) return html`<${JoinRun} />`;
   if (!p.run) return html`<${RunsHome} key=${mode} mode=${mode} />`;
   if (!manifest && missingRun === p.run) {
@@ -478,8 +480,12 @@ function namesFrom(from, fallback) {
 
 /** The new-run wizard of one mode: a SoulLink (2–4 players, invite at the end) or a solo Nuzlocke (rules step).
  * A restart (`from`) always keeps the mode of the old run. */
-function NewRun({ gameId, hackId, patchPick, romPick, from, mode: sectionMode }) {
+function NewRun({ gameId, hackId, patchPick, romPick, friendPick, from, mode: sectionMode }) {
   const { status, navigate, reloadStatus, setRunId, setMe } = useApp();
+  // souldew friends who play the other seats (signed in only): their name goes in, and they get an invite once it's built
+  const acct = useAccount();
+  const { data: friendData } = useFriends(!!acct.session?.signedIn);
+  const [invited, setInvited] = useState({}); // slot → friend card
   const { roms, patchesFor, preferredPatch, patchById } = useGameChoices(gameId || null, hackId);
   // `patchPick`: started from a patch the catalog doesn't know (library) – its base ROM and that patch come first
   const picked = !from ? patchById(patchPick) : null;
@@ -560,6 +566,20 @@ function NewRun({ gameId, hackId, patchPick, romPick, from, mode: sectionMode })
   // the other title of the game's pair (HeartGold → SoulSilver): partners may play it in a run without randomizer or hack
   const mate = !solo && game && !hack && !customHack && !patchId ? gameById(pairMate(game.variantOf || game.id)) : null;
   const step = { who: 1, game: 2, randomizer: 3, rules: 4, build: 5 };
+  const friends = friendData?.friends || [];
+  // "New SoulLink with Kim" (Friends): Kim plays the second seat
+  useEffect(() => {
+    const f = friendPick && friends.find((x) => x.user.id === friendPick);
+    if (f && !invited.p2 && !solo) {
+      setInvited((v) => ({ ...v, p2: f.user }));
+      setNames((n) => ({ ...n, p2: f.user.name.slice(0, 20) }));
+    }
+  }, [friendPick, friends.length]);
+  const pickFriend = (s, id) => {
+    const f = friends.find((x) => x.user.id === id)?.user || null;
+    setInvited((v) => ({ ...v, [s]: f }));
+    if (f) setNames((n) => ({ ...n, [s]: f.name.slice(0, 20) }));
+  };
   const seedSlots = solo || seedMode === 'shared' ? ['p1'] : slots;
   // a randomized 3DS game is rebuilt per world: how many games this computer builds, and their size
   const ctrGames = ctr && randomize && canRandomize ? (solo || buildFor !== 'all' ? 1 : seedMode === 'shared' ? 1 : count) : 0;
@@ -608,7 +628,7 @@ function NewRun({ gameId, hackId, patchPick, romPick, from, mode: sectionMode })
     return html`<div class="stack-l">
       <div class="topbar"><h1>${soloDone ? t('new.doneSolo', 'Your Nuzlocke is ready') : t('new.done', 'Your SoulLink is ready')}</h1></div>
       ${soloDone ? html`<section class="panel stack"><p class="muted">${t('new.doneSoloText', 'Your game is built. Start playing – the app files your catches and deaths live, and the board keeps the score.')}</p></section>`
-        : html`<section class="panel stack invite-panel"><${InviteBody} manifest=${result} /></section>`}
+        : html`<section class="panel stack invite-panel"><${InviteBody} manifest=${result} autoFriends=${slotsOf(result).map((s) => invited[s]).filter(Boolean)} /></section>`}
       ${from && !soloDone && html`<p class="warning info">${t('new.restartInviteHint', 'This is a new run – the invite of “{old}” doesn’t work for it. Send the new one.', { old: from.name })}</p>`}
       <div class="row">
         <button class=${`btn ${soloDone ? 'primary big' : ''}`} onClick=${() => navigate('play', { run: result.id })}><${Icon} name="play" size=${16} />${t('new.playNow', 'Start playing')}</button>
@@ -635,8 +655,13 @@ function NewRun({ gameId, hackId, patchPick, romPick, from, mode: sectionMode })
         ${slots.map((s, i) => html`<label class="field" key=${s}><span class="who-label">${!solo && html`<span class="who-mark" style=${`color:var(--${s})`} aria-hidden="true"><${Icon} name="user" size=${13} /></span>`}${i === 0 ? (solo ? t('code.yourName', 'Your name') : t('new.you', 'You'))
           : count === 2 ? t('new.partner', 'Your partner') : t('new.playerN', 'Player {n}', { n: i + 1 })}</span>
           <input type="text" value=${names[s]} maxLength="20" placeholder=${t('new.playerN', 'Player {n}', { n: i + 1 })}
-            onInput=${(e) => setNames({ ...names, [s]: e.target.value })} /></label>`)}
+            onInput=${(e) => setNames({ ...names, [s]: e.target.value })} />
+          ${i > 0 && friends.length > 0 && html`<select class="who-friend small" aria-label=${t('new.friendFor', 'A souldew friend for this seat')} value=${invited[s]?.id || ''}
+            onChange=${(e) => pickFriend(s, e.target.value)}>
+            <option value="">${t('new.noFriend', 'Not a souldew friend')}</option>
+            ${friends.filter((f) => f.user.id === invited[s]?.id || !Object.values(invited).some((x) => x?.id === f.user.id)).map((f) => html`<option value=${f.user.id}>${t('new.inviteFriendOpt', 'Invite {name}', { name: f.user.name })}</option>`)}</select>`}</label>`)}
       </div>
+      ${!solo && Object.values(invited).some(Boolean) && html`<p class="small muted">${t('new.friendsInvited', 'Your friends get the invite in souldew as soon as the run is built.')}</p>`}
     </section>
 
     <section class="panel stack">
@@ -759,7 +784,16 @@ function InviteDrop({ onText }) {
 }
 
 function JoinRun() {
-  const { manifest, reloadStatus, setRunId, setMe, toast, library, navigate, reloadManifest, status, doc } = useApp();
+  const { manifest, reloadStatus, setRunId, setMe, toast, library, navigate, reloadManifest, status, doc, route } = useApp();
+  // a friend's invite (souldew account): accepted here, its code goes into the join flow below
+  const inviteId = route.params.invite || null;
+  const [friendInvite, setFriendInvite] = useState(null);
+  useEffect(() => {
+    if (!inviteId) return;
+    setFriendInvite(null);
+    acceptInvite(inviteId).then((inv) => setFriendInvite(inv?.code ? inv : { error: t('join.inviteGone', 'This invite has no code any more – ask for a new one.') }),
+      (e) => setFriendInvite({ error: e.message }));
+  }, [inviteId]);
   const [pack, setPack] = useState(manifest?.imported && !Object.keys(manifest.outputs || {}).length ? manifest : null);
   // a restart offer already knows our slot – stored for the new run (RestartOffer: setMe), read from there: the app's
   // `me` is still the default p1 while a reload brings the run back (the host's seat – their name overwritten)
@@ -867,14 +901,17 @@ function JoinRun() {
   return html`<div class="stack-l">
     <div class="topbar"><h1>${t('join.title', 'Join a SoulLink')}</h1>
       <button class="btn small ghost" onClick=${() => navigate('soullink', { new: '' })}>${t('join.hostInstead', 'No invite? Host one yourself')}</button></div>
-    <p class="muted">${t('join.introAny', 'Somebody created the run. Enter the code they give you – the app fetches the invite, builds the same game from your own copy and connects you.')}</p>
+    <p class="muted">${inviteId ? t('join.introFriend', 'A friend invited you. Once they let you in, the app fetches the run, builds the same game from your own copy and connects you.')
+      : t('join.introAny', 'Somebody created the run. Enter the code they give you – the app fetches the invite, builds the same game from your own copy and connects you.')}</p>
     ${error && html`<div class="warning error" role="alert">${error}</div>`}
     <section class="panel stack">
-      <h2>${pack ? t('join.step1', '1 · Open the invite') : t('join.step1Code', '1 · Enter the invite code')}</h2>
+      <h2>${pack ? t('join.step1', '1 · Open the invite') : inviteId ? t('join.step1Friend', '1 · Your invite') : t('join.step1Code', '1 · Enter the invite code')}</h2>
       ${pack ? html`<p class="note">${t('join.loaded', 'Invite from {name}: {run}', { name: pack.players?.p1?.name || 'P1',
           run: runMode(pack) === 'nuzlocke' ? t('runs.modeSolo', 'Solo Nuzlocke')
             : t('join.loadedLink', 'SoulLink with {n} players ({names})', { n: slots.length, names: joinNames(slots.map((s) => pack.players?.[s]?.name || s.toUpperCase())) }) })}</p>`
-        : html`<${JoinCode} onPack=${(p, seat) => load(JSON.stringify(p), seat)} />
+        : html`${friendInvite?.error && html`<p class="warning" role="alert">${t('join.inviteFailed', 'The invite couldn’t be opened: {msg}', { msg: friendInvite.error })}</p>`}
+          ${inviteId && !friendInvite ? html`<p class="small muted">${t('common.loading', 'Loading …')}</p>`
+            : html`<${JoinCode} key=${friendInvite?.code || 'code'} invite=${friendInvite?.code ? friendInvite : null} onPack=${(p, seat) => load(JSON.stringify(p), seat)} />`}
           <details class="group"><summary>${t('join.fileInstead', 'Or use an invite file')}</summary><div style="padding:4px 14px 12px"><${InviteDrop} onText=${load} /></div></details>`}
     </section>
     ${pack && html`<section class="panel stack">

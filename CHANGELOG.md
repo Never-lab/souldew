@@ -72,7 +72,7 @@ Plus a new play view that gives the game the room it deserves.
   sessions use. New in Settings › Play › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
   original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver
   and Crystal are always in colour. The cartridge clock of Gold, Silver and Crystal carries over.
-- **Settings in tabs, with search.** Settings is now split into General, Play, Controls, Games, Online and About, so
+- **Settings in tabs, with search.** Settings is now split into General, Play, Controls, Games, Online, Account and About, so
   every page is short instead of one long scroll. Everything about playing sits together under Play – fast-forward,
   the sound while fast-forwarding (until now only in the game's sound menu), the picture and the fast player – and
   the graphics backend, the 3DS renderer and the diagnostics file wait under About › Troubleshooting. Type into the
@@ -81,6 +81,16 @@ Plus a new play view that gives the game the room it deserves.
   Buttons elsewhere in the app – “Connect Discord …”, “Open Settings” on a slow game, “More sound settings” in the
   game's sound menu – now open the exact setting and mark it. The tab you used last opens again, back and forward
   work, and L / R on a controller switch the tabs.
+- **A souldew account – optional, for playing with friends.** Settings › Account: “Sign in with Discord” opens your
+  browser (souldew never sees your Discord password and only gets your name and picture) and the sign-in is kept in
+  your computer's keychain. Then you have a profile – banner, frame, nameplate, a title from your trophies, an accent
+  colour, a showcase and a status line, and, only if you turn it on, your run numbers – and a **Friends** page: add
+  friends by handle or friend code, see who is online and what they play, invite them into a SoulLink from the board
+  or the new-run wizard. Your friend gets the invite in souldew and presses Join; you allow it with one click, and the
+  run itself still connects peer to peer as before – the account service only carries the invite, never the key to
+  your run. Friends can ask to join a run with a free seat if you allow it. Privacy is yours to set (who sees your
+  profile, appear offline, where you are in the game), and you can export or delete your data any time. Without an
+  account everything works exactly as before.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

@@ -1,4 +1,4 @@
-// Settings: a tab per section (General, Play, Controls, Games, Online, About) under a sticky bar with the settings search.
+// Settings: a tab per section (General, Play, Controls, Games, Online, Account, About) under a sticky bar with the settings search.
 // The open tab is in the URL (#/settings?s=play – back and forward work) and remembered for next time; a deep link
 // #/settings?s=play&f=turbo-audio brings one setting into view and marks it for a moment. Which setting lives in
 // which section, and the words the search finds it by: lib/settingsindex.mjs. The sections: views/settings/*.mjs.
@@ -15,6 +15,7 @@ import { ControlsSection } from './settings/controls.mjs';
 import { GamesSection } from './settings/games.mjs';
 import { OnlineSection } from './settings/online.mjs';
 import { AboutSection } from './settings/about.mjs';
+import { AccountSection } from './settings/account.mjs';
 
 // what other screens use from here (the welcome tour, the play dock, the app's notices)
 export { ThemePicker } from './settings/general.mjs';
@@ -22,15 +23,15 @@ export { usePads, FAMILY_NAMES, PAD_POS, padName } from './settings/controls.mjs
 export { GPU_LABELS, CTR_RENDERER_LABELS, gpuFallbackText } from './settings/about.mjs';
 export { settingsLink };
 
-const BODY = { general: GeneralSection, play: PlaySection, controls: ControlsSection, games: GamesSection, online: OnlineSection, about: AboutSection };
+const BODY = { general: GeneralSection, play: PlaySection, controls: ControlsSection, games: GamesSection, online: OnlineSection, account: AccountSection, about: AboutSection };
 
-/** The tab names' i18n keys (the English one is searched too) – the hidden Account section has none yet. */
-const SECTION_KEYS = { general: 'set.general', play: 'set.tabPlay', controls: 'set.controls', games: 'set.tabGames', online: 'set.tabOnline', about: 'set.about' };
+/** The tab names' i18n keys (the English one is searched too). */
+const SECTION_KEYS = { general: 'set.general', play: 'set.tabPlay', controls: 'set.controls', games: 'set.tabGames', online: 'set.tabOnline', account: 'set.tabAccount', about: 'set.about' };
 
 /** The tab names. */
 export const SECTION_NAMES = () => ({
   general: t('set.general', 'General'), play: t('set.tabPlay', 'Play'), controls: t('set.controls', 'Controls'),
-  games: t('set.tabGames', 'Games'), online: t('set.tabOnline', 'Online'), about: t('set.about', 'About'),
+  games: t('set.tabGames', 'Games'), online: t('set.tabOnline', 'Online'), account: t('set.tabAccount', 'Account'), about: t('set.about', 'About'),
 });
 
 const TAB_KEY = 'sl-settings-tab';

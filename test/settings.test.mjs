@@ -88,17 +88,17 @@ test('the texts the search reads exist in English and every app language; the ta
   for (const e of SETTINGS) for (const k of e.keys) assert.ok(EN[k], `${e.id}: ${k} in en.json`);
   for (const lang of ['de', 'fr', 'es', 'it']) {
     const tr = i18n(lang);
-    for (const k of ['set.general', 'set.tabPlay', 'set.controls', 'set.tabGames', 'set.tabOnline', 'set.about', 'set.search', 'set.trouble']) assert.ok(tr[k], `${lang}: ${k}`);
+    for (const k of ['set.general', 'set.tabPlay', 'set.controls', 'set.tabGames', 'set.tabOnline', 'set.tabAccount', 'set.about', 'set.search', 'set.trouble']) assert.ok(tr[k], `${lang}: ${k}`);
     // no menu path in the app still names a section that is gone
     for (const [k, v] of Object.entries(tr)) assert.ok(!/›\s*(Emulatoren|Émulateurs|Emuladores|Emulatori)\b/.test(v) || k.startsWith('faq.'), `${lang}: ${k} still points at the old Emulators section`);
   }
   for (const [k, v] of Object.entries(EN)) assert.ok(!/Settings › (Emulators|General|Discord|Game Boy look)\b/.test(v), `${k} still points at an old section: ${v}`);
 });
 
-test('sections: tab order, the Account section is wired up but not shown until accounts exist', () => {
+test('sections: tab order – the Account section (souldew account) sits between Online and About', () => {
   assert.deepEqual(SECTIONS.map((s) => s.id), ['general', 'play', 'controls', 'games', 'online', 'account', 'about']);
-  assert.deepEqual(VISIBLE_SECTIONS, ['general', 'play', 'controls', 'games', 'online', 'about']);
-  assert.ok(!SETTINGS.some((e) => e.section === 'account'));
+  assert.deepEqual(VISIBLE_SECTIONS, ['general', 'play', 'controls', 'games', 'online', 'account', 'about']);
+  assert.deepEqual(SETTINGS.filter((e) => e.section === 'account').map((e) => e.id), ['account', 'account-privacy', 'plus', 'account-data']);
 });
 
 test('the URL picks the tab: s=, else the remembered tab, else General – and a deep link opens its setting’s own tab', () => {
@@ -106,7 +106,7 @@ test('the URL picks the tab: s=, else the remembered tab, else General – and a
   assert.deepEqual(settingsRoute({}, 'games'), { section: 'games', setting: null });
   assert.deepEqual(settingsRoute({ s: 'play' }, 'games'), { section: 'play', setting: null });
   assert.deepEqual(settingsRoute({ s: 'nonsense' }, 'nonsense'), { section: 'general', setting: null });
-  assert.deepEqual(settingsRoute({ s: 'account' }), { section: 'general', setting: null }, 'hidden section');
+  assert.deepEqual(settingsRoute({ s: 'account' }), { section: 'account', setting: null });
   assert.deepEqual(settingsRoute({ s: 'play', f: 'turbo-audio' }), { section: 'play', setting: 'turbo-audio' });
   assert.deepEqual(settingsRoute({ f: 'discord' }, 'about'), { section: 'online', setting: 'discord' }, 'f alone');
   assert.deepEqual(settingsRoute({ s: 'general', f: 'gpu' }), { section: 'about', setting: 'gpu' }, 'a setting that moved keeps its links');

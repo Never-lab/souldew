@@ -6,14 +6,14 @@
 // text in the current language. `kw` are extra words to find it by – synonyms, and the word players use in the other
 // app languages (searching "gamepad", "vorspulen" or "manette" should land on the right setting either way).
 
-/** Sections in tab order. `hidden`: wired up, but not shown yet (Account: the profile / souldew+ is not built). */
+/** Sections in tab order. `hidden`: wired up, but not shown (none at the moment). */
 export const SECTIONS = [
   { id: 'general' },
   { id: 'play' },
   { id: 'controls' },
   { id: 'games' },
   { id: 'online' },
-  { id: 'account', hidden: true },
+  { id: 'account' },
   { id: 'about' },
 ];
 
@@ -60,6 +60,13 @@ export const SETTINGS = [
     kw: 'multiplayer partner players screen share sharing watch soullink stream bildschirm teilen écran partager pantalla compartir schermo condividere' },
   { id: 'discord', section: 'online', keys: ['live.title', 'live.codeLabel'], kw: 'discord live runs hall of fame bot connect link code share post' },
   { id: 'coffee-pop', section: 'online', keys: ['set.coffeePop', 'set.coffeePopHint', 'nav.stream'], kw: 'stream streaming obs overlay alerts coffee legendary twitch youtube' },
+  // Account
+  { id: 'account', section: 'account', keys: ['acct.title', 'acct.signIn', 'acct.handle', 'acct.friendCode', 'acct.signOut', 'acct.signOutAll'],
+    kw: 'account sign in login log in discord profile handle friend code sign out log out konto anmelden abmelden compte connexion déconnexion cuenta iniciar sesión account accedi esci' },
+  { id: 'account-privacy', section: 'account', keys: ['acct.privacy', 'acct.profileVis', 'acct.presenceVis', 'acct.showRuns', 'acct.showLocation', 'acct.askToJoin', 'acct.requestsFrom'],
+    kw: 'privacy presence online offline appear offline invisible friends stats runs profile visible privatsphäre datenschutz confidentialité privacidad privacy' },
+  { id: 'plus', section: 'account', keys: ['acct.linkTitle', 'acct.linkEmail', 'acct.claimedDiscord'], kw: 'souldew+ plus supporter membership buy me a coffee bmc donate link email premium cosmetics banner frame mitgliedschaft' },
+  { id: 'account-data', section: 'account', keys: ['acct.dataTitle', 'acct.export', 'acct.delete'], kw: 'export download gdpr dsgvo data delete account remove rgpd datos dati' },
   // About
   { id: 'updates', section: 'about', keys: ['set.versionUpdates', 'upd.check'], kw: 'update updates version release download upgrade new version aktualisierung mise à jour actualización aggiornamento' },
   { id: 'gpu', section: 'about', keys: ['set.gpu', 'set.gpuHint', 'set.trouble'],

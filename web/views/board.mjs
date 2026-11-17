@@ -11,6 +11,7 @@ import {
   logTypeHelpRule, allowedRulesPatch, isHost, HOST_SLOT,
 } from '../lib/run.mjs';
 import { PartyPanel, PartyGrid, TeamColumns } from './party.mjs';
+import { RunFriendInvites } from './friends.mjs';
 import { HostCode } from './invitecode.mjs';
 import { RestartModal } from './restart.mjs';
 import { useStreamer } from '../lib/streamer.mjs';
@@ -280,7 +281,7 @@ function EndRunModal({ onClose }) {
 }
 
 /** Invite: a 6-digit code first (HostCode – it picks the next free player slot), the file / clipboard as the fallback. */
-export function InviteBody({ manifest, heading = true }) {
+export function InviteBody({ manifest, heading = true, autoFriends = [] }) {
   const { toast } = useApp();
   const json = JSON.stringify(manifest.pack, null, 2);
   const others = slotsOf(manifest).slice(1).map((s) => manifest.players?.[s]?.name).filter(Boolean);
@@ -291,6 +292,7 @@ export function InviteBody({ manifest, heading = true }) {
     <p class="muted">${many
       ? t('invite.codeWhatGroup', 'Easiest: create a code for each player and tell it to them. Their app fetches the settings and the key to your room – no game data – once you allow it.')
       : t('invite.codeWhat', 'Easiest: create a code and tell it to {name}. Their app fetches the settings and the key to your room – no game data – once you allow it.', { name: partner })}</p>
+    <${RunFriendInvites} manifest=${manifest} autoFriends=${autoFriends} />
     <${HostCode} manifest=${manifest} />
     <details class="group"><summary>${t('invite.fileInstead', 'Or use an invite file')}</summary><div class="stack" style="padding:4px 14px 12px">
     <p class="muted">${t('invite.what', 'The invite is one small file (.soullink.json). It holds the settings and the key to your room – no game data.')}</p>
