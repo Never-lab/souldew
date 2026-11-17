@@ -4,6 +4,7 @@ import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
 import { resolve as resolveControls, keyLabel } from '../lib/controls.mjs';
 import { shortcut } from '../lib/platform.mjs';
+import { ShowFirstStepsButton } from './firststeps.mjs';
 
 export const SHORTCUTS = () => [
   ['Tab', t('keys.turboHold', 'Hold for fast forward')],
@@ -82,6 +83,7 @@ export function GuideView() {
         [t('guide.s4t', 'Play'), t('guide.s4Nav', 'Press “Play” on the board or “Continue” in the overview. Your team, levels and HP are read live and appear on everyone’s board within a second. The game keeps running in the corner while you look elsewhere – the green light in the sidebar shows where it belongs.')],
         [t('guide.s5t', 'Live together'), t('guide.s5', 'If a linked Pokémon faints, the pair dies for both of you automatically. The board, the graveyard and the log keep the score.')],
       ].map(([title, text], i) => html`<div class="step"><span class="n">${i + 1}</span><div><h3>${title}</h3><p>${text}</p></div><span></span></div>`)}
+      <div class="row guide-fs"><span class="small muted grow">${t('fs.guideHint', 'The checklist in the library walks you through these steps.')}</span><${ShowFirstStepsButton} className="btn small" /></div>
     </section>`}
     ${tab === 'keys' && html`<div class="grid-2">
       <section class="panel stack"><h2>${t('guide.shortcuts', 'Shortcuts while playing')}</h2>

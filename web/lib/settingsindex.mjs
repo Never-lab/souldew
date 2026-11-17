@@ -28,7 +28,7 @@ export const SETTINGS = [
   { id: 'name', section: 'general', keys: ['set.name'], kw: 'player name nickname username spielername nom pseudo nombre jugador nome giocatore' },
   { id: 'animations', section: 'general', keys: ['set.boot'], kw: 'boot intro start-up startup cartridge animation motion reduce motion' },
   { id: 'sounds', section: 'general', keys: ['set.soundsAll'], kw: 'audio chime ping notification sfx effects töne geräusche klänge sons sonidos suoni' },
-  { id: 'tour', section: 'general', keys: ['set.replayOnboarding'], kw: 'onboarding welcome intro tutorial first start willkommen bienvenue bienvenida benvenuto' },
+  { id: 'tour', section: 'general', keys: ['set.replayOnboarding', 'fs.showAgain'], kw: 'onboarding welcome intro tutorial first start first steps checklist willkommen erste schritte bienvenue premiers pas bienvenida primeros pasos benvenuto primi passi' },
   { id: 'theme', section: 'general', keys: ['set.appearance', 'set.theme', 'set.themeText', 'theme.classic', 'theme.contrast', 'theme.deutan', 'theme.tritan'],
     kw: 'appearance colour color colors colours dark mode high contrast colour-blind colorblind color blind accessibility a11y design look darstellung farbe farbenblind kontrast couleur daltonien contraste color daltónico colore daltonico' },
   { id: 'skin', section: 'general', keys: ['skin.title', 'skin.note', 'skin.dark', 'skin.light'],

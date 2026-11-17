@@ -537,7 +537,8 @@ details.group details.group { margin: 0 14px 8px; }
   /* top bar: the foot's pills sit side by side on one line instead of a tall column */
   .rail-foot { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; width: 100%; }
   .rail-foot > *, .rail-foot button.power { width: auto; }
-  .rail-foot .fs-pill { width: auto; padding: 5px 9px; }
+  .rail-foot .fs-pill, .rail-foot .fs-pill-wrap { width: auto; }
+  .rail-foot .fs-pill { padding: 5px 34px 5px 9px; }
   .rail-foot .fs-pill-ring { width: 20px; height: 20px; }
   .main { height: auto; overflow: visible; }
   .main-inner { padding: 18px 16px 60px; }
@@ -1062,6 +1063,16 @@ tr.pad-lit .kbd { border-color: var(--tri); color: var(--ink); }
 .fs-body { display: grid; gap: 2px; min-width: 0; }
 @keyframes fs-pulse { 50% { box-shadow: 0 0 20px color-mix(in srgb, var(--focus) 75%, transparent); } }
 @media (max-width: 720px) { .fs-head { grid-template-columns: 1fr auto; } .fs-bar { grid-column: 1 / -1; grid-row: 2; } }
+/* the rail pill and its × (hides the first steps everywhere – Settings › General or Help bring them back) */
+.fs-pill-wrap { position: relative; width: 100%; }
+.fs-pill-wrap .fs-pill { padding-right: 34px; }
+.fs-pill-x { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: 0; border-radius: 50%; background: transparent; color: var(--ink-3); cursor: pointer; }
+.fs-pill-x:hover, .fs-pill-x:focus-visible { color: var(--ink); background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.fs-hide { gap: 6px; }
+.fs-step.skipped { opacity: .7; }
+.fs-step.skipped b { color: var(--ink-3); }
+.guide-fs { align-items: center; padding-top: 12px; border-top: 1px solid var(--sk-line, #0f0e12); margin-top: 4px; }
 .fs-pill { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: var(--r-m); border: 1px solid var(--edge); background: var(--shell-2); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: transform .18s, border-color .18s; }
 .fs-pill:hover { transform: translateY(-2px); border-color: var(--focus); }
 .fs-pill > span:last-child { display: grid; font-size: 13px; line-height: 1.25; }

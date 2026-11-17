@@ -5,6 +5,7 @@ import { t, LANGS, setLang, currentLang } from '../../lib/i18n.mjs';
 import { applyTheme } from '../../lib/theme.mjs';
 import { Item, Group, Check } from './parts.mjs';
 import { SkinSetting } from './cosmetics.mjs';
+import { ShowFirstStepsButton } from '../firststeps.mjs';
 
 const THEMES = () => [
   ['classic', t('theme.classic', 'Classic'), t('theme.classicHint', 'Dark, the original colours')],
@@ -47,7 +48,8 @@ export function GeneralSection({ cfg, save }) {
         label=${t('set.boot', 'Play animations (start-up, inserting the cartridge)')} /><//>
       <${Item} id="sounds"><${Check} checked=${cfg.sounds !== false} onChange=${(v) => save({ sounds: v })}
         label=${t('set.soundsAll', 'Sounds on this computer (start-up chime, catches, deaths, badges, pings)')} /><//>
-      <${Item} id="tour"><div><button class="btn ghost small" onClick=${() => save({ onboarded: false })}>${t('set.replayOnboarding', 'Show the welcome tour again')}</button></div><//>
+      <${Item} id="tour"><div class="row"><button class="btn ghost small" onClick=${() => save({ onboarded: false })}>${t('set.replayOnboarding', 'Show the welcome tour again')}</button>
+        <${ShowFirstStepsButton} /></div><//>
     <//>
     <${Group} title=${t('set.appearance', 'Appearance')} note=${t('set.themeText', 'Colour scheme of the whole app. The colour-blind schemes replace the green/red signals (alive, dead, warnings) with colours that stay apart with that colour vision.')}>
       <${Item} id="theme"><${ThemePicker} value=${cfg.theme} onPick=${(id) => save({ theme: id })} /><//>
