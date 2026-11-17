@@ -459,13 +459,18 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     if (kept && now() - kept.at < (kept.offlineGraceDays || 7) * 86400000) return { ...kept, offline: true, lastPack: session.extra('pack') };
     throw serviceError(r);
   });
+  // §8.3: the service answers "submitted" whatever the email is (no supporter oracle) – the result is read from the
+  // entitlement: linked when the tier or its sources changed
   route('POST', '/link-email', async (req) => {
     signedIn();
     const email = String((await readJson(req)).email || '').trim();
     if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw httpError(400, 'Invalid email', 'acct', { code: 'invalid_field', field: 'email' });
-    const r = await call(API.linkEmail, { method: 'POST', json: { email } });
+    const before = await session.request(API.entitlements);
+    const sig = (b) => JSON.stringify([b?.tier, (b?.sources || []).map((x) => [x.kind, x.tier, x.status])]);
+    await call(API.linkEmail, { method: 'POST', json: { email } });
+    const after = await call(API.entitlements);
     await loadMe(true).catch(() => null);
-    return { linked: r.linked === true };
+    return { submitted: true, linked: before.status === 200 && sig(before.body) !== sig(after), tier: cleanEntitlements(after).tier };
   });
   route('DELETE', '/link', async () => {
     signedIn();
@@ -596,19 +601,30 @@ function runRef(v) {
   return out;
 }
 
+/**
+ * A free text the player typed, as the service stores it (API.md §0.6): NFKC, single spaces – and refused here
+ * already (with the service's own error) when it holds < or > or no letter or digit at all.
+ */
+export function userText(v, max, field) {
+  const s = cleanText(typeof v === 'string' ? v.normalize('NFKC') : v, max);
+  if (!s) return null;
+  if (/[<>]/.test(s) || !/[\p{L}\p{N}]/u.test(s)) throw httpError(400, 'Text not allowed', 'acct', { code: 'text_rejected', field });
+  return s;
+}
+
 /** The page's profile edits (camelCase) → the PATCH body of §2.2 – known fields only, each checked. */
 export function mePatch(b) {
   const out = {};
-  if ('name' in b) out.display_name = b.name === null ? null : cleanText(b.name, NAME_MAX) || null;
+  if ('name' in b) out.display_name = b.name === null ? null : userText(b.name, NAME_MAX, 'display_name');
   for (const k of ['banner', 'frame', 'nameplate', 'title', 'accent']) if (k in b) out[k] = b[k] === null ? null : catalogId(b[k]);
   if ('accent' in b && !out.accent) delete out.accent; // never null: the palette always has a colour
-  if ('status' in b) out.status = cleanText(b.status, STATUS_MAX) || null;
+  if ('status' in b) out.status = userText(b.status, STATUS_MAX, 'status');
   if ('showcase' in b && b.showcase && typeof b.showcase === 'object') {
     const s = b.showcase;
     out.showcase = {
       trophies: [...new Set((Array.isArray(s.trophies) ? s.trophies : []).map(catalogId).filter(Boolean))].slice(0, 3),
-      trusted: cleanText(s.trusted, TRUSTED_MAX) || null,
-      favorite_game: cleanText(s.favoriteGame, FAVORITE_MAX) || null,
+      trusted: userText(s.trusted, TRUSTED_MAX, 'showcase.trusted'),
+      favorite_game: userText(s.favoriteGame, FAVORITE_MAX, 'showcase.favorite_game'),
     };
   }
   if ('privacy' in b && b.privacy && typeof b.privacy === 'object') {

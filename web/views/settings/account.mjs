@@ -102,7 +102,7 @@ function PlusGroup({ me, toast }) {
     setResult(null);
     try {
       const r = await linkEmail(email.trim());
-      setResult(r.linked ? 'linked' : 'nomatch');
+      setResult(r.linked || r.tier !== 'none' ? 'linked' : 'nomatch');
       if (r.linked) setEmail('');
     } catch (e) {
       toast({ kind: 'death', title: t('acct.linkFailed', 'Couldn’t link the membership'), text: e.message });

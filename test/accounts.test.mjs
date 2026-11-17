@@ -395,8 +395,12 @@ test('a keychain keeps the session over a restart – encrypted', async () => {
 test('profile: edit round trip – only known fields go out, the service’s rules come back as the page’s errors', async () => {
   const a = await app();
   await a.signIn(robin);
+  // text the service would refuse (API.md §0.6: no < or >, a letter or digit) is refused here already
+  const angle = await quiet(() => a.patch('/api/account/me', { status: '<b>grinding</b>' }));
+  assert.deepEqual([angle.status, angle.body.vars.code, angle.body.vars.field], [400, 'text_rejected', 'status']);
+  assert.equal((await quiet(() => a.patch('/api/account/me', { status: '– … –' }))).body.vars.code, 'text_rejected');
   const r = await a.patch('/api/account/me', {
-    status: '<b>grinding</b> Victory Road', accent: 'dusk', title: 'win-nuzlocke', banner: 'dusk-ridge',
+    status: 'grinding   Victory Road', accent: 'dusk', title: 'win-nuzlocke', banner: 'dusk-ridge',
     showcase: { trophies: ['win-nuzlocke', 'badges16', 'win-nuzlocke'], trusted: 'Breloom line', favoriteGame: 'Emerald' },
     privacy: { profile: 'link', presence: 'friends', showLocation: true }, isAdmin: true,
   });
@@ -404,7 +408,7 @@ test('profile: edit round trip – only known fields go out, the service’s rul
   const sent = fake.log.filter((l) => l.method === 'PATCH' && l.path === '/v1/me').at(-1).body;
   assert.deepEqual(Object.keys(sent).sort(), ['accent', 'banner', 'privacy', 'showcase', 'status', 'title']);
   assert.deepEqual(sent.showcase, { trophies: ['win-nuzlocke', 'badges16'], trusted: 'Breloom line', favorite_game: 'Emerald' });
-  assert.equal(r.body.status, '<b>grinding</b> Victory Road', 'kept as text – rendered as text by the page');
+  assert.equal(r.body.status, 'grinding Victory Road', 'single spaces, as the service stores it');
   assert.equal(r.body.accent, 'dusk');
   assert.equal(fake.users.get(robin.id).privacy.profile, 'link');
   assert.equal((await a.get('/api/account')).body.me.showcase.favoriteGame, 'Emerald');
@@ -489,8 +493,9 @@ test('export, deletion, entitlements and pack access', async () => {
   fake.memberships.set('payer@example.com', 'plus');
   await a.signIn(temp);
   assert.equal((await a.get('/api/account/export')).body.account.handle, 'tempo');
-  assert.deepEqual((await a.post('/api/account/link-email', { email: 'nobody@example.com' })).body, { linked: false });
-  assert.deepEqual((await a.post('/api/account/link-email', { email: 'payer@example.com' })).body, { linked: true });
+  // §8.3: the service always says "submitted" – the result is read from the entitlement
+  assert.deepEqual((await a.post('/api/account/link-email', { email: 'nobody@example.com' })).body, { submitted: true, linked: false, tier: 'none' });
+  assert.deepEqual((await a.post('/api/account/link-email', { email: 'payer@example.com' })).body, { submitted: true, linked: true, tier: 'plus' });
   assert.equal((await a.get('/api/account')).body.me.entitlement.tier, 'plus');
   const ent = (await a.get('/api/account/entitlements')).body;
   assert.equal(ent.tier, 'plus');

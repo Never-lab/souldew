@@ -39,6 +39,8 @@ export function cleanCard(u, service) {
     avatar: avatarRef(o.avatar_url, service),
     frame: catalogId(o.frame), nameplate: catalogId(o.nameplate), accent: catalogId(o.accent), title: catalogId(o.title),
     badges: badges(o.badges),
+    // a limited card (API.md §3.1: someone who isn't your friend yet, or in the block list) – shown by handle only
+    ...(o.limited === true ? { limited: true } : {}),
   };
 }
 

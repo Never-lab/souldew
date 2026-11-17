@@ -293,7 +293,7 @@ export async function startFakeAccounts({ port = 0 } = {}) {
         if (body[k] && premium(k, body[k]) && !plusOk(u)) return err(res, 403, 'not_entitled');
       }
       if ('accent' in body && !CATALOG.accents.some((x) => x.key === body.accent)) return err(res, 400, 'invalid_field', { field: 'accent' });
-      if ('status' in body && body.status !== null && (typeof body.status !== 'string' || body.status.length > 60 || /https?:|discord\.gg|badword/i.test(body.status))) return err(res, 400, 'text_rejected', { field: 'status', reason: 'filtered' });
+      if ('status' in body && body.status !== null && (typeof body.status !== 'string' || body.status.length > 60 || /https?:|discord\.gg|badword|[<>]/i.test(body.status))) return err(res, 400, 'text_rejected', { field: 'status', reason: 'filtered' });
       if ('showcase' in body) {
         const s = body.showcase;
         if (unknown(s, ['trophies', 'trusted', 'favorite_game']) || !Array.isArray(s.trophies) || s.trophies.length > 3) return err(res, 400, 'invalid_field', { field: 'showcase' });
@@ -529,9 +529,8 @@ export async function startFakeAccounts({ port = 0 } = {}) {
     }
     if (path === '/v1/entitlements/link-email' && req.method === 'POST') {
       const tier = f.memberships.get(String(body.email || '').toLowerCase());
-      if (!tier) return json(res, 200, { linked: false });
-      u.entitlement = { tier, until: iso(Date.now() + 30 * 86400000), badges: tier === 'plus' ? ['supporter', 'plus'] : ['supporter'] };
-      return json(res, 200, { linked: true, entitlement: u.entitlement });
+      if (tier) u.entitlement = { tier, until: iso(Date.now() + 30 * 86400000), badges: tier === 'plus' ? ['supporter', 'plus'] : ['supporter'] };
+      return json(res, 200, { submitted: true }); // the same answer either way (no supporter oracle)
     }
     if (path === '/v1/entitlements/link' && req.method === 'DELETE') {
       u.entitlement = { tier: 'none', until: null, badges: [] };
