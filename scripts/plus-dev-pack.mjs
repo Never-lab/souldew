@@ -136,8 +136,11 @@ function bundle(files, specMap, exportName, filterExpr) {
 }
 
 const FRAME_FILES = readdirSync(join(DESIGN, 'frames', 'recipes')).filter((f) => f.endsWith('.mjs') && !['index.mjs', '_lib.mjs', 'basics.mjs'].includes(f)).sort();
+// the recipes' own pairsWith lists (plain literals) lose the dropped editions too – the pack names no skin it lacks
 const framesModule = bundle(FRAME_FILES.map((f) => join(DESIGN, 'frames', 'recipes', f)),
-  { './_lib.mjs': '@cosmetics/frames/recipe-lib.mjs', '../engine/core.mjs': '@cosmetics/frames/engine/core.mjs' }, 'RECIPES', '(r) => !r.reject');
+  { './_lib.mjs': '@cosmetics/frames/recipe-lib.mjs', '../engine/core.mjs': '@cosmetics/frames/engine/core.mjs' }, 'RECIPES', '(r) => !r.reject')
+  .replace(/pairsWith:\s*\[([^\]]*)\]/g, (m, list) => `pairsWith: [${list.split(',').map((x) => x.trim()).filter((x) => x && !DROPPED_SKINS.has(x.replace(/^['"]|['"]$/g, ''))).join(', ')}]`);
+if ([...DROPPED_SKINS].some((id) => new RegExp(`pairsWith:[^\\]]*'${id}'`).test(framesModule))) throw new Error('frames.mjs still pairs a dropped skin');
 const ANIM_FILES = plusAnims.map((a) => join(DESIGN, 'launch', 'anims', `${a.id}.mjs`));
 const launchModule = bundle(ANIM_FILES, { '../engine.mjs': '@cosmetics/launch/engine.mjs' }, 'ANIMS', '(a) => !a.cut');
 
