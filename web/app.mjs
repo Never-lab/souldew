@@ -23,7 +23,7 @@ import { LinkSessions } from './lib/linksession.mjs';
 import { LinkBar } from './views/linkplay.mjs';
 import { unsavedProgress, unsavedTexts } from './views/savestates.mjs';
 import { LinkView } from './views/link.mjs';
-import { SettingsView, gpuFallbackText } from './views/settings.mjs';
+import { SettingsView, gpuFallbackText, settingsLink } from './views/settings.mjs';
 import { GuideView } from './views/guide.mjs';
 import { StreamView } from './views/stream.mjs';
 import { useStreamer } from './lib/streamer.mjs';
@@ -428,7 +428,8 @@ function App() {
   const gpuFallback = ready && !boot ? status?.config?.gpuFallback : null;
   useEffect(() => {
     if (!gpuFallback) return;
-    toast({ kind: 'warn', title: t('set.gpuFallbackTitle', 'Graphics backend reset'), text: gpuFallbackText(gpuFallback), ttl: 20000 });
+    toast({ kind: 'warn', title: t('set.gpuFallbackTitle', 'Graphics backend reset'), text: gpuFallbackText(gpuFallback), ttl: 20000,
+      action: { label: t('play.slowSettings', 'Open Settings'), run: () => navigate('settings', settingsLink('gpu')) } });
     api.post('/api/config', { gpuFallback: null }).catch(() => {});
   }, [gpuFallback?.from, gpuFallback?.reason]);
   // A safe graphics start (--safe-graphics, electron/main.mjs): say what it is and where the backend is changed.
@@ -438,8 +439,9 @@ function App() {
       if (!g?.safe) return;
       const choose = PLATFORM === 'win32' || PLATFORM === 'linux';
       toast({ kind: 'warn', title: t('set.gpuSafeTitle', 'Safe graphics mode'), ttl: 20000,
-        text: choose ? t('set.gpuSafeToast', 'souldew draws without the graphics card this time (slower). Pick another graphics backend in Settings › General, then restart normally.')
-          : t('set.gpuSafeToastMac', 'souldew draws without the graphics card this time (slower). Quit and start it again for the normal mode.') });
+        text: choose ? t('set.gpuSafeToast', 'souldew draws without the graphics card this time (slower). Pick another graphics backend in Settings › About › Troubleshooting, then restart normally.')
+          : t('set.gpuSafeToastMac', 'souldew draws without the graphics card this time (slower). Quit and start it again for the normal mode.'),
+        ...(choose ? { action: { label: t('play.slowSettings', 'Open Settings'), run: () => navigate('settings', settingsLink('gpu')) } } : {}) });
     }).catch(() => {});
   }, [ready, boot]);
 

@@ -58,7 +58,7 @@ export function otherCoreText(stateCore, core) {
   if ((stateCore || '') === (core || '')) return null;
   if (stateCore === 'gambatte-native') return t('states.oldGb', 'This savestate was made with the previous Game Boy emulator – your in-game saves are unaffected');
   const sameboy = /^sameboy-(dmg-)?native$/;
-  if (sameboy.test(stateCore || '') && sameboy.test(core || '')) return t('states.otherGbLook', 'Made with the other Game Boy look – switch Settings › Game Boy look to load it');
+  if (sameboy.test(stateCore || '') && sameboy.test(core || '')) return t('states.otherGbLook', 'Made with the other Game Boy look – switch Settings › Play › Game Boy look to load it');
   return t('states.otherCore', 'Made with another emulator core – can’t be loaded here');
 }
 

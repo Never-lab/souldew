@@ -32,6 +32,8 @@ import { linkAllowed, reasonText as linkReason, LINK_SYSTEMS, LinkBar, LINK_ASKS
 import { claimPad } from '../lib/padnav.mjs';
 import { dockSide, dockHeight, pictureFor, rightDockWidth, BAR_H, DOCK_W } from '../lib/playlayout.mjs';
 import { Dock, LiveStatus, SlowChip, AttentionCard, useAttention, useDockFold, useSize, revealIn } from './playdock.mjs';
+import { TURBO_AUDIO, TURBO_AUDIO_EVENT, readTurboAudio, writeTurboAudio } from './settings/play.mjs';
+import { settingsLink } from '../lib/settingsindex.mjs';
 
 let TABLES = null;
 async function liveTables() {
@@ -52,7 +54,6 @@ const speedText = (s) => (s === MAX ? t('play.speedMax', 'Max') : `${s}×`);
 // Long enough for the catch to land in the party / box (the box is read every few seconds).
 const MISSED_WAIT = 10000;
 // what you hear while fast-forwarding; 'plain' takes the turbo mixer out of the sound path altogether
-const TURBO_AUDIO = ['music', 'mute', 'original', 'plain'];
 
 /** What to play: a run (slot = me) or a single library game. */
 function useTarget() {
@@ -127,7 +128,7 @@ function ctrLayoutLabel(id) {
 
 /**
  * The built-in 3DS player stopped (its host crashed or gave up – some graphics drivers can't run it): what happened,
- * and one click to play 3DS games in Azahar instead (Settings › Emulators › Nintendo 3DS), which opens this game
+ * and one click to play 3DS games in Azahar instead (Settings › Games › Emulators › Nintendo 3DS), which opens this game
  * there – or offers to install Azahar first.
  */
 function CtrFailed({ fail, target, onClose }) {
@@ -151,7 +152,7 @@ function CtrFailed({ fail, target, onClose }) {
     <div class="grow stack-s">
       <b>${t('ctr.failedTitle', 'The 3DS game has stopped')}</b>
       ${fail.message && html`<span class="small">${fail.message}</span>`}
-      ${!noAzahar && html`<span class="small muted">${t('ctr.failedHint', 'Some graphics cards and drivers can’t run souldew’s built-in 3DS player yet. Azahar, the free 3DS emulator, plays the same games – with live tracking. You can switch back any time in Settings › Emulators.')}</span>`}
+      ${!noAzahar && html`<span class="small muted">${t('ctr.failedHint', 'Some graphics cards and drivers can’t run souldew’s built-in 3DS player yet. Azahar, the free 3DS emulator, plays the same games – with live tracking. You can switch back any time in Settings › Games.')}</span>`}
     </div>
     <div class="row">
       ${!noAzahar && html`<button class="btn small primary" data-pad-first disabled=${busy} onClick=${toAzahar}>${t('ctr.useAzahar', 'Play 3DS games in Azahar')}</button>`}
@@ -260,7 +261,13 @@ export function GameSession({ session, mode }) {
     const late = setTimeout(() => setScreenShown(true), 20000); // the core never started: show what the player says
     return () => clearTimeout(late);
   }, [screenShown, inserting, phase]);
-  const [turboAudio, setTurboAudioState] = useState(() => (TURBO_AUDIO.includes(ls.get('sl-turbo-audio')) ? ls.get('sl-turbo-audio') : 'music'));
+  const [turboAudio, setTurboAudioState] = useState(readTurboAudio);
+  // changed in Settings › Play while this game runs in the corner: it switches at once
+  useEffect(() => {
+    const on = (e) => TURBO_AUDIO.includes(e.detail) && setTurboAudioState(e.detail);
+    addEventListener(TURBO_AUDIO_EVENT, on);
+    return () => removeEventListener(TURBO_AUDIO_EVENT, on);
+  }, []);
   const [soundOpen, setSoundOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
   const [confirmCheat, setConfirmCheat] = useState(false);
@@ -531,7 +538,7 @@ export function GameSession({ session, mode }) {
     turboAudio: (m) => {
       if (!TURBO_AUDIO.includes(m)) return;
       setTurboAudioState(m);
-      ls.set('sl-turbo-audio', m);
+      writeTurboAudio(m); // Settings › Play › Turbo audio shows the same value
     },
     layout3ds: (id) => {
       if (!CTR_LAYOUTS.includes(id)) return;
@@ -685,13 +692,14 @@ export function GameSession({ session, mode }) {
         diag('perf', { type: 'ctrFailed', message: String(e.data.message || '').slice(0, 500), detail: String(e.data.detail || '').slice(0, 1000) });
         setCtrFail({ message: String(e.data.message || ''), code: e.data.code ? String(e.data.code) : null, detail: String(e.data.detail || '') });
       }
-      // the 3DS player stepped down to a safer renderer by itself (Settings › Emulators › 3DS renderer: Automatic)
+      // the 3DS player stepped down to a safer renderer by itself (Settings › About › Troubleshooting › 3DS renderer: Automatic)
       if (e.data?.type === 'emu-renderer' && target.system === '3ds') {
         const labels = { compat: t('set.ctrRendererCompat', 'Vulkan (compatibility)'), software: t('set.ctrRendererSoftware', 'Software') };
         diag('perf', { type: 'ctrRenderer', from: String(e.data.from || ''), to: String(e.data.to || '') });
         toast({ kind: 'warn', title: t('ctr.rendererSwitched', '3DS player: now with {mode}', { mode: labels[e.data.to] || String(e.data.to) }),
-          text: e.data.to === 'software' ? t('ctr.rendererSwitchedSoftware', 'The graphics driver couldn’t run the game with Vulkan, so it runs without the graphics card now – slower, but it runs. souldew remembers this for this graphics card; you can change it in Settings › Emulators.')
-            : t('ctr.rendererSwitchedCompat', 'The game stopped right after starting, so souldew started it again in a more compatible Vulkan mode. souldew remembers this for this graphics card; you can change it in Settings › Emulators.') });
+          text: e.data.to === 'software' ? t('ctr.rendererSwitchedSoftware', 'The graphics driver couldn’t run the game with Vulkan, so it runs without the graphics card now – slower, but it runs. souldew remembers this for this graphics card; you can change it in Settings › About › Troubleshooting.')
+            : t('ctr.rendererSwitchedCompat', 'The game stopped right after starting, so souldew started it again in a more compatible Vulkan mode. souldew remembers this for this graphics card; you can change it in Settings › About › Troubleshooting.'),
+          action: { label: t('play.slowSettings', 'Open Settings'), run: () => navigate('settings', settingsLink('ctr-renderer')) } });
       }
       if (e.data?.type === 'emu-key') onKey(e.data, true);
       if (e.data?.type === 'emu-pad' && ['turbo', 'pause'].includes(e.data.action)) act.current[e.data.action]();
@@ -1438,7 +1446,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
                 onClick=${() => { actions.layout3ds(id); setLayoutOpen(false); focusGame(); }}>${ctrLayoutLabel(id)}</button>`)}
               <span class="tiny faint">${layout3ds === 'top' ? t('play.layout3dsNoTouch', 'The touch screen is hidden in this layout – switch back to tap it.') : t('play.layout3dsHint', 'Click the bottom screen to touch it, wherever it is. Switches right away, without restarting the game.')}</span>
               <label class="row nowrap small"><input type="checkbox" checked=${smooth3ds} onChange=${(e) => actions.smooth3ds(e.target.checked)} />${t('play.smooth3ds', 'Smooth picture')}</label>
-              <span class="tiny faint">${t('play.ctrScaleNow', 'Resolution: {n} – Settings › Emulators › 3DS resolution (applies to the next start).', { n: (status?.config?.ctrScale || 1) > 1 ? `${status.config.ctrScale}×` : t('set.ctrScale1', '1× (native)') })}</span>
+              <span class="tiny faint">${t('play.ctrScaleNow', 'Resolution: {n} – Settings › Play › 3DS resolution (applies to the next start).', { n: (status?.config?.ctrScale || 1) > 1 ? `${status.config.ctrScale}×` : t('set.ctrScale1', '1× (native)') })}</span>
             </div>`}
           </span>`}
           ${isDs && btn(layout === 'lr' ? 'layoutTb' : 'layoutLr', layout === 'lr' ? t('play.layoutTb', 'Screens on top of each other') : t('play.layoutLr', 'Screens side by side'), actions.layout)}
@@ -1474,6 +1482,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
                   <option value="plain" title=${t('play.turboAudioPlainHint', 'The emulator’s sound only – no recording, no mixer. Try it if the sound crackles.')}>${t('play.turboAudioPlain', 'Plain (no extra processing)')}</option>
                 </select>
               </label>
+              <a class="btn small ghost diag-btn" href=${`#/settings?${new URLSearchParams(settingsLink('turbo-audio'))}`} onClick=${() => setSoundOpen(false)}>${t('play.moreSound', 'More sound settings')}</a>
               <button class="btn small ghost diag-btn" title=${t('play.diagHint', 'Saves what souldew recorded about the music and live tracking this session – attach the file to a bug report. No ROM, save or invite data.')}
                 onClick=${() => saveDiagnostics({ turboAudio, speed: speed === MAX ? 'max' : speed, reach, steps: steps.map((x) => (x === MAX ? 'max' : x)), volume, perf: emu()?.perf?.() ?? null, audioGraph: emu()?.audioGraph?.() ?? null })}><${Icon} name="save" size=${14} />${t('play.diag', 'Save diagnostics')}</button>
             </div>`}
