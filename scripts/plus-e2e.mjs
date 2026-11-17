@@ -112,13 +112,14 @@ async function main(scratch) {
     const keysDir = join(scratch, 'keys');
     mkdirSync(keysDir, { recursive: true });
     const packKey = generateEd25519();
+    const entKey = generateEd25519(); // the entitlement key – the apps trust its public half (SLS_ACCOUNTS_DEV_ENT_KEY)
     writeFileSync(join(keysDir, 'pack-signing.jwk'), JSON.stringify(packKey.jwk), { mode: 0o600 });
     const W = await freePort();
     const PUBLIC = `http://127.0.0.1:${W}`;
     const secrets = {
       PUBLIC_URL: PUBLIC, DEV_FAKE_DISCORD: '1', PACK_PUBLIC_KEY: packKey.publicKey,
       DISCORD_CLIENT_ID: 'fake-client-id', DISCORD_CLIENT_SECRET: `fake-${generateSecret()}`,
-      SESSION_SIGNING_KEY: JSON.stringify(generateEd25519().jwk), ENTITLEMENT_SIGNING_KEY: JSON.stringify(generateEd25519().jwk),
+      SESSION_SIGNING_KEY: JSON.stringify(generateEd25519().jwk), ENTITLEMENT_SIGNING_KEY: JSON.stringify(entKey.jwk),
       PACK_MASTER_KEY: generateSecret(), EMAIL_HASH_KEY: generateSecret(), ADMIN_KEY: generateSecret(), BOT_LINK_SECRET: generateSecret(),
       BMC_WEBHOOK_SECRET: generateSecret(),
     };
@@ -201,7 +202,7 @@ async function main(scratch) {
       writeFileSync(join(lib, 'Pokemon Emerald.gba'), fakeEmerald());
       writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: true, sounds: false, nagOff: true }));
       const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], {
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_ACCOUNTS_URL: PUBLIC, SLS_PLUS_DEV_KEY: packKey.publicKey },
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_ACCOUNTS_URL: PUBLIC, SLS_PLUS_DEV_KEY: packKey.publicKey, SLS_ACCOUNTS_DEV_ENT_KEY: entKey.publicKey },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       p.stderr.on('data', (d) => process.stderr.write(`[${id}] ${d}`));
@@ -269,7 +270,7 @@ async function main(scratch) {
       if (n === 0) await capture(browser, '02b-browser-confirmation-page');
       await bev(`document.querySelector('button[value=continue]').click(); true`);
       await until('loopback page', async () => page().startsWith(`${pr.base}/auth/done?r=`), 30000);
-      check(`${pr.name}: loopback hand-off ok`, page() === `${pr.base}/auth/done?r=ok`, page());
+      check(`${pr.name}: loopback hand-off ok`, page().startsWith(`${pr.base}/auth/done?r=ok&n=`), page());
       if (n === 0) await capture(browser, '02c-browser-loopback-done');
       await until('signed in', () => ev(n, '!!document.querySelector(".acct-who")'));
       const me = (await api(pr, '/api/account')).me;
@@ -288,7 +289,7 @@ async function main(scratch) {
       await bev(`document.querySelector('button[value=cancel]').click(); true`);
       await until('loopback page (cancel)', async () => page().startsWith(`${GUEST.base}/auth/done?r=`), 30000)
         .catch(async (e) => { console.error('browser at', page(), (await bev('document.body.innerText')).slice(0, 300)); throw e; });
-      check('Kim: Cancel on the sign-in ends as "cancelled" in the app', page() === `${GUEST.base}/auth/done?r=denied`, page());
+      check('Kim: Cancel on the sign-in ends as "cancelled" in the app', page().startsWith(`${GUEST.base}/auth/done?r=denied&n=`), page());
       await capture(browser, '02d-browser-cancelled');
     }
     const kim = await signIn(GUEST, { discordId: '200000000000000002', username: 'kimchi_k', name: 'Kim' }, 1);

@@ -13,17 +13,21 @@
 //   POST   /api/plus/fetch              { url } → one envelope, NOT stored (live theme preview: memory only, no grace)
 //   GET    /api/plus/dev/access?purpose=pack|preview   only with SLS_PLUS_DEV_PACK (scripts/plus-dev-pack.mjs)
 //   GET    /api/plus/dev/key            the throwaway pack key to trust – only with SLS_PLUS_DEV_PACK, or with
-//                                        SLS_PLUS_DEV_KEY while SLS_ACCOUNTS_URL points at a service on this computer
+//                                        SLS_PLUS_DEV_KEY while SLS_ACCOUNTS_URL points at a service on this computer;
+//                                        never in a packaged build
 //
 // Offline grace is enforced here as well as in the page: a cache whose last online confirmation is older than GRACE_MS
 // is wiped the moment anything asks for it.
 import { existsSync, mkdirSync, readFileSync, rmSync, readdirSync, rmdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, verify as cryptoVerify } from 'node:crypto';
+import { trustedKeys } from '../../web/lib/cosmetics/pack/keys.mjs';
+import { publicKey } from './accounts/enttoken.mjs';
 import { writeFileAtomic, httpError } from './fsutil.mjs';
 import { accountsBase } from './accounts/contract.mjs';
 
 export const GRACE_MS = 7 * 24 * 3600 * 1000;
+const CLOCK_SLACK_MS = 5 * 60000; // a computer's clock may be this far off between two looks
 export const MAX_FILE_BYTES = 8 * 1024 * 1024 + 4096; // a file plus its envelope header and tag
 export const MAX_PACK_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 2000;
@@ -34,9 +38,10 @@ const B64URL = (v, max) => typeof v === 'string' && v.length <= max && /^[A-Za-z
 const isLoopback = (host) => ['127.0.0.1', 'localhost', '[::1]'].includes(host);
 
 /**
- * Where a pack file may come from: the accounts service – https on souldew.app, or the address SLS_ACCOUNTS_URL names
- * (which accountsBase only takes when it is https or http on this computer). Anything else (another host, http, an
- * IP, credentials in the URL, another port) is refused, so a page can't turn this into a request elsewhere (SSRF).
+ * Where a pack file may come from: the accounts service itself – https://accounts.souldew.app, or the address
+ * SLS_ACCOUNTS_URL names in development (which accountsBase only takes when it is https or http on this computer).
+ * Anything else (another host – other souldew.app hosts too –, http, credentials in the URL, another port) is refused,
+ * so a page can't turn this into a request elsewhere (SSRF).
  */
 export function packUrlAllowed(raw, { dev = false, env = process.env } = {}) {
   if (typeof raw === 'string' && raw.startsWith(DEV_SCHEME)) {
@@ -50,20 +55,35 @@ export function packUrlAllowed(raw, { dev = false, env = process.env } = {}) {
     return false;
   }
   if (u.username || u.password) return false;
-  const service = new URL(accountsBase(env));
-  if (u.origin === service.origin && service.origin !== 'https://accounts.souldew.app') return true; // the configured dev/test service
-  if (u.protocol !== 'https:' || (u.port && u.port !== '443')) return false;
-  const host = u.hostname.toLowerCase();
-  return host === 'souldew.app' || host.endsWith('.souldew.app');
+  return u.origin === new URL(accountsBase(env)).origin;
+}
+
+/**
+ * The manifest's Ed25519 signature, checked against the pinned pack keys (web/lib/cosmetics/pack/keys.mjs – the same
+ * list the page checks again) BEFORE a single file is downloaded or stored. The page still verifies every file.
+ */
+export function manifestSigned(manifestB64, signatureB64, devKey = null) {
+  const keys = trustedKeys(devKey).map(publicKey).filter(Boolean);
+  const bytes = Buffer.from(manifestB64, 'base64url');
+  const sig = Buffer.from(signatureB64, 'base64url');
+  if (sig.length !== 64) return false;
+  return keys.some((k) => {
+    try {
+      return cryptoVerify(null, bytes, k.key, sig);
+    } catch {
+      return false;
+    }
+  });
 }
 
 const isoOrNull = (v) => (typeof v === 'string' && v.length <= 40 && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null);
 const sha = (s) => createHash('sha256').update(s).digest('hex');
 
-export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || '', fetchImpl = globalThis.fetch, now = () => Date.now(), env = process.env } = {}) {
+export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || '', fetchImpl = globalThis.fetch, now = () => Date.now(), env = process.env, packaged = false } = {}) {
   const metaFile = join(dir, 'pack.json');
   const filesDir = join(dir, 'files');
-  const dev = devDir ? resolve(devDir) : '';
+  // a dev pack / dev key never in a packaged build (the installed app trusts the pinned production key only)
+  const dev = devDir && !packaged ? resolve(devDir) : '';
 
   const readMeta = () => {
     try {
@@ -101,9 +121,18 @@ export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || 
       return null;
     }
     const last = Date.parse(m.lastOnline || m.fetchedAt || 0);
-    if (!Number.isFinite(last) || now() - last > GRACE_MS || last - now() > GRACE_MS) {
-      wipe(); // offline for longer than the grace period (or a clock that jumped far ahead): the membership is unconfirmed
+    const seen = Date.parse(m.seen || 0) || 0;
+    const until = m.until ? Date.parse(m.until) : NaN;
+    if (!Number.isFinite(last) || now() - last > GRACE_MS || last - now() > CLOCK_SLACK_MS
+      || now() < seen - CLOCK_SLACK_MS || (Number.isFinite(until) && now() > until + CLOCK_SLACK_MS)) {
+      // offline for longer than the grace period, a clock set back behind a time already seen (or one that jumped
+      // ahead), or past the membership's end: the membership is unconfirmed – the cache goes
+      wipe();
       return null;
+    }
+    if (now() > seen + 60000) {
+      m.seen = new Date(now()).toISOString(); // the latest time seen, so setting the clock back can't stretch the grace
+      writeFileAtomic(metaFile, JSON.stringify(m));
     }
     return m;
   }
@@ -137,6 +166,8 @@ export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || 
     const keyId = typeof b.keyId === 'string' && /^\d{1,9}$/.test(b.keyId) ? b.keyId : null;
     const watermark = typeof b.watermark === 'string' && /^wm_[A-Za-z0-9_-]{1,40}$/.test(b.watermark) ? b.watermark : null;
     if (!packId || !version || !keyId || !B64URL(b.manifest, 2 * 1024 * 1024) || !B64URL(b.signature, 200)) throw httpError(400, 'Bad pack answer', 'plusAnswer');
+    // nothing is downloaded or stored for a manifest the pinned key didn't sign
+    if (!manifestSigned(b.manifest, b.signature, devKeyOrNull())) throw httpError(400, 'The pack is not signed by souldew', 'plusSignature');
     // the manifest is only read for the file list and the hashes (cache keys) – trusting it is the page's job
     let manifest;
     try {
@@ -146,12 +177,20 @@ export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || 
     }
     const hashes = new Map((Array.isArray(manifest?.files) ? manifest.files : []).slice(0, MAX_FILES).filter((f) => validPath(f?.path) && /^[0-9a-f]{64}$/.test(f?.sha256)).map((f) => [f.path, f.sha256]));
     const files = (Array.isArray(b.files) ? b.files : []).slice(0, MAX_FILES).filter((f) => validPath(f?.path) && hashes.has(f.path) && typeof f.url === 'string');
+    if (manifest?.id !== packId || manifest?.version !== version) throw httpError(400, 'The manifest is for another pack', 'plusAnswer');
     if (!hashes.size || files.length !== hashes.size) throw httpError(400, 'The answer does not list every pack file', 'plusAnswer');
     for (const f of files) if (!packUrlAllowed(f.url, { dev: !!dev, env })) throw httpError(400, 'Pack URL not allowed', 'plusUrl');
     return { packId, version, keyId, watermark, manifest: b.manifest, signature: b.signature, hashes, files };
   }
 
-  return {
+  const devKeyOrNull = () => {
+    try {
+      return api.devKey().publicKey;
+    } catch {
+      return null;
+    }
+  };
+  const api = {
     dev: !!dev,
     meta() {
       const m = current();
@@ -193,7 +232,7 @@ export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || 
       writeFileAtomic(metaFile, JSON.stringify(meta));
       prune(new Set(Object.values(files).map((x) => x.file)));
       if (old && old.keyId !== a.keyId) console.log('souldew+ pack: key changed – old envelopes dropped');
-      return this.meta();
+      return api.meta();
     },
     touch(body) {
       const m = current();
@@ -233,10 +272,11 @@ export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || 
       }
       const k = env.SLS_PLUS_DEV_KEY;
       const service = new URL(accountsBase(env));
-      if (k && /^[A-Za-z0-9_-]{43}$/.test(k) && isLoopback(service.hostname)) return { publicKey: k };
+      if (k && !packaged && /^[A-Za-z0-9_-]{43}$/.test(k) && isLoopback(service.hostname)) return { publicKey: k };
       throw httpError(404, 'No dev key', 'plusNoDev');
     },
   };
+  return api;
 }
 
 /** Registers the routes on the app server's router (server/app.mjs). */

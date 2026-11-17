@@ -4,12 +4,25 @@
 // cases a test needs (who signs in next, a cancelled sign-in, short access tokens). Discord itself is skipped:
 // /auth/discord/start sends the browser straight back to the app's loopback.
 import { createServer, request as httpRequest } from 'node:http';
-import { randomBytes, createHash } from 'node:crypto';
+import { randomBytes, createHash, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { deflateSync, crc32 } from 'node:zlib';
 import { ACCENTS } from '../../shared/social.mjs';
 
 const rid = (prefix) => `${prefix}_${randomBytes(16).toString('base64url').slice(0, 22)}`;
 const tok = () => randomBytes(32).toString('base64url');
+
+/** A throwaway Ed25519 key pair like the service's entitlement key: { publicKey (raw, base64url), kid, sign(payload) }. */
+export function entitlementSigner() {
+  const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+  const x = publicKey.export({ format: 'jwk' }).x;
+  const kid = createHash('sha256').update(Buffer.from(x, 'base64url')).digest('base64url').slice(0, 12);
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const sign = (payload, header = {}) => {
+    const input = `${b64({ alg: 'EdDSA', typ: 'souldew-ent+jwt', kid, ...header })}.${b64(payload)}`;
+    return `${input}.${cryptoSign(null, Buffer.from(input), privateKey).toString('base64url')}`;
+  };
+  return { publicKey: x, kid, sign };
+}
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const sha = (s) => createHash('sha256').update(s).digest('base64url');
 
@@ -93,6 +106,10 @@ export async function startFakeAccounts({ port = 0 } = {}) {
     users: new Map(), loginCodes: new Map(), states: new Map(), sessions: new Map(), access: new Map(), refresh: new Map(),
     friends: new Map(), requests: new Map(), blocks: new Set(), presence: new Map(), invites: new Map(), joins: new Map(), reports: [],
     log: [], previewCount: new Map(), nextLogin: null, denyNext: false, accessTtl: 900, offlinePaths: new Set(), memberships: new Map(), keepStats: new Set(), pinPresence: new Set(),
+    // the entitlement key (GET /v1/entitlements signs its token with it); tests trust its public half via SLS_ACCOUNTS_DEV_ENT_KEY
+    ent: entitlementSigner(),
+    // test hooks: claims to change in the next token(s), a clock for the token (seconds)
+    entClaims: null, entNow: null,
   };
   let base = '';
 
@@ -238,7 +255,7 @@ export async function startFakeAccounts({ port = 0 } = {}) {
         }
         c.used = true;
         const sid = rid('ses');
-        f.sessions.set(sid, { user: c.uid, revoked: false, device: body.device_name, platform: body.platform });
+        f.sessions.set(sid, { user: c.uid, revoked: false, device: body.device_name, platform: body.platform, created: Date.now() });
         return json(res, 200, issue(sid));
       }
       if (body.grant_type === 'refresh_token') {
@@ -334,6 +351,18 @@ export async function startFakeAccounts({ port = 0 } = {}) {
     }
     if (path === '/v1/me/stats' && req.method === 'DELETE') {
       u.stats = null;
+      return json(res, 200, { ok: true });
+    }
+    // §1.7 sessions
+    if (path === '/v1/me/sessions' && req.method === 'GET') {
+      const items = [...f.sessions.entries()].filter(([, s]) => s.user === u.id && !s.revoked)
+        .map(([id, s]) => ({ id, device_name: s.device || null, platform: s.platform || null, created_at: iso(s.created || Date.now()), last_used_at: iso(s.created || Date.now()), current: id === a.sid }));
+      return json(res, 200, { items, next_cursor: null });
+    }
+    if ((m = /^\/v1\/me\/sessions\/([A-Za-z0-9_-]+)$/.exec(path)) && req.method === 'DELETE') {
+      const s = f.sessions.get(m[1]);
+      if (!s || s.user !== u.id || s.revoked) return err(res, 404, 'not_found');
+      s.revoked = true;
       return json(res, 200, { ok: true });
     }
     if (path === '/v1/me/export' && req.method === 'GET') return json(res, 200, { account: me(u), friends: [...f.friends.keys()].filter((k) => k.includes(u.id)) }, { 'Content-Disposition': 'attachment; filename="souldew-account-export.json"' });
@@ -526,7 +555,14 @@ export async function startFakeAccounts({ port = 0 } = {}) {
     // ---- §8 souldew+ ----
     if (path === '/v1/entitlements' && req.method === 'GET') {
       const e = u.entitlement;
-      return json(res, 200, { ...e, sources: e.tier === 'none' ? [] : [{ kind: 'bmc', tier: e.tier, status: 'active', until: e.until }], token: `${tok()}.${tok()}.${tok()}`,
+      const now = f.entNow ?? Math.floor(Date.now() / 1000);
+      const until = e.until ? Math.floor(Date.parse(e.until) / 1000) : null;
+      const token = f.ent.sign({
+        iss: base, aud: 'souldew-entitlement', sub: u.id, sid: a.sid, tier: e.tier, badges: e.badges, until,
+        grace_until: e.tier === 'none' ? now : Math.min(until ?? Number.MAX_SAFE_INTEGER, now + 7 * 86400), pack_key_id: String(u.keyEpoch || 1), iat: now, exp: now + 3600,
+        ...(f.entClaims || {}),
+      });
+      return json(res, 200, { ...e, sources: e.tier === 'none' ? [] : [{ kind: 'bmc', tier: e.tier, status: 'active', until: e.until }], token,
         pack_key: plusOk(u) ? packKey(u) : null, pack_key_id: String(u.keyEpoch || 1), offline_grace_days: 7,
         preview: u.preview && u.preview.expires > Date.now() ? { id: u.preview.id, pack_id: 'skins-preview', expires_at: iso(u.preview.expires) } : null });
     }
@@ -578,7 +614,8 @@ export async function startFakeAccounts({ port = 0 } = {}) {
     const r2 = await rawGet(loc, nav);
     const done = r2.headers.location;
     const r3 = done ? await rawGet(new URL(done, loc).href, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document', 'sec-fetch-site': 'same-origin' }) : null;
-    return { loopback: loc, status: r2.status, done, page: r3?.body ?? null, pageStatus: r3?.status, headers: r3?.headers };
+    // done: the outcome without the loopback's one-time nonce (/auth/done?r=ok); doneUrl: the full address
+    return { loopback: loc, status: r2.status, done: done?.replace(/&n=[A-Za-z0-9_-]+$/, ''), doneUrl: done, page: r3?.body ?? null, pageStatus: r3?.status, headers: r3?.headers };
   };
   return f;
 }

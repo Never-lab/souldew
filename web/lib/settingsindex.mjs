@@ -69,7 +69,8 @@ export const SETTINGS = [
     kw: 'account sign in login log in discord profile handle friend code sign out log out konto anmelden abmelden compte connexion déconnexion cuenta iniciar sesión account accedi esci' },
   { id: 'account-privacy', section: 'account', keys: ['acct.privacy', 'acct.profileVis', 'acct.presenceVis', 'acct.showRuns', 'acct.showLocation', 'acct.askToJoin', 'acct.requestsFrom'],
     kw: 'privacy presence online offline appear offline invisible friends stats runs profile visible privatsphäre datenschutz confidentialité privacidad privacy' },
-  { id: 'plus', section: 'account', keys: ['acct.linkTitle', 'acct.linkEmail', 'acct.claimedDiscord'], kw: 'souldew+ plus supporter membership buy me a coffee bmc donate link email premium cosmetics banner frame mitgliedschaft' },
+  { id: 'plus', section: 'account', keys: ['acct.linkTitle', 'acct.linkEmail', 'acct.claimedDiscord', 'acct.unlink'], kw: 'souldew+ plus supporter membership buy me a coffee bmc donate link unlink email premium cosmetics banner frame mitgliedschaft' },
+  { id: 'account-sessions', section: 'account', keys: ['acct.devices', 'acct.devicesText', 'acct.thisDevice'], kw: 'sessions devices signed in computers sign out device geräte sitzungen appareils sessions dispositivos sesiones dispositivi sessioni' },
   { id: 'account-data', section: 'account', keys: ['acct.dataTitle', 'acct.export', 'acct.delete'], kw: 'export download gdpr dsgvo data delete account remove rgpd datos dati' },
   // About
   { id: 'updates', section: 'about', keys: ['set.versionUpdates', 'upd.check'], kw: 'update updates version release download upgrade new version aktualisierung mise à jour actualización aggiornamento' },

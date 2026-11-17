@@ -25,6 +25,7 @@ function accountError({ code, field, retryAfter } = {}) {
     invalid_field: t('acctErr.invalid', 'That doesn’t look right – check what you typed.'),
     opt_in_required: t('acctErr.optIn', 'Turn on “Show my runs on my profile” first.'),
     not_configured: t('acctErr.notConfigured', 'The account service isn’t ready yet – try again later.'),
+    signed_in: t('acctErr.signedIn', 'You’re already signed in – sign out first to use another account.'),
   }[code] || t('acctErr.other', 'The account service had a problem – try again later.');
 }
 
@@ -32,12 +33,14 @@ const TEXTS = {
   acct: (v) => accountError(v),
   acctOffline: () => t('acctErr.offline', 'Can’t reach the souldew account service. Check your internet connection.'),
   acctSignedOut: () => t('acctErr.signedOut', 'You’re signed out of your souldew account.'),
+  acctBrowser: () => t('acctErr.browser', 'Your browser couldn’t be opened for signing in.'),
   requestTooLarge: () => t('err.requestTooLarge', 'Request too large'),
   // souldew+ pack (server/lib/pluspack.mjs) – the pack client handles these itself, the texts are for diagnostics
   plusDownload: () => t('err.plusDownload', 'The souldew+ download failed'),
   plusTooLarge: () => t('err.plusTooLarge', 'The souldew+ download is too large'),
   plusUrl: () => t('err.plusUrl', 'This souldew+ download address isn’t allowed'),
   plusFormat: () => t('err.plusFormat', 'The download is not a souldew+ pack'),
+  plusSignature: () => t('err.plusSignature', 'The souldew+ pack is not signed by souldew'),
   plusNone: () => t('err.plusNone', 'No souldew+ pack on this computer'),
   plusNoDev: () => t('err.plusNoDev', 'No test pack configured'),
   plusAnswer: () => t('err.plusAnswer', 'The account service’s souldew+ answer was incomplete'),

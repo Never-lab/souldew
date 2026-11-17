@@ -110,7 +110,22 @@ export async function linkEmail(email) {
   await reloadAccount();
   return r;
 }
+/** The VERIFIED entitlement (the local server checked the service's signed token – server/lib/accounts/enttoken.mjs). */
 export const entitlements = () => api.get('/api/account/entitlements');
+/** Unlink every membership from this account (§8.5): the pack key rotates, the local pack cache is wiped. */
+export async function unlinkMembership() {
+  const r = await api.del('/api/account/link');
+  await reloadAccount();
+  return r;
+}
+/** The account's sessions (signed-in devices, §1.7) – this computer's is `current`. */
+export const listSessions = () => api.get('/api/account/sessions');
+/** Signs one device out; this computer's own session is an ordinary sign-out. */
+export async function signOutSession(id) {
+  const r = await api.del(`/api/account/sessions/${encodeURIComponent(id)}`);
+  if (r?.current) await reloadAccount();
+  return r;
+}
 export const profileOf = (id) => api.get(`/api/account/users/${encodeURIComponent(id)}`);
 export const editorChoices = () => api.get('/api/account/choices');
 
@@ -131,7 +146,12 @@ export function useCatalog() {
   const [c, setC] = useState(catalog);
   useEffect(() => {
     if (catalog) return;
-    catalogLoading ||= api.get('/api/account/catalog').then((r) => (catalog = r)).catch(() => (catalogLoading = null));
+    // signed out the local server answers with the app's own palette (local: true) – not kept, the real list comes later
+    catalogLoading ||= api.get('/api/account/catalog').then((r) => {
+      if (r?.local) catalogLoading = null;
+      else catalog = r;
+      return r;
+    }).catch(() => (catalogLoading = null));
     catalogLoading.then((r) => r && setC(r));
   }, []);
   return c;
@@ -198,6 +218,7 @@ export function reportPresence(p) {
 // ---- souldew+ packs (web/lib/cosmetics/ uses this) -------------------------------------------------------------------
 /** souldew+ = tier plus or patron (API.md §8.0); supporter is a badge only. */
 export const isPlus = (tier) => tier === 'plus' || tier === 'patron';
+const PREVIEW_MAX_MS = 15 * 60000 + 60000; // 15 minutes and a minute of clock difference
 const isoOf = (ms) => (Number.isFinite(ms) ? new Date(ms).toISOString() : null);
 const accessOf = (dl, key, until) => ({
   packId: dl.packId, version: dl.version, manifest: dl.manifest, signature: dl.signature, keyId: dl.packKeyId, watermark: dl.watermarkId,
@@ -224,7 +245,9 @@ export async function cosmeticsPackAccess({ purpose = 'pack' } = {}) {
     if (!pack) throw Object.assign(new Error('No preview pack'), { code: 'none' });
     try {
       const pv = await api.post(`/api/account/packs/${encodeURIComponent(pack.id)}/preview`);
-      return { ...accessOf(pv, pv.key, null), expiresAt: pv.expiresAt, preview: true };
+      // a preview lasts 15 minutes (§10.4) – never longer here, whatever an answer says
+      const expiresAt = new Date(Math.min(Date.parse(pv.expiresAt), Date.now() + PREVIEW_MAX_MS)).toISOString();
+      return { ...accessOf(pv, pv.key, null), expiresAt, preview: true };
     } catch (e) {
       throw Object.assign(new Error(e.message), { code: e.vars?.code || e.code || 'server', retryAfter: e.vars?.retryAfter });
     }

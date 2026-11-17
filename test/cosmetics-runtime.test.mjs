@@ -54,7 +54,9 @@ const S = await import('../web/lib/cosmetics/state.mjs');
 const { mountBanner, mountNameplate, bannerStats } = await import('../web/lib/cosmetics/banners/runtime.mjs');
 const { mountFrame, frameCounts } = await import('../web/lib/cosmetics/frames/runtime.mjs');
 const { setReducedMotion } = await import('../web/lib/cosmetics/motion.mjs');
-const { workerSource } = await import('../web/lib/cosmetics/sandbox.mjs');
+const { workerSource, setWorkerFactory } = await import('../web/lib/cosmetics/sandbox.mjs');
+// no browser here: the worker the sandboxed iframe would start is the mock above (test/cosmetics-sandbox.test.mjs runs the real one)
+setWorkerFactory((source, name) => new Worker(URL.createObjectURL(new Blob([source])), { type: 'module', name }));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 afterEach(() => setReducedMotion(null));

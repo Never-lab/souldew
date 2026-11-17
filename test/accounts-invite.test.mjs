@@ -79,7 +79,7 @@ async function startApp(name) {
   dirs.push(dir);
   const port = await freePort();
   const child = spawn(process.execPath, [new URL('server/index.mjs', ROOT).pathname], {
-    env: { ...process.env, SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_ACCOUNTS_URL: fake.base },
+    env: { ...process.env, SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_ACCOUNTS_URL: fake.base, SLS_ACCOUNTS_DEV_ENT_KEY: fake.ent.publicKey },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let out = '';
@@ -240,6 +240,9 @@ test('ask to join: only for a run the friend opened for it; the owner lets them 
 });
 
 test('the browser hand-off of a second app goes to that app’s own loopback only', async () => {
+  // signed in, a second sign-in is refused (it would replace the session without ending it) – sign out first
+  assert.equal((await guest.post('/api/account/login')).status, 409);
+  await guest.post('/api/account/logout');
   const { body } = await guest.post('/api/account/login');
   const redirect = new URL(body.url).searchParams.get('redirect_uri');
   assert.equal(redirect, `${guest.base}/auth/done`);
@@ -248,6 +251,6 @@ test('the browser hand-off of a second app goes to that app’s own loopback onl
   const r = await fetch(body.url, { redirect: 'manual' });
   const loop = new URL(r.headers.get('location'));
   const wrong = await rawGet(`${host.base}/auth/done${loop.search}`, { 'sec-fetch-mode': 'navigate', 'sec-fetch-dest': 'document' });
-  assert.equal(wrong.headers.location, '/auth/done?r=none');
+  assert.match(wrong.headers.location, /^\/auth\/done\?r=none&n=/);
   await guest.post('/api/account/login/cancel');
 });
