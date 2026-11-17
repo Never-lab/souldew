@@ -31,7 +31,7 @@ Plus a new play view that gives the game the room it deserves.
   and they never cover the game's text boxes or the place name. It is drawn over your game; nothing is written into
   it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald and Sapphire;
   Ruby, FireRed and LeafGreen run on the same code, with their addresses from the games' disassembly.
-- **souldew engine (beta)** – Settings › Emulators. One player of souldew's own for DS, GBA and Game Boy, on the
+- **souldew engine (beta)** – Settings › Play. One player of souldew's own for DS, GBA and Game Boy, on the
   same emulators as the fast player: a trade or battle simply brings your partners' consoles into your running game,
   and when the link ends they leave it again – nothing restarts, not even for a moment's handover. Speed steps, Max,
   save states (the fast player's – they work in both), cheats, live sync, the turbo music and Shared World as you know
@@ -65,16 +65,25 @@ Plus a new play view that gives the game the room it deserves.
   small chip in the dock (details on a click), and four players' names no longer squeeze the live status line.
 - **Sharper pixels at any size.** All three players (the fast player, the 3DS player and the browser emulator) blow
   each game pixel up by a whole number with hard edges and only smooth the last bit to the frame – no more uneven
-  rows of pixels at odd sizes. Settings › Appearance › “Whole pixels only” snaps to exact multiples instead, when that
+  rows of pixels at odd sizes. Settings › Play › “Whole pixels only” snaps to exact multiples instead, when that
   costs at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every
   layout and size; the 3DS menu's “Smooth picture” still smooths everything.
 - **The Game Boy look.** The fast player now runs Game Boy and Game Boy Color games on SameBoy – the emulator the link
-  sessions use. New in Settings › Emulators › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
+  sessions use. New in Settings › Play › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
   original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver
   and Crystal are always in colour. The cartridge clock of Gold, Silver and Crystal carries over.
+- **Settings in tabs, with search.** Settings is now split into General, Play, Controls, Games, Online and About, so
+  every page is short instead of one long scroll. Everything about playing sits together under Play – fast-forward,
+  the sound while fast-forwarding (until now only in the game's sound menu), the picture and the fast player – and
+  the graphics backend, the 3DS renderer and the diagnostics file wait under About › Troubleshooting. Type into the
+  search (⌘F / Ctrl+F) and every matching setting from all tabs shows up at once, the words marked, ready to change
+  right there; it understands English and your app language and everyday words like “fast forward” or “gamepad”.
+  Buttons elsewhere in the app – “Connect Discord …”, “Open Settings” on a slow game, “More sound settings” in the
+  game's sound menu – now open the exact setting and mark it. The tab you used last opens again, back and forward
+  work, and L / R on a controller switch the tabs.
 
 Good to know:
-- Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Emulators, on by
+- Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
   default); a game in the browser emulator joins the link from its last in-game save.
 - Save states made for Game Boy / Game Boy Color games in the fast player before 3.0 (on the old Gambatte emulator)
   can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the

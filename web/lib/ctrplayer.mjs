@@ -807,7 +807,7 @@ async function start() {
   }
   const res = await fetch('/api/ctr/start', {
     method: 'POST', headers: { 'content-type': 'application/json', 'x-soullink': '1' },
-    // (no ?scale=: the server takes Settings › Emulators › "3DS resolution")
+    // (no ?scale=: the server takes Settings › Play › "3DS resolution")
     body: JSON.stringify({ rom: q.get('rom'), key: q.get('key'), ...(q.get('scale') ? { scale: Number(q.get('scale')) } : {}) }),
   });
   const j = await res.json().catch(() => ({}));

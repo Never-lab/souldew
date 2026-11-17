@@ -375,9 +375,17 @@ function move(dir) {
     if (same.length) list = same;
   }
   const i = pickTarget(rectOf(from), dir, list.map(rectOf));
-  if (i >= 0) return focusEl(list[i]);
+  if (i >= 0) return focusEl(openTab(list[i], from) || list[i]);
   // nothing further that way: scroll on, so text below the last control comes into view
   if (dir === 'up' || dir === 'down') scroller(from)?.scrollBy({ top: (dir === 'down' ? 1 : -1) * innerHeight * 0.4, behavior: 'smooth' });
+}
+
+/** Moving into a tab list from outside lands on the open tab, not on whichever tab happens to be nearest. */
+function openTab(target, from) {
+  const tabs = target.getAttribute('role') === 'tab' && target.closest('[role="tablist"]');
+  if (!tabs || tabs.contains(from)) return null;
+  const open = tabs.querySelector('[role="tab"][aria-selected="true"]');
+  return open && usable(open) ? open : null;
 }
 
 function scroller(from) {

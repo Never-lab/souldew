@@ -11,7 +11,8 @@ import { Icon } from '../lib/icons.mjs';
 import { t, ago } from '../lib/i18n.mjs';
 import { shortcut } from '../lib/platform.mjs';
 import { live } from '../lib/run.mjs';
-import { GPU_LABELS } from './settings.mjs';
+import { GPU_LABELS } from './settings/about.mjs';
+import { settingsLink } from '../lib/settingsindex.mjs';
 import { initials } from '../lib/playlayout.mjs';
 
 const FOLD_KEY = 'sl-dock-folded';
@@ -231,13 +232,15 @@ export function SlowChip({ slow, isDs, native, onClose }) {
   const backend = GPU_LABELS()[status?.config?.gpuBackend || 'auto'] || status?.config?.gpuBackend;
   const melon = status?.emulators?.melonds;
   const tip = {
-    native: t('play.slowNative', 'Turn on the fast player (Settings › Emulators): it runs this game with the real emulator directly on your computer – far faster, and live sync stays.'),
+    native: t('play.slowNative', 'Turn on the fast player (Settings › Play): it runs this game with the real emulator directly on your computer – far faster, and live sync stays.'),
     external: melon?.installed
-      ? t('play.slowExternalReady', 'Play with the melonDS app (installed): it runs DS games at full speed on much weaker computers. Pick it under Settings › Emulators – your run syncs on every in-game save.')
-      : t('play.slowExternal', 'Play with the melonDS app: it runs DS games at full speed on much weaker computers. Settings › Emulators installs it with one click – your run syncs on every in-game save.'),
-    graphics: t('play.slowGraphics', 'Try another graphics backend in Settings › General (now: {backend}) – on some PCs the emulator only runs smoothly with one of them.', { backend }),
+      ? t('play.slowExternalReady', 'Play with the melonDS app (installed): it runs DS games at full speed on much weaker computers. Pick it under Settings › Games – your run syncs on every in-game save.')
+      : t('play.slowExternal', 'Play with the melonDS app: it runs DS games at full speed on much weaker computers. Settings › Games installs it with one click – your run syncs on every in-game save.'),
+    graphics: t('play.slowGraphics', 'Try another graphics backend in Settings › About › Troubleshooting (now: {backend}) – on some PCs the emulator only runs smoothly with one of them.', { backend }),
     power: t('play.slowPower', 'On a laptop: plug it in and choose the best-performance power mode. Close other programs that keep the computer busy.'),
   };
+  // "Open Settings" opens the setting of the first tip that has one
+  const place = { native: 'native', external: melon?.installed ? 'emulator-for' : 'install', graphics: 'gpu' }[slow.tips.find((k) => ['native', 'external', 'graphics'].includes(k))];
   const pct = Math.round((slow.reached || 0) * 100);
   return html`<div class="slow-chip-wrap" ref=${wrap}>
     <div class="slow-chip" role="status">
@@ -251,7 +254,7 @@ export function SlowChip({ slow, isDs, native, onClose }) {
       <span class="small">${native ? t('play.slowWhyNative', 'That’s why it stutters and the sound crackles. The game already runs in the fast player – here your computer is the limit, not a setting.') : isDs ? t('play.slowWhyDs', 'That’s why it stutters and the sound crackles. The built-in emulator runs the whole DS on one processor core and can’t go faster here – your computer is the limit, not a setting.')
         : t('play.slowWhy', 'That’s why it stutters and the sound crackles. The built-in emulator runs the console on one processor core and can’t go faster here.')}</span>
       <ul class="small slow-tips">${slow.tips.map((k) => html`<li key=${k}>${tip[k]}</li>`)}</ul>
-      <div class="row">${(slow.tips.includes('external') || slow.tips.includes('graphics') || slow.tips.includes('native')) && html`<button class="btn small" onClick=${() => navigate('settings')}><${Icon} name="gear" size=${14} />${t('play.slowSettings', 'Open Settings')}</button>`}
+      <div class="row">${place && html`<button class="btn small" onClick=${() => navigate('settings', settingsLink(place))}><${Icon} name="gear" size=${14} />${t('play.slowSettings', 'Open Settings')}</button>`}
         <button class="btn small ghost" data-pad-back onClick=${() => { setOpen(false); onClose(); }}>${t('play.slowOk', 'Got it')}</button></div>
     </div>`}
   </div>`;

@@ -62,7 +62,7 @@ export class SlowWatch {
  *                melonDS / mGBA / SameBoy natively, DS games with the JIT – far faster, with live sync kept
  * - 'external' – a DS game: the standalone melonDS (souldew installs it and syncs the run on every in-game save) has
  *                a just-in-time compiler and runs DS games at full speed on computers where the built-in one can't
- * - 'graphics' – Windows and Linux: another graphics backend (Settings › General) – it helped players whose emulator
+ * - 'graphics' – Windows and Linux: another graphics backend (Settings › About › Troubleshooting) – it helped players whose emulator
  *                stuttered with one of them
  * - 'power'    – always: plugged in / a performance power plan, other programs closed
  * Switching the DS core is no tip: DeSmuME needs as long per frame there as melonDS (Platinum, Route 201, M1:
