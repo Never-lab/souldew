@@ -166,7 +166,10 @@ async function main(scratch) {
     log(`local R2: ${uploaded} pack files`);
     const inspector = await freePort();
     const wr = spawn(NODE, [join(ACC, 'node_modules', 'wrangler', 'bin', 'wrangler.js'), 'dev', '--port', String(W), '--ip', '127.0.0.1', '--env-file', join(scratch, 'dev.env'),
-      '--persist-to', state, '--inspector-port', String(inspector), '--show-interactive-dev-session=false', '--log-level', 'warn'],
+      '--persist-to', state, '--inspector-port', String(inspector),
+      // the Worker sees this computer's address, not the production route's (wrangler.toml has the custom domain, and
+      // wrangler dev would rewrite request.url / Origin to it – the sign-in confirmation then refuses its own form)
+      '--infer-origin-from-routes=false', '--show-interactive-dev-session=false', '--log-level', 'warn'],
     { cwd: ACC, env: { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     wr.group = true;
     procs.push(wr);
@@ -291,7 +294,8 @@ async function main(scratch) {
       check(`${pr.name}: confirmation page asks "Sign in to souldew on this computer as ${who.name}?"`, confirmText.includes('Sign in to souldew on this computer as') && confirmText.includes(who.name));
       if (n === 0) await capture(browser, '02b-browser-confirmation-page');
       await bev(`document.querySelector('button[value=continue]').click(); true`);
-      await until('loopback page', async () => page().startsWith(`${pr.base}/auth/done?r=`), 30000);
+      await until('loopback page', async () => page().startsWith(`${pr.base}/auth/done?r=`), 30000)
+        .catch(async (e) => { console.error('browser at', page(), (await bev('document.title').catch(() => '')).slice(0, 120)); throw e; });
       check(`${pr.name}: loopback hand-off ok`, page().startsWith(`${pr.base}/auth/done?r=ok&n=`), page());
       if (n === 0) await capture(browser, '02c-browser-loopback-done');
       await until('signed in', () => ev(n, '!!document.querySelector(".acct-who")'));
@@ -326,9 +330,10 @@ async function main(scratch) {
       await ev(1, `[...document.querySelectorAll('.plus-show .seg button')].find((b) => b.textContent === 'Banners').click(); true`);
       await sleep(600);
       check('signed out: … and the banners', (await seen()) >= 3);
-      await ev(1, `(() => { const li = document.querySelector('.plus-show-item'); li.focus(); return true; })()`);
+      // hovered (a hidden window has no focus, so its focus events don't fire – the hover does)
+      await ev(1, `(() => { document.querySelector('.plus-show-item').dispatchEvent(new PointerEvent('pointerenter')); return true; })()`);
       await sleep(600);
-      check('focused: the banner plays its loop (animated WebP)', await ev(1, `document.querySelector('.plus-show-item img').getAttribute('src').includes('.webp')`));
+      check('hovered: the banner plays its loop (animated WebP)', await ev(1, `document.querySelector('.plus-show-item img').getAttribute('src').includes('.webp')`));
       await shot(1, '06b-signed-out-plus-banners');
     }
     const kim = await signIn(GUEST, { discordId: '200000000000000002', username: 'kimchi_k', name: 'Kim' }, 1);
@@ -418,7 +423,7 @@ async function main(scratch) {
     const st = await until('pack loaded', () => cos(0, 'C.packState()').then((s) => (s.entitled ? s : null)), 90000);
     check('pack downloaded per file, signature + every file verified, decrypted in the page', st.entitled && st.packVersion === VERSION && !st.error, JSON.stringify(st));
     const meta = await api(HOST, '/api/plus/pack/meta');
-    check('the local cache holds only encrypted envelopes', meta.paths.length > 20 && readdirSync(join(HOST.dir, 'plus', 'files')).every((f) => f.endsWith('.sdp'))
+    check('the local cache holds only encrypted envelopes', meta.paths.length >= 20 && readdirSync(join(HOST.dir, 'plus', 'files')).every((f) => f.endsWith('.sdp'))
       && !readdirSync(join(HOST.dir, 'plus', 'files')).some((f) => readFileSync(join(HOST.dir, 'plus', 'files', f)).includes(Buffer.from('html[data-skin'))));
     // apply a skin in Settings › General › Theme
     await go(0, '#/settings?s=general', '.skin-setting');

@@ -79,7 +79,7 @@ test('from the service: verified pictures with their own type, cached on disk; a
 });
 
 test('the real service path: GET /v1/previews and the pictures from the same origin; offline → the last good manifest', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'souldew-previews-'));
+  const dir = join(mkdtempSync(join(tmpdir(), 'souldew-previews-')), 'plus'); // not there yet, as on a fresh install
   const a = await signed(MEDIA);
   const calls = [];
   const env = { SLS_ACCOUNTS_URL: 'http://127.0.0.1:8788' };

@@ -86,6 +86,7 @@ export function createPlusPreviews({ dir, devDir = process.env.SLS_PLUS_DEV_PACK
     if (!r.ok) throw httpError(502, 'Previews unavailable', 'plusPreviews');
     const a = await r.json();
     const p = fromAnswer(a, base);
+    mkdirSync(dir, { recursive: true });
     writeFileAtomic(metaFile, JSON.stringify({ manifest: a.manifest, signature: a.signature, base }));
     return p;
   }
@@ -96,7 +97,8 @@ export function createPlusPreviews({ dir, devDir = process.env.SLS_PLUS_DEV_PACK
       pending = refresh().then((p) => {
         mem = p;
         return p;
-      }, () => {
+      }, (e) => {
+        if (e?.status !== 502 || !/unavailable/i.test(e.message)) console.warn('souldew+ previews:', e?.message || e);
         // offline: the last verified manifest on disk (checked again), if any
         if (!mem && existsSync(metaFile)) {
           try {
