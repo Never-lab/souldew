@@ -47,6 +47,8 @@ export const PRIVATE_GETS = [
   /^\/api\/saves\/(solo|solo\/download|states|state|state\/thumb)$/,
   /^\/api\/(stream|status|events)$/,
   /^\/live\/soullink\.lua$/,
+  // the souldew account: profile, friends, invites, entitlements (and the avatars, which an <img> loads same-origin)
+  /^\/api\/account(\/.*)?$/,
 ];
 
 /**

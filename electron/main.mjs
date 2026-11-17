@@ -1,6 +1,6 @@
 // souldew – desktop app shell (macOS, Windows and Linux).
 // Starts the local server in-process on a free port and shows the UI in a native window.
-import { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, session, powerSaveBlocker, screen } from 'electron';
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell, nativeTheme, session, powerSaveBlocker, screen, safeStorage } from 'electron';
 import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, mkdirSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { appImageFromEnv, appImageRelaunch } from './update-core.mjs';
 import { writeFileAtomic } from '../server/lib/fsutil.mjs';
 import { grantPicked } from '../server/lib/grants.mjs';
 import { chromiumSwitches, startDecision, crashDecision, gpuInfoSummary, safeGraphicsRequested, withoutSafeGraphics } from '../shared/gpu.mjs';
-import { sameOrigin, safeExternalUrl, subframeNavigationAllowed, permissionAllowed, isTrustedIpcSender, titleBarColors, initialWindowSize } from './guards.mjs';
+import { sameOrigin, safeExternalUrl, subframeNavigationAllowed, permissionAllowed, isTrustedIpcSender, titleBarColors, initialWindowSize, signInUrl } from './guards.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MAC = process.platform === 'darwin';
@@ -119,12 +119,41 @@ async function boot() {
   const { startServer } = await import('../server/app.mjs');
   // A fixed port keeps the page origin stable, so localStorage and EmulatorJS' IndexedDB survive
   // restarts; only if it's taken fall back to a random one.
-  const { url } = await startServer({ port: 47390 }).catch((e) => {
+  const accountHelpers = { secureStore, openExternal: openSignIn, focus: focusWindow };
+  const { url } = await startServer({ port: 47390, ...accountHelpers }).catch((e) => {
     if (e.code !== 'EADDRINUSE') throw e;
-    return startServer({ port: 0 });
+    return startServer({ port: 0, ...accountHelpers });
   });
   serverUrl = url;
   createWindow();
+}
+
+/**
+ * The souldew account's tokens are kept only where the OS encrypts them (server/lib/accounts/store.mjs): macOS Keychain,
+ * Windows DPAPI, the Secret Service / KWallet on Linux. Electron's "basic_text" fallback on a Linux desktop without a
+ * keyring is plain text in disguise – that counts as no keychain (the session then lives in memory only).
+ */
+const secureStore = {
+  available: () => {
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    if (LINUX && typeof safeStorage.getSelectedStorageBackend === 'function') return !['basic_text', 'unknown'].includes(safeStorage.getSelectedStorageBackend());
+    return true;
+  },
+  encrypt: (text) => safeStorage.encryptString(text),
+  decrypt: (buf) => safeStorage.decryptString(buf),
+};
+/** "Sign in with Discord": the system browser at the accounts service (guards.mjs signInUrl: https, or a local test service). */
+function openSignIn(url) {
+  const safe = signInUrl(url);
+  if (!safe) throw new Error('not a sign-in address');
+  shell.openExternal(safe);
+}
+/** The browser handed the sign-in back: the app comes forward. */
+function focusWindow() {
+  if (!win) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
 }
 
 /** Height of the title bar area on Windows (window buttons drawn over the page, styles.css .platform-win32). */

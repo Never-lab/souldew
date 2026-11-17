@@ -43,6 +43,7 @@ import { LINKS } from '../shared/links.mjs';
 import { randomBytes } from 'node:crypto';
 import { syncTrophies } from './lib/trophies.mjs';
 import * as liveRuns from './lib/liveruns.mjs';
+import { createAccounts } from './lib/accounts/index.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -461,8 +462,11 @@ export function errorBody(e) {
 /**
  * Start the server.
  * @param {{port?: number, host?: string, onReady?: (url:string)=>void}} opts
+ * The desktop app also passes the souldew account's helpers (server/lib/accounts/index.mjs): secureStore (Electron's
+ * safeStorage – without it a session is kept in memory only), openExternal (the system browser for "Sign in with
+ * Discord") and focus (bring the window forward when the browser hands the sign-in back).
  */
-export function startServer({ port = 7373, host = '127.0.0.1', background = true } = {}) {
+export function startServer({ port = 7373, host = '127.0.0.1', background = true, secureStore = null, openExternal = null, focus = () => {} } = {}) {
   const GEN4 = JSON.parse(readFileSync(join(SHARED_DIR, 'data', 'gen4.json'), 'utf8'));
   // The stream API's localPages switch (server/lib/streamapi.mjs streamMigration): an install set up before it
   // existed keeps reading from local pages without a token, a new one starts strict. A config that can't be read
@@ -833,6 +837,11 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
 
   const routes = [];
   const route = (method, pattern, handler) => routes.push({ method, pattern, handler });
+
+  // ---- souldew account (sign-in, profile, friends, presence, invites): server/lib/accounts/index.mjs ----------------
+  const accounts = createAccounts({ secure: secureStore, port: () => server.address()?.port, emit, openExternal, focus, lang: () => loadConfig().lang || 'en' });
+  routes.push(...accounts.routes);
+  route('GET', /^\/api\/account\/diagnostics$/, () => accounts.diagnostics());
 
   // ---- status & config ------------------------------------------------------------
   route('GET', /^\/api\/status$/, () => {
@@ -1822,6 +1831,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
           if (!file) return send(res, 400, { error: 'bad name' });
           return serveFile(res, file, url.searchParams.get('inline') ? {} : { 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` }, req.method === 'HEAD');
         }
+        if (path === '/api/account/avatar') return accounts.avatar(req, res, url);
         if (path === '/api/library/patched' && req.method === 'GET') {
           const r = preparePatchedRom(url.searchParams.get('romId'), url.searchParams.get('patchId'), () => {}, loadConfig());
           return serveFile(res, r.path);
@@ -1893,6 +1903,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         res.writeHead(302, { Location: src, 'Cache-Control': 'no-store' });
         return res.end();
       }
+      // the system browser's way back after "Sign in with Discord" (a navigation from the accounts service, not the app)
+      if (path === '/auth/done') return accounts.authDone(req, res, url);
       if (VENDOR[path]) return serveFile(res, VENDOR[path]);
       if (path === '/live/soullink.lua') {
         // embeds the live bridge token – PRIVATE_GETS (app header or same-origin), not a typed URL / other program
@@ -1908,7 +1920,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       const f = safeJoin(WEB_DIR, page);
       return f ? serveFile(res, f, pageHeaders(f)) : send(res, 400, 'bad path'); // CSP for .html pages
     } catch (e) {
-      console.error(`[${req.method} ${path}]`, e.message);
+      // (the account's routes carry user / invite ids: logged without them – and their errors are expected answers)
+      if (path.startsWith('/api/account')) {
+        if (!e.status || e.status >= 500) console.error(`[${req.method} /api/account/…]`, e.code || e.name);
+      } else console.error(`[${req.method} ${path}]`, e.message);
       if (e.details?.stderr) console.error(String(e.details.stderr).slice(-4000));
       if (res.headersSent) return res.destroy();
       return send(res, e.status || 500, errorBody(e));
@@ -1916,6 +1931,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   });
 
   server.on('close', () => {
+    accounts.close();
     ctr.stop();
     azahar?.stop();
     streamHub.close();

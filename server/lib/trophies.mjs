@@ -173,3 +173,18 @@ export function syncTrophies({ slots = {}, seen = [], moments = [] } = {}) {
     backfilled: first ? fresh : [],
   };
 }
+
+/**
+ * Every run's digest (shared/trophies.mjs digestRun), up to date – also of deleted runs. For the souldew account's
+ * profile numbers (server/lib/accounts/stats.mjs), which only leave the computer when the player opted in.
+ */
+export function runDigests() {
+  syncTrophies();
+  const state = load();
+  return Object.entries(state?.runs || {}).map(([id, r]) => (r.digest ? { ...r.digest, id, archived: !!r.archived } : null)).filter(Boolean);
+}
+
+/** The ids of the achievements this computer has unlocked (titles and showcase picks of the souldew profile). */
+export function unlockedAchievements() {
+  return Object.keys(load()?.unlocked || {});
+}
