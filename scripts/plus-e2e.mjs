@@ -442,22 +442,24 @@ async function main(scratch) {
     const catalog = await cos(0, '({ b: C.catalog().banners.filter((x) => x.plus && x.owned).map((x) => x.id), f: C.catalog().frames.filter((x) => x.plus && x.owned).map((x) => x.id) })');
     const banner = catalog.b.includes('night-marsh') ? 'night-marsh' : catalog.b[0];
     const frame = catalog.f[0];
-    // the profile editor itself: pick a souldew+ banner, frame and nameplate and press Save (the editor locks Save for
-    // a pick that isn't owned – a nameplate once always counted as not owned) → PATCH /v1/me, the service checks the tier
+    // the profile editor itself (the parts drawer): pick a souldew+ banner, frame and nameplate and press Save – a
+    // member's picks are kept (no "comes with souldew+" line) → PATCH /v1/me, the service checks the tier
     await go(0, '#/profile', '.pf-mast');
     await click(0, '.pf-actions .btn', 'Edit profile');
-    await until('editor', () => ev(0, '!!document.querySelector(".pf-editor .cos-picker--nameplates")'));
+    await until('editor', () => ev(0, '!!document.querySelector(".pe-drawer .pe-pcard")'));
     const nameplate = catalog.b.find((x) => x !== banner) || banner;
-    for (const [kind, id] of [['banners', banner], ['frames', frame], ['nameplates', nameplate]]) {
-      check(`editor: ${kind} ${id} picked`, await ev(0, `(() => { const b = document.querySelector('.cos-picker--${kind} [data-cos-id=${JSON.stringify(id)}]'); if (!b) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true; })()`));
+    for (const [part, id] of [['banner', banner], ['frame', frame], ['nameplate', nameplate]]) {
+      await click(0, `.pe-pcard[data-card="${part}"]`);
+      await until(`${part} picker`, () => ev(0, `!!document.querySelector('.pe-body.p-${part} .pe-card')`));
+      check(`editor: ${part} ${id} picked`, await ev(0, `(() => { const b = document.querySelector('.pe-body [data-cos-id=${JSON.stringify(id)}]'); if (!b) return false; b.scrollIntoView({ block: 'center' }); b.click(); return true; })()`));
       await sleep(300);
+      await click(0, '.pe-back');
+      await sleep(200);
     }
-    await ev(0, `document.querySelector('.pf-editor .cos-picker--nameplates').scrollIntoView({ block: 'center' }); true`);
-    await sleep(400);
-    check('editor: no "comes with souldew+" lock line for a member, Save enabled', await ev(0, `!document.querySelector('.acct-lockline') && !document.querySelector('.modal-foot .btn.primary').disabled`));
+    check('editor: no "comes with souldew+" line for a member, three changes', await ev(0, `!document.querySelector('.pe-lock') && document.querySelector('.pe-bar-hint').textContent.startsWith('3')`));
     await shot(0, '13b-editor-nameplate-picked');
-    await click(0, '.modal-foot .btn.primary', 'Save');
-    await until('editor closed', () => ev(0, '!document.querySelector(".pf-editor")'), 20000);
+    await click(0, '.pe-bar .btn.primary', 'Save');
+    await until('editor closed', () => ev(0, '!document.querySelector(".pe")'), 20000);
     const saved = (await api(HOST, '/api/account')).me;
     check(`editor saved banner ${banner}, frame ${frame} and nameplate ${nameplate}`, saved.banner === banner && saved.frame === frame && saved.nameplate === nameplate, JSON.stringify({ b: saved.banner, f: saved.frame, n: saved.nameplate }));
     await ev(0, `import('/lib/account.mjs').then((A) => A.updateMe({ accent: 'tide' })).then(() => true)`);

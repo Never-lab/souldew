@@ -12,6 +12,7 @@ import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal } from './lib/ui.mjs';
 import { groupArrowKeys } from './lib/a11y.mjs';
 import { startPadNav } from './lib/padnav.mjs';
+import { leaveHeld } from './lib/leaveguard.mjs';
 import { AppMark, NavIcon, Icon } from './lib/icons.mjs';
 import { BootScreen } from './views/boot.mjs';
 import { Onboarding } from './views/onboarding.mjs';
@@ -90,7 +91,13 @@ function parseHash() {
 function useRoute() {
   const [r, setR] = useState(parseHash());
   useEffect(() => {
-    const on = () => setR(parseHash());
+    let at = location.hash;
+    const on = () => {
+      // a screen with unsaved changes (the profile editor) may hold the change: the old address goes back, it asks
+      if (location.hash !== at && leaveHeld(location.hash)) return history.replaceState(history.state, '', at || '#/library');
+      at = location.hash;
+      setR(parseHash());
+    };
     addEventListener('hashchange', on);
     return () => removeEventListener('hashchange', on);
   }, []);

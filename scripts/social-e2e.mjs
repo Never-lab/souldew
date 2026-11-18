@@ -205,13 +205,13 @@ async function main(scratch) {
     await sleep(800);
     await shot(0, '03-profile-own');
     await click(0, '.pf-actions .btn');
-    await until('editor', () => ev(0, '!!document.querySelector(".pf-editor")'));
+    await until('editor', () => ev(0, '!!document.querySelector(".pe-drawer .pe-pcard")'));
     await sleep(800);
     await shot(0, '05-profile-editor');
-    await ev(0, `document.querySelector('.modal-body').scrollTo({ top: 99999 }); true`);
-    await sleep(500);
+    await click(0, '.pe-pcard[data-card="trophies"]');
+    await sleep(600);
     await shot(0, '05b-profile-editor-showcase');
-    await ev(0, `document.querySelector('.modal-x')?.click(); true`);
+    await click(0, '.pe-bar .btn.ghost');
 
     // Kim signs in on the guest app; her presence: in a run with a free seat she opened for "Ask to join"
     await signIn(GUEST, kim);
@@ -284,12 +284,14 @@ async function main(scratch) {
     // 15 · the editor without souldew+: a souldew+ banner can be tried on, quietly marked, not saved
     await go(1, '#/profile', '.pf-mast');
     await click(1, '.pf-actions .btn');
-    await until('editor (guest)', () => ev(1, '!!document.querySelector(".pf-editor")'));
+    await until('editor (guest)', () => ev(1, '!!document.querySelector(".pe-drawer .pe-pcard")'));
     await sleep(500);
-    await click(1, '.cos-picker--banners .cos-pick.locked');
+    await click(1, '.pe-pcard[data-card="banner"]');
+    await until('banner picker (guest)', () => ev(1, '!!document.querySelector(".pe-card.locked")'));
+    await click(1, '.pe-card.locked');
     await sleep(800);
     await shot(1, '15-profile-editor-locked');
-    await ev(1, `document.querySelector('.modal-x')?.click(); true`);
+    await click(1, '.pe-bar .btn.ghost');
     log('done →', out);
     await finish(0);
   } catch (e) {

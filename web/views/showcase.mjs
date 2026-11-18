@@ -4,23 +4,22 @@
 //           the most trusted line on its own stand with its numbers, the favourite game as the app's cartridge
 //   'lcd'   "Trainer card": the most trusted line on the handheld's screen, the trophies as pins – in the side column
 //   'shelf' "Shelf": the compact side column – three trophy tiles in a row, the line on a small stand
-// and its two pickers: the trophy cabinet (the three picks big on top, search, categories, rarity filters, a calm grid)
-// and "Most trusted" (your regulars: the twelve lines your own runs relied on most, any other Pokémon by search).
+// Its pickers – the trophy cabinet and "Most trusted" (your regulars) – live in the profile editor's drawer.
 // Everything another player wrote (the note) is text, never HTML.
-import { html, useState, useMemo } from '/vendor/htm-preact.mjs';
+// In the profile editor (views/profileedit.mjs) the layouts take `edit` – all three places drawn, empty ones as quiet
+// placeholders, so every part can be clicked – and `mark(part, body, opts)`, which wraps each editable element.
+import { html, useMemo } from '/vendor/htm-preact.mjs';
 import { t } from '../lib/i18n.mjs';
 import { Icon } from '../lib/icons.mjs';
-import { useApp, Modal, Sprite } from '../lib/ui.mjs';
+import { useApp, Sprite } from '../lib/ui.mjs';
 import { speciesName, pokeapi, catalog as gameCatalog } from '../lib/data.mjs';
 import { useTrophies } from '../lib/trophies.mjs';
-import { achText, catLabel, rarityLabel } from '../lib/trophytexts.mjs';
-import { toCatalogId, fromCatalogId } from '../lib/achievementids.mjs';
+import { achText, rarityLabel } from '../lib/trophytexts.mjs';
+import { fromCatalogId } from '../lib/achievementids.mjs';
 import { speciesInText, splitTrusted } from '../lib/trusted.mjs';
 import { shortTitle } from '../lib/presence.mjs';
-import { ACHIEVEMENTS, CATEGORIES, RARITIES } from '/shared/trophies.mjs';
-import { cabinetList, togglePick, searchSpecies } from '../lib/showcasepick.mjs';
+import { ACHIEVEMENTS } from '/shared/trophies.mjs';
 import { SHOWCASE_LAYOUTS } from '/shared/social.mjs';
-import { lineRoot, TRUSTED_NOTE_MAX, REGULARS } from '/shared/trustedlines.mjs';
 import { AchIcon } from './trophies.mjs';
 import { coverOf } from './library.mjs';
 
@@ -43,7 +42,7 @@ export function achOf(catalogId, earned = null) {
 export const layoutLabel = (id) => ({ case: t('sc.layoutCase', 'Display case'), lcd: t('sc.layoutLcd', 'Trainer card'), shelf: t('sc.layoutShelf', 'Shelf') }[id] || id);
 
 /** The favourite game as the library knows it: its cover, system and cartridge colour (or just the title). */
-function gameOf(library, title) {
+export function gameOf(library, title) {
   if (!title) return null;
   const g = (gameCatalog().games || []).find((x) => !x.variantOf && shortTitle({ gameId: x.id }) === title);
   return { title, cover: g ? coverOf(library, { gameId: g.id }) : null, system: g?.system || null, color: g?.color || null };
@@ -101,11 +100,12 @@ export function LayoutSwitch({ value, onChange, busy }) {
 }
 
 /** The showcase's parts for a profile: the trophies (as tiles), the line (or the old text) and the favourite game. */
-function useParts(prof) {
+function useParts(prof, edit = false) {
   const { library } = useApp();
   const tr = useTrophies();
   const sc = prof.showcase || {};
-  const trophies = (sc.trophies || []).map((id) => achOf(id, tr?.achievements)).filter(Boolean);
+  // editing: the three places by position (an empty one stays empty); else just the trophies there are
+  const trophies = edit ? [0, 1, 2].map((i) => (sc.trophies?.[i] ? achOf(sc.trophies[i], tr?.achievements) : null)) : (sc.trophies || []).map((id) => achOf(id, tr?.achievements)).filter(Boolean);
   return { trophies, trusted: sc.trusted || null, legacy: sc.trusted ? null : sc.trustedText || null, game: gameOf(library, sc.favoriteGame) };
 }
 
@@ -114,47 +114,78 @@ export const isEmpty = (prof) => {
   return !(sc.trophies || []).length && !sc.trusted && !sc.trustedText && !sc.favoriteGame;
 };
 
-function Head({ title, own, layout, onLayout, busy, onEdit }) {
-  return html`<div class="pf-head"><h2>${title}</h2><span class="pf-rule"></span>
+function Head({ title, own, layout, onLayout, busy, onEdit, tag = null }) {
+  return html`<div class="pf-head"><h2>${title}</h2><span class="pf-rule"></span>${tag && html`<span class="pf-tag">${tag}</span>`}
     ${own && onLayout && html`<${LayoutSwitch} value=${layout} onChange=${onLayout} busy=${busy} />`}
     ${own && onEdit && html`<button type="button" class="btn small ghost" onClick=${onEdit}>${t('sc.arrange', 'Arrange')}</button>`}</div>`;
 }
 
+const plain = (part, body) => body;
+
+/** The editor's empty places: a dashed plinth / pin / tile that says what goes there. */
+function EmptyPed() {
+  return html`<figure class="sc-ped sc-ped-empty"><span class="sc-empty-plinth"><${Icon} name="trophy" size=${22} /></span><span class="sc-ped-top" aria-hidden="true"></span>
+    <figcaption><b>${t('sc.emptyPlace', 'Empty place')}</b><span class="small faint">${t('sc.emptyPlaceHint', 'Pick a trophy for it')}</span></figcaption></figure>`;
+}
+const EmptySmall = ({ cls }) => html`<div class=${`${cls} sc-small-empty`}><span class="sc-empty-plinth s"><${Icon} name="trophy" size=${14} /></span><b>${t('sc.emptyShort', 'Empty')}</b></div>`;
+
 /** 'case' – the display case, full width under the numbers. */
-export function ShowcaseCase({ prof, own, onLayout, busy, onEdit }) {
-  const { trophies, trusted, legacy, game } = useParts(prof);
-  const empty = isEmpty(prof);
+export function ShowcaseCase({ prof, own, onLayout, busy, onEdit, edit = false, mark = plain }) {
+  const { trophies, trusted, legacy, game } = useParts(prof, edit);
+  const empty = !edit && isEmpty(prof);
   if (empty && !own) return null;
+  const head = html`<${Head} title=${t('pf.showcase', 'Showcase')} own=${own && !edit} layout="case" onLayout=${onLayout} busy=${busy} onEdit=${onEdit} tag=${edit ? layoutLabel('case') : null} />`;
   return html`<section class="pf-section sc-case-sec">
-    <${Head} title=${t('pf.showcase', 'Showcase')} own=${own} layout="case" onLayout=${onLayout} busy=${busy} onEdit=${onEdit} />
+    ${edit ? mark('layout', head, { cls: 'pe-m-head' }) : head}
     ${empty ? html`<p class="small muted sc-empty">${t('sc.emptyOwn', 'Nothing in your showcase yet – Arrange puts up to three trophies, your most trusted Pokémon and your favourite game here.')}</p>`
       : html`<div class="sc-case">
       <span class="sc-glass" aria-hidden="true"></span>
-      ${trophies.length > 0 && html`<div class="sc-case-trophies" style=${`--n:${trophies.length}`}>${trophies.map((a) => {
+      ${trophies.length > 0 && html`<div class="sc-case-trophies" style=${`--n:${trophies.length}`}>${trophies.map((a, i) => {
+        if (!a) return mark('trophies', html`<${EmptyPed} />`, { slot: i, cls: 'pe-m-slot' });
         const tx = achText(a.id, a.target);
-        return html`<figure class=${`sc-ped r-${a.rarity}`}><span class="sc-light" aria-hidden="true"></span><span class="sc-ped-item"><${AchIcon} a=${a} size=${34} /></span><span class="sc-ped-top" aria-hidden="true"></span>
-          <figcaption><b>${tx.name}</b><span class="small muted">${tx.desc}</span><span class="row tight sc-ped-meta"><span class=${`rarity r-${a.rarity}`}>${rarityLabel(a.rarity)}</span>${a.at && html`<span class="tiny faint">${monthYear(a.at)}</span>`}</span></figcaption></figure>`;
+        return mark('trophies', html`<figure class=${`sc-ped r-${a.rarity}`}><span class="sc-light" aria-hidden="true"></span><span class="sc-ped-item"><${AchIcon} a=${a} size=${34} /></span><span class="sc-ped-top" aria-hidden="true"></span>
+          <figcaption><b>${tx.name}</b><span class="small muted">${tx.desc}</span><span class="row tight sc-ped-meta"><span class=${`rarity r-${a.rarity}`}>${rarityLabel(a.rarity)}</span>${a.at && html`<span class="tiny faint">${monthYear(a.at)}</span>`}</span></figcaption></figure>`, { slot: i, cls: 'pe-m-slot' });
       })}</div>`}
-      ${trusted && html`<figure class="sc-case-mon"><span class="sc-light mon" aria-hidden="true"></span><span class="sc-case-sprite"><${Sprite} id=${trusted.species} gen=${5} size=${128} alt=${speciesName(trusted.species)} /></span><span class="sc-ped-top wide" aria-hidden="true"></span>
+      ${trusted ? mark('trusted', html`<figure class="sc-case-mon"><span class="sc-light mon" aria-hidden="true"></span><span class="sc-case-sprite"><${Sprite} id=${trusted.species} gen=${5} size=${128} alt=${speciesName(trusted.species)} /></span><span class="sc-ped-top wide" aria-hidden="true"></span>
         <figcaption><span class="pf-tag">${t('pf.trusted', 'Most trusted')}</span><b class="sc-case-monname">${lineName(trusted)}</b><${TrustedStats} tr=${trusted} />
-          ${trusted.note && html`<p class="sc-note">“${trusted.note}”</p>`}</figcaption></figure>`}
-      ${legacy && html`<div class="sc-case-legacy"><span class="pf-tag">${t('pf.trusted', 'Most trusted')}</span><${LegacyTrusted} text=${legacy} /></div>`}
-      ${game && html`<figure class="sc-case-fav"><${Cartridge} game=${game} /><figcaption><span class="pf-tag">${t('pf.favorite', 'Favourite game')}</span><b>${game.title}</b></figcaption></figure>`}
+          ${trusted.note && html`<p class="sc-note">“${trusted.note}”</p>`}</figcaption></figure>`, { cls: 'pe-m-mon' })
+        : legacy ? mark('trusted', html`<div class="sc-case-legacy"><span class="pf-tag">${t('pf.trusted', 'Most trusted')}</span><${LegacyTrusted} text=${legacy} /></div>`, { cls: 'pe-m-mon' })
+          : edit && mark('trusted', html`<figure class="sc-case-mon sc-case-blank"><span class="sc-empty-plinth"><${Icon} name="ball" size=${22} /></span>
+            <figcaption><span class="pf-tag">${t('pf.trusted', 'Most trusted')}</span><span class="small faint">${t('sc.pickMonHint', 'Pick the Pokémon you trust most')}</span></figcaption></figure>`, { cls: 'pe-m-mon' })}
+      ${game ? mark('fav', html`<figure class="sc-case-fav"><${Cartridge} game=${game} /><figcaption><span class="pf-tag">${t('pf.favorite', 'Favourite game')}</span><b>${game.title}</b></figcaption></figure>`, { cls: 'pe-m-fav' })
+        : edit && mark('fav', html`<figure class="sc-case-fav sc-case-blank"><span class="sc-empty-plinth"><${Icon} name="play" size=${20} /></span>
+          <figcaption><span class="pf-tag">${t('pf.favorite', 'Favourite game')}</span><span class="small faint">${t('sc.pickGameHint', 'Pick a game')}</span></figcaption></figure>`, { cls: 'pe-m-fav' })}
     </div>`}
   </section>`;
 }
 
 /** The favourite game as a row (the side-column layouts). */
-function FavRow({ game }) {
+function FavRow({ game, edit = false }) {
+  if (!game && edit) return html`<div class="pf-fav"><span class="pf-fav-blank"><${Icon} name="play" size=${16} /></span><div class="stack-s" style="gap:0"><b class="faint">${t('sc.pickGameHint', 'Pick a game')}</b><span class="small muted">${t('pf.favorite', 'Favourite game')}</span></div></div>`;
   if (!game) return null;
   return html`<div class="pf-fav">${game.cover ? html`<img class="pixel" src=${game.cover} alt="" />` : html`<span class="pf-fav-blank"><${Icon} name="play" size=${16} /></span>`}
     <div class="stack-s" style="gap:0"><b>${game.title}</b><span class="small muted">${t('pf.favorite', 'Favourite game')}</span></div></div>`;
 }
 
 /** 'lcd' – the trainer card: the line on the handheld's screen, trophies as pins, in the side column. */
-export function ShowcaseLcd({ prof, own, onLayout, busy, onEdit }) {
-  const { trophies, trusted, legacy, game } = useParts(prof);
-  const empty = isEmpty(prof);
+export function ShowcaseLcd({ prof, own, onLayout, busy, onEdit, edit = false, mark = plain }) {
+  const { trophies, trusted, legacy, game } = useParts(prof, edit);
+  const empty = !edit && isEmpty(prof);
+  if (edit) {
+    return html`<div class="pf-side stack-l">
+      ${mark('layout', html`<${Head} title=${t('pf.trusted', 'Most trusted')} tag=${layoutLabel('lcd')} />`, { cls: 'pe-m-head' })}
+      ${mark('trusted', trusted ? html`<div class="lcd-card sc-lcd">
+        <div class="sc-lcd-screen"><${Sprite} id=${trusted.species} gen=${5} size=${112} alt=${speciesName(trusted.species)} /></div>
+        <div class="sc-lcd-info"><b class="px">${speciesName(trusted.species).toUpperCase()}</b>
+          ${trusted.teams != null && html`<dl><dt>${t('sc.teamsShort', 'Teams')}</dt><dd>${trusted.teams}</dd><dt>${t('sc.topLv', 'top Lv')}</dt><dd>${trusted.topLevel}</dd><dt>${t('sc.fell', 'fell')}</dt><dd>${trusted.fell}</dd></dl>`}
+          ${trusted.note && html`<span class="small sc-lcd-note">“${trusted.note}”</span>`}</div>
+      </div>` : legacy ? html`<${LegacyTrusted} text=${legacy} />` : html`<div class="lcd-card sc-lcd sc-lcd-blank"><div class="sc-lcd-screen"></div><div class="sc-lcd-info"><span class="small">${t('sc.pickMonHint', 'Pick the Pokémon you trust most')}</span></div></div>`)}
+      <section class="pf-section"><div class="pf-head"><h2>${t('pf.showcase', 'Showcase')}</h2><span class="pf-rule"></span></div>
+        <div class="sc-pins">${trophies.map((a, i) => mark('trophies', a ? html`<div class=${`sc-pin r-${a.rarity}`}><${AchIcon} a=${a} size=${24} /><b>${achText(a.id, a.target).name}</b><span class=${`rarity r-${a.rarity}`}>${rarityLabel(a.rarity)}</span></div>`
+          : html`<${EmptySmall} cls="sc-pin" />`, { slot: i, cls: 'pe-m-slot' }))}</div></section>
+      ${mark('fav', html`<${FavRow} game=${game} edit />`)}
+    </div>`;
+  }
   return html`<div class="pf-side stack-l">
     ${own && html`<div class="sc-side-tools"><${LayoutSwitch} value="lcd" onChange=${onLayout} busy=${busy} />${onEdit && html`<button type="button" class="btn small ghost" onClick=${onEdit}>${t('sc.arrange', 'Arrange')}</button>`}</div>`}
     ${empty && own && html`<p class="small muted sc-empty">${t('sc.emptyOwn', 'Nothing in your showcase yet – Arrange puts up to three trophies, your most trusted Pokémon and your favourite game here.')}</p>`}
@@ -172,9 +203,20 @@ export function ShowcaseLcd({ prof, own, onLayout, busy, onEdit }) {
 }
 
 /** 'shelf' – the compact side column: three trophy tiles in a row, the line on a stand. */
-export function ShowcaseShelf({ prof, own, onLayout, busy, onEdit }) {
-  const { trophies, trusted, legacy, game } = useParts(prof);
-  const empty = isEmpty(prof);
+export function ShowcaseShelf({ prof, own, onLayout, busy, onEdit, edit = false, mark = plain }) {
+  const { trophies, trusted, legacy, game } = useParts(prof, edit);
+  const empty = !edit && isEmpty(prof);
+  if (edit) {
+    return html`<div class="pf-side stack-l">
+      <section class="pf-section">${mark('layout', html`<${Head} title=${t('pf.showcase', 'Showcase')} tag=${layoutLabel('shelf')} />`, { cls: 'pe-m-head' })}
+        <div class="sc-tiles">${trophies.map((a, i) => mark('trophies', a ? html`<div class=${`sc-tile r-${a.rarity}`}><${AchIcon} a=${a} size=${26} /><b>${achText(a.id, a.target).name}</b><span class=${`rarity r-${a.rarity}`}>${rarityLabel(a.rarity)}</span></div>`
+          : html`<${EmptySmall} cls="sc-tile" />`, { slot: i, cls: 'pe-m-slot' }))}</div></section>
+      <section class="pf-section"><div class="pf-head"><h2>${t('pf.trusted', 'Most trusted')}</h2><span class="pf-rule"></span></div>
+        ${mark('trusted', trusted ? html`<${TrustedCard} tr=${trusted} />` : legacy ? html`<${LegacyTrusted} text=${legacy} />`
+          : html`<div class="sc-tcard"><span class="sc-stand sc-stand-blank"><${Icon} name="ball" size=${22} /></span><span class="small faint">${t('sc.pickMonHint', 'Pick the Pokémon you trust most')}</span></div>`)}</section>
+      ${mark('fav', html`<${FavRow} game=${game} edit />`)}
+    </div>`;
+  }
   return html`<div class="pf-side stack-l">
     ${own && html`<div class="sc-side-tools"><${LayoutSwitch} value="shelf" onChange=${onLayout} busy=${busy} />${onEdit && html`<button type="button" class="btn small ghost" onClick=${onEdit}>${t('sc.arrange', 'Arrange')}</button>`}</div>`}
     ${empty && own && html`<p class="small muted sc-empty">${t('sc.emptyOwn', 'Nothing in your showcase yet – Arrange puts up to three trophies, your most trusted Pokémon and your favourite game here.')}</p>`}
@@ -184,112 +226,4 @@ export function ShowcaseShelf({ prof, own, onLayout, busy, onEdit }) {
       ${trusted ? html`<${TrustedCard} tr=${trusted} />` : html`<${LegacyTrusted} text=${legacy} />`}</section>`}
     <${FavRow} game=${game} />
   </div>`;
-}
-
-// ---- the trophy cabinet -------------------------------------------------------------------------------------------
-
-function Plinth({ a, n, onRemove }) {
-  if (!a) return html`<div class="sc-plinth empty"><span class="sc-plinth-n">${n}</span><span class="small faint">${t('sc.emptySlot', 'Pick a trophy below')}</span></div>`;
-  const tx = achText(a.id, a.target);
-  return html`<div class=${`sc-plinth r-${a.rarity}`}>
-    <span class="sc-plinth-n">${n}</span>
-    <button type="button" class="sc-plinth-x" title=${t('sc.takeOut', 'Take out')} aria-label=${t('sc.takeOutName', 'Take {name} out', { name: tx.name })} onClick=${onRemove}><${Icon} name="close" size=${10} /></button>
-    <span class="sc-plinth-glow" aria-hidden="true"></span><${AchIcon} a=${a} size=${30} /><b>${tx.name}</b><span class=${`rarity r-${a.rarity}`}>${rarityLabel(a.rarity)}</span></div>`;
-}
-
-/**
- * The cabinet. chosen: catalog ids now on the profile; allowed: the catalog ids the service knows (null = all);
- * extra: ids on the profile that weren't earned on this computer (kept, so nothing silently disappears).
- */
-export function TrophyCabinet({ chosen: initial, allowed = null, onDone, onClose }) {
-  const tr = useTrophies();
-  const [chosen, setChosen] = useState(initial);
-  const [cat, setCat] = useState('all');
-  const [rarity, setRarity] = useState('all');
-  const [q, setQ] = useState('');
-  const ok = (a) => !allowed || allowed.has(toCatalogId(a.id));
-  const earned = useMemo(() => {
-    const mine = (tr?.achievements || []).filter((a) => a.ok && ok(a));
-    // on the profile but earned on another computer: offered too
-    const elsewhere = initial.filter((id) => !mine.some((a) => toCatalogId(a.id) === id)).map((id) => achOf(id)).filter(Boolean);
-    return [...mine, ...elsewhere];
-  }, [tr]);
-  const byId = Object.fromEntries(earned.map((a) => [toCatalogId(a.id), a]));
-  const shown = cabinetList(earned, { cat, rarity, q }, (a) => achText(a.id, a.target).name);
-  const cats = CATEGORIES.filter((c) => earned.some((a) => a.cat === c));
-  const foot = html`<span class="small muted grow">${t('sc.pickedN', '{n} of 3 in the case – in the order you pick them', { n: chosen.length })}</span>
-    <button type="button" class="btn ghost" onClick=${onClose}>${t('common.cancel', 'Cancel')}</button>
-    <button type="button" class="btn primary" onClick=${() => onDone(chosen)}>${t('sc.putInCase', 'Put in the case')}</button>`;
-  return html`<${Modal} open wide onClose=${onClose} title=${t('sc.cabinet', 'Trophy cabinet')} footer=${foot}>
-    <div class="sc-picker stack">
-      <div class="sc-plinths">${[0, 1, 2].map((i) => html`<${Plinth} a=${byId[chosen[i]]} n=${i + 1} onRemove=${() => setChosen((c) => c.filter((x) => x !== chosen[i]))} />`)}</div>
-      ${!earned.length ? html`<p class="small muted">${t('pf.noTrophies', 'Trophies you earn can go here.')}</p>` : html`
-      <div class="sc-tools">
-        <input type="search" aria-label=${t('sc.searchT', 'Search your {n} trophies', { n: earned.length })} placeholder=${t('sc.searchT', 'Search your {n} trophies', { n: earned.length })} value=${q} onInput=${(e) => setQ(e.target.value)} />
-        <div class="seg small" role="radiogroup" aria-label=${t('sc.category', 'Category')}>${[['all', t('pf.all', 'All')], ...cats.map((c) => [c, catLabel(c)])].map(([id, label]) => html`<button type="button" role="radio" aria-checked=${cat === id} class=${cat === id ? 'on' : ''} onClick=${() => setCat(id)}>${label}</button>`)}</div>
-      </div>
-      <div class="sc-rarities" role="group" aria-label=${t('sc.rarity', 'Rarity')}>${[...RARITIES].reverse().map((r) => {
-        const n = earned.filter((a) => a.rarity === r).length;
-        return n > 0 && html`<button type="button" aria-pressed=${rarity === r} class=${`sc-rdot r-${r} ${rarity === r ? 'on' : ''}`} onClick=${() => setRarity(rarity === r ? 'all' : r)}><i aria-hidden="true"></i>${rarityLabel(r)}<span class="faint">${n}</span></button>`;
-      })}</div>
-      <div class="sc-cab">${shown.map((a) => {
-        const id = toCatalogId(a.id);
-        const on = chosen.includes(id);
-        const tx = achText(a.id, a.target);
-        return html`<button type="button" key=${id} class=${`sc-cab-i r-${a.rarity} ${on ? 'on' : ''}`} aria-pressed=${on} disabled=${!on && chosen.length >= 3} onClick=${() => setChosen((c) => togglePick(c, id))}>
-          <${AchIcon} a=${a} size=${20} /><span class="sc-cab-text"><b>${tx.name}</b><span class="tiny faint">${tx.desc}</span><span class=${`rarity r-${a.rarity}`}>${rarityLabel(a.rarity)}</span></span>
-          ${on && html`<span class="sc-cab-n" aria-hidden="true">${chosen.indexOf(id) + 1}</span>`}</button>`;
-      })}
-        ${!shown.length && html`<p class="small muted">${t('sc.noMatch', 'No trophy matches.')}</p>`}</div>`}
-    </div>
-  <//>`;
-}
-
-// ---- most trusted ---------------------------------------------------------------------------------------------------
-
-/**
- * "Most trusted": your regulars (lines: the editor choices' `lines`, most relied-on first) as sprite cards with their
- * numbers, any other Pokémon by search, an optional note, and a preview of how it shows on the profile.
- * value: the current line ({ species, line, note, … }) or null; share: are the runs shared (then the numbers show)?
- * onDone({ species, line, note } | null).
- */
-export function TrustedPicker({ value, lines = [], runs = 0, share = false, onDone, onClose }) {
-  const [sel, setSel] = useState(() => (value ? { species: value.species, line: value.line } : lines[0] ? { species: lines[0].species, line: lines[0].line } : null));
-  const [note, setNote] = useState(value?.note || '');
-  const [q, setQ] = useState('');
-  const words = q.trim().toLowerCase();
-  const regulars = (words ? lines.filter((l) => speciesName(l.species).toLowerCase().includes(words) || speciesName(l.line).toLowerCase().includes(words)) : lines).slice(0, REGULARS);
-  const others = words ? searchSpecies(q, speciesName).filter((id) => !lines.some((l) => l.species === id)).slice(0, 8) : [];
-  const known = sel ? lines.find((l) => l.line === sel.line) : null;
-  const preview = sel ? { species: sel.species, line: sel.line, note: note.trim() || null, teams: share && known ? known.teams : null, topLevel: known?.top || 1, fell: known?.fell ?? 0 } : null;
-  const pickOther = (id) => setSel({ species: id, line: lineRoot(id, pokeapi()?.evolvesFrom) });
-  const foot = html`<span class="small muted grow">${t('sc.trustFoot', 'From your {n} runs on this computer · any other Pokémon: search', { n: runs })}</span>
-    ${value && html`<button type="button" class="btn ghost" onClick=${() => onDone(null)}>${t('sc.clear', 'Remove')}</button>`}
-    <button type="button" class="btn ghost" onClick=${onClose}>${t('common.cancel', 'Cancel')}</button>
-    <button type="button" class="btn primary" disabled=${!sel} onClick=${() => onDone({ species: sel.species, line: sel.line, note: note.trim() || null })}>${sel ? t('sc.useThis', 'Use {name}', { name: speciesName(sel.species) }) : t('common.save', 'Save')}</button>`;
-  return html`<${Modal} open wide onClose=${onClose} title=${t('pf.trusted', 'Most trusted')} footer=${foot}>
-    <div class="sc-picker sc-trust-wrap">
-      <div class="stack">
-        <div class="sc-tools"><input type="search" aria-label=${t('sc.searchMon', 'Search any Pokémon')} placeholder=${t('sc.searchMon', 'Search any Pokémon')} value=${q} onInput=${(e) => setQ(e.target.value)} />
-          <span class="spacer"></span><span class="small faint">${t('sc.regulars', 'Your regulars – the lines you kept bringing')}</span></div>
-        ${regulars.length > 0 ? html`<div class="sc-regulars" role="radiogroup" aria-label=${t('sc.regularsAria', 'Your regulars')}>${regulars.map((l) => html`<button type="button" role="radio" key=${l.line} aria-checked=${sel?.line === l.line}
-          class=${`sc-reg ${sel?.line === l.line ? 'on' : ''}`} onClick=${() => setSel({ species: l.species, line: l.line })}>
-          <span class="sc-reg-rank" aria-hidden="true">${lines.indexOf(l) + 1}</span><${Sprite} id=${l.species} gen=${5} size=${64} alt="" />
-          <b>${speciesName(l.species)}</b><span class="sc-reg-stats tiny"><span>${t('sc.teamsN', '{count} team|{count} teams', { count: l.teams })}</span><span>${t('sc.lvN', 'Lv {n}', { n: l.top })}</span>
-            ${l.fell > 0 ? html`<span class="bad"><${Icon} name="grave" size=${10} />${l.fell}</span>` : html`<span class="ok">${t('sc.neverFell', 'never fell')}</span>`}</span></button>`)}</div>`
-          : !words && html`<p class="small muted">${t('sc.noLines', 'Your runs on this computer haven’t caught anything yet – search for any Pokémon.')}</p>`}
-        ${others.length > 0 && html`<div class="stack-s"><span class="pf-tag">${t('sc.anyOther', 'Any other Pokémon')}</span>
-          <div class="sc-others" role="radiogroup" aria-label=${t('sc.anyOther', 'Any other Pokémon')}>${others.map((id) => html`<button type="button" role="radio" key=${id} aria-checked=${sel?.species === id}
-            class=${`sc-other ${sel?.species === id ? 'on' : ''}`} onClick=${() => pickOther(id)}><${Sprite} id=${id} gen=${5} size=${40} alt="" /><span>${speciesName(id)}</span></button>`)}</div></div>`}
-        ${words && !regulars.length && !others.length && html`<p class="small muted">${t('sc.noPokemon', 'No Pokémon matches.')}</p>`}
-      </div>
-      <aside class="sc-tprev" aria-label=${t('sc.onProfile', 'On your profile')}><span class="pf-tag">${t('sc.onProfile', 'On your profile')}</span>
-        ${preview ? html`<${TrustedCard} tr=${preview} big />` : html`<p class="small muted">${t('sc.pickOne', 'Pick a Pokémon.')}</p>`}
-        ${known?.nicknames?.length > 0 && html`<span class="small muted">${t('sc.aka', 'as {names}', { names: known.nicknames.map((n) => `“${n}”`).join(', ') })}</span>`}
-        <label class="field"><span>${t('sc.inYourWords', 'In your words (optional)')}</span>
-          <input type="text" maxLength=${TRUSTED_NOTE_MAX} value=${note} placeholder=${t('sc.notePh', 'e.g. carried me through Victory Road')} onInput=${(e) => setNote(e.target.value)} />
-          <span class="hint">${share ? t('sc.wordsHint', 'Shown under the numbers. The numbers update themselves.') : t('sc.wordsHintPrivate', 'Shown under the name. Teams, top level and fallen show once “Show my runs on my profile” is on.')}</span></label>
-      </aside>
-    </div>
-  <//>`;
 }

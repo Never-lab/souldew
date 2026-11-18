@@ -365,16 +365,24 @@ app.whenReady().then(async () => {
     await until("!!document.querySelector('.fr-card')", 20000);
     await proveView('friends', { ready: '.fr-card', contrast: 'main.main' });
 
-    // ---- 5 · light skins: the profile editor (a dialog with fields, pickers, chips) on a light ground
+    // ---- 5 · light skins: the profile editor (the parts drawer, its pickers with fields and chips) on a light ground
     for (const id of lightSkins) {
       await C(`m.applySkin(${JSON.stringify(id)})`);
       await js(`location.hash = '#/profile'`);
       await until("!!document.querySelector('.pf-actions .btn')", 20000);
       await js(`[...document.querySelectorAll('.pf-actions .btn')].find((b) => b.textContent.includes('Edit profile'))?.click(); true`);
-      await until("!!document.querySelector('.pf-editor')", 20000);
+      await until("!!document.querySelector('.pe-drawer .pe-pcard')", 20000);
       await sleep(400);
       await checkSurfaces(id, 'profile editor');
-      await js(`document.querySelector('dialog.modal .modal-foot .btn.ghost')?.click(); true`);
+      for (const part of ['banner', 'name', 'trophies', 'privacy']) {
+        await js(`document.querySelector('.pe-pcard[data-card="${part}"]')?.click(); true`);
+        await until(`!!document.querySelector('.pe-body.p-${part}')`, 20000);
+        await sleep(300);
+        await checkSurfaces(id, `profile editor · ${part}`);
+        await js(`document.querySelector('.pe-back')?.click(); true`);
+        await sleep(200);
+      }
+      await js(`document.querySelector('.pe-bar .btn.ghost')?.click(); true`);
       await sleep(300);
     }
     await C('m.applySkin(null)');

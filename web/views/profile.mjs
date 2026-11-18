@@ -1,30 +1,25 @@
 // The souldew profile (look "A – Logbook"): banner, avatar with frame and presence, name in its nameplate, title,
 // the numbers and run history (only when the player opted in to "Show my runs on my profile"), what they do now,
 // most trusted, favourite game and the showcase. #/profile is your own (with "Edit profile"), #/profile?id=<user> a
-// friend's (with "Invite to a run"). The editor changes banner, frame, nameplate, title (earned trophies), accent
-// (the curated palette only), showcase, status line and privacy with a live preview; souldew+ items can be previewed
-// by everyone and are marked quietly, never pushed.
+// friend's (with "Invite to a run"). #/profile?edit=1 is your own in its edit state – the parts drawer of
+// views/profileedit.mjs (banner, frame, nameplate, accent, name & status, title, showcase layout, trophies, most
+// trusted, favourite game, who sees what), one Save / Cancel; souldew+ items can be tried on by everyone, never pushed.
 import { html, useState, useEffect, useMemo } from '/vendor/htm-preact.mjs';
-import { useApp, Modal, Led } from '../lib/ui.mjs';
+import { useApp, Led } from '../lib/ui.mjs';
 import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
 import { settingsLink } from '../lib/settingsindex.mjs';
-import { useAccount, useCatalog, accentHex, profileOf, updateMe, editorChoices, useFriends, askToJoin } from '../lib/account.mjs';
-import { toCatalogId, fromCatalogId } from '../lib/achievementids.mjs';
+import { useAccount, useCatalog, accentHex, profileOf, updateMe, useFriends, askToJoin } from '../lib/account.mjs';
 import { presenceFrom } from '../lib/presence.mjs';
 import { takenSlots } from './invitecode.mjs';
 import { Avatar, presenceText, canAskToJoin, Badges, TitlePlate, achTitle } from './social.mjs';
 import { SignInFirst, InviteModal, coverForTitle } from './friends.mjs';
-import { Banner, CosmeticPicker, PlusMark } from '../lib/cosmetics/components.mjs';
+import { Banner, PlusMark } from '../lib/cosmetics/components.mjs';
 import { catalog as cosmetics } from '../lib/cosmetics/index.mjs';
-import { STATUS_MAX, FAVORITE_MAX, DEFAULT_SHOWCASE_LAYOUT } from '/shared/social.mjs';
-import { ShowcaseCase, ShowcaseLcd, ShowcaseShelf, TrophyCabinet, TrustedPicker, TrustedCard, achOf } from './showcase.mjs';
-import { AchIcon } from './trophies.mjs';
+import { DEFAULT_SHOWCASE_LAYOUT } from '/shared/social.mjs';
+import { ShowcaseCase, ShowcaseLcd, ShowcaseShelf } from './showcase.mjs';
+import { ProfileEditor } from './profileedit.mjs';
 
-const RANK = { none: 0, supporter: 1, plus: 2, patron: 2 }; // patron = souldew+ (and a badge)
-const NEEDS = { free: 0, supporter: 1, plus: 2 };
-/** May this tier wear this catalog item? (Others see a locked item as nothing – the service decides that.) */
-const allowed = (item, tier) => !item || (RANK[tier] || 0) >= (NEEDS[item.tier] ?? 2);
 const monthYear = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { month: 'long', year: 'numeric' }) : '');
 const shortDate = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { month: 'short', year: 'numeric' }) : '');
 
@@ -32,7 +27,7 @@ function Stat({ n, label, tone }) {
   return html`<div class=${`pf-stat ${tone || ''}`}><b>${n == null ? '–' : n.toLocaleString()}</b><span>${label}</span></div>`;
 }
 
-function StatsStrip({ stats }) {
+export function StatsStrip({ stats }) {
   const s = stats?.totals || {};
   return html`<div class="pf-stats">
     <${Stat} n=${s.runsStarted} label=${t('pf.runs', 'Runs')} />
@@ -51,7 +46,7 @@ function Pips({ n, of = 8 }) {
 
 const resultLabel = (r) => ({ won: t('pf.rWon', 'Won'), lost: t('pf.rLost', 'Wiped'), abandoned: t('pf.rEnded', 'Ended'), active: t('pf.rActive', 'Live') }[r] || r);
 
-function RunHistory({ stats, title }) {
+export function RunHistory({ stats, title }) {
   const { library } = useApp();
   const [filter, setFilter] = useState('all');
   const runs = (stats?.recentRuns || []).filter((r) => filter === 'all' || (filter === 'nuzlocke' ? r.mode !== 'soullink' : r.mode === 'soullink'));
@@ -74,7 +69,7 @@ function RunHistory({ stats, title }) {
   </section>`;
 }
 
-function NowCard({ presence, own, name, onAsk, asked }) {
+export function NowCard({ presence, own, name, onAsk, asked }) {
   const p = presence;
   const live = p && (p.state === 'in_run' || p.state === 'playing');
   return html`<section class="pf-section">
@@ -90,7 +85,7 @@ function NowCard({ presence, own, name, onAsk, asked }) {
 }
 
 /**
- * The masthead (shared by the profile and the editor's live preview), design "A – Logbook": the banner on top, the avatar
+ * The masthead, design "A – Logbook": the banner on top, the avatar
  * overhanging its lower edge – the only thing that may – and below the banner the name row, then the meta row with the
  * actions on its right. test/skin-proof.test.mjs checks the banner stays clear at 1024–1440 px in every skin.
  */
@@ -108,125 +103,6 @@ function Masthead({ prof, presence, accent, actions, meta, bannerNote = null }) 
   </header>`;
 }
 
-// ---- the editor ---------------------------------------------------------------------------------------------------
-function Editor({ me, onClose }) {
-  const { toast, navigate } = useApp();
-  const cat = useCatalog();
-  const [choices, setChoices] = useState(null);
-  const [d, setD] = useState(() => ({
-    banner: me.banner, frame: me.frame, nameplate: me.nameplate, title: me.title, accent: me.accent, status: me.status || '', name: me.name,
-    showcase: { trophies: [...me.showcase.trophies], trusted: me.showcase.trusted || null, trustedText: me.showcase.trustedText || null, favoriteGame: me.showcase.favoriteGame || '' },
-    privacy: { profile: me.privacy.profile },
-  }));
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    editorChoices().then(setChoices, () => setChoices({ achievements: [], species: [], games: [] }));
-  }, []);
-  const tier = me.entitlement?.tier || 'none';
-  const items = (kind) => (cat?.cosmetics || []).filter((c) => c.kind === kind).map((c) => ({ ...c, locked: !allowed(c, tier) }));
-  const earned = new Set((choices?.achievements || []).map(toCatalogId));
-  // earned on this computer – plus what the profile already shows (earned elsewhere), so nothing silently disappears
-  const titles = items('title').filter((c) => (earned.has(c.id) || c.id === me.title) && fromCatalogId(c.id));
-  const itemOf = (kind, id) => (cat?.cosmetics || []).find((c) => c.kind === kind && c.id === id);
-  // locked: the service's catalog says so for this tier – or the cosmetics module says the pick isn't owned
-  const [notOwned, setNotOwned] = useState({});
-  const lockedPicks = ['banner', 'frame', 'nameplate'].filter((k) => d[k] && (!allowed(itemOf(k, d[k]), tier) || notOwned[k]));
-  const pick = (k) => (id, item) => {
-    set({ [k]: id || null });
-    setNotOwned((x) => ({ ...x, [k]: !!item && item.owned === false }));
-  };
-  const accent = accentHex(cat, d.accent);
-  const set = (patch) => setD((x) => ({ ...x, ...patch }));
-  const setShow = (patch) => setD((x) => ({ ...x, showcase: { ...x.showcase, ...patch } }));
-  const [picking, setPicking] = useState(null); // 'trophies' | 'trusted' – the showcase's pickers, on top of the editor
-  // a picked line with its numbers from this computer's runs (the preview; the local server sends the real ones)
-  const withNumbers = (tr) => {
-    if (!tr) return null;
-    const l = (choices?.lines || []).find((x) => x.line === tr.line);
-    return { ...tr, teams: l ? l.teams : null, topLevel: l ? l.top : null, fell: l ? l.fell : null };
-  };
-
-  const save = async () => {
-    const patch = {};
-    for (const k of ['banner', 'frame', 'nameplate', 'title', 'accent']) if ((d[k] || null) !== (me[k] || null)) patch[k] = d[k] || null;
-    if (d.status.trim() !== (me.status || '')) patch.status = d.status.trim() || null;
-    if (d.name.trim() !== me.name) patch.name = d.name.trim() || null;
-    const pickOf = (tr) => (tr ? { species: tr.species, line: tr.line, note: tr.note || null } : null);
-    const sc = { trophies: d.showcase.trophies, trusted: pickOf(d.showcase.trusted), trustedText: d.showcase.trusted ? null : d.showcase.trustedText, favoriteGame: d.showcase.favoriteGame.trim() || null };
-    const was = { trophies: me.showcase.trophies, trusted: pickOf(me.showcase.trusted), trustedText: me.showcase.trusted ? null : me.showcase.trustedText || null, favoriteGame: me.showcase.favoriteGame };
-    if (JSON.stringify(sc) !== JSON.stringify(was)) patch.showcase = sc;
-    if (d.privacy.profile !== me.privacy.profile) patch.privacy = { profile: d.privacy.profile };
-    if (!Object.keys(patch).length) return onClose();
-    setBusy(true);
-    try {
-      await updateMe(patch);
-      toast({ kind: 'ok', title: t('pf.saved', 'Profile saved') });
-      onClose();
-    } catch (e) {
-      toast({ kind: 'death', title: t('pf.saveFailed', 'Couldn’t save the profile'), text: e.message });
-    }
-    setBusy(false);
-  };
-
-  const preview = { ...me, ...d, showcase: { ...d.showcase, trophies: d.showcase.trophies } };
-  return html`<${Modal} open wide onClose=${onClose} title=${t('pf.editTitle', 'Edit profile')}
-    footer=${html`${lockedPicks.length > 0 && html`<span class="small muted grow acct-lockline"><${Icon} name="lock" size=${12} />${t('pf.lockedNote', 'Preview only – {what} comes with souldew+.', { what: lockedPicks.map((k) => ({ banner: t('pf.banner', 'Banner'), frame: t('pf.frame', 'Frame'), nameplate: t('pf.nameplate', 'Nameplate') }[k])).join(', ') })}
-        <a href="#/plus" onClick=${(e) => { e.preventDefault(); onClose(); navigate('plus'); }}>${t('pf.aboutPlus', 'About souldew+')}</a></span>`}
-      <button class="btn ghost" onClick=${onClose}>${t('common.cancel', 'Cancel')}</button>
-      <button class="btn primary" disabled=${busy || lockedPicks.length > 0} onClick=${save}>${t('common.save', 'Save')}</button>`}>
-    <div class="pf-editor">
-      <div class="pf-preview" aria-label=${t('pf.preview', 'Preview')}>
-        <${Masthead} prof=${preview} accent=${accent} meta=${html`@${me.handle}`} actions=${null} />
-      </div>
-      ${!cat && html`<p class="small muted">${t('pf.noCatalog', 'Banners, frames and titles load from the account service – it can’t be reached right now.')}</p>`}
-      <div class="pf-form stack-l">
-        <section class="stack"><h3 class="fr-head">${t('pf.banner', 'Banner')}</h3><${CosmeticPicker} kind="banners" value=${d.banner} onPick=${pick('banner')} /></section>
-        <section class="stack"><h3 class="fr-head">${t('pf.frame', 'Frame')}</h3><${CosmeticPicker} kind="frames" value=${d.frame} onPick=${pick('frame')} /></section>
-        <section class="stack"><h3 class="fr-head">${t('pf.nameplate', 'Nameplate')}</h3><${CosmeticPicker} kind="nameplates" value=${d.nameplate} onPick=${pick('nameplate')} /></section>
-        <div class="grid-2">
-          <label class="field"><span>${t('pf.displayName', 'Display name')}</span><input type="text" maxLength="32" value=${d.name} onInput=${(e) => set({ name: e.target.value })} />
-            <span class="hint">${t('pf.displayNameHint', 'Empty: your Discord name ({name}).', { name: me.discord?.globalName || me.discord?.username || '' })}</span></label>
-          <label class="field"><span>${t('pf.title', 'Title')}</span>
-            <select value=${d.title || ''} onChange=${(e) => set({ title: e.target.value || null })}>
-              <option value="">${t('pf.noTitle', 'No title')}</option>
-              ${titles.map((c) => html`<option value=${c.id}>${achTitle(c.id)}</option>`)}</select>
-            <span class="hint">${titles.length ? t('pf.titleHint', 'The names of trophies you earned.') : t('pf.titleNone', 'Earn trophies to unlock titles.')}</span></label>
-        </div>
-        <label class="field"><span>${t('pf.status', 'Status line')}</span>
-          <div class="row nowrap"><input type="text" class="grow" maxLength=${STATUS_MAX} value=${d.status} placeholder=${t('pf.statusPh', 'e.g. grinding Victory Road')} onInput=${(e) => set({ status: e.target.value })} />
-            <span class="small muted pf-count">${Array.from(d.status).length}/${STATUS_MAX}</span></div></label>
-        <section class="stack"><h3 class="fr-head">${t('pf.accent', 'Accent colour')}</h3>
-          <div class="pf-swatches" role="radiogroup" aria-label=${t('pf.accent', 'Accent colour')}>${(cat?.accents || []).map((a) => html`<button type="button" role="radio" aria-checked=${d.accent === a.key} title=${a.key}
-            class=${`pf-swatch ${d.accent === a.key ? 'on' : ''}`} style=${`--sw:${a.hex}`} onClick=${() => set({ accent: a.key })}><span class="sr-only">${a.key}</span></button>`)}</div></section>
-        <section class="stack"><h3 class="fr-head">${t('pf.showcase', 'Showcase')} <span class="small muted">${t('pf.showcaseHint', 'up to 3 trophies')}</span></h3>
-          <div class="pf-sc-row"><div class="pf-sc-mini" aria-label=${t('pf.showcase', 'Showcase')}>${[0, 1, 2].map((i) => {
-            const a = achOf(d.showcase.trophies[i]);
-            return a ? html`<span title=${achTitle(d.showcase.trophies[i])}><${AchIcon} a=${a} size=${16} /></span>` : html`<span class="empty" aria-hidden="true"></span>`;
-          })}<span class="small muted" style="align-self:center">${d.showcase.trophies.map(achTitle).filter(Boolean).join(' · ')}</span></div>
-            <button type="button" class="btn small" onClick=${() => setPicking('trophies')}><${Icon} name="trophy" size=${14} />${t('pf.openCabinet', 'Open the trophy cabinet')}</button></div>
-          <span class="fr-head small">${t('pf.trusted', 'Most trusted')}</span>
-          <div class="pf-sc-row">${d.showcase.trusted ? html`<${TrustedCard} tr=${{ ...d.showcase.trusted, teams: me.privacy.showRuns ? d.showcase.trusted.teams : null }} />`
-            : html`<span class="small muted grow">${d.showcase.trustedText ? `“${d.showcase.trustedText}”` : t('pf.noTrusted', 'Not picked yet.')}</span>`}
-            <button type="button" class="btn small" onClick=${() => setPicking('trusted')}><${Icon} name="ball" size=${14} />${d.showcase.trusted ? t('pf.changeTrusted', 'Change') : t('pf.pickTrusted', 'Pick a Pokémon')}</button></div>
-          <label class="field"><span>${t('pf.favorite', 'Favourite game')}</span>
-            <input type="text" list="pf-games" maxLength=${FAVORITE_MAX} value=${d.showcase.favoriteGame} onInput=${(e) => setShow({ favoriteGame: e.target.value })} />
-            <datalist id="pf-games">${(choices?.games || []).map((g) => html`<option value=${g.title}></option>`)}</datalist></label>
-        </section>
-        <label class="field" style="max-width:420px"><span>${t('acct.profileVis', 'Who can see my profile')}</span>
-          <select value=${d.privacy.profile} onChange=${(e) => set({ privacy: { profile: e.target.value } })}>
-            <option value="friends">${t('acct.visFriends', 'My friends')}</option><option value="link">${t('acct.visLink', 'Anyone with my handle')}</option>
-            <option value="nobody">${t('acct.visNobody', 'Only me')}</option></select>
-          <span class="hint">${t('pf.moreprivacy', 'Presence, location and your runs: Settings › Account.')}</span></label>
-      </div>
-    </div>
-    ${picking === 'trophies' && html`<${TrophyCabinet} chosen=${d.showcase.trophies} allowed=${cat ? new Set(items('trophy').map((c) => c.id)) : null}
-      onDone=${(ids) => { setShow({ trophies: ids }); setPicking(null); }} onClose=${() => setPicking(null)} />`}
-    ${picking === 'trusted' && html`<${TrustedPicker} value=${d.showcase.trusted} lines=${choices?.lines || []} runs=${choices?.runs || 0} share=${!!me.privacy.showRuns}
-      onDone=${(tr) => { setShow({ trusted: withNumbers(tr), trustedText: null }); setPicking(null); }}
-      onClose=${() => setPicking(null)} />`}
-  <//>`;
-}
-
 // ---- the page -------------------------------------------------------------------------------------------------------
 export function ProfileView() {
   const { route, navigate, toast, session, manifest, doc, me: slot, linkStatus } = useApp();
@@ -236,7 +112,6 @@ export function ProfileView() {
   const own = !id || id === acct.me?.id;
   const [other, setOther] = useState(null);
   const [error, setError] = useState(null);
-  const [editing, setEditing] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [asked, setAsked] = useState(false);
   const [layoutBusy, setLayoutBusy] = useState(false);
@@ -281,12 +156,15 @@ export function ProfileView() {
     }
     setLayoutBusy(false);
   };
-  const scProps = { prof, own, onLayout: own ? setLayout : null, busy: layoutBusy, onEdit: own ? () => setEditing(true) : null };
+  const edit = (part) => navigate('profile', { edit: part || '1' });
+  // your own profile in its edit state: the parts drawer (views/profileedit.mjs), one Save / Cancel
+  if (own && route.params.edit) return html`<${ProfileEditor} key=${acct.me.id} me=${acct.me} presence=${presence} meta=${meta} part=${route.params.edit} onExit=${() => navigate('profile')} />`;
+  const scProps = { prof, own, onLayout: own ? setLayout : null, busy: layoutBusy, onEdit: own ? () => edit('trophies') : null };
   // a friend's souldew+ banner says what it is and links to the souldew+ page (on hover / focus – never a pop-up)
   const plusBanner = !own && prof.banner ? cosmetics().banners.find((b) => b.id === prof.banner && b.plus) : null;
   const bannerNote = plusBanner ? html`<a class="pf-banner-note" href="#/plus" onClick=${(e) => { e.preventDefault(); navigate('plus'); }}>
     <${PlusMark} title="" /><span>${t('pf.plusBanner', '{name} · a souldew+ banner', { name: plusBanner.name })}</span></a>` : null;
-  const actions = own ? html`<button class="btn ghost" onClick=${() => setEditing(true)}><${Icon} name="user" size=${14} />${t('pf.edit', 'Edit profile')}</button>`
+  const actions = own ? html`<button class="btn ghost" onClick=${() => edit()}><${Icon} name="user" size=${14} />${t('pf.edit', 'Edit profile')}</button>`
     : prof.relationship === 'friend' ? html`<button class="btn go" onClick=${() => setInviting(true)}><${Icon} name="link" size=${14} />${t('fr.inviteTo', 'Invite to a run')}</button>` : null;
   return html`<div class="stack-l profile" style=${accent ? `--acc:${accent}` : ''}>
     ${!own && html`<nav class="pf-crumbs small" aria-label=${t('pf.crumbs', 'Breadcrumb')}><a href="#/friends">${t('nav.friends', 'Friends')}</a><span aria-hidden="true">›</span><span>${prof.name}</span></nav>`}
@@ -303,7 +181,6 @@ export function ProfileView() {
       </div>
       ${layout === 'lcd' ? html`<${ShowcaseLcd} ...${scProps} />` : layout === 'shelf' ? html`<${ShowcaseShelf} ...${scProps} />` : null}
     </div>
-    ${editing && html`<${Editor} me=${acct.me} onClose=${() => setEditing(false)} />`}
     ${inviting && html`<${InviteModal} friend=${prof} onClose=${() => setInviting(false)} />`}
   </div>`;
 }
