@@ -4,12 +4,12 @@
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --source <dir> [--preview-source <dir>] [--previews-source <dir>]
 //        the pack SOURCE folders, unsigned: the input of the owner's pack tool (souldew-accounts tools/pack-build.mjs),
 //        which signs them offline with the production key – the app never sees that key.
-//          <source>          contents.json, banners.json, frames.mjs, launch.mjs, skins/*.css, fonts/*.woff2, assets/*
+//          <source>          contents.json, banners.json, frames.mjs, skins/*.css, fonts/*.woff2, assets/*
 //          <preview-source>  the live theme preview pack (--kind preview): the skin stylesheets – nothing else (the
 //                            colour skins need no fonts or art; the builder would still carry fonts/*.woff2 and art as
 //                            PNG ≤ 512 px if a skin referenced them, within the service's limits)
 //          <previews-source> the PUBLIC preview media (--kind previews): a still and a short loop of every premium banner,
-//                            nameplate, frame and launch animation and a still of the app in every colour skin –
+//                            nameplate and frame and a still of the app in every colour skin –
 //                            pictures only (scripts/plus-previews.mjs); the service hands them to anyone
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --out <dir>      a TEST pack to try the whole path locally:
 //        signed with a throwaway dev key (dev-signing.key, kept so later builds keep the same identity) and sealed per file
@@ -50,7 +50,7 @@ const CATALOG = args.includes('--catalog');
 const DAYS = Number(opt('days', 30));
 const HANDHELD = resolve(opt('handheld', join(DESIGN, 'handheld')));
 if (!existsSync(join(DESIGN, 'themes', 'skins.json'))) {
-  console.error(`no design sources at ${DESIGN} (expected themes/, banners/, frames/, launch/) – pass --design`);
+  console.error(`no design sources at ${DESIGN} (expected themes/, banners/, frames/) – pass --design`);
   process.exit(2);
 }
 if (!OUT && !CATALOG && !SOURCE && !PREVIEW_SOURCE && !PREVIEWS_SOURCE) {
@@ -76,13 +76,8 @@ const DROPPED_SKINS = new Set(SKINS_ALL.filter((s) => !SKINS.includes(s)).map((s
 const livePairs = (list) => [].concat(list || []).filter((id) => !DROPPED_SKINS.has(id));
 const B = await imp('banners/recipes/index.mjs');
 const F = await imp('frames/recipes/index.mjs');
-const L = await imp('launch/anims/index.mjs');
-
-// launch animations that come with a skin (launch/README.md › "Suggested packaging"; Fieldbook's two paper-and-ink
-// animations went to Soft Light when the editions were dropped – the animations themselves stay)
-const SKIN_LAUNCH = { 'soft-light': 'two-ink', moss: 'cedar-lid', dusk: 'tile-bloom' };
-const LAUNCH_PAIRS = { 'two-ink': ['soft-light'], 'fold-away': ['soft-light'], 'cedar-lid': ['moss'], gust: ['moss'], 'tile-bloom': ['dusk'], hourglass: ['dusk'] };
-const LAUNCH_COLLECTION = { 'two-ink': 'Soft Light skin', 'fold-away': 'Soft Light skin' };
+// The 2D launch animations of the design sources (launch/) are no longer part of souldew (3.0: the launch is your
+// handheld in 3D, web/lib/handheld) – not in the catalog, the pack or the previews.
 // the Theme Matches banners of the dropped editions stay, as ordinary banners in the collection closest to their art
 const BANNER_REHOME = {
   'field-notes': 'wild', 'pressed-flowers': 'seasons', 'cyanotype-plate': 'fields', 'trace-current': 'console',
@@ -113,7 +108,6 @@ const freeBanners = B.BANNERS.filter((b) => b.set === 'basics');
 const plusBanners = B.BANNERS.filter((b) => b.set !== 'basics');
 const freeFrames = F.FRAMES.filter((f) => f.set === 'basics');
 const plusFrames = F.FRAMES.filter((f) => f.set !== 'basics');
-const plusAnims = L.SET;
 
 // ------------------------------------------------------------------ "Your handheld": the souldew+ stickers and wraps
 // The catalog (names, tiers) is public (shared/handheld.mjs); the art is here. The atlas is built now, once – the app
@@ -135,7 +129,7 @@ if (HH) {
 } else console.warn(`no handheld sources at ${HANDHELD} – the pack goes without the souldew+ stickers and wraps`);
 
 // ------------------------------------------------------------------ bundling code recipes into one module
-// Frames and launch animations are code (per-pixel functions). Each becomes ONE module whose imports point at the app's
+// Frames are code (per-pixel functions). Each becomes ONE module whose imports point at the app's
 // public engine ('@cosmetics/…' – rewritten to absolute same-origin URLs by web/lib/cosmetics/sandbox.mjs), run in a
 // worker. Collection files are wrapped in their own function scope so their top-level names can't collide.
 function bundle(files, specMap, exportName, filterExpr) {
@@ -167,8 +161,6 @@ const framesModule = bundle(FRAME_FILES.map((f) => join(DESIGN, 'frames', 'recip
   { './_lib.mjs': '@cosmetics/frames/recipe-lib.mjs', '../engine/core.mjs': '@cosmetics/frames/engine/core.mjs' }, 'RECIPES', '(r) => !r.reject')
   .replace(/pairsWith:\s*\[([^\]]*)\]/g, (m, list) => `pairsWith: [${list.split(',').map((x) => x.trim()).filter((x) => x && !DROPPED_SKINS.has(x.replace(/^['"]|['"]$/g, ''))).join(', ')}]`);
 if ([...DROPPED_SKINS].some((id) => new RegExp(`pairsWith:[^\\]]*'${id}'`).test(framesModule))) throw new Error('frames.mjs still pairs a dropped skin');
-const ANIM_FILES = plusAnims.map((a) => join(DESIGN, 'launch', 'anims', `${a.id}.mjs`));
-const launchModule = bundle(ANIM_FILES, { '../engine.mjs': '@cosmetics/launch/engine.mjs' }, 'ANIMS', '(a) => !a.cut');
 
 // ------------------------------------------------------------------ skins: CSS with its fonts and art as pack files
 function skinFiles() {
@@ -194,7 +186,7 @@ const collName = (list, id) => list.find((c) => c.id === id)?.name || id;
 function catalogData() {
   const skins = SKINS.map((s) => ({
     id: s.id, name: s.name, hint: s.hint, plus: s.kind !== 'classic',
-    group: s.tone === 'light' ? 'light' : 'dark', tone: s.tone, sw: s.sw, launch: SKIN_LAUNCH[s.id] || null,
+    group: s.tone === 'light' ? 'light' : 'dark', tone: s.tone, sw: s.sw,
   }));
   const bannerPairs = (b) => (b.pairsWith ? [].concat(b.pairsWith) : []);
   const banners = B.BANNERS.map((b) => ({
@@ -205,15 +197,13 @@ function catalogData() {
     id: f.id, name: f.name, collection: f.set, rarity: f.rarity, plus: f.set !== 'basics', pairsWith: f.pairsWith || [],
     pair: f.pair ? bannerByName.get(f.pair) || null : null, sw: swatch(f.pal),
   }));
-  const launch = [{ id: 'cartridge', name: 'Cartridge', collection: 'basics', rarity: 'free', plus: false, pairsWith: [], dur: 1.5, revealAt: 0.9 },
-    ...plusAnims.map((a) => ({ id: a.id, name: a.name, collection: LAUNCH_COLLECTION[a.id] || a.collection.replace(/^Basics · /, ''), rarity: 'rare', plus: true, pairsWith: LAUNCH_PAIRS[a.id] || [], dur: a.dur, revealAt: a.revealAt, sw: swatch(Object.fromEntries((a.pal || []).map((c, i) => [i, c]))) }))];
   const collections = {
     banners: B.COLLECTIONS.map((c) => ({ id: c.id, name: c.name.replace(/ \(free\)$/, '') })),
     frames: F.COLLECTIONS.map((c) => ({ id: c.id, name: c.name.replace(/ \(free\)$/, '') })),
   };
   for (const b of banners) b.collectionName = collName(collections.banners, b.collection);
   for (const f of frames) f.collectionName = collName(collections.frames, f.collection);
-  return { skins, banners, frames, launch, collections };
+  return { skins, banners, frames, collections };
 }
 
 if (CATALOG) {
@@ -229,7 +219,7 @@ if (CATALOG) {
   for (const f of freeFrames) f.pairsWith = f.pairsWith || [];
   ff = `${head('The free avatar frames (Basics) – shipped with the app')}${ff}`;
   writeFileSync(join(dir, 'frames-free.mjs'), ff);
-  console.log(`catalog: ${cat.skins.length} skins, ${cat.banners.length} banners, ${cat.frames.length} frames, ${cat.launch.length} launch animations → web/lib/cosmetics/content/`);
+  console.log(`catalog: ${cat.skins.length} skins, ${cat.banners.length} banners, ${cat.frames.length} frames → web/lib/cosmetics/content/`);
 }
 
 // ------------------------------------------------------------------ the pack's files
@@ -238,14 +228,12 @@ function packFiles() {
   const contents = {
     skins: SKINS.filter((k) => k.kind !== 'classic').map((s) => ({ id: s.id, css: `skins/${s.id}.css` })),
     banners: 'banners.json', frames: { module: 'frames.mjs', ids: plusFrames.map((f) => f.id) },
-    launch: { module: 'launch.mjs', ids: plusAnims.map((a) => a.id) },
     ...(HH ? { handheld: { wraps: 'handheld/wraps.json', stickers: 'handheld/stickers.json', art: 'handheld/stickers.png', cut: 'handheld/stickers-cut.png' } } : {}),
   };
   const files = [
     { path: 'contents.json', bytes: enc.encode(JSON.stringify(contents)) },
     { path: 'banners.json', bytes: enc.encode(JSON.stringify(plusBanners)) },
     { path: 'frames.mjs', bytes: enc.encode(framesModule) },
-    { path: 'launch.mjs', bytes: enc.encode(launchModule) },
     ...skinFiles(),
     ...(HH ? [
       { path: 'handheld/wraps.json', bytes: enc.encode(JSON.stringify(HH.wraps)) },
@@ -274,7 +262,7 @@ function rasterize(svgFile, max) {
  * the preview is stylesheets and nothing else. Should a skin reference a font or art again, the builder carries it
  * (fonts as the same WOFF2 files as the full pack, art as PNG of at most 512 px) within what the service checks when the
  * pack is registered: stylesheets, PNG/WebP ≤ 512 px and WOFF2 fonts (≤ 128 KiB each, ≤ 16 fonts, ≤ 512 KiB together)
- * only – no banners, frames, launch animations or scripts.
+ * only – no banners, frames or scripts.
  */
 const PREVIEW_FONT_MAX = 128 * 1024;
 const PREVIEW_FONTS_MAX = 16;
@@ -321,17 +309,17 @@ function writeSource(dir, files) {
 }
 
 /**
- * The public preview media into `dir` (pictures only): every premium banner, nameplate, frame and launch animation the
+ * The public preview media into `dir` (pictures only): every premium banner, nameplate and frame the
  * catalog shows (monthly drops only once they are out) and every colour skin. Nothing else may end up in it.
  */
 async function previewsMedia(dir) {
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} is not empty`);
   const files = [
-    ...await renderItemPreviews({ design: DESIGN, banners: plusBanners.filter((b) => !b.drop), frames: plusFrames, anims: plusAnims, out: dir }),
+    ...await renderItemPreviews({ design: DESIGN, banners: plusBanners.filter((b) => !b.drop), frames: plusFrames, out: dir }),
     ...renderSkinPreviews({ skins: skinFiles().filter((f) => f.path.startsWith('skins/')).map((f) => ({ id: basename(f.path, '.css'), css: new TextDecoder().decode(f.bytes) })), out: dir }),
     ...await handheldPreviews(dir),
   ];
-  for (const f of files) if (!/^(banners|nameplates|frames|launch|skins|stickers|wraps)\/[a-z0-9][a-z0-9-]*\.(png|webp)$/.test(f.path)) throw new Error(`not a preview picture: ${f.path}`);
+  for (const f of files) if (!/^(banners|nameplates|frames|skins|stickers|wraps)\/[a-z0-9][a-z0-9-]*\.(png|webp)$/.test(f.path)) throw new Error(`not a preview picture: ${f.path}`);
   console.log(`${files.length} preview pictures → ${dir}`);
   return files;
 }
@@ -414,6 +402,6 @@ if (OUT) {
     const { manifestBytes } = await buildManifest({ id: 'souldew-previews', version, kind: 'previews', title: 'souldew+ previews (dev)', files: media });
     writeFileSync(join(OUT, 'access-previews.json'), JSON.stringify({ manifest: b64url(manifestBytes), signature: b64url(await signer.sign(manifestBytes)), publicKey: b64url(signer.publicKey) }, null, 2) + '\n');
   }
-  console.log(`  skins ${contents.skins.length} · banners ${plusBanners.length} · frames ${plusFrames.length} · launch ${plusAnims.length}${HH ? ` · handheld: ${HH.stickers.length} stickers, ${HH.wraps.length} wraps` : ''}`);
+  console.log(`  skins ${contents.skins.length} · banners ${plusBanners.length} · frames ${plusFrames.length}${HH ? ` · handheld: ${HH.stickers.length} stickers, ${HH.wraps.length} wraps` : ''}`);
   console.log(`  start the server with SLS_PLUS_DEV_PACK=${OUT}`);
 }

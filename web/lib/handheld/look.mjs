@@ -3,9 +3,10 @@
 // scene and three.js are imported only here and only when something draws a device – never at the app's start.
 import { useState, useEffect } from '/vendor/htm-preact.mjs';
 import { api } from '../api.mjs';
-import { cleanHandheld, emptyHandheld, lookToPlay, wrapById, launchLook, cleanLaunchLook, cleanLaunchPace, cleanClearTint, CLEAR_TINTS, devKey } from '/shared/handheld.mjs';
-import { layoutKey } from '../cosmetics/launch/engine.mjs';
+import { cleanHandheld, emptyHandheld, lookToPlay, wrapById, cleanLaunchLook, cleanLaunchPace, cleanClearTint, CLEAR_TINTS, devKey, launchTier, launchRights, playableLookFor } from '/shared/handheld.mjs';
+import { layoutKey } from './layouts.mjs';
 import { packState, onChange as onCosmetics } from '../cosmetics/index.mjs';
+import { accountState, onAccount } from '../account.mjs';
 import { content } from '../cosmetics/state.mjs';
 import { earnedTrophies } from '../trophies.mjs';
 import { favourites } from '../favourites.mjs';
@@ -66,16 +67,37 @@ export function launchConfig(cfg) {
   const pace = cleanLaunchPace(cfg?.launchPace);
   return { look, pace, clear: cleanClearTint(cfg?.launchClear), off: pace === 'off' || cfg?.bootAnimation === false };
 }
-export const member = () => !!packState().entitled;
+
+/**
+ * What this account's launch may use right now (shared/handheld.mjs launchRights): the verified tier from the account
+ * store (signed out: free), souldew+ items with the pack loaded. Read at the moment a game starts – never a request.
+ */
+export function launchRightsNow() {
+  const a = accountState();
+  const entitled = !!packState().entitled;
+  return launchRights(launchTier({ signedIn: !!a.session?.signedIn, tier: a.me?.entitlement?.tier || 'none', entitled }), { entitled });
+}
+/** launchRightsNow(), re-rendered when the account or the pack changes (a membership linked, ended, the pack loaded). */
+export function useLaunchRights() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const fn = () => tick((n) => n + 1);
+    const a = onAccount(fn), b = onCosmetics(fn);
+    return () => { a(); b(); };
+  }, []);
+  return launchRightsNow();
+}
+/** souldew+ items usable (the pack is here) */
+export const member = () => launchRightsNow().plus;
 /** The launch look this account can play: a souldew+ look without souldew+ plays "Your colours" (the choice is kept). */
-export const playableLook = (id) => (launchLook(id).tier === 'plus' && !member() ? 'your-colours' : launchLook(id).id);
+export const playableLook = (id, rights = launchRightsNow()) => playableLookFor(id, rights);
 
 /** What the launch plays from the handheld right now: owned items only, Surprise me picks a design (shared/handheld.mjs). */
-export function lookNow(rnd = Math.random) {
+export function lookNow(rnd = Math.random, rights = launchRightsNow()) {
   // the trophies as the app last synced them (it does at its start) – never a sync here: that is the server's work at
   // the very moment it starts the game. Not known yet: the earned stickers wait for the next start.
   const tr = earnedTrophies();
-  return lookToPlay(doc, { member: member(), trophies: tr || new Set(), favDesigns: favourites().design || [], rnd });
+  return lookToPlay(doc, { member: rights.plus, trophies: tr || new Set(), favDesigns: favourites().design || [], rnd, surprise: rights.surprise });
 }
 
 /** a wrap for the scene: { skin: composition + finish, recipe } – or null (the theme colour, or its data isn't here) */

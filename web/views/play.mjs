@@ -25,7 +25,8 @@ import { gymCapsFamily } from '/shared/routes.mjs';
 import { shiftEntry } from '/shared/live/romwram.mjs';
 import { RulesTab } from './board.mjs';
 import { LaunchStage, insertCover } from './launchstage.mjs';
-import { launchConfig } from '../lib/handheld/look.mjs';
+import { CartInsert } from './cartinsert.mjs';
+import { launchConfig, launchRightsNow } from '../lib/handheld/look.mjs';
 import { play as playCue } from '../lib/sound.mjs';
 import { addSample, typicalReach, offeredSteps, beyondReach, HELD } from '../lib/reach.mjs';
 import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
@@ -300,16 +301,22 @@ export function GameSession({ session, mode }) {
   const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus, library, wagerRef } = useApp();
   const payRef = useRef(null); // link battle wagers into this game (web/lib/wagerpay.mjs) – only the player's own run game
   const target = session.target;
-  // the launch animation (views/launchstage.mjs: your handheld in 3D, Settings › Play › Launch animation) plays over the
-  // screen area while the game boots underneath – it never makes the game wait, and it is silent. Off (or the general
-  // "Play animations" switched off): nothing, the module's click sounds when the game appears, as before.
+  // the launch animation (Settings › Play › Launch animation) – what the membership allows at this moment (shared/
+  // handheld.mjs launchRights; a membership that ended keeps the settings and plays what the tier allows now):
+  // - Supporter and souldew+: your handheld in 3D (views/launchstage.mjs) over the screen area while the game boots
+  //   underneath – it never makes the game wait, and it is silent;
+  // - free: the 2D module sliding into the console (views/cartinsert.mjs, never with reduced motion) – it clicks in.
+  // Off (or the general "Play animations" switched off): nothing, the module's click sounds when the game appears.
   const launchCfg = launchConfig(status?.config);
-  const [launching, setLaunching] = useState(() => mode === 'full' && !launchCfg.off);
-  // The emulator stays invisible until the core has started: no black canvas or RetroArch menu flashing behind the
-  // animation. It loads all the while – only its visibility waits.
+  const [three] = useState(() => launchRightsNow().three);
+  const [launching, setLaunching] = useState(() => mode === 'full' && !launchCfg.off && three);
+  const [inserting, setInserting] = useState(() => mode === 'full' && !launchCfg.off && !three
+    && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+  // The emulator stays invisible until the core has started (and the module is home): no black canvas or RetroArch
+  // menu flashing behind the animation. It loads all the while – only its visibility waits.
   const [screenShown, setScreenShown] = useState(mode !== 'full');
-  const animated = useRef(launching); // the launch animation is silent: the module's click isn't played under it
-  const overlaid = useRef(launching); // the picture comes up under the launch animation: no fade-in of its own
+  const animated = useRef(launching || inserting); // the 3D launch is silent; the module plays its own click
+  const overlaid = useRef(launching); // the picture comes up under the 3D launch: no fade-in of its own
   const game = gameById(target.gameId);
   const frame = useRef(null);
   const [phase, setPhase] = useState('loading'); // loading | running | error
@@ -319,7 +326,7 @@ export function GameSession({ session, mode }) {
   const [volume, setVolumeState] = useState(() => ls.get('sl-volume', 0.6));
   const [muted, setMuted] = useState(false);
   useEffect(() => {
-    if (screenShown) return undefined;
+    if (screenShown || inserting) return undefined;
     if (phase === 'running') {
       setScreenShown(true);
       // no animation (reduced motion / turned off): the module still clicks in – when the game appears
@@ -328,7 +335,7 @@ export function GameSession({ session, mode }) {
     }
     const late = setTimeout(() => setScreenShown(true), 20000); // the core never started: show what the player says
     return () => clearTimeout(late);
-  }, [screenShown, phase]);
+  }, [screenShown, inserting, phase]);
   const [turboAudio, setTurboAudioState] = useState(readTurboAudio);
   // changed in Settings › Play while this game runs in the corner: it switches at once
   useEffect(() => {
@@ -1897,6 +1904,8 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
       ${full && html`<${Dock} side=${side} folded=${folded} onFold=${setFolded} head=${head} sections=${sections} who=${who} dockRef=${dockRef} wide=${wide} />`}
       ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} pl=${pl} />`}
     </div>
+    ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false}
+      onDone=${() => { setInserting(false); focusGame(); }} />`}
     <${RulesDrawer} open=${rulesOpen && full} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${RulesTab} />
     ${mode === 'mini' && html`<button class="mini-open" onClick=${(e) => { e.currentTarget.blur(); actions.expand(); }} aria-label=${t('play.backToGameNamed', 'Back to the game: {name}', { name: target.label })}>
       <span class="mini-open-label"><${Icon} name="play" size=${14} />${t('play.backToGame', 'Back to the game')}</span></button>`}

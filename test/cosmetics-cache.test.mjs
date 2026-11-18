@@ -249,7 +249,9 @@ test('client: a member loads the pack – content in memory, entitled, nothing p
     assert.deepEqual({ entitled: st.entitled, preview: st.preview, packVersion: st.packVersion, error: st.error }, { entitled: true, preview: false, packVersion: '1.0.0', error: null });
     assert.ok(S.has('skins', 'moss') && S.owned('skins', 'moss'));
     assert.ok(S.content.banners.has('night-marsh') && S.content.banners.has('lcd-grid'), 'pack banners next to the free ones');
-    assert.ok(S.content.launchIds.has('gust'));
+    // an older pack still carries the 2D launch animations (launch.mjs): it loads, and they are left alone
+    assert.equal(S.content.launchIds, undefined);
+    assert.equal(S.content.launchModule, undefined);
   });
 });
 

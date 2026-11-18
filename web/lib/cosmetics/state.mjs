@@ -30,8 +30,6 @@ export const content = {
   files: new Map(), // pack path → bytes (fonts, art the skins use)
   framesModule: null, // signed module text (frames.mjs) – runs only in a worker (sandbox.mjs)
   frameIds: new Set(),
-  launchModule: null, // signed module text (launch.mjs)
-  launchIds: new Set(),
   handheld: null, // "Your handheld"'s souldew+ part: { wraps: [composition], stickers: { layout, art, cut } } (web/lib/handheld)
 };
 
@@ -42,8 +40,6 @@ export function setContent(next) {
   content.files = new Map(next?.files || []);
   content.framesModule = next?.framesModule || null;
   content.frameIds = new Set(next?.frameIds || []);
-  content.launchModule = next?.launchModule || null;
-  content.launchIds = new Set(next?.launchIds || []);
   content.handheld = next?.handheld || null;
   state.generation++;
 }
@@ -96,7 +92,6 @@ export function owned(kind, id) {
 export function has(kind, id) {
   if (kind === 'banners' || kind === 'nameplates') return content.banners.has(id);
   if (kind === 'frames') return FREE_FRAME_IDS.has(id) || content.frameIds.has(id);
-  if (kind === 'launch') return id === 'cartridge' || content.launchIds.has(id);
   if (kind === 'skins') return id === 'classic' || content.skinCss.has(id);
   return false;
 }

@@ -94,7 +94,7 @@ test('listSkins: the catalog with groups, the souldew+ flag, owned / available',
   const classic = list.find((s) => s.id === 'classic');
   assert.deepEqual([classic.plus, classic.owned], [false, true]);
   const moss = list.find((s) => s.id === 'moss');
-  assert.deepEqual([moss.plus, moss.owned, moss.available, moss.launch], [true, true, true, 'cedar-lid']);
+  assert.deepEqual([moss.plus, moss.owned, moss.available, moss.launch], [true, true, true, undefined], 'no paired 2D launch animation any more');
   assert.equal(list.find((s) => s.id === 'glacier').owned, false);
   for (const gone of ['fieldbook', 'clearshell', 'woodgrain', 'enamel']) assert.equal(list.some((s) => s.id === gone), false, `${gone} is not a souldew+ theme any more`);
   for (const s of list) assert.ok(s.name && s.sw.length >= 5 && ['dark', 'light'].includes(s.group), s.id);

@@ -62,7 +62,9 @@ test('curated: a handful of the strongest per kind – every pick exists, is sou
   for (const [k, id] of Object.entries(P.HERO_LOOK)) assert.ok(CATALOG[k === 'nameplate' ? 'banners' : `${k}s`].some((x) => x.id === id && x.plus), k);
   const n = P.plusCounts(CATALOG);
   assert.equal(n.skins, 16);
-  assert.ok(n.banners > 100 && n.frames > 60 && n.launch > 10);
+  assert.ok(n.banners > 100 && n.frames > 60);
+  assert.equal(n.launch, undefined, 'the 2D launch animations are gone');
+  assert.equal(c.launch, undefined);
 });
 
 test('the page: one hero per state, the viewer\'s real picture through the local avatar proxy only, preview media for what isn\'t owned', () => {

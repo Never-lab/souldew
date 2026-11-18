@@ -159,7 +159,7 @@ function PlusGroup({ me, toast }) {
         <div class="row"><span class=${`chip ${isPlus(ent.tier) ? 'ok' : ''}`}>${tierName(ent.tier)}</span>
           ${ent.until && html`<span class="small muted">${t('acct.until', 'until {date}', { date: dateOf(ent.until) })}</span>`}<${Badges} badges=${ent.badges} /></div>
         <p class="small muted">${isPlus(ent.tier) ? t('acct.plusThanks', 'Thank you for supporting souldew! Your souldew+ banners, frames and nameplates are in the profile editor.')
-          : t('acct.plusText', 'souldew stays free. If you support it on Buy Me a Coffee, the souldew+ membership adds banners, frames and nameplates for your profile – the other tiers get a Supporter badge.')}</p>
+          : t('acct.plusText2', 'souldew stays free. If you support it on Buy Me a Coffee, souldew+ adds banners, frames and nameplates for your profile, the colour themes and everything for your handheld. Supporter gets a badge and the 3D launch with your own handheld.')}</p>
         ${!isPlus(ent.tier) && html`<div class="row"><a class="btn small go" href="#/plus"><${Icon} name="plus" size=${12} />${t('acct.seePlus', 'See souldew+')}</a>
           <button class="btn small ghost" onClick=${() => openExternal(LINKS.coffee)}><${Icon} name="coffee" size=${14} />${t('acct.toCoffee', 'Buy Me a Coffee')}</button></div>`}
         ${!isPlus(ent.tier) && html`<${PlusShowcase} />`}
@@ -331,7 +331,7 @@ export function AccountSection({ toast }) {
     ${on && parts.privacy && html`<${Group} title=${t('acct.privacy', 'Privacy')}><${Item} id="account-privacy">${parts.privacy}<//><//>`}
     ${on && parts.plus && html`<${Group} title="souldew+"><${Item} id="plus">${parts.plus}<//><//>`}
     ${acct.loaded && !on && html`<${Group} title="souldew+"><${Item} id="plus-show"><div class="stack">
-      <p class="small muted">${t('acct.plusText', 'souldew stays free. If you support it on Buy Me a Coffee, the souldew+ membership adds banners, frames and nameplates for your profile – the other tiers get a Supporter badge.')}</p>
+      <p class="small muted">${t('acct.plusText2', 'souldew stays free. If you support it on Buy Me a Coffee, souldew+ adds banners, frames and nameplates for your profile, the colour themes and everything for your handheld. Supporter gets a badge and the 3D launch with your own handheld.')}</p>
       <${PlusShowcase} /></div><//><//>`}
     ${on && html`<${Group} title=${t('acct.devices', 'Signed-in devices')}><${Item} id="account-sessions">${parts.sessions}<//><//>`}
     ${on && html`<${Group} title=${t('acct.dataTitle', 'Your data')}><${Item} id="account-data">${parts.data}<//><//>`}`;

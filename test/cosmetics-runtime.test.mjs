@@ -191,9 +191,9 @@ test('frames: sized to the avatar box as laid out – a 104 px avatar the CSS sh
 test('worker source: no pack → only the free content; the pack text is used as given otherwise', () => {
   const free = workerSource({ hostModule: 'frames/worker-host.mjs', freeModule: 'content/frames-free.mjs' });
   assert.match(free, /__souldewHost\(\[\.\.\.__souldewFree, \.\.\.\[\]\]\)/);
-  const launch = workerSource({ hostModule: 'launch/worker-host.mjs', packText: "import { od } from '@cosmetics/launch/engine.mjs';\nexport const ANIMS = [];", packExport: 'ANIMS' });
-  assert.match(launch, /^import 'http:\/\/127\.0\.0\.1:47631\/lib\/cosmetics\/canvas-proxy\.mjs';\n/, 'the canvas stand-ins first');
-  assert.match(launch, /\nimport \{ od \} from 'http:\/\/127\.0\.0\.1:47631\/lib\/cosmetics\/launch\/engine\.mjs';/);
-  assert.match(launch, /__souldewHost\(\[\.\.\.\[\], \.\.\.ANIMS\]\)/);
+  const pack = workerSource({ hostModule: 'frames/worker-host.mjs', packText: "import { od } from '@cosmetics/frames/engine/core.mjs';\nexport const RECIPES = [];", packExport: 'RECIPES' });
+  assert.match(pack, /^import 'http:\/\/127\.0\.0\.1:47631\/lib\/cosmetics\/canvas-proxy\.mjs';\n/, 'the canvas stand-ins first');
+  assert.match(pack, /\nimport \{ od \} from 'http:\/\/127\.0\.0\.1:47631\/lib\/cosmetics\/frames\/engine\/core\.mjs';/);
+  assert.match(pack, /__souldewHost\(\[\.\.\.\[\], \.\.\.RECIPES\]\)/);
   void wait;
 });

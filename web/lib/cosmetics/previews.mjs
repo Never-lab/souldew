@@ -1,4 +1,4 @@
-// souldew+ preview media in the page: the real look of every premium banner, nameplate, avatar frame, launch animation
+// souldew+ preview media in the page: the real look of every premium banner, nameplate, avatar frame
 // and colour skin for someone who doesn't own it – signed in or not. The local server fetches them from the accounts
 // service and hands out only pictures whose signed manifest (pinned pack key) and SHA-256 checked out
 // (server/lib/pluspreviews.mjs); here they are plain <img>s: a still, and the short loop while the card is hovered or
@@ -29,10 +29,10 @@ export function loadPreviews(force = false) {
 }
 
 // stickers / wraps: "Your handheld"'s souldew+ stickers and skins – a still each (scripts/plus-dev-pack.mjs handheldPreviews)
-const KINDS = { banners: 'banners', nameplates: 'nameplates', frames: 'frames', launch: 'launch', skins: 'skins', stickers: 'stickers', wraps: 'wraps' };
+const KINDS = { banners: 'banners', nameplates: 'nameplates', frames: 'frames', skins: 'skins', stickers: 'stickers', wraps: 'wraps' };
 const STILL_ONLY = new Set(['skins', 'stickers', 'wraps']);
 
-/** kind: banners | nameplates | frames | launch | skins | stickers | wraps. loop: the animated WebP (skins, stickers and wraps have a still only). */
+/** kind: banners | nameplates | frames | skins | stickers | wraps. loop: the animated WebP (skins, stickers and wraps have a still only). */
 export function previewSrc(kind, id, { loop = false } = {}) {
   if (!list?.files || !KINDS[kind] || typeof id !== 'string') return null;
   const path = `${KINDS[kind]}/${id}.${kind === 'skins' || (loop && !STILL_ONLY.has(kind)) ? 'webp' : 'png'}`;

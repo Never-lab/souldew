@@ -19,7 +19,6 @@ export const CURATED = {
   banners: ['night-train', 'aurora-fjord', 'cherry-orchard'],
   frames: ['brass-ring', 'cathedral-glass', 'sakura-bough', 'snow-globe'],
   nameplates: ['night-train', 'cherry-orchard'],
-  launch: ['low-tide', 'lantern-row', 'star-chart'],
 };
 
 /** What the viewer wears on the hero card when they have no souldew+ look of their own yet. */
@@ -69,14 +68,13 @@ export function curatedFrom(cat) {
     banners: pick(cat?.banners, CURATED.banners),
     frames: pick(cat?.frames, CURATED.frames),
     nameplates: pick(cat?.nameplates || cat?.banners, CURATED.nameplates),
-    launch: pick(cat?.launch, CURATED.launch),
   };
 }
 
 /** How many souldew+ items of each kind there are in all (monthly drops count once they're out). */
 export function plusCounts(cat) {
   const n = (list) => (list || []).filter((x) => x.plus && !x.drop).length;
-  return { skins: n(cat?.skins), banners: n(cat?.banners), frames: n(cat?.frames), launch: n(cat?.launch) };
+  return { skins: n(cat?.skins), banners: n(cat?.banners), frames: n(cat?.frames) };
 }
 
 /** Every souldew+ colour theme, the dark ones first – the page's swatch strip (colours only, never an edition). */

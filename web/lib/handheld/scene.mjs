@@ -17,8 +17,8 @@
 // The last frame is the play view's own screen rectangle, pixel for pixel (finalCamera): the real game is under it.
 import * as THREE from '/vendor/three/three.module.min.js';
 import { RoomEnvironment } from '/vendor/three/RoomEnvironment.js';
-import { placeholderCanvas } from '../cosmetics/launch/placeholder.mjs';
-import { LAYOUTS } from '../cosmetics/launch/engine.mjs';
+import { placeholderCanvas } from './placeholder.mjs';
+import { LAYOUTS } from './layouts.mjs';
 import { withSurface, NSTK } from './surface.mjs';
 import { DEVICES, PX, partsOf, surfacesOf, unfold } from './geometry.mjs';
 import { wrapArt } from './wrap.mjs';

@@ -1,9 +1,12 @@
 // "Your handheld" where you meet it (the owner's decision after round 6: under Settings alone it gets lost):
 //   HandheldTile      a compact tile in the library's header – a small still of your device in its current design and
-//                     the design's name; a click opens the editor (#/handheld). Members and non-members alike; a quiet
-//                     "+" says more skins and stickers come with souldew+ – no ad.
-//   HandheldShowcase  the souldew+ page's featured section – your device, live and turning slowly, "Dress your handheld",
-//                     Surprise me, the skins and stickers. The editor itself stays in Settings › Play › Launch animation.
+//                     the design's name; a click opens the editor (#/handheld). Supporter and souldew+ only (the 3D
+//                     launch is theirs): a free library carries no ad. A Supporter's quiet "+" says more skins and
+//                     stickers come with souldew+.
+//   HandheldShowcase  the souldew+ page's featured section – your device, live and turning slowly, the skins and
+//                     stickers; with Supporter or souldew+ "Dress your handheld" (and souldew+'s Surprise me). For
+//                     everyone else it is the showcase: the one place a free account sees the handheld. The editor
+//                     itself stays in Settings › Play › Launch animation.
 //   HandheldStillImg  one still of your handheld (the launch scene, rendered once, then the GPU is let go).
 import { html, useEffect, useRef, useState } from '/vendor/htm-preact.mjs';
 import { t } from '../lib/i18n.mjs';
@@ -12,8 +15,9 @@ import { packState } from '../lib/cosmetics/index.mjs';
 import { PlusMark } from '../lib/cosmetics/components.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
-import { WRAPS, STICKERS, UNLOCKS, launchLook, wrapById, devKey } from '/shared/handheld.mjs';
-import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick } from '../lib/handheld/look.mjs';
+import { WRAPS, STICKERS, UNLOCKS, wrapById, devKey, playableLookFor, launchLook, lookToPlay } from '/shared/handheld.mjs';
+import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick, useLaunchRights } from '../lib/handheld/look.mjs';
+import { earnedTrophies } from '../lib/trophies.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { atlasNow, loadAtlas } from '../lib/handheld/stickers.mjs';
 import { wrapThumb } from '../lib/handheld/wrap.mjs';
@@ -36,25 +40,28 @@ export function HandheldStillImg({ sys, look, skin, stickers, w, h, view, zoom, 
 }
 
 /** What the handheld wears, in a few words: the worn design's name, else the skin's, else "your theme colour". */
-function wearing(doc) {
+function wearing(doc, R) {
   const d = doc.designs.find((x) => x.id === doc.active);
-  if (doc.surprise && doc.designs.length > 1) return t('hh.surpriseShort', 'Surprise me · {n} designs', { n: doc.designs.length });
+  if (R.surprise && doc.surprise && doc.designs.length > 1) return t('hh.surpriseShort', 'Surprise me · {n} designs', { n: doc.designs.length });
   if (d) return d.name;
-  return wrapById(doc.skin)?.name || t('hh.themeColourCap', 'Theme colour');
+  const w = wrapById(doc.skin);
+  return (w && (w.tier === 'free' || R.plus) ? w.name : null) || t('hh.themeColourCap', 'Theme colour');
 }
 
 /** The library header's tile. `system`: the device to show (the game you play most recently), DS without one. */
 export function HandheldTile({ system }) {
   const { navigate, status } = useApp();
   const doc = useHandheld();
+  const R = useLaunchRights();
+  if (!R.three) return null; // free: the 2D launch – no handheld in the library (it is on the souldew+ page)
   const sys = devKey(system) || 'nds';
   const L = launchConfig(status?.config);
-  const member = !!packState().entitled;
-  const look = launchLook(L.look).tier === 'plus' && !member ? 'theme' : launchLook(L.look).look;
+  const look = launchLook(playableLookFor(L.look, R)).look;
+  const plays = lookToPlay(doc, { member: R.plus, trophies: earnedTrophies(), surprise: false });
   return html`<button type="button" class="hh-tile" onClick=${() => navigate('handheld', { sys })} title=${t('hh.dress', 'Dress your handheld')}>
-    <${HandheldStillImg} sys=${sys} look=${look} skin=${doc.skin} stickers=${doc.stickers[sys] || []} w=${84} h=${52} zoom=${2.6} class="hh-tile-pic" />
-    <span class="hh-tile-txt"><span class="hh-tile-k">${t('hh.title', 'Your handheld')}${!member && html` <${PlusMark} title=${t('hh.plusQuiet', 'More skins and stickers come with souldew+')} />`}</span>
-      <b class="ellipsis">${wearing(doc)}</b></span>
+    <${HandheldStillImg} sys=${sys} look=${look} skin=${plays.skin} stickers=${plays.stickers[sys] || []} w=${84} h=${52} zoom=${2.6} class="hh-tile-pic" />
+    <span class="hh-tile-txt"><span class="hh-tile-k">${t('hh.title', 'Your handheld')}${!R.plus && html` <${PlusMark} title=${t('hh.plusQuiet', 'More skins and stickers come with souldew+')} />`}</span>
+      <b class="ellipsis">${wearing(doc, R)}</b></span>
   </button>`;
 }
 
@@ -64,12 +71,16 @@ export function HandheldShowcase() {
   usePreviews();
   const { navigate, status } = useApp();
   const doc = useHandheld();
-  const member = !!packState().entitled;
+  const R = useLaunchRights();
+  const member = R.plus;
   const [sys, setSys] = useState('nds');
   const box = useRef(null), cvs = useRef(null);
   const L = launchConfig(status?.config);
-  const look = launchLook(L.look).tier === 'plus' && !member ? 'theme' : launchLook(L.look).look;
-  const stickers = doc.stickers[sys] || [];
+  // free: the showcase wears the theme colour and the free look (their kept handheld waits for a membership);
+  // Supporter / souldew+: their own handheld as the launch plays it
+  const look = R.three ? launchLook(playableLookFor(L.look, R)).look : 'theme';
+  const plays = R.three ? lookToPlay(doc, { member, trophies: earnedTrophies(), surprise: false }) : { skin: null, stickers: {} };
+  const stickers = plays.stickers[sys] || [];
   useEffect(() => {
     let alive = true, scene = null, raf = 0, io = null, seen = true;
     const reduced = prefersReduced();
@@ -79,7 +90,7 @@ export function HandheldShowcase() {
     cvs.current.replaceChildren(cv);
     (async () => {
       const b = box.current.getBoundingClientRect();
-      const r = await poseScene(cv, { sys, look, skin: doc.skin, w: Math.round(b.width), h: Math.round(b.height), el: box.current, reduced, clear: L.clear,
+      const r = await poseScene(cv, { sys, look, skin: plays.skin, w: Math.round(b.width), h: Math.round(b.height), el: box.current, reduced, clear: L.clear,
         plan: () => viewPlan(sys, fold ? 'lid' : 'back', { yaw: yaw.v, tilt: fold ? 4 : 2, zoom: 1.45 }) });
       scene = r.scene;
       if (!alive) { scene.dispose(); return; }
@@ -98,7 +109,7 @@ export function HandheldShowcase() {
       raf = requestAnimationFrame(tick);
     })().catch(() => {});
     return () => { alive = false; cancelAnimationFrame(raf); io?.disconnect(); scene?.dispose(); };
-  }, [sys, look, doc.skin, JSON.stringify(stickers), packState().entitled, L.clear]);
+  }, [sys, look, plays.skin, JSON.stringify(stickers), packState().entitled, L.clear]);
   const skins = WRAPS.map((w) => ({ ...w, pic: wrapThumb(w.id) || previewSrc('wraps', w.id) }));
   const nPlus = STICKERS.filter((s) => s.tier === 'plus').length;
   return html`<section class="plus-sec hh-show" aria-label=${t('hh.title', 'Your handheld')}>
@@ -108,12 +119,14 @@ export function HandheldShowcase() {
     <div class="hh-show-text stack-s">
       <span class="plus-kicker">${t('hh.showK', 'Your handheld')}</span>
       <h2>${t('hh.showT', 'Dress the device your games start on')}</h2>
-      <p class="small muted">${t('hh.showP', 'Your launch animation plays on your own souldew handheld. Wrap it in a skin made from a banner, stick on up to 8 stickers per device – holo, glitter, over the edges – and save designs. Only you see it.')}</p>
+      <p class="small muted">${t('hh.showP2', 'The 3D launch animation plays on your own souldew handheld. Wrap it in a skin made from a banner, stick on up to 8 stickers per device – holo, glitter, over the edges – and save designs. Only you see it.')}</p>
       <div class="hh-show-skins" aria-label=${t('hh.skins', 'Skins')}>${skins.map((w) => html`<span class=${`hh-show-skin ${w.finish}`} title=${w.name} style=${w.pic ? `background-image:url(${w.pic})` : ''}>${w.tier === 'free' && html`<i>${t('hh.free', 'free')}</i>`}</span>`)}</div>
       <span class="small faint">${t('hh.showCounts', '{skins} skins · {stickers} stickers · {earned} you can only earn', { skins: WRAPS.length, stickers: STICKERS.length, earned: UNLOCKS.length })}${member ? '' : ` · ${t('hh.showPlus', '{n} stickers, 6 skins and holo / glitter come with souldew+', { n: nPlus })}`}</span>
-      <div class="row hh-show-btns"><button type="button" class="btn primary" onClick=${() => navigate('handheld', { sys })}>${t('hh.dress', 'Dress your handheld')}</button>
-        <label class="check small"><input type="checkbox" checked=${!!doc.surprise} disabled=${doc.designs.length < 2} onChange=${(e) => setHandheld({ ...doc, surprise: e.target.checked })} />
-          <span>${t('hh.surprise', 'Surprise me at start')}<span class="hint">${doc.designs.length < 2 ? t('hh.surpriseHint0', 'Save two designs or more and every launch picks one of them.') : t('hh.surpriseHint', 'Every launch picks one of your designs at random.')}</span></span></label></div>
+      ${R.three ? html`<div class="row hh-show-btns"><button type="button" class="btn primary" onClick=${() => navigate('handheld', { sys })}>${t('hh.dress', 'Dress your handheld')}</button>
+        ${R.surprise && html`<label class="check small"><input type="checkbox" checked=${!!doc.surprise} disabled=${doc.designs.length < 2} onChange=${(e) => setHandheld({ ...doc, surprise: e.target.checked })} />
+          <span>${t('hh.surprise', 'Surprise me at start')}<span class="hint">${doc.designs.length < 2 ? t('hh.surpriseHint0', 'Save two designs or more and every launch picks one of them.') : t('hh.surpriseHint', 'Every launch picks one of your designs at random.')}</span></span></label>`}</div>`
+        : html`<p class="small hh-show-tier">${t('hh.showFree', 'The 3D launch with your own handheld comes with Supporter or souldew+. Without them, your games start with the cartridge sliding into the console.')}</p>
+          <span class="small faint">${t('hh.earnedFree', 'The three earned stickers come with a hard trophy – they show in the 3D launch, with Supporter or souldew+.')}</span>`}
     </div>
   </section>`;
 }

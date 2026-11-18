@@ -14,7 +14,8 @@
 export const FAV_KINDS = ['banner', 'frame', 'nameplate', 'theme', 'launch', 'skin', 'sticker', 'design'];
 
 /** The cosmetics catalog's list names (web/lib/cosmetics catalog()) → favourite kinds. */
-export const FAV_KIND_OF = { banners: 'banner', frames: 'frame', nameplates: 'nameplate', skins: 'theme', launch: 'launch' };
+export const FAV_KIND_OF = { banners: 'banner', frames: 'frame', nameplates: 'nameplate', skins: 'theme' };
+// ('launch' is the 3D launch's looks – shared/handheld.mjs LAUNCH_LOOKS, not a catalog list)
 
 /** The filter row's chips, in their order. */
 export const FAV_FILTERS = ['all', 'favs', 'owned', 'plus', 'earned'];

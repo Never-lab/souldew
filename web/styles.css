@@ -1055,6 +1055,38 @@ tr.pad-lit .kbd { border-color: var(--tri); color: var(--ink); }
 .pad-hints { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
 .pad-pick-hint { align-self: end; padding-bottom: 4px; } /* next to the controller picker, level with the select */
 
+/* Starting a game: the module slides into the console's slot, clicks in, the power LED lights up (cartinsert.mjs) */
+.cart-insert { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; cursor: pointer;
+  background: radial-gradient(ellipse at 50% 60%, #1d1c24ee, #08070bf6 70%); animation: ci-fade 1.5s ease both; }
+.ci-stage { position: relative; width: 380px; height: 460px; transform: scale(1.15); }
+.ci-cart { position: absolute; left: 50%; top: 0; width: 200px; margin-left: -100px; z-index: 1;
+  animation: ci-drop 1.5s cubic-bezier(.3,.7,.3,1) both; }
+.ci-nds .ci-cart { width: 170px; margin-left: -85px; }
+.ci-gba .ci-cart { width: 220px; margin-left: -110px; }
+.ci-cart .cart { width: 100%; pointer-events: none; }
+.ci-cart .cart-slot { filter: drop-shadow(0 14px 18px #000a); }
+.ci-console { position: absolute; left: 0; right: 0; bottom: 0; height: 190px; z-index: 2; border-radius: 26px 26px 34px 34px;
+  background: linear-gradient(180deg, #3a3844, #1e1d24 60%, #141318); box-shadow: inset 0 2px 0 #ffffff1c, inset 0 -6px 0 #0006, 0 30px 60px #000c;
+  animation: ci-bump 1.5s ease both; }
+.ci-slot { position: absolute; left: 50%; top: -8px; width: 230px; height: 22px; margin-left: -115px; border-radius: 8px;
+  background: linear-gradient(180deg, #000, #0d0c10); box-shadow: inset 0 3px 6px #000, 0 1px 0 #ffffff14; }
+.ci-nds .ci-slot { width: 170px; margin-left: -85px; }
+.ci-gba .ci-slot { width: 250px; margin-left: -125px; }
+.ci-face { position: absolute; left: 28px; top: 54px; display: flex; align-items: center; gap: 10px; font-family: var(--font-pixel); font-size: 12px; letter-spacing: .14em; color: #8d8a97; }
+.ci-led { width: 12px; height: 12px; border-radius: 50%; background: #3a1714; box-shadow: inset 0 1px 2px #0008; animation: ci-led 1.5s steps(1) both; }
+@keyframes ci-fade { 0% { opacity: 0; } 10% { opacity: 1; } 82% { opacity: 1; } 100% { opacity: 0; } }
+/* in from above, a short hover over the slot, then pushed in (the console front covers it) */
+@keyframes ci-drop {
+  0% { transform: translateY(-120%) rotate(-4deg); opacity: 0; }
+  12% { opacity: 1; }
+  38% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-6px); }
+  58% { transform: translateY(150px); animation-timing-function: cubic-bezier(.5,0,.8,.4); }
+  60% { transform: translateY(156px); }
+  100% { transform: translateY(156px); }
+}
+@keyframes ci-bump { 0%, 58% { transform: none; } 61% { transform: translateY(3px); } 66% { transform: translateY(-1px); } 70%, 100% { transform: none; } }
+@keyframes ci-led { 0%, 59% { background: #3a1714; box-shadow: inset 0 1px 2px #0008; } 60%, 100% { background: #ff4a3d; box-shadow: 0 0 10px 2px #ff4a3d99, inset 0 -1px 1px #0005; } }
 /* the game screen waits behind the animation (play.mjs screenShown) and fades in once the game runs */
 .session .console-screen iframe.ci-wait { opacity: 0; }
 .session .console-screen iframe.ci-shown { animation: ci-screen .25s ease-out; }

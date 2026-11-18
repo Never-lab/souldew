@@ -243,3 +243,16 @@
 .plus-family { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 @media (max-width: 900px) { .plus-family { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .plus-family-i { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: var(--r-l, 14px); background: var(--shell-3); border: 1px solid var(--edge, #2f2e36); }
+
+/* the launch animation, by tier (views/launchtiers.mjs): the souldew+ page and "What souldew+ holds" */
+.launch-tiers-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 900px) { .launch-tiers-list { grid-template-columns: minmax(0, 1fr); } }
+.launch-tier { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: var(--r-l, 14px); background: var(--shell-3); border: 1px solid var(--edge, #2f2e36); }
+.launch-tier b { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.launch-tier.yours { border-color: color-mix(in srgb, var(--ok-ink) 45%, var(--edge, #2f2e36)); }
+.plus-sec .launch-tiers { margin-top: 14px; }
+.hh-show-tier { margin: 0; }
+/* "Your handheld" without a membership (views/handheld.mjs HandheldFree): a short page, no editor */
+.hh-free .hh-free-body { max-width: 640px; margin: 0 auto; padding: 24px 20px 40px; }
+.hh-free .hh-free-body h2 { margin: 0; }
+.launch-2d-name { font-size: 13px; font-weight: 600; }

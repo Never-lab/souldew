@@ -5,7 +5,7 @@ import { LINKS } from '../links.mjs';
 
 let handler = null;
 
-/** fn({ reason: 'skin' | 'banner' | 'frame' | 'nameplate' | 'launch', id }) */
+/** fn({ reason: 'skin' | 'banner' | 'frame' | 'nameplate' | 'launch' | 'handheld', id }) */
 export function setPlusHandler(fn) {
   handler = typeof fn === 'function' ? fn : null;
 }

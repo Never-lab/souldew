@@ -24,6 +24,8 @@ import { TIERS, CURATED, plusState, hasPlusLooks, isMember, heroLook, tierAction
 import { TitlePlate, achTitle, Badges } from './social.mjs';
 import { FavScope } from '../lib/favourites.mjs';
 import { HandheldShowcase } from './handheldtile.mjs';
+import { LaunchTiers } from './launchtiers.mjs';
+import { useLaunchRights } from '../lib/handheld/look.mjs';
 
 const RARITY = () => ({ common: t('cos.rarity.common', 'Common'), rare: t('cos.rarity.rare', 'Rare'), epic: t('cos.rarity.epic', 'Epic'), legendary: t('cos.rarity.legendary', 'Legendary') });
 const dateOf = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '');
@@ -179,6 +181,7 @@ function PlateItem({ p, me, sub }) {
 function Gallery({ state, me, navigate }) {
   useCosmetics();
   usePreviews();
+  const launchTier = useLaunchRights().tier;
   const cat = catalog();
   const c = curatedFrom(cat);
   const n = plusCounts(cat);
@@ -204,8 +207,9 @@ function Gallery({ state, me, navigate }) {
     </div>
     <${HandheldShowcase} />
     <section class="plus-sec">
-      <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT3', 'Your handheld, in gold or see-through')}>${t('plus.launchHint3', 'It never makes the game wait – a click or any key skips it. “Your colours” is free; souldew+ adds three shells and, one start in 64, a Rare start.')}<//>
+      <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT3', 'Your handheld, in gold or see-through')}>${t('plus.launchHint4', 'It never makes the game wait – a click or any key skips it. With Supporter your handheld plays in your colours; souldew+ adds three shells and, one start in 64, a Rare start.')}<//>
       <ul class="plus-family" role="list">${PLUS_LAUNCH().map(([id, name, hint]) => html`<li key=${id} class="plus-family-i"><b>${name}</b><span class="small muted">${hint}</span></li>`)}</ul>
+      <${LaunchTiers} current=${launchTier} />
     </section>
     <${Themes} skins=${plusSkins(cat)} state=${state} me=${me} count=${n.skins} navigate=${navigate} />`;
 }
@@ -220,8 +224,8 @@ const PLUS_LAUNCH = () => [
 
 function Tiers({ state }) {
   const text = {
-    supporter: { name: t('acct.supporter', 'Supporter'), what: [t('plus.tSup1', 'The Supporter badge on your profile'), t('plus.tSup2', 'You help keep the servers running')], cta: t('plus.tSupCta', 'Become a Supporter') },
-    plus: { name: t('rail.plus', 'souldew+'), what: [t('plus.tPlus1', 'Every theme, banner, frame, nameplate and launch animation'), t('plus.tPlus2', 'New ones every month'), t('plus.tPlus3', 'The souldew+ badge')], cta: t('plus.tPlusCta', 'Join souldew+') },
+    supporter: { name: t('acct.supporter', 'Supporter'), what: [t('plus.tSup1', 'The Supporter badge on your profile'), t('plus.tSup3', 'The 3D launch: your own handheld, in your colours'), t('plus.tSup2', 'You help keep the servers running')], cta: t('plus.tSupCta', 'Become a Supporter') },
+    plus: { name: t('rail.plus', 'souldew+'), what: [t('plus.tPlus1b', 'Every theme, banner, frame and nameplate – and every launch look, skin and sticker for your handheld'), t('plus.tPlus2', 'New ones every month'), t('plus.tPlus3', 'The souldew+ badge')], cta: t('plus.tPlusCta', 'Join souldew+') },
     patron: { name: t('acct.patron', 'Patron'), what: [t('plus.tPat1', 'Everything in souldew+'), t('plus.tPat2', 'The Patron badge'), t('plus.tPat3', 'For when you want to give more')], cta: t('plus.tPatCta', 'Become a Patron') },
   };
   return html`<section class="plus-sec" id="plus-tiers">
@@ -263,7 +267,8 @@ function Cancel() {
   const rows = [[t('plus.c1', 'Nothing you earned goes away'), t('plus.c1t', 'Runs, trophies, titles, friends and your profile stay exactly as they are.')],
     [t('plus.c2', 'Your picks wait for you'), t('plus.c2t', 'Friends see the free banner, frame and nameplate again; your choices are remembered and come back when you rejoin.')],
     [t('plus.c3', 'The app goes back to its own colours'), t('plus.c3t', 'Your theme returns the moment souldew+ is active again.')],
-    [t('plus.c4', 'A week of grace offline'), t('plus.c4t', 'No internet for a few days doesn’t take anything away.')]];
+    [t('plus.c4', 'A week of grace offline'), t('plus.c4t', 'No internet for a few days doesn’t take anything away.')],
+    [t('plus.c5', 'Your handheld waits too'), t('plus.c5t', 'Your launch settings and designs are kept. With Supporter the free parts play; without a membership the cartridge does – until you’re back.')]];
   return html`<section class="plus-sec">
     <${Head} k=${t('plus.kCancel', 'If you stop')} title=${t('plus.cancelT', 'Cancel on Buy Me a Coffee, any time')} />
     <div class="plus-cancel">${rows.map(([a, b]) => html`<div><b>${a}</b><p class="small muted">${b}</p></div>`)}</div>
@@ -298,7 +303,7 @@ function HeroText({ state, me, navigate }) {
   const join = html`<button type="button" class="btn go big" onClick=${membership}><${Icon} name="plus" size=${14} />${t('plus.join', 'Join souldew+ · {price} € a month', { price: TIERS.find((x) => x.id === 'plus').price })}</button>`;
   if (state.kind === 'supporter') {
     return html`${mark}<h1 class="plus-h1">${t('plus.thanksH', 'Thank you, {name}.', { name: state.name })}</h1>
-      <p class="plus-lede">${t('plus.supLede', 'Your Supporter badge helps keep souldew free for everyone. souldew+ adds the looks below – themes, banners, frames, nameplates and launch animations.')}</p>
+      <p class="plus-lede">${t('plus.supLede2', 'Your Supporter badge helps keep souldew free for everyone – and your games start on your own handheld in 3D. souldew+ adds the looks below – themes, banners, frames, nameplates, and the shells, skins and stickers for your handheld.')}</p>
       <div class="row">${join}<button type="button" class="btn ghost big" onClick=${() => document.getElementById('plus-tiers')?.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth' })}>${t('plus.seeTiers', 'Compare the tiers')}</button></div>`;
   }
   return html`${mark}<h1 class="plus-h1">${t('plus.heroH', 'souldew stays free.')}<br /><span class="plus-h1-2">${t('plus.heroH2', 'souldew+ makes it yours.')}</span></h1>

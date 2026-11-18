@@ -121,9 +121,9 @@ export function onSkinChange(fn) {
   return () => listeners.delete(fn);
 }
 
-/** The catalog's skins: { id, name, hint, group: 'dark' | 'light', plus, launch, sw, owned, available } */
+/** The catalog's skins: { id, name, hint, group: 'dark' | 'light', plus, sw, owned, available } */
 export function listSkins() {
-  return CATALOG.skins.map((s) => ({ id: s.id, name: s.name, hint: s.hint, group: s.group, plus: s.plus, launch: s.launch, sw: s.sw, owned: owned('skins', s.id), available: has('skins', s.id) }));
+  return CATALOG.skins.map((s) => ({ id: s.id, name: s.name, hint: s.hint, group: s.group, plus: s.plus, sw: s.sw, owned: owned('skins', s.id), available: has('skins', s.id) }));
 }
 
 // the pack changed (loaded, re-verified, wiped): drop what was injected, re-resolve, honour a pending wish

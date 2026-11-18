@@ -32,6 +32,11 @@ export function reloadAccount() {
 }
 
 export const accountState = () => state;
+/** fn(state) whenever the account store changes (signed in or out, the verified tier); returns the unsubscribe. */
+export function onAccount(fn) {
+  subs.add(fn);
+  return () => subs.delete(fn);
+}
 export const signedIn = () => !!state.session?.signedIn;
 
 /** The account store, loaded the first time it is used. */

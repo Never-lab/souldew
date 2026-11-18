@@ -40,6 +40,41 @@ export const cleanLaunchPace = (v) => (LAUNCH_PACES.includes(v) ? v : 'full');
 export const cleanClearTint = (v) => (CLEAR_TINTS[v] ? v : 'atomic');
 export const launchLook = (id) => LAUNCH_LOOKS.find((l) => l.id === id) || LAUNCH_LOOKS[0];
 
+// ---- what each membership gets (owner's decision, 18.11.26) -------------------------------------------------------------
+// free (signed out, or no paid tier): the 2D launch animation (the module slides into the console – views/cartinsert.mjs),
+//   On / Off; no 3D launch, no "Your handheld" in the library. The handheld only shows on the souldew+ page.
+// supporter (tier 1): the 3D launch in "Your colours", Full / Quick / Off; "Your handheld" with the free skin (Plain Dusk),
+//   the 8 free stickers, the earned ones once their trophy is there, and ONE saved design. No souldew+ skins, stickers,
+//   finishes or shells (Gold / Clear / Holo), no Rare start, no Surprise me.
+// member (souldew+, and the Patron – the same plus a badge): everything. souldew+ ITEMS still need the pack on this
+//   computer (its art is in it): `plus` is the pack's word, `tier` the account's.
+// A membership that ends or drops keeps every setting: the launch plays what the tier allows now, the rest waits.
+
+/** The account tier ('none' | 'supporter' | 'plus' | 'patron', verified) → the launch tier: 'free' | 'supporter' | 'member'. */
+export function launchTier({ signedIn = false, tier = 'none', entitled = false } = {}) {
+  if (entitled) return 'member'; // the souldew+ pack is loaded and verified – that is souldew+ whatever else is known
+  if (!signedIn) return 'free';
+  if (tier === 'plus' || tier === 'patron') return 'member';
+  return tier === 'supporter' ? 'supporter' : 'free';
+}
+
+/**
+ * What a launch tier may use → { tier, three (the 3D launch and "Your handheld"), plus (souldew+ skins, stickers,
+ * finishes, shells – needs the pack too), rare (the 1-in-64 Rare start – automatic, no setting), surprise (Surprise me at start), designMax,
+ * earned (earned stickers play – they are 3D only) }.
+ */
+export function launchRights(tier, { entitled = false } = {}) {
+  const t = ['free', 'supporter', 'member'].includes(tier) ? tier : 'free';
+  const member = t === 'member';
+  return {
+    tier: t, three: t !== 'free', plus: member && !!entitled, rare: member, surprise: member,
+    designMax: member ? DESIGN_MAX : t === 'supporter' ? 1 : 0, earned: t !== 'free',
+  };
+}
+
+/** The look a launch tier plays: a souldew+ look without souldew+ plays "Your colours" (the choice is kept). */
+export const playableLookFor = (id, rights) => (launchLook(id).tier === 'plus' && !rights?.plus ? LAUNCH_DEFAULT : launchLook(id).id);
+
 export const FINISHES = { vinyl: { plus: false }, holo: { plus: true }, glitter: { plus: true } };
 
 /**
@@ -231,11 +266,12 @@ export function designNotes(d, { member = false, trophies = null } = {}) {
  * trophy is there. A device without stickers in that design plays bare. The design itself keeps everything.
  * → { skin: id | null, stickers: { dev: [...] }, design: id | null }
  */
-export function lookToPlay(doc, { member = false, trophies = null, favDesigns = [], rnd = Math.random } = {}) {
+export function lookToPlay(doc, { member = false, trophies = null, favDesigns = [], rnd = Math.random, surprise = true } = {}) {
   const h = cleanHandheld(doc);
   let src = h;
   let design = h.active;
-  if (h.surprise && h.designs.length > 1) {
+  // `surprise`: may this account use Surprise me (souldew+)? Without it the look on the device plays – the switch is kept
+  if (surprise && h.surprise && h.designs.length > 1) {
     const fav = h.designs.filter((d) => favDesigns.includes(d.id));
     const pool = fav.length ? fav : h.designs;
     src = pool[Math.floor(rnd() * pool.length) % pool.length];
@@ -260,9 +296,10 @@ const lookOf = (d) => JSON.stringify([d.skin || null, cleanLayout(d.stickers)]);
 /** Has the look changed since the worn design was saved? */
 export const designDirty = (h) => { const a = h.designs.find((d) => d.id === h.active); return !!a && lookOf(a) !== lookOf(h); };
 
-/** "Save this look" / "Save as new": a new design from the current look, worn at once. null when 12 are saved. */
-export function saveAsNew(h, { name, id = newDesignId(), now = Date.now() } = {}) {
-  if (h.designs.length >= DESIGN_MAX) return null;
+/** "Save this look" / "Save as new": a new design from the current look, worn at once. null when `max` (12; a
+ * Supporter: 1) are saved – designs kept from an earlier membership stay, they only stop new ones. */
+export function saveAsNew(h, { name, id = newDesignId(), now = Date.now(), max = DESIGN_MAX } = {}) {
+  if (h.designs.length >= Math.min(max, DESIGN_MAX)) return null;
   const d = { id, name: cleanName(name, `Design ${h.designs.length + 1}`), skin: h.skin, stickers: cleanLayout(h.stickers), at: now };
   return { ...h, designs: [...h.designs, d], active: d.id };
 }
@@ -277,8 +314,8 @@ export function renameDesign(h, id, name) {
   return { ...h, designs: h.designs.map((d) => (d.id === id ? { ...d, name: nm } : d)) };
 }
 /** A copy right after the original, worn at once. null when 12 are saved. */
-export function duplicateDesign(h, id, { copyName = (n) => `${n} copy`, newId = newDesignId(), now = Date.now() } = {}) {
-  if (h.designs.length >= DESIGN_MAX) return null;
+export function duplicateDesign(h, id, { copyName = (n) => `${n} copy`, newId = newDesignId(), now = Date.now(), max = DESIGN_MAX } = {}) {
+  if (h.designs.length >= Math.min(max, DESIGN_MAX)) return null;
   const i = h.designs.findIndex((d) => d.id === id);
   if (i < 0) return h;
   const c = { ...h.designs[i], id: newId, name: cleanName(copyName(h.designs[i].name), h.designs[i].name), at: now };
