@@ -413,5 +413,25 @@ export async function fieldIdle(game, read, { cam = undefined } = {}) {
   return !!f && u16le(f, 0) === g.field.value;
 }
 
+/**
+ * Does the game itself say it is linked – the Cable Club's mode, set when the players sit down and cleared only when they
+ * walk out (Gen 1 wLinkState, Gen 2 wLinkMode, Gen 3 a battle of BATTLE_TYPE_LINK)? A game whose link session ended
+ * while it was still in a link room goes on alone in that mode: in the Gen 2 Colosseum it even starts the next battle
+ * against the partner's team it already received. Nothing it shows then is the run's (no deaths, no catches, no
+ * party) – as during the session. Synchronous `read` (the fast player's mirror); false for the games without a table.
+ */
+export function gameLinked(game, read, { inBattle = false } = {}) {
+  const g = GAMES[game];
+  if (!g) return false;
+  const b = (a) => read(a, 1)?.[0] ?? 0;
+  if (g.gen === 1) return b(g.link) !== 0;
+  if (g.gen === 2) return b(g.idle[1]) !== 0;
+  if (g.gen === 3) { // (the flags stay from the last battle: only a battle on screen counts)
+    const f = read(g.flags, 4);
+    return !!inBattle && !!f && (u32le(f, 0) & 2) !== 0;
+  }
+  return false;
+}
+
 /** "₽2,000" – the games' own sign, the number grouped for `lang`. */
 export const moneyText = (v, lang = 'en') => `₽${Math.round(v || 0).toLocaleString(lang === 'de' ? 'de-DE' : lang)}`;

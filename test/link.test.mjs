@@ -185,6 +185,20 @@ test('location: the link rooms are named as such, not after the place their map 
   const trainer = [0x16, 0x01, 0x19, 0x01, 0x1f, 0x01, 0xff, 0xff, ...Array(12).fill(0), ...le(3000), 0];
   const pt = { ...at(0x02101d40, le(0x0227e148)), ...at(0x0227e148 + 0x1294, le(466)), ...at(0x0227e148 + 0x14 + 0x68, trainer) };
   assert.equal(readLocation(maps, 'platinum_us', bus(pt)).link, 'union');
+  // the other Gen 4 games and the wireless club's Colosseums (pret's map constants): the same save data, its own map id
+  const save4 = (ptr, base, mapOff, trainerOff, map) => ({ ...at(ptr, le(base)), ...at(base + mapOff, le(map)), ...at(base + trainerOff, trainer) });
+  assert.equal(readLocation(maps, 'platinum_us', bus(save4(0x02101d40, 0x0227e148, 0x1294, 0x14 + 0x68, 332))).link, 'colosseum');
+  assert.equal(readLocation(maps, 'platinum_us', bus(save4(0x02101d40, 0x0227e148, 0x1294, 0x14 + 0x68, 333))).link, 'colosseum');
+  for (const id of ['diamond_us', 'pearl_us']) {
+    assert.equal(readLocation(maps, id, bus(save4(0x02106fc0, 0x0227e148, 0x144c, 0x214 + 0x64, 466))).link, 'union', id);
+    assert.equal(readLocation(maps, id, bus(save4(0x02106fc0, 0x0227e148, 0x144c, 0x214 + 0x64, 332))).link, 'colosseum', id);
+  }
+  for (const id of ['heartgold_us', 'soulsilver_us']) {
+    assert.equal(readLocation(maps, id, bus(save4(0x02111880, 0x0227e148, 0x1244, 0x10 + 0x64, 2))).link, 'union', id);
+    assert.equal(readLocation(maps, id, bus(save4(0x02111880, 0x0227e148, 0x1244, 0x10 + 0x64, 4))).link, 'colosseum', id);
+    assert.equal(readLocation(maps, id, bus(save4(0x02111880, 0x0227e148, 0x1244, 0x10 + 0x64, 5))).link, 'colosseum', id);
+    assert.equal(readLocation(maps, id, bus(save4(0x02111880, 0x0227e148, 0x1244, 0x10 + 0x64, 466))).link, undefined, `${id}: 466 is a place of Johto`);
+  }
 });
 
 // ---- the trade's log entry --------------------------------------------------------------------------------------------
@@ -197,6 +211,15 @@ test('run: a trade in a link session is logged from the team before and after', 
   const m = { id: 'r', mode: 'soullink', game: { system: 'gba' }, players: { p1: { name: 'Marius' }, p2: { name: 'Tim' } } };
   const before = [{ key: 'a', species: 255 }, { key: 'b', species: 261 }];
   assert.equal(R.logLinkTrade(d, m, 'p1', 'p2', before, before), false, 'nothing changed: no entry');
+  // Gen 2 (the recorded Crystal ↔ Silver trade): Cyndaquil and Pidgey share trainer ID and DVs – the same key
+  const d2 = new RunDoc('t2');
+  d2.by = 'a';
+  d2._persistSoon = () => {};
+  const crystal = [{ key: 'g2-75bf-dae8', species: 155 }, { key: 'g2-75bf-dae8', species: 16 }];
+  assert.equal(R.logLinkTrade(d2, m, 'p1', 'p2', crystal, [{ key: 'g2-75bf-dae8', species: 16 }, { key: 'g2-1ba3-cb32', species: 158 }]), true, 'Cyndaquil left, Totodile came');
+  const e2 = Object.values(d2.scan('feed:')).map((v) => v?.v ?? v).find((x) => x?.type === 'trade');
+  assert.deepEqual([e2.gave, e2.got], [[155], [158]]);
+  assert.equal(R.logLinkTrade(d2, m, 'p1', 'p2', crystal, [...crystal].reverse()), false, 'the same two in another order: no trade');
   assert.equal(R.logLinkTrade(d, m, 'p1', 'p2', before, [{ key: 'a', species: 255 }, { key: 'c', species: 265 }]), true);
   const f = R.feedList(d).find((x) => x.type === 'trade' || /traded/.test(x.text || ''));
   assert.ok(f, 'in the log');

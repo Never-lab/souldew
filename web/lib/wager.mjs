@@ -93,6 +93,17 @@ export function headToHead(doc, a, b) {
   return r;
 }
 
+/**
+ * What a battle's wager means for `me` right now: `delta` (+ won, − lost, 0 nothing) and whether it has gone into
+ * their game yet (`settled`: WagerPay wrote it – it waits for the overworld, so a Gen 1 player still in the Colosseum
+ * hasn't paid until they start their game again).
+ */
+export function wagerStatus(doc, sid, me, pays) {
+  const delta = deltaOf(pays || [], me);
+  const p = doc?.get?.(`lbpay:${sid}:${me}`);
+  return { delta, settled: !!delta && (p?.status === 'written' || p?.status === 'saved') };
+}
+
 /** This player's money still to be put into (or taken from) their game: [{ sid, delta, pays }]. */
 export function owedTo(doc, me, { boot = null } = {}) {
   const out = [];

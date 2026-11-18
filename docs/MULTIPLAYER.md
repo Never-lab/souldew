@@ -308,6 +308,30 @@ Since November 2026 (branch `feat/engine`, Settings › Emulators › **"souldew
   - Costs: inputs are ~3 KB/s per peer, so a 10-minute session is ~2 MB. The free tier (1,000 GB/month, TURN and SFU combined) covers ~500,000 sessions per month. Partner video over TURN is the real cost; keep it to stills when relayed, as today.
 - **Fallback when even TURN fails:** a Durable Object WebSocket relay per session. The payload stays encrypted with the run key, so the relay sees nothing. Build it only if field data asks for it.
 
+### 6a. Two computers: the cross-machine check (`link-e2e --host` / `--join`)
+
+The open check before release is x64 ↔ arm64 lockstep (a Windows PC and a Mac in one session). `scripts/link-e2e.mjs`
+runs one seat per computer: each side starts its own souldew server and a hidden, muted page with a scratch data folder;
+the host builds the run and shows the app's **invite code** (6 digits, the public relay – web/lib/invitecode.mjs; the
+script allows the request itself), the other side joins with it, builds its own game and uploads its own seat's save;
+the host invites, the session runs over the run's real peer channel (direct first, TURN when that fails; `--relay` forces
+TURN), and each side plays its own seat's column of the **same recording** (`SLS_LINK_TEST_SCRIPT`, as in every e2e).
+Both stop at the recording's last frame. Each side prints `RESULT {…}`: `hashes` (count, first, last, sha256 over every
+hash its link host computed – **must be identical on both computers**), `saveAfterSha256` of its seat's run save and,
+with `--expect`, `checks.saveAsRecorded`; the session itself compares every 120-frame hash and ends as out of step on any
+difference (`checks.noMismatch`). Also in the result: platform, arch, the link host's sha256, delay and route.
+
+```
+Mac (host, seat 1):  node scripts/link-e2e.mjs --host --rom <Red.gb> --save trade-seat0.sav --script trade.rec --expect trade-expect --data <scratch>/x-host
+                     → INVITE CODE: 123456 (valid 15 minutes, also in <data>/out/invite-code.txt)
+Windows (seat 2):    node scripts/link-e2e.mjs --join 123456 --rom <Red.gb> --save trade-seat1.sav --script trade.rec --expect trade-expect --data C:\souldew-debug\e2e\x-join
+```
+Two different games (Emerald ↔ Sapphire): each side adds the other's file with `--other-rom`. Without `--script` the
+session runs `--frames` frames (default 7,200) with nothing pressed, from the saves. Both sides need the same souldew
+build, the same ROMs (SHA-1) and internet. Checked on one Mac with two processes and separate data folders (18 Nov 2026):
+Red ↔ Red trade (SameBoy), Emerald ↔ Sapphire trade (mGBA) and Platinum trade (melonDS) – both sides `saveAsRecorded`,
+the same hash sha256 on both, the route "direct". The real Mac ↔ Windows run is next.
+
 ## 7. Saves, ROMs and the tracker
 
 - **ROMs never cross the network.** Every seat's ROM must exist locally.

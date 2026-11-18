@@ -41,7 +41,12 @@ export function mapEntryFor(maps, entry) {
 const linkRoom = (room, map) => ({ id: `link:${room}`, link: room, map });
 const GEN1_LINK = { 239: 'trade', 240: 'colosseum' }; // pokered TRADE_CENTER $EF, COLOSSEUM $F0 (Yellow the same)
 const GEN2_LINK = { '20.2': 'trade', '20.3': 'colosseum', '20.4': 'timecapsule' }; // the CableClub map group (G/S/C)
-const GEN4_LINK = { pt: { 466: 'union' } }; // Platinum's Union Room (measured in the link host; D/P and HG/SS: to do)
+// Gen 4: the Union Room and the two Colosseums of the Pokémon Center's wireless club (2 and 4 players – pret's
+// MAP_DIRECT2 / MAP_DIRECT4). Platinum's Union Room measured in the link host; the rest from pret's map constants
+// (pokeplatinum map_headers 332/333/466, pokediamond maps.h 332/333/466, pokeheartgold maps.h MAP_UNION 2,
+// MAP_DIRECT2 4, MAP_DIRECT4 5 – in HG/SS they sit at the start of the list, where the region tables have no place).
+const GEN4_COLOSSEUM = { 332: 'colosseum', 333: 'colosseum' };
+const GEN4_LINK = { pt: { 466: 'union', ...GEN4_COLOSSEUM }, dp: { 466: 'union', ...GEN4_COLOSSEUM }, hgss: { 2: 'union', 4: 'colosseum', 5: 'colosseum' } };
 
 // Game Boy (Gen 1/2): the game keeps a copy of the current map's header in WRAM – Gen 1 the 10 bytes LoadMapHeader
 // copies to wCurMapHeader (tileset, size, blocks/text/script pointers, connections; pokered home/overworld.asm), Gen 2

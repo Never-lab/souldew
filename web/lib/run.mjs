@@ -441,10 +441,21 @@ export function logCheatRule(doc, manifest, by, allowed) {
  * after (live data; a Pokémon is its `key` – personality value and trainer ID). Logged only when both sides changed.
  */
 export function logLinkTrade(doc, manifest, slot, partner, before, after) {
-  const keys = (list) => new Set((list || []).map((m) => m?.key).filter(Boolean));
-  const was = keys(before), now = keys(after);
-  const gave = (before || []).filter((m) => m?.key && !now.has(m.key));
-  const got = (after || []).filter((m) => m?.key && !was.has(m.key));
+  // (a Pokémon is its key AND its species, counted: Gen 1/2 keys are only trainer ID + DVs – two of a player's own
+  // Pokémon may share them, as in the recorded Crystal ↔ Silver trade, where a key-only comparison saw nothing leave)
+  const id = (m) => `${m.key}|${m.species}`;
+  const minus = (a, b) => {
+    const left = new Map();
+    for (const m of b || []) if (m?.key) left.set(id(m), (left.get(id(m)) || 0) + 1);
+    return (a || []).filter((m) => {
+      if (!m?.key) return false;
+      const n = left.get(id(m)) || 0;
+      if (n) left.set(id(m), n - 1);
+      return !n;
+    });
+  };
+  const gave = minus(before, after);
+  const got = minus(after, before);
   if (!gave.length || !got.length) return false;
   const name = players(doc, manifest)[partner]?.name || partner;
   feedMsg(doc, manifest, { type: 'trade', slot, partner, gave: gave.map((m) => m.species), got: got.map((m) => m.species),

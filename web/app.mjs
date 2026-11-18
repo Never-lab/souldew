@@ -669,6 +669,9 @@ function App() {
       }
       if (!(lps.state.kind === 'battle' && getRules(doc, manifest)?.linkBattleDeaths)) return null;
     }
+    // The game itself still in link mode after its session (left inside a Cable Club / Colosseum – Gen 2 even fights
+    // the partner's team it received once more, alone): the same rule as during the session.
+    if (snap.linkedGame && snap.source === 'live' && !getRules(doc, manifest)?.linkBattleDeaths) return null;
     // An ended run stays as it ended: playing on (for fun, or after a wipe) records nothing anymore.
     if (doc.get('run:status')) return null;
     const res = applySnapshot(doc, manifest, genOfRun(manifest, runData), me, snap, { rd: runData, battle, held });

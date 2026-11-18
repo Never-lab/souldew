@@ -304,3 +304,48 @@ test('wager: the money goes into each game once – again only into a game start
   await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write });
   assert.equal(L.bcdDecode(marius.read(0xd347, 3)), 5000);
 });
+
+test('wager: the result card says "paid" only once the money went into the game (Gen 1: still in the Colosseum = to pay)', async () => {
+  const doc = memDoc();
+  doc.set('lb:abc123:p1', entry({}));
+  doc.set('lb:abc123:p2', entry({}));
+  const o = W.outcomeOf(W.sessionsIn(doc).abc123);
+  assert.equal(o.state, 'agreed');
+  const before = W.wagerStatus(doc, 'abc123', 'p2', o.pays);
+  assert.ok(before.delta < 0, 'p2 lost');
+  assert.equal(before.settled, false, 'nothing taken yet: the game is still linked / in the Colosseum');
+  assert.equal(W.wagerStatus(doc, 'abc123', 'p1', o.pays).settled, false);
+  // the overworld: WagerPay takes it (Red: wIsInBattle and wLinkState 0)
+  const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [4] }); // wLinkState 4: still in the Colosseum
+  const pay = new WagerPay({ doc, me: 'p2' });
+  await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
+  assert.equal(W.wagerStatus(doc, 'abc123', 'p2', o.pays).settled, false, 'the Colosseum is no overworld');
+  tim.put(0xd12b, [0]); // switched off and on, Continue: walking again
+  await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
+  assert.deepEqual(W.wagerStatus(doc, 'abc123', 'p2', o.pays), { delta: before.delta, settled: true });
+  assert.deepEqual(W.wagerStatus(doc, 'abc123', 'p3', o.pays), { delta: 0, settled: false }, 'not in it');
+});
+
+test('a game left in link mode after its session (Gen 2 Colosseum: it fights the partner\'s team again, alone) says so', () => {
+  // Red: wLinkState; Gold/Silver and Crystal: wLinkMode (pret pokegold/pokecrystal.sym); Emerald: a BATTLE_TYPE_LINK battle
+  assert.equal(L.gameLinked('redblue', bus({ 0xd12b: [0] }).read), false, 'the overworld');
+  assert.equal(L.gameLinked('redblue', bus({ 0xd12b: [4] }).read), true, 'still in the Colosseum');
+  assert.equal(L.gameLinked('yellow', bus({ 0xd12a: [1] }).read), true);
+  assert.equal(L.gameLinked('crystal', bus({ 0xc2dc: [0] }).read), false);
+  assert.equal(L.gameLinked('crystal', bus({ 0xc2dc: [2] }).read), true, 'Crystal in the Colosseum');
+  assert.equal(L.gameLinked('goldsilver', bus({ 0xd042: [2] }).read), true, 'Silver in the Colosseum');
+  assert.equal(L.gameLinked('goldsilver', bus({ 0xd116: [2] }).read), false, 'a battle of its own (wBattleMode) is no link');
+  const em = bus({ 0x02022fec: [2, 0, 0, 0] });
+  assert.equal(L.gameLinked('emerald', em.read, { inBattle: true }), true);
+  assert.equal(L.gameLinked('emerald', em.read, { inBattle: false }), false, 'the flags stay from the last battle: the overworld isn\'t linked');
+  assert.equal(L.gameLinked('emerald', bus({ 0x02022fec: [8, 0, 0, 0] }).read, { inBattle: true }), false, 'a trainer battle');
+  assert.equal(L.gameLinked('platinum', bus({}).read), false);
+  assert.equal(L.gameLinked(null, bus({}).read), false);
+});
+
+test('the run applies nothing of a game that says it is still linked (web/app.mjs, like the session itself)', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../web/app.mjs', import.meta.url), 'utf8');
+  assert.match(src, /snap\.linkedGame && snap\.source === 'live' && !getRules\(doc, manifest\)\?\.linkBattleDeaths\) return null/);
+  const play = (await import('node:fs')).readFileSync(new URL('../web/views/play.mjs', import.meta.url), 'utf8');
+  assert.match(play, /gameLinked\(g0, e\.read, \{ inBattle: !!seen \}\)/);
+});

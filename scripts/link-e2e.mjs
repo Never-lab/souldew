@@ -38,7 +38,33 @@
 //                            player's game pays / gets it in the overworld – checked in RAM; with --save-after each
 //                            player then saves in the game (Gen 3: START, SAVE, YES, YES) and the money is checked in the
 //                            run's save file)
+//        [--continue]        (with --seamless and no states: every game boots from its save and is pressed through its
+//                            title screen – START ×4, A ×4 – before the link starts from the running games)
+//        [--reset-after]     (with --wager: after the session every game is switched off and on and Continue'd –
+//                            Gen 1 has no way out of the Colosseum, the wager is settled once the player walks again)
+//        [--bystander [--save3 …] [--rom3 …] [--state3 …]]   (one more player in the run who isn't in the session:
+//                            their page never sees the invite, asking A to trade meanwhile is answered "in another
+//                            link", the session goes on; with --seamless their own game keeps running untouched; they
+//                            get the trade / battle result in the run's log afterwards)
+//        [--port-base 7401] (the players' servers listen on it and the next three ports)
 //        [--show]
+//
+// Two computers (one seat here, the other seat on another computer – Mac ↔ Windows, x64 ↔ arm64): each side runs its
+// own souldew server and page (muted, hidden) with a scratch data folder; the run travels by the app's invite code
+// (6 digits over the public relay), the session over the run's real peer channel (direct, or TURN when that fails);
+// each side plays its own seat's column of the SAME recording and prints a RESULT line: the hashes its link host
+// computed (count, first, last and a sha256 over all of them – equal on both sides) and the sha256 of its seat's save
+// after the session (with --expect: compared with the recording's). The session itself also compares every hash: a
+// difference ends it as out of step (checks.noMismatch false on both). Needs internet on both computers.
+//
+//   host (seat 1):  node scripts/link-e2e.mjs --host --rom <game> [--save <seat0.sav>] [--script <rec>] [--expect <dir>] --data <dir>
+//                   → prints INVITE CODE: 123456 (also <data>/out/invite-code.txt) and waits up to 15 minutes
+//   other side:     node scripts/link-e2e.mjs --join 123456 --rom <game> [--save <seat1.sav>] [--script <rec>] [--expect <dir>] --data <dir>
+//        [--other-rom <the other side's game>]  (a run of two different games: each side needs both files)
+//        [--kind trade|battle] [--speed 4] [--frames 7200] (no --script: nothing pressed for that many frames, from
+//        the saves) [--relay] (TURN only) [--no-turn] [--port 7421|7422] [--slot p2] [--engine] [--gb-look …] [--show]
+//   Results: <data>/out/result.json and screenshots. Both sides must use the same recording, the same ROMs (SHA-1) and
+//   the same souldew build (the link host's version is part of the check). docs/MULTIPLAYER.md › "Two computers".
 //
 // Never commit ROMs, saves or the screenshots.
 import { spawn } from 'node:child_process';
@@ -47,6 +73,7 @@ import { deflateRawSync } from 'node:zlib';
 import { join, dirname, basename, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { headerRange, gameOf } from '../shared/linkbattle.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -60,8 +87,231 @@ if (!process.versions.electron) {
 } else {
   const { app } = await import('electron');
   app.commandLine.appendSwitch('mute-audio');
+  // (two computers' halves may run on one computer for a check: each its own Electron profile in its data folder)
+  if (flag('host') || opt('join')) app.setPath('userData', join(resolve(opt('data')), 'electron'));
   app.on('window-all-closed', () => {});
-  app.whenReady().then(main);
+  app.whenReady().then(() => (flag('host') || opt('join') ? crossMain() : main()));
+}
+
+/**
+ * One seat of a link session on THIS computer, the other seat on another computer (--host / --join, see the header):
+ * the run travels by the app's invite code (6 digits over the public relay, docs: web/lib/invitecode.mjs), the session
+ * over the run's real peer channel (direct, or TURN), each side plays its own seat's column of the same recording, and
+ * each side prints what both must agree on: the hashes it computed and the sha256 of its seat's save after the session.
+ */
+async function crossMain() {
+  const { app, BrowserWindow } = await import('electron');
+  const host = flag('host');
+  const role = host ? 'host' : 'join';
+  const data = resolve(opt('data'));
+  const out = resolve(opt('out', join(data, 'out')));
+  mkdirSync(out, { recursive: true });
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const t0 = Date.now();
+  const log = (...a) => console.log(`${((Date.now() - t0) / 1000).toFixed(0).padStart(4)}s [${role}]`, ...a);
+  const sha = (b, alg = 'sha1') => createHash(alg).update(b).digest('hex');
+  const seats = Number(opt('players', '2'));
+  const slot = host ? 'p1' : opt('slot', 'p2');
+  const seat = Number(slot.slice(1)) - 1;
+  const kind = opt('kind', 'trade');
+  const port = Number(opt('port', host ? '7421' : '7422'));
+  const rom = resolve(opt('rom'));
+  const here = `${process.platform === 'darwin' ? 'Mac' : process.platform === 'win32' ? 'Windows' : 'Linux'} ${process.arch}`;
+  const name = opt('name', here);
+  // the recording (or, without one, nothing pressed for --frames frames: still every console's state, compared)
+  let script = opt('script') ? resolve(opt('script')) : null;
+  if (!script) {
+    const n = Number(opt('frames', '7200'));
+    const rec = Buffer.alloc(n * (4 + 4 * seats));
+    for (let f = 0; f < n; f++) rec.writeUInt32LE(f, f * (4 + 4 * seats));
+    script = join(out, 'nothing-pressed.rec');
+    writeFileSync(script, rec);
+  }
+  const frames = Math.floor(readFileSync(script).length / (4 + 4 * seats));
+  const result = { role, slot, platform: process.platform, arch: process.arch, kind, frames, rom: basename(rom), romSha1: sha(readFileSync(rom)), checks: {} };
+  const exe = join(root, 'tools', 'native', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'linkhost.exe' : 'linkhost');
+  try { result.linkhostSha256 = sha(readFileSync(exe), 'sha256'); } catch { result.linkhostSha256 = null; }
+
+  const dir = join(data, 'profile');
+  const lib = join(dir, 'roms');
+  mkdirSync(lib, { recursive: true });
+  for (const r of [rom, ...(opt('other-rom') ? [resolve(opt('other-rom'))] : [])]) copyFileSync(r, join(lib, basename(r)), fsConstants.COPYFILE_FICLONE);
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true,
+    nativeEngine: flag('engine'), gbLook: opt('gb-look', 'color') }));
+  const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_E2E: '1', SLS_LINK_TEST_SCRIPT: script,
+    SLS_LINK_TEST_RTC: opt('rtc', '1763200000000') };
+  // (TURN as the app has it: direct first, relayed when that fails; --relay: relayed only; --no-turn: never relayed)
+  if (flag('relay')) env.SOULDEW_LINK_ICE = 'relay';
+  else if (flag('no-turn')) env.SOULDEW_LINK_ICE = 'off';
+  else delete env.SOULDEW_LINK_ICE;
+  const server = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  server.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+  const base = `http://127.0.0.1:${port}`;
+  const APP = { headers: { 'x-soullink': '1' } };
+  const finish = (code) => {
+    writeFileSync(join(out, 'result.json'), JSON.stringify(result, null, 2));
+    console.log(`RESULT ${JSON.stringify({ ok: code === 0, ...result, console: undefined })}`);
+    server.kill();
+    app.exit(code);
+  };
+  for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(sig, () => finish(130));
+  const api = async (path, body, method) => {
+    const r = await fetch(base + path, { method: method || (body !== undefined ? 'POST' : 'GET'), headers: { 'x-soullink': '1', ...(body !== undefined && !(body instanceof Uint8Array) ? { 'content-type': 'application/json' } : {}) },
+      body: body instanceof Uint8Array ? body : body !== undefined ? JSON.stringify(body) : undefined });
+    const t = await r.text();
+    if (!r.ok) throw Object.assign(new Error(`${path}: ${r.status} ${t.slice(0, 300)}`), { status: r.status });
+    try { return JSON.parse(t); } catch { return t; }
+  };
+  const until = async (what, fn, ms) => {
+    const t = Date.now();
+    for (let k = 0; ; k++) {
+      const v = await fn().catch(() => null);
+      if (v) return v;
+      if (Date.now() - t > ms) throw new Error(`timeout: ${what}`);
+      if (k && k % 75 === 0) log(`still waiting: ${what}`);
+      await sleep(400);
+    }
+  };
+  try {
+    const up = await Promise.race([new Promise((r) => server.once('exit', r)), sleep(2500).then(() => null)]);
+    if (up !== null) throw new Error(`the server stopped (port ${port} taken? --port <n>)`);
+    await until('the server', () => api('/api/status'), 30000);
+    const libNow = await api('/api/library');
+    const own = libNow.roms.find((r) => basename(r.file || '') === basename(rom)) || libNow.roms[0];
+    if (!own) throw new Error('the game isn\'t in the library (is --rom a game souldew knows?)');
+    log('game', own.name, own.gameId, own.system, 'sha1', result.romSha1);
+    const win = new BrowserWindow({ width: 1100, height: 780, show: flag('show'), webPreferences: { partition: `link-x-${role}`, backgroundThrottling: false } });
+    win.webContents.setAudioMuted(true);
+    win.webContents.on('console-message', (e) => {
+      if (e.level === 'warning' || e.level === 'error') (result.console ||= []).push(`${e.level}: ${String(e.message).slice(0, 300)}`);
+    });
+    const ev = (js) => win.webContents.executeJavaScript(js, true);
+    const load = async (hash) => {
+      await win.loadURL(`${base}/${hash}`);
+    };
+    const shot = async (n) => writeFileSync(join(out, `${n}-${role}.png`), (await win.webContents.capturePage()).toPNG());
+    let runId;
+    let pack;
+    if (host) { // the run: built here, our save in it; then the invite code
+      const players = Object.fromEntries(['p1', 'p2', 'p3', 'p4'].slice(0, seats).map((s, i) => [s, { name: i === seat ? name : `Partner ${i + 1}` }]));
+      const built = await api('/api/runs/build', { romId: own.id, randomize: false, mode: 'soullink', players, buildFor: [slot], gameId: own.gameId, name: 'Link test (two computers)', rules: {} });
+      runId = built.manifest.id;
+      const run = await api(`/api/runs/${runId}`);
+      pack = run.manifest?.pack || run.pack;
+      await load('#/');
+      const codeNow = await ev(`(async () => { const m = await import('/lib/invitecode.mjs'); const h = new m.CodeHost({ pack: ${JSON.stringify(pack)},
+        onState: (s) => { window.__xstate = s; } }); window.__xhost = h; await h.start(); return h.state.phase === 'waiting' ? h.code : 'failed:' + h.state.phase + ' ' + (h.state.error || ''); })()`);
+      if (!/^\d{6}$/.test(codeNow)) throw new Error(`no invite code: ${codeNow}`);
+      result.code = codeNow;
+      writeFileSync(join(out, 'invite-code.txt'), `${codeNow}\n`);
+      console.log(`\n================  INVITE CODE: ${codeNow}  ================\nOn the other computer (within 15 minutes):\n  node scripts/link-e2e.mjs --join ${codeNow} --rom <its game> [--save <its seat's save>] [--script <the same recording>] --data <its scratch folder>\n`);
+      const req = await until('the other computer to use the code', async () => ((await ev('window.__xstate?.phase')) === 'request' ? JSON.parse(await ev('JSON.stringify(window.__xstate.request)')) : null), 15 * 60000);
+      log('joined by', req.name);
+      // (test-only: the host's own digits – the app makes the host type the ones the other screen shows)
+      if (!(await ev(`window.__xhost.allow({ confirm: window.__xstate.request.confirm })`))) throw new Error('allow refused');
+      await until('the run pack to arrive there', async () => ['done', 'sending'].includes(await ev('window.__xstate?.phase')), 120000);
+      result.partner = req.name;
+    } else { // the run by the code, our own game built, our save in it
+      await load('#/');
+      await ev(`(() => { window.__xj = { p: 'starting' }; import('/lib/invitecode.mjs').then((m) => { const j = m.joinWithCode(${JSON.stringify(String(opt('join')))}, { name: ${JSON.stringify(name)},
+        onState: (p, info) => { window.__xj = { p, info }; } }); j.promise.then((pk) => { window.__xpack = JSON.stringify(pk); }, (e) => { window.__xj = { p: 'error', info: e.code || String(e) }; }); }); return true; })()`);
+      let said = '';
+      const packText = await until('the host to allow', async () => {
+        const st = JSON.parse(await ev('JSON.stringify(window.__xj)') || '{}');
+        if (st.p !== said) log('code:', (said = st.p), st.info ? JSON.stringify(st.info) : '');
+        if (st.p === 'error') throw new Error(`invite code: ${st.info}`);
+        return ev('window.__xpack');
+      }, 16 * 60000);
+      pack = JSON.parse(packText);
+      const imported = await api('/api/runs/import', { pack });
+      runId = imported.id;
+      await api('/api/runs/build', { runId, romId: own.id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [slot], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: own.gameId });
+    }
+    result.runId = runId;
+    if (opt('save')) {
+      const bytes = readFileSync(resolve(opt('save')));
+      await api(`/api/runs/${runId}/save/${slot}`, new Uint8Array(bytes), 'PUT');
+      result.saveBeforeSha256 = sha(bytes, 'sha256');
+    }
+    await ev(`localStorage.setItem(${JSON.stringify(`sl-me-${runId}`)}, ${JSON.stringify(JSON.stringify(slot))}); localStorage.setItem('sl-e2e', 'true'); true`);
+    await load(`#/soullink?run=${runId}`);
+    await ev('location.reload(); true');
+    await sleep(1500);
+    await until('the page', () => ev('!!window.__slLink?.sessions'), 60000);
+    // (every hash this computer's link host computes, in order: the other computer prints its own – they must be equal)
+    await ev(`(() => { const L = window.__slLink.sessions; L.__xh = []; const h = L._hash.bind(L); L._hash = (s, f, x) => { if (s === L.me) L.__xh.push([f, x]); return h(s, f, x); }; return true; })()`);
+    const partners = ['p1', 'p2', 'p3', 'p4'].slice(0, seats).filter((s) => s !== slot);
+    await until('a peer connection to the other computer', async () => {
+      for (const s of partners) if (!(await ev(`window.__slLink.sync.linkDirect(${JSON.stringify(s)})`))) return false;
+      return true;
+    }, 10 * 60000);
+    log('peer connection up');
+    await shot('01-board');
+    const phase = () => ev('window.__slLink.sessions.state.phase');
+    if (host) await ev(`window.__slLink.sessions.invite(${JSON.stringify(kind)}, ${JSON.stringify(partners)}, ${JSON.stringify(opt('wager') ? { wager: Number(opt('wager')) } : {})})`);
+    else {
+      await until('the host\'s invite', async () => (await phase()) === 'invited', 10 * 60000);
+      await ev('window.__slLink.sessions.accept()');
+    }
+    await until('the link session running', async () => {
+      const p = await phase();
+      if (p === 'need') throw new Error('a seat\'s game is missing here – give the other computer\'s game with --other-rom');
+      if (p === 'ended') throw new Error(`the session ended before it ran: ${await ev('JSON.stringify(window.__slLink.sessions.state.ended)')}`);
+      return p === 'running';
+    }, 5 * 60000);
+    const st0 = JSON.parse(await ev('JSON.stringify(window.__slLink.sessions.state)'));
+    result.delay = st0.delay;
+    result.rtt = st0.rtt;
+    result.route = st0.route;
+    log('running: delay', st0.delay, 'rtt', st0.rtt, 'route', JSON.stringify(st0.route));
+    const emu = (js) => ev(`(() => { const f = document.querySelector('iframe[src^="/playernative.html"]'); const e = f?.contentWindow?.__emu; return e ? (${js}) : null; })()`);
+    await until('the picture', () => emu('e.ready'), 120000);
+    // faster than real time where both computers can, and every host stops at the recording's last frame (UNTIL)
+    const id = st0.id;
+    const b = Buffer.alloc(24);
+    b.writeUInt32LE(2, 0), b.writeUInt32LE(4, 4), b.writeFloatLE(Number(opt('speed', '4')), 8);
+    b.writeUInt32LE(24, 12), b.writeUInt32LE(4, 16), b.writeUInt32LE(frames, 20);
+    await fetch(`${base}/api/native/cmd?id=${id}`, { method: 'POST', headers: { 'x-soullink': '1' }, body: b });
+    await shot('02-linked');
+    let last = 0;
+    await until(`frame ${frames}`, async () => {
+      if ((await phase()) === 'ended') return true;
+      const f = Number(await emu('e.frames()')) || 0;
+      if (f - last >= 3000) log('frame', (last = f), JSON.stringify(JSON.parse(await ev('JSON.stringify(window.__slLink.sessions.stats)'))));
+      return f >= frames;
+    }, Math.max(10 * 60000, (frames / 60) * 4000));
+    await shot('03-end');
+    if ((await phase()) !== 'ended') {
+      await sleep(2500);
+      if (host) await ev('window.__slLink.sessions.leave("left")');
+      await until('the session to end', async () => (await phase()) === 'ended', 120000);
+    }
+    const ended = JSON.parse(await ev('JSON.stringify(window.__slLink.sessions.state.ended)'));
+    const stats = JSON.parse(await ev('JSON.stringify(window.__slLink.sessions.stats)'));
+    const hl = JSON.parse(await ev('JSON.stringify(window.__slLink.sessions.__xh)')) || [];
+    result.ended = ended;
+    result.stats = stats;
+    result.hashes = { count: hl.length, first: hl[0] || null, last: hl.at(-1) || null, sha256: sha(hl.map(([f, h]) => `${f}:${h}`).join(','), 'sha256') };
+    await sleep(6000); // (the last battery save reaches the run)
+    const save = Buffer.from(await fetch(`${base}/api/runs/${runId}/save/${slot}`, APP).then((r) => r.arrayBuffer()));
+    writeFileSync(join(out, `after-${slot}.sav`), save);
+    result.saveAfterSha256 = sha(save, 'sha256');
+    result.checks.noMismatch = !stats.mismatch && ended?.reason !== 'linkDesync';
+    result.checks.hashesCompared = (stats.hashes || 0) > 10;
+    result.checks.reachedTheEnd = hl.length > 0 && hl.at(-1)[0] >= Math.floor((frames - 1) / 120) * 120 - 240;
+    if (opt('expect')) {
+      const e = readFileSync(join(resolve(opt('expect')), `seat${seat}.sav`));
+      result.checks.saveAsRecorded = save.subarray(0, e.length).equals(e);
+    }
+    await shot('04-left');
+    log('hashes', JSON.stringify(result.hashes), 'save sha256', result.saveAfterSha256);
+    log('checks', JSON.stringify(result.checks));
+    finish(Object.values(result.checks).every(Boolean) ? 0 : 1);
+  } catch (e) {
+    console.error(e);
+    result.error = String(e?.stack || e);
+    finish(1);
+  }
 }
 
 async function main() {
@@ -76,6 +326,9 @@ async function main() {
   const kind = opt('kind', 'trade');
   const script = resolve(opt('script'));
   const seats = Number(opt('players', '2'));
+  // (--bystander: one more player in the run who isn't in the session – their computer, page and game must stay out of it)
+  const bystander = flag('bystander');
+  const people = seats + (bystander ? 1 : 0);
   const frames = Math.floor(readFileSync(script).length / (4 + 4 * seats));
   const rtc = opt('rtc', '1763200000000');
   const rom1 = resolve(opt('rom1'));
@@ -85,12 +338,14 @@ async function main() {
   const free = (() => { try { const f = statfsSync(resolve(opt('data'), '..')); return f.bavail * f.bsize; } catch { return Infinity; } })();
   if (free < 1.2e9) { console.error(`only ${(free / 1e9).toFixed(1)} GB free – not starting`); app.exit(2); return; }
   const result = { kind, frames, players: seats, rom1: basename(rom1), rom2: basename(rom2), checks: {} };
-  const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, seats);
+  const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, people); // (the run's players)
+  const SESSION = SLOTS.slice(0, seats); // (the session's seats: the first `seats` players)
   const APP = { headers: { 'x-soullink': '1' } }; // (2.7.1: the server answers save reads only to the app – server/lib/guard.mjs)
 
   // ---- one server and scratch data folder per player ----------------------------------------------------------------
   const servers = [];
-  const profiles = [['A', 'Marius', 7401], ['B', 'Tim', 7402], ['C', 'Robin', 7403], ['D', 'Kim', 7404]].slice(0, seats).map(([id, name, port], i) => [id, name, port, romOf(i)]).map(([id, name, port, rom]) => {
+  const portBase = Number(opt('port-base', '7401')); // (another --port-base: two runs side by side)
+  const profiles = [['A', 'Marius', portBase], ['B', 'Tim', portBase + 1], ['C', 'Robin', portBase + 2], ['D', 'Kim', portBase + 3]].slice(0, people).map(([id, name, port], i) => [id, name, port, romOf(i)]).map(([id, name, port, rom]) => {
     const dir = join(data, id);
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
@@ -132,7 +387,9 @@ async function main() {
     for (const pr of profiles) for (let i = 0; i < 100; i++) { try { await api(pr, '/api/status'); break; } catch { await sleep(200); } }
     const [A, B] = profiles;
     const N = profiles.length;
-    const all = profiles.map((_, i) => i);
+    const every = profiles.map((_, i) => i); // (every computer of the run)
+    const all = every.slice(0, seats); // (the session's computers)
+    const by = bystander ? seats : -1; // (the bystander's computer)
     // ---- the run: built on A, joined on B ------------------------------------------------------------------------------
     const libA = await api(A, '/api/library');
     const own = (lib, i) => lib.roms.find((r) => basename(r.file || '') === basename(romOf(i))) || lib.roms[0];
@@ -152,7 +409,7 @@ async function main() {
     }
     const pre = {};
     for (const [i, pr] of profiles.entries()) {
-      const bytes = readFileSync(opt(`save${i + 1}`));
+      const bytes = readFileSync(opt(`save${i + 1}`) || opt('save1')); // (the bystander may play a copy of A's save)
       await api(pr, `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(bytes), 'PUT');
       pre[pr.id] = sha(bytes);
     }
@@ -165,14 +422,14 @@ async function main() {
       w.webContents.setAudioMuted(true);
       // (the pages' warnings and errors go into result.json – what a failed run needs first)
       w.webContents.on('console-message', (e) => {
-        if (e.level === 'warning' || e.level === 'error') (result.console ||= []).push(`${pr.id}: ${String(e.message).slice(0, 300)}`);
+        if (e.level === 'warning' || e.level === 'error') (result.console ||= []).push(`${pr.id} ${e.level}: ${String(e.message).slice(0, 300)}`);
       });
       w.loadURL(`${pr.base}/#/soullink?run=${runId}`);
       return w;
     });
     const ev = (i, js) => wins[i].webContents.executeJavaScript(js, true);
     // which player each computer is (an imported run otherwise guesses "p2" – fine for two players, not for four)
-    for (const i of all) {
+    for (const i of every) {
       await new Promise((r) => (wins[i].webContents.isLoading() ? wins[i].webContents.once('did-finish-load', r) : r()));
       // (sl-e2e: the page hands its link session to this script as window.__slLink)
       await ev(i, `localStorage.setItem(${JSON.stringify(`sl-me-${runId}`)}, ${JSON.stringify(JSON.stringify(SLOTS[i]))}); localStorage.setItem('sl-e2e', 'true'); location.reload(); true`);
@@ -202,12 +459,20 @@ async function main() {
       }
     })();
     const linked = () => until('every page and the peer links', async () => {
-      for (const i of all) for (const s of SLOTS) if (s !== SLOTS[i] && !(await ev(i, `window.__slLink?.sync?.linkDirect(${JSON.stringify(s)})`))) return false;
+      for (const i of every) for (const s of SLOTS) if (s !== SLOTS[i] && !(await ev(i, `window.__slLink?.sync?.linkDirect(${JSON.stringify(s)})`))) return false;
       return true;
     }, 300000);
     const everyone = async (fn) => { for (const i of all) if (!(await fn(i))) return false; return true; };
     /** A page's run document (the doc the page holds – what it synced from the others too). */
     const docOf = async (i) => JSON.parse(await ev(i, `(() => { const L = window.__slLink?.sync?.doc; if (!L) return null; return JSON.stringify(L.scan(''), (k, v) => v); })()`) || 'null');
+    /** The wager game key of a ROM file (shared/linkbattle.mjs › GAMES), from its header – null for one without wagers. */
+    const gameOfRom = (file) => {
+      const b = readFileSync(file);
+      const system = /\.nds$/i.test(file) ? 'nds' : /\.gba$/i.test(file) ? 'gba' : 'gb';
+      const { addr, len } = headerRange(system);
+      const at = system === 'gba' ? addr - 0x08000000 : system === 'nds' ? 0 : addr;
+      return gameOf(system, b.subarray(at, at + len));
+    };
     /** Gen 3 money in a battery save: SaveBlock1 (sections 1–4) +0x490 – Emerald XORs it with SaveBlock2's key (+0xAC). */
     const saveMoney3 = (b) => {
       const slot = (o) => ({ o, idx: b.readUInt32LE(o + 0xffc) });
@@ -223,7 +488,7 @@ async function main() {
       await until('every computer has every result', async () => {
         docs.length = 0;
         for (const i of all) docs.push(await docOf(i));
-        return docs.every((d) => SLOTS.every((s) => Object.keys(d || {}).some((k) => k.startsWith('lb:') && k.endsWith(`:${s}`))));
+        return docs.every((d) => SESSION.every((s) => Object.keys(d || {}).some((k) => k.startsWith('lb:') && k.endsWith(`:${s}`))));
       }, 60000).catch(() => null);
       const outcomes = docs.map((d) => {
         const lb = Object.entries(d || {}).filter(([k]) => k.startsWith('lb:')).map(([k, v]) => [k, v?.v ?? v]);
@@ -231,25 +496,40 @@ async function main() {
       });
       result.battle = outcomes.map((o) => ({ entries: o.entries.map(([k, v]) => ({ k, per: v.per, h: v.h, wager: v.wager, void: v.void || null })), log: o.feed.map((f) => f.text) }));
       const hashes = new Set(outcomes.flatMap((o) => o.entries.map(([, v]) => v.h)));
-      result.checks.battleReadOnEveryComputer = outcomes.every((o) => o.entries.length === N && o.entries.every(([, v]) => v.per && !v.void));
+      result.checks.battleReadOnEveryComputer = outcomes.every((o) => o.entries.length === seats && o.entries.every(([, v]) => v.per && !v.void));
       result.checks.battleSameResult = hashes.size === 1 && !hashes.has(undefined);
       const per = outcomes[0].entries[0]?.[1]?.per || {};
-      const winners = SLOTS.filter((s) => per[s]?.w > per[s]?.l).sort();
+      const winners = SESSION.filter((s) => per[s]?.w > per[s]?.l).sort();
       result.winners = winners;
       result.checks.knownWinner = JSON.stringify(winners) === JSON.stringify(want);
       result.checks.battleLogged = outcomes.every((o) => o.feed.length === 1);
+      if (bystander) { // (the bystander's computer gets the result through the run's document, like every log entry)
+        const d = await docOf(by);
+        result.checks.bystanderSawResult = Object.keys(d || {}).filter((k) => k.startsWith('feed:lb-')).length === 1;
+      }
       if (!opt('wager')) return;
       // the wager: each player's own game pays or gets it once it stands in the overworld (RAM), then saves it
       const stake = outcomes[0].entries[0]?.[1]?.wager || 0;
       result.stake = stake;
-      const moneyNow = (i) => emu(i, `(() => { const r = (a, n) => e.read(a, n); const u = (b) => (b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24) >>> 0;
-        if (${JSON.stringify(rom1)}.includes('Emerald') && ${i} % 2 === 0) { const s1 = u(r(0x03005d8c, 4)), s2 = u(r(0x03005d90, 4)); return (u(r(s1 + 0x490, 4)) ^ u(r(s2 + 0xac, 4))) >>> 0; }
-        return u(r(0x02025734 + 0x490, 4)); })()`);
+      // (each seat's game from its cartridge header, as the app tells them apart – shared/linkbattle.mjs gameOf; the money
+      // read the way the play view reads it for the wager, every generation)
+      const moneyNow = (i) => emu(i, `import('/shared/linkbattle.mjs').then((m) => m.readMoney(${JSON.stringify(gameOfRom(romOf(i)))}, (a, n) => e.read(a, n)))`);
       const before = result.moneyBefore = [];
       for (const i of all) before.push(Number(await moneyNow(i)));
+      if (flag('reset-after')) { // (Gen 1: the Colosseum has no way out – as on the console, switch off and Continue)
+        for (const i of all) await emu(i, 'e.restart()');
+        await sleep(4000);
+        for (const [keys, ms] of [...Array(4).fill([['start'], 1600]), ...Array(4).fill([['a'], 1600])]) {
+          for (const i of all) await emu(i, `e.hold(${JSON.stringify(keys)})`);
+          await sleep(150);
+          for (const i of all) await emu(i, 'e.hold([])');
+          await sleep(ms);
+        }
+        await shot(`${String(n++).padStart(2, '0')}-after-reset`);
+      }
       await until('every wager paid', async () => {
         const d = await docOf(0);
-        return SLOTS.every((s) => !!(d?.[`lbpay:${Object.keys(d).find((k) => k.startsWith('lb:'))?.split(':')[1]}:${s}`]));
+        return SESSION.every((s) => !!(d?.[`lbpay:${Object.keys(d).find((k) => k.startsWith('lb:'))?.split(':')[1]}:${s}`]));
       }, 120000).catch(() => null);
       await sleep(2500);
       const after = result.moneyAfter = [];
@@ -278,15 +558,16 @@ async function main() {
       }
       await sleep(8000); // (the battery save settles, then the play view writes it into the run)
       const savedMoney = [];
-      for (const [i, pr] of profiles.entries()) {
+      for (const i of all) {
+        const pr = profiles[i];
         const b = Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer()));
         const m = saveMoney3(b);
-        savedMoney.push(i % 2 === 0 && /Emerald/.test(rom1) ? (m.money ^ m.key) >>> 0 : m.money);
+        savedMoney.push(gameOfRom(romOf(i)) === 'emerald' ? (m.money ^ m.key) >>> 0 : m.money); // (Emerald XORs it; R/S don't)
       }
       result.moneyInSaves = savedMoney;
       result.checks.wagerInSaves = all.every((i) => savedMoney[i] === after[i]);
       const docSaved = await docOf(0);
-      result.checks.paymentMarkedSaved = SLOTS.every((s) => Object.entries(docSaved || {}).some(([k, v]) => k.startsWith('lbpay:') && k.endsWith(`:${s}`) && (v?.v ?? v)?.status === 'saved'));
+      result.checks.paymentMarkedSaved = SESSION.every((s) => Object.entries(docSaved || {}).some(([k, v]) => k.startsWith('lbpay:') && k.endsWith(`:${s}`) && (v?.v ?? v)?.status === 'saved'));
       await shot(`${String(n++).padStart(2, '0')}-saved`);
     }
     await linked();
@@ -307,6 +588,25 @@ async function main() {
         // picture is then the game's, not the one from before the state was loaded)
         if (Number(opt('prestep', '0')) > 0) await emu(i, `e.step(${Number(opt('prestep'))})`);
       }
+      if (flag('continue')) { // (no state: every game boots from its save – through the title screen into the game first)
+        await sleep(4000);
+        for (const [keys, ms] of [...Array(4).fill([['start'], 1600]), ...Array(4).fill([['a'], 1600])]) {
+          for (const i of all) await emu(i, `e.hold(${JSON.stringify(keys)})`);
+          await sleep(150);
+          for (const i of all) await emu(i, 'e.hold([])');
+          await sleep(ms);
+        }
+        await sleep(2000);
+      }
+      if (bystander) { // the bystander plays their own game meanwhile (from its state, if given – else it boots from the save)
+        await ev(by, `location.hash = ${JSON.stringify(`#/play?run=${runId}`)}; true`);
+        await until('the bystander\'s fast player shows a picture', () => emu(by, 'e.ready'), 120000);
+        if (opt(`state${by + 1}`)) {
+          const z = deflateRawSync(readFileSync(opt(`state${by + 1}`))).toString('base64');
+          await emu(by, `(async () => { const b = Uint8Array.from(atob(${JSON.stringify(z)}), (c) => c.charCodeAt(0));
+            const s = new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('deflate-raw'))); return e.loadState(new Uint8Array(await s.arrayBuffer())); })()`);
+        }
+      }
       // (a mark in each player page: still there after the session = the page and its canvas never reloaded)
       for (const i of all) await ev(i, `document.querySelector('iframe[src^="/playernative.html"]').contentWindow.__e2eMark = 'm${i}'; true`);
       await sleep(1500);
@@ -317,7 +617,7 @@ async function main() {
       result.checks.ownGamesRunning = await everyone((i) => ev(i, 'window.__slLink.sessions.ownGame()'));
       if (flag('engine')) { // (every game in the souldew engine, alone: the process the link will join)
         result.engineIds = [];
-        for (const pr of profiles) result.engineIds.push((await api(pr, '/api/native/status')).session?.id || null);
+        for (const i of all) result.engineIds.push((await api(profiles[i], '/api/native/status')).session?.id || null);
         result.checks.engineAlone = await everyone(async (i) => (await emu(i, 'e.perf().info?.engine === true && e.perf().info?.mode === "solo"')) === true);
       }
     }
@@ -333,8 +633,13 @@ async function main() {
       await shot('01c-challenge');
       await ev(0, `(() => { const b = [...document.querySelectorAll('.battle-setup button')].find((x) => /Cancel/.test(x.textContent)); b?.click(); return !!b; })()`);
     }
-    await ev(0, `window.__slLink.sessions.invite(${JSON.stringify(kind)}, ${JSON.stringify(SLOTS.slice(1))}, ${JSON.stringify(wagerOpts)})`);
+    await ev(0, `window.__slLink.sessions.invite(${JSON.stringify(kind)}, ${JSON.stringify(SESSION.slice(1))}, ${JSON.stringify(wagerOpts)})`);
     await until('invite arrives', () => everyone(async (i) => !i || (await phase(i)) === 'invited'));
+    if (bystander) { // (the invite names its seats: the bystander's page shows nothing)
+      await sleep(1500);
+      result.bystanderPhases = [await phase(by)];
+      result.checks.bystanderNotInvited = !['invited', 'preparing', 'running'].includes(result.bystanderPhases[0]);
+    }
     await shot('02-invited');
     if (seamless && flag('desync') && opt('desync-state')) {
       // (out of step on purpose: B's host gets another state for A's seat than A's host has – the hashes differ from
@@ -366,7 +671,7 @@ async function main() {
     await until('everybody running', () => everyone(async (i) => (await phase(i)) === 'running'), 120000);
     if (seamless && flag('engine')) { // the partners joined each game in its own process: the same session, now linked
       const ids = [];
-      for (const pr of profiles) ids.push((await api(pr, '/api/native/status')).session?.id || null);
+      for (const i of all) ids.push((await api(profiles[i], '/api/native/status')).session?.id || null);
       result.checks.linkedInPlace = ids.every((x, i) => x && x === result.engineIds[i])
         && (await everyone(async (i) => (await emu(i, 'e.perf().info?.mode')) === 'link'));
     }
@@ -399,6 +704,22 @@ async function main() {
     await shot('04-linked');
     const route = await ev(0, 'JSON.stringify(window.__slLink.sessions.state.route)');
     result.route = JSON.parse(route || '{}');
+    if (bystander) { // the bystander, while the others are linked: still outside; asking A to trade gets "in another link"
+      result.bystanderPhases.push(await phase(by));
+      const f0 = seamless ? Number(await emu(by, 'e.frames()')) || 0 : 0;
+      await shot('04b-bystander-during');
+      await ev(by, `window.__slLink.sessions.invite('trade', ['p1']).then(() => true, (e) => String(e?.message || e))`);
+      const refused = await until('the bystander hears "busy"', async () => ((await phase(by)) === 'ended' ? JSON.parse(await ev(by, 'JSON.stringify(window.__slLink.sessions.state.ended)')) : null), 30000).catch(() => null);
+      result.bystanderInvite = refused;
+      result.checks.bystanderToldBusy = refused?.reason === 'busy';
+      result.checks.sessionUnaffected = await everyone(async (i) => (await phase(i)) === 'running');
+      await sleep(1200);
+      await shot('04c-bystander-busy');
+      if (seamless) { // their own game went on the whole time: frames advanced, never switched to a link session
+        await sleep(1500);
+        result.checks.bystanderGameRunsOn = (Number(await emu(by, 'e.frames()')) || 0) - f0 > 60 && Number(await emu(by, 'e.switches().length')) === 0;
+      }
+    }
 
     // ---- run the recording to its end ----------------------------------------------------------------------------------
     const shots = String(opt('shots', '')).split(',').filter(Boolean).map(Number).sort((a, b) => a - b);
@@ -464,7 +785,7 @@ async function main() {
         result.checks.samePlayerPageAfter = await everyone(async (i) => (await ev(i, `document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__e2eMark`)) === `m${i}`);
       if (flag('engine')) { // each game alone again in the same process (no new player was started)
         const ids = [];
-        for (const pr of profiles) ids.push((await api(pr, '/api/native/status')).session?.id || null);
+        for (const i of all) ids.push((await api(profiles[i], '/api/native/status')).session?.id || null);
         result.checks.aloneInPlace = ids.every((x, i) => x && x === result.engineIds[i])
           && (await everyone(async (i) => (await emu(i, 'e.perf().info?.mode')) === 'solo'));
       }
@@ -495,7 +816,7 @@ async function main() {
       result.checks.samePlayerPageAfter = await everyone(async (i) => (await ev(i, `document.querySelector('iframe[src^="/playernative.html"]')?.contentWindow?.__e2eMark`)) === `m${i}`);
       if (flag('engine')) { // each game alone again in the same process (no new player was started)
         const ids = [];
-        for (const pr of profiles) ids.push((await api(pr, '/api/native/status')).session?.id || null);
+        for (const i of all) ids.push((await api(profiles[i], '/api/native/status')).session?.id || null);
         result.checks.aloneInPlace = ids.every((x, i) => x && x === result.engineIds[i])
           && (await everyone(async (i) => (await emu(i, 'e.perf().info?.mode')) === 'solo'));
       }
@@ -504,7 +825,7 @@ async function main() {
     await sleep(4000);
     await shot(`${String(n++).padStart(2, '0')}-left`);
     const saves = [];
-    for (const [i, pr] of profiles.entries()) saves.push(Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer())));
+    for (const i of all) saves.push(Buffer.from(await fetch(`${profiles[i].base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer())));
     saves.forEach((b, i) => writeFileSync(join(out, `after-${profiles[i].id}.sav`), b));
     if (seamless) { // and A plays on (after the saves were taken): a few buttons – close a text box, walk – alone now
       const stripPlay = strip(0, 'play', 4000);
@@ -529,12 +850,21 @@ async function main() {
     if (opt('winner')) await battleChecks();
     if (kind === 'trade' && !dropAt) { // (a session cut off before the trade has none to log)
       const trades = [];
-      for (const pr of profiles) {
+      for (const pr of profiles) { // (the bystander's computer too: the log is the run's)
         const doc = await api(pr, `/api/runs/${runId}/doc`).catch(() => null);
         for (const [k, v] of Object.entries(doc?.entries || doc || {})) if (k.startsWith('feed:') && JSON.stringify(v).includes('"trade"')) trades.push({ on: pr.id, entry: v.v ?? v });
       }
       result.trades = trades;
+      // (what the trade's log entry is made of: the first and the last team each page saw during the session)
+      result.tradeTeams = [];
+      for (const i of all) result.tradeTeams.push(JSON.parse(await ev(i, `JSON.stringify(['partyFirst', 'partyLast'].map((k) => (window.__slLink.sessions[k] || []).map((m) => \`\${m.key}:\${m.species}\`)))`)));
       result.checks.tradeLogged = trades.length > 0;
+      if (bystander) result.checks.bystanderSawTrade = trades.some((x) => x.on === profiles[by].id);
+    }
+    if (bystander) { // after the session: the bystander's page is still fine, and was never part of it
+      result.bystanderPhases.push(await phase(by));
+      result.checks.bystanderNeverLinked = !(await ev(by, 'window.__slLink.sessions.state.seamless')) && (!seamless || Number(await emu(by, 'e.switches().length')) === 0);
+      result.bystanderErrors = (result.console || []).filter((x) => x.startsWith(`${profiles[by].id} error:`));
     }
     log('checks', JSON.stringify(result.checks));
     finish(Object.values(result.checks).every(Boolean) ? 0 : 1);
