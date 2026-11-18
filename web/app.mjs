@@ -1,12 +1,13 @@
 import { html, render, useState, useEffect, useRef, useCallback, useMemo, useErrorBoundary } from '/vendor/htm-preact.mjs';
 import { api, events } from './lib/api.mjs';
+import { serverErrorText } from './lib/errors.mjs';
 import { RunDoc } from './lib/doc.mjs';
 import { loadData, RunData, speciesName } from './lib/data.mjs';
 import { SyncLink, PARTNER_TTL } from './lib/sync.mjs';
 import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
-import { detectLayout } from './lib/controls.mjs';
-import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules } from './lib/run.mjs';
+import { detectLayout, resolveHotkeys, accelerator } from './lib/controls.mjs';
+import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules, lives as getLives, livesFor, settleLives, revealHeld, startRules, HELD_PREFIX } from './lib/run.mjs';
 import { attachRps } from './lib/worldrps.mjs';
 import { RpsCards } from './views/rps.mjs';
 import { play } from './lib/sound.mjs';
@@ -37,6 +38,7 @@ import { useCoffeeFx, CoffeeFx } from './views/coffee.mjs';
 import { LicenseNag } from './views/nag.mjs';
 import { countLaunch, shouldNag } from './lib/nag.mjs';
 import { mySlotIn } from './lib/restart.mjs';
+import { initRules, setupHostRules } from './lib/hostrules.mjs';
 import { IS_MAC, IS_WIN, PLATFORM, shortcut } from './lib/platform.mjs';
 import { TrophiesView, TrophyToasts } from './views/trophies.mjs';
 import { syncTrophies, rememberSlots, watchRun, onTrophyUnlock } from './lib/trophies.mjs';
@@ -61,9 +63,20 @@ const pref = {
   },
 };
 
+/** The emulator's shortcuts as the menu shows them (Settings › Controls): config.controls, set once the status is known. */
+let menuControls = null;
+const menuKeys = () => {
+  const hot = resolveHotkeys(menuControls);
+  // '' = no key: the menu entry shows none
+  return Object.fromEntries(['pause', 'turbo', 'faster', 'slower', 'quicksave', 'quickload', 'screenshot', 'mute'].map((id) => [id, accelerator(hot[id][0]) || '']));
+};
+
 /** The desktop menu bar in the UI language (electron/main.mjs builds it from these). */
-function sendMenuLabels() {
-  window.sls?.setMenuLabels?.({
+function sendMenuLabels(controls = menuControls) {
+  menuControls = controls;
+  if (!window.sls?.setMenuLabels) return;
+  window.sls.setMenuLabels({
+    keys: menuKeys(),
     settings: t('menu.settings', 'Settings …'), file: t('menu.file', 'File'), addGames: t('menu.addGames', 'Add games …'),
     revealLibrary: IS_MAC ? t('menu.revealLibrary', 'Show library folder in Finder') : IS_WIN ? t('menu.revealLibraryWin', 'Show library folder in Explorer')
       : t('menu.revealLibraryLinux', 'Show library folder in the file manager'),
@@ -351,7 +364,7 @@ function App() {
       setStatus(s);
       applyTheme(s.config?.theme);
       const lang = await setLang(s.config?.lang || guessLang());
-      sendMenuLabels();
+      sendMenuLabels(s.config?.controls || null);
       await detectLayout(lang); // key names in Help / Settings › Controls
       await Promise.all([loadData(), loadLocationTables(), reloadLibrary()]);
       const id = s.config?.lastRun && s.runs?.some((r) => r.id === s.config.lastRun) ? s.config.lastRun : s.runs?.[0]?.id || null;
@@ -368,6 +381,9 @@ function App() {
     bootUp();
     return onLangChange((l) => { detectLayout(l); sendMenuLabels(); setLangTick((x) => x + 1); });
   }, []);
+  // re-bound shortcuts (Settings › Controls): the menu shows the new keys
+  const controlsSig = JSON.stringify(status?.config?.controls || null);
+  useEffect(() => { if (status) sendMenuLabels(status.config?.controls || null); }, [controlsSig]);
 
   // ---- active run ----------------------------------------------------------------
   // a name typed when joining can arrive after the run's doc is open (the build finishes later): apply it then too
@@ -386,6 +402,7 @@ function App() {
     if (!runId) return;
     let cancelled = false;
     let unsub = null;
+    let stopHost = () => {};
     (async () => {
       const m = await reloadManifest(runId);
       if (!m || cancelled) return;
@@ -397,7 +414,7 @@ function App() {
       setMeState(mySlotIn(m));
       for (const s of slotsOf(m)) if (!d.get(`player:${s}`) && m.players?.[s]) d.set(`player:${s}`, m.players[s]);
       applyJoinName(d, m);
-      if (!d.get('rules') && m.rules) d.set('rules', m.rules);
+      initRules(d, m);
       // Older versions kept the Discord webhook in the shared rules: hand it to the server once (it moves it into
       // this computer's config) and drop it from the doc, so it no longer syncs to the partner.
       const legacy = d.get('rules');
@@ -407,7 +424,13 @@ function App() {
         api.post(`/api/runs/${runId}/meta`, { rules: legacy }).catch(() => {});
         d.set('rules', clean);
       }
-      unsub = d.subscribe(() => setDocVersion((v) => v + 1));
+      // a SoulLink's rules are the host's: signed by its computer, checked when they come in (lib/hostrules.mjs)
+      stopHost = setupHostRules(d, m, { me: mySlotIn(m), reload: () => !cancelled && reloadManifest(runId) });
+      const unsubDoc = d.subscribe(() => setDocVersion((v) => v + 1));
+      unsub = () => {
+        unsubDoc();
+        stopHost();
+      };
       setDoc(d);
       setRunData(rd);
       setDocVersion((v) => v + 1);
@@ -451,10 +474,16 @@ function App() {
   useEffect(() => {
     if (!runDoc) return;
     const doc = runDoc;
+    // deaths that came in while the run wasn't open (see below) – once the notice below is listening
+    queueMicrotask(() => settleLives(doc, manifest));
     return doc.subscribe((keys, remote, info) => {
       const names = getPlayers(doc, manifest);
       // The partner's timestamps come from their clock, which may be minutes off: shift them by the measured offset.
       const age = (at) => Date.now() - at - (remote ? info?.offset || 0 : 0);
+      // The lives rule for deaths that didn't go through this app's spendLife: a 2.7.4 partner doesn't know the rule,
+      // and two deaths made offline only use up a pool once they meet. Settled from the doc – once, and with the same
+      // log line on every computer (lib/run.mjs settleLives); after this change has gone to every subscriber.
+      if (keys.some((k) => k.startsWith('pair:') || k.startsWith('extra:'))) queueMicrotask(() => settleLives(doc, manifest));
       for (const k of keys) {
         // The run just ended (a wipe here or at the partner's, or marked failed / won): the notice for both.
         if (k === 'run:status') {
@@ -475,6 +504,25 @@ function App() {
             shownDeaths.current.add(id);
             setDeathAlert({ area: k.slice(5), by: p.by || othersOf(me, manifest)[0] || me });
             sfx('death');
+          }
+        }
+        // The lives rule: a death left few lives in its pool – a quiet warning for everyone, once per death.
+        if (k.startsWith('pair:') || k.startsWith('extra:')) {
+          const v = doc.get(k);
+          const at = (k.startsWith('pair:') ? v?.state === 'dead' : v?.dead) ? v.diedAt : 0;
+          const id = `lives:${k}:${at}`;
+          if (at && age(at) < 120000 && !shownDeaths.current.has(id)) {
+            shownDeaths.current.add(id);
+            const slot = k.startsWith('pair:') ? v.by : k.split(':')[1];
+            const pool = livesFor(doc, manifest, slot);
+            // (none left: the run is over – that notice says it)
+            if (pool?.low) {
+              const vars = { n: pool.left, count: pool.left, name: names[slot]?.name || '' };
+              toast({ kind: 'warn', title: t('lives.lowTitle', 'Lives running low'), text: getLives(doc, manifest).pool !== 'player'
+                ? t('lives.lowText', 'Only {n} life left.|Only {n} lives left.', vars)
+                : slot === me ? t('lives.lowMine', 'You have only {n} life left.|You have only {n} lives left.', vars)
+                  : t('lives.lowOther', '{name} has only {n} life left.|{name} has only {n} lives left.', vars) });
+            }
           }
         }
         if (!remote) continue;
@@ -543,7 +591,25 @@ function App() {
 
   // ---- snapshots (live RAM / save files / external bridge) ---------------------------
   // battle: what the live loop sees on the other side right now – a death in it gets its cause (opponent, level).
-  const applySnap = useCallback((snap, { notify = true, battle = null } = {}) => {
+  // After deaths were written (a snapshot, or held deaths revealed): a wiped team ends the run, and Discord hears of
+  // the catches and deaths.
+  const afterDeaths = (doc, { newCatches = [], deaths = [] }, notify) => {
+    // the last of my Pokémon fell → the run is over (every player gets the big notice via the doc). A solo
+    // Nuzlocke goes by its blackout rule instead (with the manifest, wipedSlot asks it; applySnapshot already
+    // ended the run on a blackout or a deathless death – failRun then does nothing).
+    if (wipedSlot(doc, [me], manifest)) failRun(doc, manifest, me, runMode(manifest) === 'nuzlocke' ? 'blackout' : undefined);
+    if (notify && newCatches.length) sfx('catch');
+    // deaths: the doc subscription above shows the big alert (for both players)
+    // The server posts to this computer's webhook for the run, if one is set (none → it does nothing).
+    if (notify && (newCatches.length || deaths.length)) {
+      const n = getPlayers(doc, manifest)[me].name;
+      const lines = [...newCatches.map((a) => `🎯 **${n}** – ${areaName(doc, manifest, a)}: ${speciesName(doc.get(`enc:${a}:${me}`)?.species)}`),
+        ...deaths.map((a) => `💀 **${n}** – ${areaName(doc, manifest, a)}`)];
+      api.post('/api/notify/discord', { runId: manifest.id, content: lines.join('\n') }).catch(() => {});
+    }
+  };
+  // held: the Pokémon whose fall the game hasn't shown yet (the play view's DeathReveal – key → the HP still shown)
+  const applySnap = useCallback((snap, { notify = true, battle = null, held = null } = {}) => {
     if (!runDoc) return null;
     const doc = runDoc;
     // A link session (docs/MULTIPLAYER.md › rules): what the game shows meanwhile isn't the run's – a link battle (also
@@ -560,23 +626,38 @@ function App() {
     }
     // An ended run stays as it ended: playing on (for fun, or after a wipe) records nothing anymore.
     if (doc.get('run:status')) return null;
-    const res = applySnapshot(doc, manifest, genOfRun(manifest, runData), me, snap, { rd: runData, battle });
+    const res = applySnapshot(doc, manifest, genOfRun(manifest, runData), me, snap, { rd: runData, battle, held });
     setInbox(res);
-    // the last of my Pokémon fell → the run is over (every player gets the big notice via the doc). A solo
-    // Nuzlocke goes by its blackout rule instead (with the manifest, wipedSlot asks it; applySnapshot already
-    // ended the run on a blackout or a deathless death – failRun then does nothing).
-    if (wipedSlot(doc, [me], manifest)) failRun(doc, manifest, me, runMode(manifest) === 'nuzlocke' ? 'blackout' : undefined);
-    if (notify && res.newCatches.length) sfx('catch');
-    // deaths: the doc subscription above shows the big alert (for both players)
-    // The server posts to this computer's webhook for the run, if one is set (none → it does nothing).
-    if (notify && (res.newCatches.length || res.deaths.length)) {
-      const n = getPlayers(doc, manifest)[me].name;
-      const lines = [...res.newCatches.map((a) => `🎯 **${n}** – ${areaName(doc, manifest, a)}: ${speciesName(doc.get(`enc:${a}:${me}`)?.species)}`),
-        ...res.deaths.map((a) => `💀 **${n}** – ${areaName(doc, manifest, a)}`)];
-      api.post('/api/notify/discord', { runId: manifest.id, content: lines.join('\n') }).catch(() => {});
-    }
+    afterDeaths(doc, res, notify);
     return res;
   }, [runDoc, manifest, runData, me]);
+  // The play view between snapshots (a reset, the title screen, the game closed): the held deaths it no longer holds
+  // (`keep`: the ones it still does) are revealed now – recorded already, they never go away.
+  const revealDeaths = useCallback((keep = null) => {
+    if (!runDoc || !me || !Object.keys(runDoc.scan(`${HELD_PREFIX}${me}:`)).length) return null;
+    const res = revealHeld(runDoc, manifest, me, { keep });
+    afterDeaths(runDoc, res, true);
+    return res;
+  }, [runDoc, manifest, me]);
+  // The play view saw the first Poké Balls in this player's bag: the run's rules start for them (lib/run.mjs startRules).
+  const ballsSeen = useCallback((down = []) => !!runDoc && !!me && startRules(runDoc, manifest, me, 'bag', down), [runDoc, manifest, me]);
+  // Held deaths nobody holds any more: this player's from a session that ended without revealing them (the app was
+  // quit or crashed – the game's next reading reveals them sooner), a partner's whose app went away before it could
+  // (older than a couple of minutes; a play view holds one for seconds, a paused game a little longer) – revealed here,
+  // with the same log line the other app would write.
+  useEffect(() => {
+    if (!runDoc || !manifest) return undefined;
+    const sweep = () => {
+      for (const s of slotsOf(manifest)) {
+        if (!Object.keys(runDoc.scan(`${HELD_PREFIX}${s}:`)).length) continue;
+        const res = revealHeld(runDoc, manifest, s, { olderThan: s === me ? 300000 : 120000 });
+        if (s === me && res.deaths.length) afterDeaths(runDoc, res, true);
+      }
+    };
+    sweep();
+    const id = setInterval(sweep, 30000);
+    return () => clearInterval(id);
+  }, [runDoc, manifest?.id, me]);
 
   // One EventSource per run; handlers read the latest applySnap through a ref.
   const applySnapRef = useRef(applySnap);
@@ -585,7 +666,7 @@ function App() {
     save: (p) => p.runId === runId && applySnapRef.current(snapshotFromSave(p.save)),
     live: (frame) => setLiveInfo({ ...frame, at: Date.now() }),
     'live-status': (s) => setLiveInfo((x) => ({ ...(x || {}), status: s })),
-    'save-error': (p) => p.runId === runId && toast({ kind: 'death', title: t('toast.saveError', 'Save file unreadable'), text: p.error }),
+    'save-error': (p) => p.runId === runId && toast({ kind: 'death', title: t('toast.saveError', 'Save file unreadable'), text: serverErrorText(p) }),
     // a zipped 3DS game being unpacked into the library (server/lib/library.mjs unpackZipGames) – what came of it is
     // told by the page that added it (web/lib/libadded.mjs addedMessage, or the error)
     unpack: (p) => toast(unpackToast(p)),
@@ -604,7 +685,8 @@ function App() {
       onStatus: (s) => linkRef.current === link && setLinkStatus({ ...s }),
       onMessage: (msg) => {
         if (msg.payload?.type === 'ping') {
-          toast({ kind: 'soul', title: t('toast.ping', '{name} pings you', { name: names[msg.from]?.name || t('common.partner', 'Partner') }), text: msg.payload.text || '' });
+          // (the ping's text in our language – the partner's own `text` is in theirs)
+          toast({ kind: 'soul', title: t('toast.ping', '{name} pings you', { name: names[msg.from]?.name || t('common.partner', 'Partner') }), text: t('log.pingText', 'Hey, take a look!') });
           sfx('ping');
         }
       },
@@ -744,7 +826,7 @@ function App() {
   const warnCount = runDoc ? checkCount + inbox.inbox.length + inbox.alerts.length : 0;
   const ctx = {
     status, reloadStatus, library, reloadLibrary, runId, setRunId, manifest, missingRun, reloadManifest, doc: runDoc, docVersion, runData, me, setMe,
-    navigate, route, link: linkRef.current, linkStatus, linkPlay, linkSessions: linkPlayRef.current, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, toast, liveInfo,
+    navigate, route, link: linkRef.current, linkStatus, linkPlay, linkSessions: linkPlayRef.current, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, revealDeaths, ballsSeen, toast, liveInfo,
     externalRun, setExternalRun,
     session, startSession, endSession, closeSession, offerRestart,
   };

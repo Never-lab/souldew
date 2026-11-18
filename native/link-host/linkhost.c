@@ -22,7 +22,7 @@
 // READ / POKE (tests), UNTIL, NEED, SEATSTATE; out LINPUT, SEATSRAM, SEATSTATE, MEM and the events hash {frame, hash}
 // every 120 frames and wait {seats, frame, ms}. Both: CMD_LINK / CMD_SOLO (the server only, never the page).
 // Events: loaded {engine, mode, core, system, seats, local, net, delay, width, height, fps, sampleRate, frame, ram,
-// saveSize, stateSize, state} | stats {fps, speed, shown, frame} | stepped | saved | written | stateLoaded | seatState |
+// saveSize, stateSize, state} | stats {fps, speed, shown, frame, ffk, ffHoles} | ffrate {k} | audioRate | stepped | saved | written | stateLoaded | seatState |
 // error | ended.
 //
 // Modules: seats.c (the consoles and their re-forming), session.c (whose buttons on which frame: solo / lockstep),
@@ -526,12 +526,14 @@ int main(int argc, char **argv) {
       if (cadence_every(&cad.last_sram, 0.5, t)) seats_check_sram(session_local(), false);
       host_sleep(0.01);
       cadence_restart(&cad, host_now());
+      avout_idle(host_now()); // (the pause is no time the fast-forward sound owes)
       continue;
     }
     if (!session_ready(t)) { // a link session waits for a peer's buttons: the game stands still, for everybody
       if (cadence_every(&cad.last_ram, 0.1, t)) ram_send(&rs);
       host_sleep(0.002);
       cadence_restart(&cad, host_now());
+      avout_idle(host_now());
       continue;
     }
     session_run_frame();
@@ -555,7 +557,11 @@ int main(int argc, char **argv) {
     double rfps, real;
     if (cadence_stats(&cad, t, &rfps, &real)) { // the page measures the real speed with the frame count
       avout_measured(real);
-      host_event("{\"event\":\"stats\",\"fps\":%.1f,\"speed\":%.3f,\"shown\":%llu,\"frame\":%u}", rfps, real, (unsigned long long)cad.shown, frame);
+      double ffk;
+      unsigned holes;
+      avout_ff(&ffk, &holes); // (the fast-forward sound's ratio, and how often its queue ran dry – diagnostics)
+      host_event("{\"event\":\"stats\",\"fps\":%.1f,\"speed\":%.3f,\"shown\":%llu,\"frame\":%u,\"ffk\":%.3f,\"ffHoles\":%u}", rfps, real,
+                 (unsigned long long)cad.shown, frame, ffk, holes);
     }
     cadence_wait(&cad, speed, t);
   }

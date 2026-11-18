@@ -1,4 +1,4 @@
-// Cheats that write into the running game's memory – today one: Rare Candies into the bag.
+// Cheats that write into the running game's memory – today two: Rare Candies and Max Repels into the bag.
 //
 // Why RAM and not cheat codes: Action Replay / GameShark codes are made for one version and region each, and the
 // cores in this build differ in what they accept. Writing the item where the game keeps its bag works the same for
@@ -14,6 +14,22 @@ const le16 = (v) => [v & 0xff, (v >> 8) & 0xff];
 
 /** Rare Candy's item id per generation (pret item constants; PokeAPI game_indices agree). */
 export const RARE_CANDY = { 1: 0x28, 2: 0x20, 3: 68, 4: 50, 5: 50, 6: 50, 7: 50 };
+/**
+ * Max Repel's item id per generation: pokered MAX_REPEL $39, pokecrystal/pokegold $2B, pokeemerald/pokefirered
+ * ITEM_MAX_REPEL 84, pokeheartgold ITEM_MAX_REPEL 77 – the same number up to Gen 7 (PokeAPI game_indices agree).
+ * Unlike Rare Candy it lives in the Items pocket in every generation.
+ */
+export const MAX_REPEL = { 1: 0x39, 2: 0x2b, 3: 84, 4: 77, 5: 77, 6: 77, 7: 77 };
+
+/**
+ * The cheats the play screen offers: the item per generation, the pocket it goes into where the game has several, and
+ * how many one use adds (Rare Candies: enough for any level cap; Max Repels: ten, 2500 steps without wild Pokémon –
+ * used again when they run out, each time in the log).
+ */
+export const CHEATS = {
+  rareCandy: { items: RARE_CANDY, pocket: null, count: 99 },
+  maxRepel: { items: MAX_REPEL, pocket: 'items', count: 10 },
+};
 
 // Gen 1/2: a count byte, then (id, quantity) pairs closed by 0xFF. Bag 20 slots, 99 per slot (pokered
 // constants/menu_constants.asm BAG_ITEM_CAPACITY, pokecrystal constants/item_data_constants.asm MAX_ITEMS / MAX_ITEM_STACK).
@@ -111,8 +127,25 @@ function layoutOf(entry) {
   return key ? { kind: 'ds', ...DS[key] } : null;
 }
 
-/** Can this game get Rare Candies at all? (The bag still has to be found when it is used.) */
-export const cheatSupported = (entry) => !!layoutOf(entry) && !!RARE_CANDY[entry.gen];
+/** Can this game get this cheat's item (default: Rare Candies) at all? (The bag still has to be found when it is used.) */
+export const cheatSupported = (entry, cheat = 'rareCandy') => !!layoutOf(entry) && !!CHEATS[cheat]?.items[entry.gen];
+
+/** The cheats this game can get, in the order the play screen lists them. */
+export const cheatsFor = (entry) => Object.keys(CHEATS).filter((id) => cheatSupported(entry, id));
+
+/**
+ * Why a cheat can't be used right now – null when it can. The order is the one the player can do something about
+ * last: a game without a known bag, a run whose rules don't allow cheats (host-set in a SoulLink), live tracking that
+ * hasn't found the team (the DS games find the bag through it), a battle (the game keeps a copy of the bag then).
+ * @param {{supported:boolean, allowed:boolean, live:boolean, inBattle:boolean}} s
+ * @returns {null|'unsupported'|'off'|'waiting'|'inBattle'}
+ */
+export function cheatBlock({ supported, allowed, live, inBattle }) {
+  if (!supported) return 'unsupported';
+  if (!allowed) return 'off';
+  if (!live) return 'waiting';
+  return inBattle ? 'inBattle' : null;
+}
 
 // ---------------------------------------------------------------------------
 // Gen 1/2
@@ -277,7 +310,7 @@ function dsBag(L, entry, read, state, pocketName = 'medicine', allowEmpty = fals
 // ---------------------------------------------------------------------------
 // Gen 6/7
 
-function ctrBagAt(L, base, read) {
+function ctrBagAt(L, base, read, pocketName = 'medicine') {
   const b = read(base, L.size);
   if (!b) return null;
   const g7 = L.gen === 7;
@@ -311,13 +344,13 @@ function ctrBagAt(L, base, read) {
     const anyPtr = [...got].some((p) => p >= 0x08000000 && p < 0x40000000);
     if (anyPtr && (got.size !== want.size || [...got].some((p) => !want.has(p)))) return null;
   }
-  const [off, slots] = L.pockets.medicine;
+  const [off, slots] = L.pockets[pocketName];
   return { addr: base + off, slots, bytes: b.subarray(off, off + slots * 4), g7, slot: (i) => slot(off + i * 4), idOf, countOf };
 }
 
-function ctrAdd(L, entry, mem, state, item, count) {
+function ctrAdd(L, entry, mem, state, item, count, pocketName = 'medicine') {
   let bag = null;
-  for (const base of ctrBags(entry, state)) if ((bag = ctrBagAt(L, base, mem.read))) break;
+  for (const base of ctrBags(entry, state)) if ((bag = ctrBagAt(L, base, mem.read, pocketName))) break;
   if (!bag) return { error: 'notFound' };
   const { addr, slots, g7, slot, idOf, countOf } = bag;
   const enc = (v) => [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff];
@@ -385,19 +418,40 @@ export function addRareCandies(entry, mem, state, count = 99) {
   return addItem(entry, mem, state, RARE_CANDY[entry?.gen], count);
 }
 
+/**
+ * Put `count` Max Repels into the Items pocket (Gen 1/2: the one bag) – the same checks, stack sizes and answers as
+ * addRareCandies.
+ */
+export function addMaxRepels(entry, mem, state, count = 10) {
+  return addItem(entry, mem, state, MAX_REPEL[entry?.gen], count, { pocket: 'items' });
+}
+
+/** Use one of CHEATS by its id – its item, pocket and count. */
+export function applyCheat(id, entry, mem, state) {
+  const c = CHEATS[id];
+  if (!c) return { error: 'unsupported' };
+  return addItem(entry, mem, state, c.items[entry?.gen], c.count, c.pocket ? { pocket: c.pocket } : {});
+}
+
 /** Poké Ball's item id per generation (pret item constants: Gen 1 POKE_BALL 0x04, Gen 2 0x05, Gen 3–5 4). */
 export const POKE_BALL = { 1: 0x04, 2: 0x05, 3: 4, 4: 4, 5: 4 };
 
 /**
  * Put `count` of an item into the bag – the same checks as addRareCandies. `pocket` 'balls' puts it into the Poké Ball
- * pocket where the game has one (Gen 2–4; Gen 1 and 5 keep balls with the items). Used by the ROM test matrix
- * (scripts/rom-matrix) to catch a wild Pokémon early in a game; the app's cheats menu only offers Rare Candies.
+ * pocket where the game has one (Gen 2–4; Gen 1 and 5 keep balls with the items; the ROM test matrix –
+ * scripts/rom-matrix – gives Poké Balls to catch a wild Pokémon early in a game), 'items' into the Items pocket (Max
+ * Repels – where Gen 1–3 put every item without a pocket of its own anyway). Without one, Gen 4–7 put it into
+ * Medicine (Rare Candies), and a 3DS game takes Medicine items only.
  * `allowEmpty` accepts a Gen 4 bag with nothing in it yet when the save data came from the pointer (not a scan).
  */
 export function addItem(entry, mem, state, item, count = 1, { pocket = null, allowEmpty = false } = {}) {
   const L = layoutOf(entry);
   if (!L || !item) return { error: 'unsupported' };
-  if (L.kind === 'ctr') return pocket || !MED67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count); // (Medicine items only)
+  if (L.kind === 'ctr') {
+    // (the Items pocket on request, else Medicine items only – nothing lands in the wrong pocket)
+    if (pocket === 'items') return MED67.has(item) || TM67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count, 'items');
+    return pocket || !MED67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count);
+  }
   if (L.kind === 'gb') {
     // Gen 2's ball pocket follows the key items: wNumKeyItems, 25 ids + 0xFF, then wNumBalls (pokecrystal wram.asm)
     const B = pocket === 'balls' && entry.gen === 2 ? { ...L, addr: L.keyItems + 27, keyItems: null } : L;
@@ -410,4 +464,74 @@ export function addItem(entry, mem, state, item, count = 1, { pocket = null, all
   if (!bag) return { error: 'notFound' };
   const key = L.kind === 'gba' ? bag.q(0) : 0; // q(0) = the key's low half (0 in Ruby/Sapphire)
   return slotAdd(bag, mem, item, count, L.kind === 'ds' ? 999 : 99, (v) => (v ^ key) & 0xffff);
+}
+
+// ---------------------------------------------------------------------------
+// Poké Balls in the bag – the run rule "nothing counts before your first Poké Balls" (web/lib/run.mjs beforeBalls)
+// starts the moment the player has one. Read with the same bag layouts and checks as the cheats.
+
+/**
+ * The ball items per generation (pret item constants, PKHeX): Gen 1 Master/Ultra/Great/Poké Ball 1–4 and the Safari
+ * Ball 8 – one bag for everything; Gen 2 has a pocket of its own (anything in it is a ball); Gen 3 the Poké Ball pocket
+ * (ids 1–12); Gen 4 its Poké Ball pocket; Gen 5–7 keep the balls with the items: 1–16, the Apricorn balls 492–500 (from
+ * HeartGold/SoulSilver on), the Dream Ball 576 and the Beast Ball 851.
+ */
+const BALLS_GB1 = new Set([1, 2, 3, 4, 8]);
+const isBall567 = (id) => (id >= 1 && id <= 16) || (id >= 492 && id <= 500) || id === 576 || id === 851;
+
+/**
+ * How many Poké Balls (of any kind) the player carries – or null when the bag can't be read right now (a game without
+ * a known bag layout, a ROM hack on an expanded engine, the DS bag before live tracking found the save data, a read
+ * that doesn't look like a bag). 0 is a bag read with no ball in it. `entry`, `read`, `state` as for addItem.
+ */
+export function readBalls(entry, read, state = null) {
+  const L = layoutOf(entry);
+  if (!L) return null;
+  if (L.kind === 'gb') {
+    if (entry.gen === 1) {
+      const bag = gbBag(L, 1, read);
+      if (!bag) return null;
+      let n = 0;
+      for (let i = 0; i < bag.n; i++) if (BALLS_GB1.has(bag.bytes[1 + i * 2])) n += bag.bytes[2 + i * 2];
+      return n;
+    }
+    // Gen 2: the bag must read as a bag (items, key items), then the ball pocket behind the key items
+    if (!gbBag(L, 2, read)) return null;
+    const bag = gbBag({ ...L, addr: L.keyItems + 27, keyItems: null }, 2, read);
+    if (!bag) return null;
+    let n = 0;
+    for (let i = 0; i < bag.n; i++) n += bag.bytes[2 + i * 2];
+    return n;
+  }
+  if (L.kind === 'ctr') {
+    for (const base of ctrBags(entry, state)) {
+      const bag = ctrBagAt(L, base, read, 'items');
+      if (!bag) continue;
+      let n = 0;
+      for (let i = 0; i < bag.slots; i++) {
+        const v = bag.slot(i);
+        if (isBall567(bag.idOf(v))) n += bag.countOf(v);
+      }
+      return n;
+    }
+    return null;
+  }
+  if (L.kind === 'gba') {
+    const G = L.found ? (state?.sb1PtrAddr ? { ...L, sb1Ptr: state.sb1PtrAddr, sb2Ptr: state.sb1PtrAddr + 4 } : null) : L;
+    const bag = G && gbaBag(G, read, 'balls');
+    if (!bag) return null;
+    let n = 0;
+    for (let i = 0; i < bag.slots; i++) if (u16le(bag.bytes, i * 4)) n += bag.q(u16le(bag.bytes, i * 4 + 2));
+    return n;
+  }
+  // Gen 4: the Poké Ball pocket (a fresh game's bag is empty – accepted where the save data came from its pointer);
+  // Gen 5: the balls among the items
+  const bag = dsBag(L, entry, read, state, L.pockets.balls ? 'balls' : 'items', !!state?.saveBase);
+  if (!bag) return null;
+  let n = 0;
+  for (let i = 0; i < bag.slots; i++) {
+    const id = u16le(bag.bytes, i * 4);
+    if (id && (L.gen === 4 || isBall567(id))) n += u16le(bag.bytes, i * 4 + 2);
+  }
+  return n;
 }

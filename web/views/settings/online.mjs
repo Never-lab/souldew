@@ -1,7 +1,10 @@
-// Settings › Online: sharing your screen with the other players, Discord live runs, the stream overlays' coffee hint.
+// Settings › Online: sharing your screen with the other players, Discord live runs and the anonymous "playing now"
+// count, the stream overlays' coffee hint.
 import { html } from '/vendor/htm-preact.mjs';
-import { t } from '../../lib/i18n.mjs';
+import { t, currentLang } from '../../lib/i18n.mjs';
 import { api } from '../../lib/api.mjs';
+import { openExternal } from '../../lib/ui.mjs';
+import { LINKS } from '../../lib/links.mjs';
 import { LiveRunsSettings } from '../liveshare.mjs';
 import { Item, Group, Check, Elsewhere } from './parts.mjs';
 
@@ -21,7 +24,11 @@ export function OnlineSection({ cfg, save, toast, reloadStatus }) {
         hint=${t('set.shareScreenHint', 'While you play, the others see your game small in a corner. It is only sent while someone is watching.')} /><//>
       <${Elsewhere} icon="signal">${t('set.connElsewhere', 'Invite codes, relays and who is online:')} <a href="#/link">${t('nav.link', 'Connection')}</a><//>
     <//>
-    <${Group} title="Discord"><${Item} id="discord"><${LiveRunsSettings} /><//><//>
+    <${Group} title="Discord"><${Item} id="discord"><${LiveRunsSettings} /><//>
+      <${Item} id="presence"><label class="check"><input type="checkbox" checked=${cfg.presence !== false} onChange=${(e) => save({ presence: e.target.checked })} /><span>${t('set.presence', 'Count me in “playing now” (anonymous)')}
+        <span class="hint">${t('set.presenceHint', 'Only while a game runs: system, solo/Nuzlocke/SoulLink and app version with a random id, for the player count on the souldew Discord – no name, no game, no IP stored.')}
+          ${' '}<a href=${LINKS.privacy} onClick=${(e) => { e.preventDefault(); e.stopPropagation(); openExternal(currentLang() === 'de' ? LINKS.privacy : LINKS.privacyDocs); }}>${t('set.presenceMore', 'What exactly is sent')}</a></span></span></label><//>
+    <//>
     <${Group} title=${t('nav.stream', 'Stream')}>
       <${Item} id="coffee-pop"><${Check} checked=${cfg.stream?.coffee !== false} onChange=${coffee}
         label=${t('set.coffeePop', 'Coffee hint on legendary encounters in stream overlays')}

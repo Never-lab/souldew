@@ -349,6 +349,31 @@ test('digest: savestate rewinds, the partner’s deaths, a solo run’s bonus Po
   assert.equal(T.digestRun(solo('bbbb0013', { game: { system: '3ds' } }), docOf({}), 'p1').gen, 6);
 });
 
+test('Honest Work: any cheat spoils it – Max Repels as much as Rare Candies; Candy Crush counts candies only', () => {
+  const winWith = (id, ...cheats) => T.digestRun(solo(id), docOf({
+    'run:status': { state: 'won', at: T0 + H },
+    // switching the rule is logged as a cheat entry too, but isn't one
+    'feed:r': { type: 'cheat', slot: 'p1', at: T0 },
+    ...Object.fromEntries(cheats.map((c, i) => [`feed:c${i}`, { type: 'cheat', slot: 'p1', at: T0 + i + 1, ...c }])),
+  }), 'p1');
+  const clean = winWith('hhhh0001');
+  assert.deepEqual([clean.cheats, clean.cheatUses], [0, 0]);
+  assert.equal(evalOf([clean]).noCheatWin.ok, true, 'a rule change alone is no cheat');
+  const repels = winWith('hhhh0002', { cheat: 'maxRepel', count: 10 });
+  assert.deepEqual([repels.cheats, repels.cheatUses], [0, 1]);
+  assert.equal(evalOf([repels]).noCheatWin.ok, false, 'Max Repels are a cheat');
+  const candies = winWith('hhhh0003', { cheat: 'rareCandy', count: 20 }, { cheat: 'maxRepel', count: 10 });
+  assert.deepEqual([candies.cheats, candies.cheatUses], [20, 2]);
+  assert.equal(evalOf([candies]).noCheatWin.ok, false);
+  assert.equal(evalOf([repels, candies]).candyCrush.n, 20, 'Candy Crush counts Rare Candies, not Max Repels');
+  // the partner's cheats are theirs
+  const theirs = T.digestRun(pair('hhhh0004'), docOf({ 'run:status': { state: 'won', at: T0 + H }, 'feed:c': { type: 'cheat', slot: 'p2', cheat: 'maxRepel', count: 10, at: T0 } }), 'p1');
+  assert.equal(evalOf([theirs]).noCheatWin.ok, true);
+  // a digest stored before Max Repels existed (no cheatUses): its Rare Candies still decide
+  assert.equal(evalOf([{ ...candies, cheatUses: undefined }]).noCheatWin.ok, false);
+  assert.equal(evalOf([{ ...clean, cheatUses: undefined }]).noCheatWin.ok, true);
+});
+
 test('medals: tiers per category, per regional dex and the champion’s medal', () => {
   const states = T.ACHIEVEMENTS.map((a) => ({ id: a.id, cat: a.cat, hidden: !!a.hidden, ok: a.cat === 'randomizer' || (a.cat === 'fun' && !a.hidden) }));
   const totals = T.dexTotals(Object.fromEntries(Array.from({ length: 151 }, (_, i) => [i + 1, { caught: 1, shiny: 0, seenAt: 0 }])));

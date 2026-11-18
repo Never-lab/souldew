@@ -4,13 +4,14 @@ import { Icon } from '../lib/icons.mjs';
 import { t, currentLang } from '../lib/i18n.mjs';
 import { api, events } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
-import { catalog, gameTitle } from '../lib/data.mjs';
+import { catalog, gameTitle, patchFits } from '../lib/data.mjs';
 import { romFeatures, FEATURES } from '/shared/live/features.mjs';
 import { gymCapsFamily } from '/shared/routes.mjs';
 import { FirstSteps } from './firststeps.mjs';
 import { IS_MAC, IS_WIN, shortPath } from '../lib/platform.mjs';
 import { addedToLibrary, addedMessage, unpackToast } from '../lib/libadded.mjs';
 import { patchTitle } from '/shared/patchname.mjs';
+import { updateVersionLabel } from '../lib/ctrupdate.mjs';
 
 const SYS = { gb: 'GB', gbc: 'GBC', gba: 'GBA', nds: 'DS', '3ds': '3DS' };
 
@@ -142,13 +143,15 @@ export async function addGamesFlow({ reloadLibrary, folder = false, toast } = {}
         await api.post('/api/library/folders', { add: paths[0] });
         added = null;
       } else {
-        added = (await api.post('/api/library/import', { paths }))?.added || [];
+        const r = await api.post('/api/library/import', { paths });
+        added = r?.added || [];
+        failures = skippedFailures(r?.skipped);
       }
     } else {
       const input = document.createElement('input');
       input.type = 'file';
       input.multiple = true;
-      input.accept = '.gb,.gbc,.gba,.nds,.3ds,.cci,.cxi,.cia,.3dsx,.zcci,.zcxi,.z3dsx,.zip,.xdelta,.vcdiff,.bps,.ups,.ips';
+      input.accept = '.gb,.gbc,.sgb,.gba,.nds,.3ds,.cci,.cxi,.cia,.3dsx,.zcci,.zcxi,.z3dsx,.zip,.xdelta,.vcdiff,.bps,.ups,.ips';
       const files = await new Promise((resolve) => {
         input.onchange = () => resolve([...input.files]);
         input.addEventListener('cancel', () => resolve([]));
@@ -256,7 +259,7 @@ async function uploadFile(file) {
     const body = await res.text().catch(() => '');
     let msg = body;
     try {
-      msg = JSON.parse(body).error || body;
+      msg = serverErrorText(JSON.parse(body), res.status);
     } catch {}
     throw new Error(msg || `HTTP ${res.status}`);
   }
@@ -278,6 +281,13 @@ async function uploadFiles(files) {
     }
   }
   return { failures, added };
+}
+
+/** Files the server didn't take (server/lib/library.mjs importFiles `skipped`) as failures to show: { name, error }. */
+export function skippedFailures(skipped) {
+  return (skipped || []).map((x) => ({ name: x.name,
+    error: x.why === 'archive' ? t('lib.skipArchive', 'souldew can’t open .7z or .rar archives – unpack the game first (with 7-Zip, for example), then add the .3ds, .cci or .cxi file.')
+      : t('lib.skipType', 'not a game or patch file souldew knows') }));
 }
 
 function toastFailures(toast, failures) {
@@ -658,6 +668,8 @@ function GameDetail({ id, onClose, openHack }) {
           ${rom && html`<${ReadsLine} src=${`/api/library/rom?id=${encodeURIComponent(rom.id)}`} gameId=${g.id} />`}
           <dt>${t('lib.yourRom', 'Your ROM')}</dt><dd>${rom ? html`<span class="mono small">${rom.name}</span> ${rom.exact ? html`<span class="chip ok">${t('lib.verified', 'verified dump')}</span>` : ''}
             <${RomHackAction} rom=${rom} onLinked=${openHack} />` : html`<span class="muted">${t('lib.notOwned', 'Not in your library')}</span>`}</dd>
+          ${g.system === '3ds' && html`<${CtrUpdateFacts} rom=${rom} randomizable=${!!g.uprSupported}
+            waiting=${rom ? null : (library?.ctrUpdates || []).filter((u) => !u.detached && u.gameId === id).sort((a, b) => Number(a.encrypted) - Number(b.encrypted) || (b.version || 0) - (a.version || 0))[0] || null} />`}
           ${copies.length > 1 && html`<dt>${t('lib.otherCopies', 'Other copies')}</dt><dd class="stack">${copies.slice(1).map((r) => html`<div key=${r.id}>
             <span class="mono small">${r.name}</span> ${r.exact ? html`<span class="chip ok">${t('lib.verified', 'verified dump')}</span>` : ''}
             <${RomHackAction} rom=${r} onLinked=${openHack} /></div>`)}</dd>`}
@@ -684,6 +696,37 @@ function GameDetail({ id, onClose, openHack }) {
       })}
     </div>`}
   <//>`;
+}
+
+/**
+ * A 3DS game's update (server/lib/library.mjs: rom.update – or, while the game isn't in the library yet, the update
+ * file waiting for it): which one souldew's player starts the game with, and "Remove". `randomizable`: the game's runs
+ * can be randomized (those start without the update – server/lib/ctrupdate.mjs).
+ */
+function CtrUpdateFacts({ rom, waiting = null, randomizable = false }) {
+  const { reloadLibrary, toast } = useApp();
+  const [busy, setBusy] = useState(false);
+  const u = rom ? rom.update : waiting;
+  const remove = async () => {
+    setBusy(true);
+    try {
+      await api.post('/api/library/ctr-update/remove', { id: u.id });
+      await reloadLibrary();
+      toast({ kind: 'ok', title: t('ctrUpdate.removed', 'Update removed'), text: t('ctrUpdate.removedText', 'souldew’s player starts the game without it now.') });
+    } catch (e) {
+      toast({ kind: 'death', title: t('ctrUpdate.removeFailed', 'Couldn’t remove the update'), text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const state = !u ? null : u.encrypted ? t('ctrUpdate.encrypted', 'encrypted – souldew can’t use it, it needs a decrypted copy')
+    : !rom ? t('ctrUpdate.waiting', 'used as soon as you add the game') : t('ctrUpdate.installed', 'installed – souldew’s player starts the game with it');
+  return html`<dt>${t('ctrUpdate.label', 'Update')}</dt><dd>${u
+    ? html`<div><span class="mono small">${updateVersionLabel(u)}</span> <span class=${`chip ${u.encrypted ? 'bad' : rom ? 'ok' : ''}`}>${state}</span>
+        <button class="btn small ghost" disabled=${busy} onClick=${remove}><${Icon} name="close" size=${14} />${t('ctrUpdate.remove', 'Remove')}</button></div>
+      <div class="tiny faint">${[u.name, !u.encrypted && u.tracking === 'older' && t('ctrUpdate.older', 'An older update – live tracking knows version 1.0 and the latest update of this game.'),
+        !u.encrypted && randomizable && t('ctrUpdate.notRandomized', 'Randomized runs start without it (the randomizer builds the game from version 1.0).')].filter(Boolean).join(' · ')}</div>`
+    : html`<span class="muted">${t('ctrUpdate.none', 'None. To play the updated game, add its update file (.cia) to your library, like a game.')}</span>`}</dd>`;
 }
 
 /**
@@ -737,9 +780,9 @@ const liveLabel = (v) => ({
   no: t('lib.liveNo', 'Not supported – enter catches by hand'),
 }[v] || '–');
 const liveNote = (k) => ({
-  cfru: t('lib.liveNote.cfru', 'Team, place, battles and catches are read live, held items by the names the game gives them, types and matchups from the ROM. No level cap is shown – the hack’s leaders can’t be told apart with confidence – and the Rare Candy cheat is off.'),
-  rnb: t('lib.liveNote.rnb', 'Team, place, battles and catches are read live. The Rare Candy cheat is off and held items aren’t named – the hack numbers its items its own way.'),
-  types: t('lib.liveNote.types', 'Team, place, battles and catches are read live, the hack’s own types and their matchups from the ROM. The Rare Candy cheat is off.'),
+  cfru: t('lib.liveNote.cfru', 'Team, place, battles and catches are read live, held items by the names the game gives them, types and matchups from the ROM. No level cap is shown – the hack’s leaders can’t be told apart with confidence – and the cheats are off.'),
+  rnb: t('lib.liveNote.rnb', 'Team, place, battles and catches are read live. The cheats are off and held items aren’t named – the hack numbers its items its own way.'),
+  types: t('lib.liveNote.types', 'Team, place, battles and catches are read live, the hack’s own types and their matchups from the ROM. The cheats are off.'),
 }[k] || '');
 
 function HackDetail({ id, onClose, openGame }) {
@@ -753,8 +796,9 @@ function HackDetail({ id, onClose, openGame }) {
   // a ROM that was patched before it was added (its CRC32 is a known version of the hack): played as it is
   const ready = !patch ? library?.roms?.find((r) => r.hackId === id) : null;
   const baseRom = patch?.baseRomId ? library.roms.find((r) => r.id === patch.baseRomId) : library?.roms?.find((r) => !r.hackId && r.gameId === h?.baseGameId);
-  // Only offer the patched game when the base ROM is the one the patch expects (otherwise patching fails).
-  const canPatch = !!(patch && baseRom && (!patch.expectedCrc || baseRom.crc === patch.expectedCrc));
+  // Only offer the patched game when the patch goes with the base ROM (otherwise patching fails) – the same rule as the
+  // new-run wizard's hack picker
+  const canPatch = !!(patch && baseRom && patchFits(patch, baseRom, cat));
   const save = useSoloSave(canPatch ? `${baseRom.id}|${patch.id}` : null);
   if (!h) return null;
   const base = cat.games.find((g) => g.id === h.baseGameId);
@@ -905,7 +949,8 @@ function RomDetail({ id, onClose, openHack }) {
           <dt>${t('lib.system', 'System')}</dt><dd>${SYS[r.system] || r.system}</dd>
           <dt>${t('lib.code', 'Game code')}</dt><dd class="mono">${r.code || '–'}</dd>
           ${r.system === '3ds'
-            ? html`<dt>${t('lib.titleId', 'Title ID')}</dt><dd class="mono">${r.titleId || '–'}</dd>`
+            ? html`<dt>${t('lib.titleId', 'Title ID')}</dt><dd class="mono">${r.titleId || '–'}</dd>
+              ${r.kind === 'game' && html`<${CtrUpdateFacts} rom=${r} />`}`
             : html`<dt>CRC32</dt><dd class="mono">${r.crc}</dd>`}
           <${ReadsLine} src=${`/api/library/rom?id=${encodeURIComponent(r.id)}`} />
         </dl>

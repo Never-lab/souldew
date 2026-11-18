@@ -159,8 +159,10 @@ test('auto: a crash in the first frames with Vulkan starts the same session agai
     watch.writeUInt32LE(0x30000000, 4);
     watch.writeUInt32LE(64, 8);
     ctr.send(id, Buffer.concat([command(CMD.WATCH, watch), command(CMD.SPEED, Buffer.from(new Float32Array([0]).buffer))]));
-    await until(() => p.messages().some((m) => m.type === MSG.LOG && m.text === 'cmd 2 compat'));
-    assert.ok(p.messages().some((m) => m.type === MSG.LOG && m.text === 'cmd 5 compat'));
+    // (both, in whatever order the handover writes them: waiting for one and checking the other at once failed on a
+    // busy Windows runner)
+    const got = (t) => p.messages().some((m) => m.type === MSG.LOG && m.text === t);
+    await until(() => got('cmd 2 compat') && got('cmd 5 compat'));
     const msgs = p.messages();
     assert.ok(!msgs.some((m) => m.type === MSG.EVENT && /"error"/.test(m.text)), 'the crash of the first try never reaches the page');
     assert.ok(msgs.some((m) => m.type === MSG.EVENT && /"renderer":"compat"/.test(m.text) && /"loaded"/.test(m.text)));

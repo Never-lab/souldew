@@ -59,7 +59,9 @@ html.platform-win32 .app-native .main:has(.set-bar) { scroll-padding-top: 120px;
 html[data-theme='contrast'] .set-elsewhere { border-top-color: var(--edge); }
 
 /* Controls: keyboard and controller side by side when there is room – both tables are narrow */
-.set-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
+/* (the keyboard's table has three columns and the shortcuts' rows – 2.8.3 – four slot keys in a row: the wider one) */
+.set-controls { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: stretch; }
+.set-controls .ctl-slots { flex-wrap: nowrap; }
 .set-controls > .set-item > .panel { height: 100%; }
 @media (max-width: 1240px) { .set-controls { grid-template-columns: minmax(0, 1fr); } }
 .set-searching .set-controls { grid-template-columns: minmax(0, 1fr); } /* results: one under the other, like every other hit */

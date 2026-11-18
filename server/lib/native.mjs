@@ -154,9 +154,9 @@ function e2eLink(env = process.env) {
 
 export function linkArgs({ system, roms, saves, local, delay, rtc, state = null, states = [], models = [], env = process.env }) {
   const c = NATIVE_CORES[system];
-  if (!c || !LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
-  if (!Array.isArray(roms) || roms.length < 2 || roms.length > MAX_LINK_SEATS) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
-  if (!Number.isInteger(local) || local < 0 || local >= roms.length) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+  if (!c || !LINK_SYSTEMS.includes(system)) throw httpError(400, 'Linking isn’t available for this system yet', 'linkSystem');
+  if (!Array.isArray(roms) || roms.length < 2 || roms.length > MAX_LINK_SEATS) throw httpError(400, 'Invalid seats', 'linkSeats');
+  if (!Number.isInteger(local) || local < 0 || local >= roms.length) throw httpError(400, 'Invalid seat', 'linkSeats');
   const d = Math.max(1, Math.min(60, Math.round(Number(delay) || 4)));
   const args = [];
   roms.forEach((r, i) => {
@@ -178,14 +178,14 @@ export function linkArgs({ system, roms, saves, local, delay, rtc, state = null,
  */
 export function checkLinkCommands(body) {
   const { messages, rest } = splitMessages(body);
-  if (rest.length || !messages.length) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
+  if (rest.length || !messages.length) throw httpError(400, 'Invalid command', 'badCommand');
   const limits = {
     [LCMD.INPUT]: [17, 32], [LCMD.SPEED]: [4, 4], [LCMD.QUIT]: [0, 0], [LCMD.FLUSH]: [0, 0], [LCMD.RESYNC]: [0, 0],
     [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4], [LCMD.SAVE]: [0, 0], [LCMD.NEED]: [8, 8], [LCMD.SEATSTATE]: [4, 4],
   };
   for (const m of messages) {
     const l = limits[m.type];
-    if (!l || m.payload.length < l[0] || m.payload.length > l[1] || (m.type === LCMD.RINPUT && (m.payload.length - 8) % 4)) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
+    if (!l || m.payload.length < l[0] || m.payload.length > l[1] || (m.type === LCMD.RINPUT && (m.payload.length - 8) % 4)) throw httpError(400, 'Invalid command', 'badCommand');
   }
   return body;
 }
@@ -204,7 +204,7 @@ export const engineWords = (args) => Buffer.from(args.map((a) => `${a}\0`).join(
  */
 export function engineArgs({ system, rom, sram = null, state = null, model = null }) {
   const c = NATIVE_CORES[system];
-  if (!c || !ENGINE_SYSTEMS.includes(system)) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
+  if (!c || !ENGINE_SYSTEMS.includes(system)) throw httpError(400, 'The fast player doesn’t play this system', 'nativeSystem');
   const args = ['--solo', '--rom', rom];
   if (sram) args.push('--sram', sram);
   if (state) args.push('--state', state);
@@ -216,7 +216,7 @@ export function engineArgs({ system, rom, sram = null, state = null, model = nul
 /** The host's arguments for `system` (the paths are the server's own – nothing here comes from the page). */
 export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null, state = null, model = null }) {
   const c = NATIVE_CORES[system];
-  if (!c) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
+  if (!c) throw httpError(400, 'The fast player doesn’t play this system', 'nativeSystem');
   const args = ['--core', core, '--rom', rom, '--system', systemDir, '--save', saveDir];
   if (sram) args.push('--sram', sram);
   if (state) args.push('--state', state);
@@ -232,7 +232,7 @@ export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null, s
  */
 export function checkNativeCommands(body) {
   const { messages, rest } = splitMessages(body);
-  if (rest.length || !messages.length) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
+  if (rest.length || !messages.length) throw httpError(400, 'Invalid command', 'badCommand');
   const limits = {
     [NCMD.INPUT]: [17, 32], [NCMD.SPEED]: [4, 4], [NCMD.SAVE]: [0, 0], [NCMD.LOAD]: [1, 64 * 1024 * 1024], [NCMD.QUIT]: [0, 0],
     [NCMD.RESET]: [0, 0], [NCMD.WRITE]: [5, 4 + 65536], [NCMD.FLUSH]: [0, 0], [NCMD.SRAM]: [1, MAX_SAVE], [NCMD.RESYNC]: [0, 0], [NCMD.STEP]: [4, 4],
@@ -240,7 +240,7 @@ export function checkNativeCommands(body) {
   };
   for (const m of messages) {
     const l = limits[m.type];
-    if (!l || m.payload.length < l[0] || m.payload.length > l[1]) throw httpError(400, 'Ungültiger Befehl', 'badCommand');
+    if (!l || m.payload.length < l[0] || m.payload.length > l[1]) throw httpError(400, 'Invalid command', 'badCommand');
   }
   return body;
 }
@@ -310,7 +310,7 @@ export class NativeSessions extends CtrSessions {
   startNative({ rom, key, system, tools, save = null, saveFile = null, state = null, model = null, engine = null }) {
     if (engine && state?.length && this.engineLinked(rom)) return this.soloInPlace({ key, system, save, saveFile, state, model });
     const core = engine ? engine : tools.cores?.[system];
-    if (!core) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
+    if (!core) throw httpError(409, 'The fast player is missing for this system', 'nativeMissing');
     this.stop();
     if (this.lastLink) this.linkDone(this.lastLink.id); // (a link session before this game: over – a desync's restore came first)
     const saveDir = nativeSaveDir(key);
@@ -329,7 +329,7 @@ export class NativeSessions extends CtrSessions {
     const boot = join(dir, 'boot.sav');
     let sram = null;
     if (save?.length) {
-      if (save.length > MAX_SAVE) throw httpError(413, 'Spielstand zu groß', 'saveTooLarge');
+      if (save.length > MAX_SAVE) throw httpError(413, 'The save file is too large', 'saveTooLarge');
       writeFileSync(boot, save);
       sram = boot;
     } else {
@@ -338,7 +338,7 @@ export class NativeSessions extends CtrSessions {
     // a save state to go on from (back from a link session: the player's console as the link host left it)
     const stateFile = join(dir, 'resume.state');
     if (state?.length) {
-      if (state.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+      if (state.length > MAX_STATE) throw httpError(413, 'The save state is too large', 'saveTooLarge');
       writeFileSync(stateFile, state);
     } else rmSync(stateFile, { force: true });
     return { sram, stateFile: state?.length ? stateFile : null };
@@ -389,7 +389,7 @@ export class NativeSessions extends CtrSessions {
       const done = (err, e) => {
         clearTimeout(t);
         s.waiters = (s.waiters || []).filter((x) => x !== w);
-        if (err) reject(httpError(409, 'Das Spiel antwortet nicht', 'nativeBusy'));
+        if (err) reject(httpError(409, 'The game isn’t answering', 'nativeBusy'));
         else resolve(e);
       };
       w.done = done;
@@ -407,7 +407,7 @@ export class NativeSessions extends CtrSessions {
   async startLink({ host, system, seats, local, delay, rtc, key, saveFile = null, state = null }) {
     // seats[i].state: that player's running game (the fast player's save state) – the session starts from it, no restart;
     // seats[i].model: a Game Boy seat's console ('dmg' | 'cgb', gbModel) – every peer gets the same list from the pages
-    if (!host) throw httpError(409, 'Der Link-Teil fehlt in dieser Version', 'linkMissing');
+    if (!host) throw httpError(409, 'This version has no link part', 'linkMissing');
     const c = this.current;
     const inPlace = !!(c?.engine && !c.exit && !c.link && !state?.length && sameGame(c, seats[local].rom));
     if (!inPlace) this.stop();
@@ -416,14 +416,14 @@ export class NativeSessions extends CtrSessions {
     clearLinkFiles(dir); // (nothing of an earlier session: its saves and states are big and go stale)
     const saves = seats.map((s, i) => {
       if (!s.save?.length) return null;
-      if (s.save.length > MAX_SAVE) throw httpError(413, 'Spielstand zu groß', 'saveTooLarge');
+      if (s.save.length > MAX_SAVE) throw httpError(413, 'The save file is too large', 'saveTooLarge');
       const f = join(dir, `seat${i}.sav`);
       writeFileSync(f, s.save);
       return f;
     });
     const states = seats.map((s, i) => {
       if (!s.state?.length) return null;
-      if (s.state.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+      if (s.state.length > MAX_STATE) throw httpError(413, 'The save state is too large', 'saveTooLarge');
       const f = join(dir, `seat${i}.state`);
       writeFileSync(f, s.state);
       return f;
@@ -435,7 +435,7 @@ export class NativeSessions extends CtrSessions {
       try {
         bytes = inflateRawSync(state, { maxOutputLength: MAX_LINK_SEATS * MAX_STATE });
       } catch {
-        throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers');
+        throw httpError(409, 'The save state is damaged', 'linkStateDiffers');
       }
       writeFileSync(stateFile, bytes);
     }
@@ -447,7 +447,7 @@ export class NativeSessions extends CtrSessions {
       const answer = this.awaitEvent(c, (e) => (e.event === 'loaded' && e.mode === 'link') || e.event === 'linkRefused', 30000);
       c.child.stdin.write(command(ENGINE_CMD.LINK, engineWords(args.filter((w, i, l) => w !== '--ram' && l[i - 1] !== '--ram'))));
       const e = await answer;
-      if (e.event === 'linkRefused') throw httpError(409, 'Die Spiele ließen sich nicht verbinden', 'linkRefused');
+      if (e.event === 'linkRefused') throw httpError(409, 'The games couldn’t be linked', 'linkRefused');
       Object.assign(c, { saveFile, link: { seats: seats.length, local, system, dir } });
       return c.id;
     }
@@ -503,15 +503,15 @@ export class NativeSessions extends CtrSessions {
 
   get(id) {
     const s = this.current;
-    if (!s || s.id !== id) throw httpError(404, 'Keine laufende Sitzung', 'noNativeSession');
+    if (!s || s.id !== id) throw httpError(404, 'No game is running in the fast player', 'noNativeSession');
     return s;
   }
 
   send(id, body) {
     const s = this.get(id);
-    if (s.exit) throw httpError(409, 'Das Spiel ist beendet', 'nativeEnded');
+    if (s.exit) throw httpError(409, 'The game has stopped', 'nativeEnded');
     // the host reads its commands between frames – a page that floods it waits instead of piling up memory here
-    if (s.child.stdin.writableLength > 128 * 1024 * 1024) throw httpError(503, 'Das Spiel ist beschäftigt', 'nativeBusy');
+    if (s.child.stdin.writableLength > 128 * 1024 * 1024) throw httpError(503, 'The game is busy', 'nativeBusy');
     s.child.stdin.write(this.check(body));
   }
 }
