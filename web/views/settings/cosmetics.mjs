@@ -106,7 +106,8 @@ export function SkinSetting({ cfg, save }) {
   const canTry = !pack.entitled && !pack.preview && signedIn();
   return html`<div class="stack-s skin-setting">
     <h3 class="skin-picker-head">${t('skin.title', 'Theme')} <span class="plus-mark" aria-hidden="true"><${Icon} name="plus" size=${10} /></span></h3>
-    <p class="small muted">${t('skin.note', 'Changes the look, never the layout. Click a theme to try it on the whole app – leaving Settings puts yours back.')}</p>
+    <p class="small muted">${t('skin.note', 'Changes the look, never the layout. Click a theme to try it on the whole app – leaving Settings puts yours back.')}
+      ${!pack.entitled && html` <a href="#/plus" class="skin-plus-link">${t('skin.whatsInPlus', 'What’s in souldew+')}</a>`}</p>
     ${previewName && html`<div class=${`skin-preview-bar${pack.preview && !byId[s.previewing]?.owned ? ' live' : ''}`} role="status">
       ${pack.preview && !byId[s.previewing]?.owned ? html`<span class="skin-live-badge" title=${t('skin.liveHint', 'A souldew+ theme to try for 15 minutes – it goes back by itself.')}>${t('skin.live', 'Preview')} · ${t('skin.left', '{time} left', { time: left || '0:00' })}</span>`
         : html`<span class="led amber on" aria-hidden="true"></span>`}

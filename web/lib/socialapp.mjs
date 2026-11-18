@@ -10,7 +10,6 @@ import { setRequestListener, allowFriend } from './friendinvite.mjs';
 import { authTexts } from './authtexts.mjs';
 import { takenSlots } from '../views/invitecode.mjs';
 import { setPackAccessProvider, setPlusHandler, refreshPack, forgetPack } from './cosmetics/index.mjs';
-import { settingsLink } from './settingsindex.mjs';
 
 const SEEN_KEY = 'sl-social-seen';
 const loadSeen = () => {
@@ -33,13 +32,13 @@ export function useSocial({ ready, route, session, manifest, doc, me, linkStatus
   const on = ready && !!acct.session?.signedIn;
   const online = useOnlineFriends(on);
 
-  // souldew+ cosmetics: the pack comes through this account; "Get souldew+" leads to Settings › Account › souldew+
-  // while signed in (signed out the cosmetics module opens Buy Me a Coffee itself)
+  // souldew+ cosmetics: the pack comes through this account; every "Get souldew+" (theme picker, locked items in the
+  // profile editor, a friend's souldew+ banner) leads to the souldew+ page – signed in or not, never a pop-up
   const wasOn = useRef(false);
   useEffect(() => {
     if (!ready) return;
     setPackAccessProvider(on ? cosmeticsPackAccess : null); // signed out: the cosmetics module's own default
-    setPlusHandler(on ? () => navigate('settings', settingsLink('plus')) : null);
+    setPlusHandler(() => navigate('plus'));
     if (on) refreshPack().catch(() => {});
     else if (wasOn.current) forgetPack().catch(() => {}); // signed out just now: the membership's pack goes
     wasOn.current = on;

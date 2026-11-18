@@ -2,6 +2,8 @@
 // pop-up (shared/coffee.mjs). web/lib/links.mjs re-exports them for the app.
 export const LINKS = {
   coffee: 'https://buymeacoffee.com/souldew',
+  // the memberships (Supporter, souldew+, Patron) – joining, switching and cancelling all happen there
+  membership: 'https://buymeacoffee.com/souldew/membership',
   github: 'https://github.com/souldewapp/souldew',
   issues: 'https://github.com/souldewapp/souldew/issues/new/choose',
   releases: 'https://github.com/souldewapp/souldew/releases',

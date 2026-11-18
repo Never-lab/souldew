@@ -9,8 +9,7 @@ import { applySkin, refreshPack } from './lib/cosmetics/index.mjs';
 import { detectLayout } from './lib/controls.mjs';
 import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules } from './lib/run.mjs';
 import { play } from './lib/sound.mjs';
-import { Ctx, Toasts, Led, Modal, openExternal } from './lib/ui.mjs';
-import { LINKS } from './lib/links.mjs';
+import { Ctx, Toasts, Led, Modal } from './lib/ui.mjs';
 import { groupArrowKeys } from './lib/a11y.mjs';
 import { startPadNav } from './lib/padnav.mjs';
 import { AppMark, NavIcon, Icon } from './lib/icons.mjs';
@@ -41,6 +40,8 @@ import { TrophiesView, TrophyToasts } from './views/trophies.mjs';
 import { syncTrophies, rememberSlots, watchRun, onTrophyUnlock } from './lib/trophies.mjs';
 import { FriendsView } from './views/friends.mjs';
 import { ProfileView } from './views/profile.mjs';
+import { PlusView } from './views/plus.mjs';
+import { railGroups, FOOT_SECTIONS } from './lib/railnav.mjs';
 import { accountEvent } from './lib/account.mjs';
 import { useSocial } from './lib/socialapp.mjs';
 import { Avatar } from './views/social.mjs';
@@ -121,13 +122,32 @@ function navLight(e) {
   a.style.setProperty('--my', `${Math.round(e.clientY - r.top)}px`);
 }
 
-/** "Buy me a coffee" – always at the bottom left: in the rail, or as a small button while the rail is folded. */
-function CoffeeLink({ float = false, fx = null, onOpen }) {
-  const label = t('rail.coffee', 'Buy me a coffee');
-  const hint = t('rail.coffeeHint', 'Support souldew on Buy Me a Coffee');
-  return html`<a class=${`coffee no-drag ${float ? 'coffee-float' : ''} ${fx ? `cfx-live cfx-on-${fx.id}` : ''}`} href=${LINKS.coffee} target="_blank" rel="noopener" title=${hint} aria-label=${float ? hint : undefined}
-    onClick=${(e) => { e.preventDefault(); onOpen?.(); openExternal(LINKS.coffee); }}><${Icon} name="coffee" size=${float ? 18 : 16} />${!float && html`<span>${label}</span>`}<${CoffeeFx} fx=${fx} /></a>`;
+/**
+ * souldew+ at the foot of the rail – where "Buy me a coffee" was: the page about it (#/plus), no price, no nag. Members
+ * (any tier) read "thank you" under it. Folded, a small mark in the window's bottom left corner instead. The coffee
+ * button's little Pokémon moments stay with it (views/coffee.mjs).
+ */
+function RailPlus({ thanks = false, here = false, float = false, fx = null, onOpen }) {
+  const label = thanks ? t('rail.plusThanksSr', 'souldew+ – thank you') : t('rail.plus', 'souldew+');
+  return html`<a class=${`rail-plus no-drag ${float ? 'rail-plus-float' : ''} ${here ? (float ? 'on' : 'active') : ''} ${fx ? `cfx-live cfx-on-${fx.id}` : ''}`} href="#/plus" style="--na:#e1b05a"
+    aria-current=${here ? 'page' : undefined} title=${thanks ? t('rail.plusThanksHint', 'souldew+ – thank you for supporting souldew') : t('rail.plusHint', 'What souldew+ adds – and everything that stays free')}
+    aria-label=${float ? label : undefined} onClick=${() => onOpen?.()}>
+    <span class="rail-plus-mark" aria-hidden="true"><${Icon} name="plus" size=${float ? 12 : 10} /></span>
+    ${!float && html`<span class="rail-plus-text"><b>${t('rail.plus', 'souldew+')}</b>${thanks && html`<span class="rail-plus-thanks">${t('rail.thanks', 'thank you')}</span>`}</span>`}
+    <${CoffeeFx} fx=${fx} /></a>`;
 }
+
+/** One section of the rail: its line icon, its label and what it shows on the right (playing, friends online, counts). */
+function NavItem({ n, here, playingIn, session }) {
+  return html`<a href=${`#/${n.id}`} class=${here === n.id ? 'active' : ''} aria-current=${here === n.id ? 'page' : undefined} style=${`--na:${n.accent}`}>
+    <${NavIcon} name=${n.icon} /><span class="nav-label">${n.label}</span>
+    <span class="nav-end">${n.onAir && html`<span class="nav-onair" title=${t('stream.onAirHint', 'Streamer mode is on – codes, keys, paths and spoilers are covered')}><span class="sr-only">${t('stream.mode', 'Streamer mode')}</span></span>`}${playingIn === n.id && html`<span class="nav-live" title=${t('nav.playing', 'Running now: {game}', { game: session.target.label || session.target.name || '' })}><${Led} on color="green" />
+        <span class="sr-only">${t('nav.playing', 'Running now: {game}', { game: session.target.label || session.target.name || '' })}</span></span>`}
+      ${n.online > 0 && html`<span class="nav-online" title=${t('nav.onlineHint', '{count} friend online|{count} friends online', { count: n.online })}><${Led} on color="green" />${n.online}<span class="sr-only"> ${t('nav.onlineSr', 'online')}</span></span>`}
+      ${n.count > 0 && html`<span class="nav-badge" title=${n.countHint || t('nav.countHint', 'Things to check on the board')}>${n.count > 99 ? '99+' : n.count}<span class="sr-only"> ${t('nav.countSr', 'to check')}</span></span>`}</span>
+  </a>`;
+}
+
 
 /** The open run at the foot of the rail: who of the others is live – or, in a solo Nuzlocke, whether you play.
  * A click opens its game (back to it while it runs) – the way into the game now that the rail has no "Play" item. */
@@ -771,7 +791,7 @@ function App() {
     return html`<div class="boot"><div class="boot-screen"></div></div>`;
   }
   const showOnboarding = !!status && !status.config?.onboarded;
-  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView, friends: FriendsView, profile: ProfileView }[route.route] || LibraryView;
+  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView, friends: FriendsView, profile: ProfileView, plus: PlusView }[route.route] || LibraryView;
   const names = runDoc ? getPlayers(runDoc, manifest) : null;
   // Fullscreen – the window's (macOS: green button, Windows: F11) or the game's (F): the side rail folds away, the game gets the room
   const [winFs, setWinFs] = useState(false);
@@ -830,6 +850,8 @@ function App() {
   const playingIn = session ? (session.target.runId ? sectionOf(session.target.runId) : 'library') : null;
   const here = route.route !== 'play' ? route.route
     : showsSession && session ? playingIn : rp.run ? sectionOf(rp.run) : 'library';
+  // souldew+ at the rail's foot says "thank you" to every member (supporter, souldew+, patron)
+  const thanks = !!social.signedIn && (social.me?.entitlement?.tier || 'none') !== 'none';
   const NAV = [
     { id: 'library', label: t('nav.library', 'Library'), icon: 'library', accent: '#e0a458' },
     // the board's to-do count shows at the section of the open run
@@ -848,7 +870,7 @@ function App() {
     <div class=${`frame ${native ? 'app-native' : ''} ${folded ? 'rail-folded' : ''} ${folded && peek ? 'rail-peek' : ''}`}>
       ${native && html`<div class="titlebar-drag"></div>`}
       ${folded && html`<div class="rail-edge" aria-hidden="true" onPointerEnter=${peekIn} onPointerLeave=${peekOut}></div>`}
-      ${folded && !fs && !playFold && !peek && html`<${CoffeeLink} float fx=${coffee.fx} onOpen=${coffee.clicked} />`}
+      ${folded && !fs && !playFold && !peek && html`<${RailPlus} float thanks=${thanks} here=${here === 'plus'} fx=${coffee.fx} onOpen=${coffee.clicked} />`}
       ${(railHidden || playFold) && !fs && !peek && html`<button class="rail-open no-drag" onClick=${() => (playFold ? setPeek(true) : setHidden(false))} title=${`${t('rail.show', 'Show the sidebar')} (${shortcut('Mod+B')})`} aria-label=${t('rail.show', 'Show the sidebar')}><${Icon} name="sidebar" size=${18} /></button>`}
       ${playFold && !fs && !peek && html`<${RailHint} />`}
       <aside class=${`rail ${native ? '' : 'web'} ${native ? 'drag' : ''}`} onPointerEnter=${folded ? peekIn : undefined} onPointerLeave=${folded ? peekOut : undefined}
@@ -858,13 +880,7 @@ function App() {
         ${!fs && html`<button class="rail-toggle no-drag" onClick=${() => setHidden(!railHidden)} title=${`${railHidden ? t('rail.pin', 'Keep the sidebar open') : t('rail.hide', 'Hide the sidebar')} (${shortcut('Mod+B')})`}
             aria-label=${railHidden ? t('rail.pin', 'Keep the sidebar open') : t('rail.hide', 'Hide the sidebar')} aria-pressed=${!railHidden}><${Icon} name="sidebar" size=${16} /></button>`}
         <nav class="nav no-drag" aria-label=${t('nav.aria', 'Sections')} onPointerOver=${navLight} onPointerMove=${navLight}>
-          ${NAV.map((n) => html`<a href=${`#/${n.id}`} class=${here === n.id ? 'active' : ''} aria-current=${here === n.id ? 'page' : undefined} style=${`--na:${n.accent}`}>
-            <${NavIcon} name=${n.icon} /><span class="nav-label">${n.label}</span>
-            <span class="nav-end">${n.onAir && html`<span class="nav-onair" title=${t('stream.onAirHint', 'Streamer mode is on – codes, keys, paths and spoilers are covered')}><span class="sr-only">${t('stream.mode', 'Streamer mode')}</span></span>`}${playingIn === n.id && html`<span class="nav-live" title=${t('nav.playing', 'Running now: {game}', { game: session.target.label || session.target.name || '' })}><${Led} on color="green" />
-                <span class="sr-only">${t('nav.playing', 'Running now: {game}', { game: session.target.label || session.target.name || '' })}</span></span>`}
-              ${n.online > 0 && html`<span class="nav-online" title=${t('nav.onlineHint', '{count} friend online|{count} friends online', { count: n.online })}><${Led} on color="green" />${n.online}<span class="sr-only"> ${t('nav.onlineSr', 'online')}</span></span>`}
-              ${n.count > 0 && html`<span class="nav-badge" title=${n.countHint || t('nav.countHint', 'Things to check on the board')}>${n.count > 99 ? '99+' : n.count}<span class="sr-only"> ${t('nav.countSr', 'to check')}</span></span>`}</span>
-          </a>`)}
+          ${railGroups(new Set(NAV.map((n) => n.id))).map((ids, i) => html`${i > 0 && html`<hr class="nav-rule" />`}${ids.map((id) => NAV.find((n) => n.id === id)).map((n) => html`<${NavItem} key=${n.id} n=${n} here=${here} playingIn=${playingIn} session=${session} />`)}`)}
         </nav>
         <div class="rail-foot no-drag">
           <${FirstStepsPill} />
@@ -872,7 +888,11 @@ function App() {
           ${manifest && names && html`<${RailRun} manifest=${manifest} names=${names} me=${me} onlineSlots=${onlineSlots} linkStatus=${linkStatus} session=${session} navigate=${navigate} />`}
           ${social.signedIn && social.me && html`<a class="rail-me" href="#/profile" aria-current=${route.route === 'profile' && !route.params.id ? 'page' : undefined} title=${t('pf.yours', 'Your profile')}>
             <${Avatar} user=${social.me} size=${30} /><span class="stack-s" style="gap:0"><b class="ellipsis">${social.me.name}</b><span class="tiny ellipsis">${social.me.status || `@${social.me.handle || ''}`}</span></span></a>`}
-          <${CoffeeLink} fx=${!folded || peek ? coffee.fx : null} onOpen=${coffee.clicked} />
+          <div class="nav rail-tools" onPointerOver=${navLight} onPointerMove=${navLight}>
+            <${RailPlus} thanks=${thanks} here=${here === 'plus'} fx=${!folded || peek ? coffee.fx : null} onOpen=${coffee.clicked} />
+            ${FOOT_SECTIONS.map((id) => NAV.find((n) => n.id === id)).map((n) => html`<a key=${n.id} href=${`#/${n.id}`} class=${`rail-icon ${here === n.id ? 'active' : ''}`}
+              aria-current=${here === n.id ? 'page' : undefined} title=${n.label} aria-label=${n.label} style=${`--na:${n.accent}`}><${NavIcon} name=${n.icon} /></a>`)}
+          </div>
         </div>
       </aside>
       <main class="main">

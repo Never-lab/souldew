@@ -1250,17 +1250,28 @@ html[data-theme='contrast'] .nav a::before { background: radial-gradient(150px c
 .rail-toggle:focus-visible, .rail-open:focus-visible { outline: 2px solid var(--accent, #8cb0ff); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .frame.rail-folded .rail, .frame.rail-folded.rail-peek .rail { transition: none; } }
 
-/* "Buy me a coffee": the last thing in the rail – quiet until hovered, the cup in the service's yellow */
-.coffee { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: var(--r-m); color: var(--ink-3, #8f8c99); font-size: 12.5px; text-decoration: none;
-  transition: color .15s, background .15s; }
-.coffee svg { color: #ffdd00; flex: none; }
-.coffee:hover { color: var(--ink, #fff); background: #ffdd0012; }
-.coffee:focus-visible { outline: 2px solid var(--accent, #8cb0ff); outline-offset: 2px; }
-/* folded rail: a small cup in the window's bottom left corner instead */
-.coffee-float { position: fixed; left: 12px; bottom: 12px; z-index: 58; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 10px;
-  border: 1px solid var(--edge, #2c2b33); background: color-mix(in srgb, var(--sk-field, #1e1d24) 90%, transparent); box-shadow: var(--lt-pop-shadow, 0 4px 14px #0006); opacity: .8; }
-.coffee-float:hover { opacity: 1; background: var(--lt-hover, #2a2932); }
-@media (max-width: 860px) { .rail-foot .coffee { padding: 5px 9px; } }
+/* The rail's groups (app.mjs NAV_GROUPS): the three you play every day · friends and trophies · connection and stream,
+   a quiet line between them – in the skins' own edge colour */
+.nav-rule { flex: none; height: 1px; margin: 7px 12px; border: 0; background: color-mix(in srgb, var(--edge) 70%, transparent); }
+/* the foot row: souldew+ (where "Buy me a coffee" was) and Settings / Help as icon buttons. It is a .nav too, so the
+   items get the rail's hover light, its active pill and every skin's styling of them */
+.nav.rail-tools { flex-direction: row; align-items: stretch; gap: 4px; }
+.rail-tools a { min-height: 38px; }
+.rail-tools a.rail-icon { flex: none; grid-template-columns: 22px; justify-content: center; width: 38px; padding: 0; }
+.rail-tools a.rail-icon .nav-icon { width: 20px; height: 20px; }
+.rail-tools a.rail-plus { flex: 1; min-width: 0; grid-template-columns: 18px minmax(0, 1fr); gap: 9px; padding: 6px 8px 6px 10px; font-size: 12.5px; }
+.rail-plus-mark { display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px; color: #2b1f05; background: linear-gradient(160deg, #f3cf7a, #c9952e);
+  box-shadow: inset 0 1px 0 #fff7, inset 0 -1px 0 #0003; }
+.rail-plus-mark svg { display: block; }
+.rail-plus-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.rail-plus-text b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-plus-thanks { font-size: 11.5px; font-weight: 400; color: var(--warn-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* folded rail: the souldew+ mark in the window's bottom left corner instead */
+.rail-plus-float { position: fixed; left: 12px; bottom: 12px; z-index: 58; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 10px;
+  border: 1px solid var(--edge, #2c2b33); background: color-mix(in srgb, var(--sk-field, #1e1d24) 90%, transparent); box-shadow: var(--lt-pop-shadow, 0 4px 14px #0006); opacity: .85; }
+.rail-plus-float .rail-plus-mark { width: 20px; height: 20px; }
+.rail-plus-float:hover, .rail-plus-float.on { opacity: 1; background: var(--lt-hover, #2a2932); }
+.rail-plus-float:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 /* the open run at the foot of the rail is a button: it opens (or goes back to) the game */
 button.power { width: 100%; text-align: left; font: inherit; font-size: 12.5px; cursor: pointer; transition: border-color .15s, background-color .15s; }
@@ -1305,19 +1316,19 @@ html.platform-linux .app-native .session.full { padding-top: 16px; }
 html.platform-linux .app-native .rail-open { top: 12px; left: 12px; width: 34px; height: 34px; }
 html.platform-linux .app-native .rules-drawer-wrap { padding-top: 14px; }
 
-/* "Buy me a coffee" moments (views/coffee.mjs): a stage just above the cup – its bottom edge is the cup's rim, so a
-   Pokémon rising from below peeks out of the cup. Real gen 3 sprites at 1×, pixel-crisp; never takes clicks. */
-.coffee:not(.coffee-float) { position: relative; } /* the folded-rail button stays position: fixed */
-.coffee.cfx-live { color: var(--ink, #fff); }
-.coffee-float.cfx-live { opacity: 1; }
-.coffee.cfx-live > svg { animation: cfx-cup .45s ease var(--bump, 0s) both; transform-origin: 50% 100%; }
-.coffee.cfx-on-peek { --bump: 1.72s; }
-.coffee.cfx-on-nap { --bump: .38s; }
-.coffee.cfx-on-ball { --bump: .5s; }
-.coffee.cfx-on-hop > svg { animation: none; }
-.cfx { --cx: 42px; --cup-top: 7px; position: absolute; left: -24px; bottom: calc(100% - var(--cup-top)); width: 220px; height: 124px; overflow: hidden;
+/* The coffee moments (views/coffee.mjs) – they stayed with souldew+ when it replaced "Buy me a coffee": a stage just
+   above the gold mark – its bottom edge is the mark's top, so a Pokémon rising from below peeks out of it. Real gen 3
+   sprites at 1×, pixel-crisp; never takes clicks. */
+.rail-plus.cfx-live { color: var(--ink, #fff); }
+.rail-plus-float.cfx-live { opacity: 1; }
+.rail-plus.cfx-live .rail-plus-mark { animation: cfx-cup .45s ease var(--bump, 0s) both; transform-origin: 50% 100%; }
+.rail-plus.cfx-on-peek { --bump: 1.72s; }
+.rail-plus.cfx-on-nap { --bump: .38s; }
+.rail-plus.cfx-on-ball { --bump: .5s; }
+.rail-plus.cfx-on-hop .rail-plus-mark { animation: none; }
+.cfx { --cx: 43px; --cup-top: 7px; position: absolute; left: -24px; bottom: calc(100% - var(--cup-top)); width: 220px; height: 124px; overflow: hidden;
   pointer-events: none; z-index: 2; }
-.coffee-float .cfx { --cx: 41px; --cup-top: 10px; }
+.rail-plus-float .cfx { --cx: 41px; --cup-top: 7px; }
 .cfx img { display: block; image-rendering: pixelated; image-rendering: crisp-edges; -webkit-user-drag: none; filter: drop-shadow(0 2px 0 #0000008c); }
 .cfx svg { display: block; }
 .cfx-mon { position: absolute; left: calc(var(--cx) - 32px); bottom: calc(-1px * var(--pad, 8)); width: 64px; height: 64px; transform-origin: 50% 100%; }
@@ -1399,7 +1410,7 @@ html.platform-linux .app-native .rules-drawer-wrap { padding-top: 14px; }
 }
 @keyframes cfx-note { 0% { opacity: 0; transform: translateY(6px); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(6px, -20px) rotate(12deg); } }
 
-@media (prefers-reduced-motion: reduce) { .cfx { display: none; } .coffee.cfx-live > svg { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .cfx { display: none; } .rail-plus.cfx-live .rail-plus-mark { animation: none; } }
 @media (max-width: 860px) { .rail .cfx { display: none; } }
 
 /* The joke license window (views/nag.mjs): on purpose an old-Windows shareware nag on every platform – classic
