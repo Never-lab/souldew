@@ -52,7 +52,7 @@ export function HandheldTile({ system }) {
   const member = !!packState().entitled;
   const look = launchLook(L.look).tier === 'plus' && !member ? 'theme' : launchLook(L.look).look;
   return html`<button type="button" class="hh-tile" onClick=${() => navigate('handheld', { sys })} title=${t('hh.dress', 'Dress your handheld')}>
-    <${HandheldStillImg} sys=${sys} look=${look} skin=${doc.skin} stickers=${doc.stickers[sys] || []} w=${84} h=${52} zoom=${1.95} class="hh-tile-pic" />
+    <${HandheldStillImg} sys=${sys} look=${look} skin=${doc.skin} stickers=${doc.stickers[sys] || []} w=${84} h=${52} zoom=${2.6} class="hh-tile-pic" />
     <span class="hh-tile-txt"><span class="hh-tile-k">${t('hh.title', 'Your handheld')}${!member && html` <${PlusMark} title=${t('hh.plusQuiet', 'More skins and stickers come with souldew+')} />`}</span>
       <b class="ellipsis">${wearing(doc)}</b></span>
   </button>`;

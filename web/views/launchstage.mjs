@@ -4,7 +4,7 @@
 //
 // It runs NEXT TO the game's start, never before it: play.mjs starts the emulator at once, as without an animation; this
 // stage only covers the screen area (.session-screen – never the dock, the bar or the sidebar) and decides when the
-// game's picture is uncovered. The device's screens show the game's own picture while it runs (the fast and the 3DS
+// game's picture is uncovered. Its set-up waits for the game's first frame (≤ 300 ms), so it costs the start nothing. The device's screens show the game's own picture while it runs (the fast and the 3DS
 // player draw it so it can be read), else a dark panel. When the animation reaches its hand-over before the game's first
 // frame, it holds there until the frame is in. Silent – the game's sound is never touched. A click, any key or a resize
 // ends it at once. Reduced motion: one still of the device that cross-fades into the game (0.8 s). Off: not mounted.
@@ -52,6 +52,9 @@ function liveCanvas(frame, L) {
   }
 }
 
+/** How long the set-up waits for the game's first frame before it builds anyway (a slow start: a DS / 3DS game). */
+const BUILD_WAIT = 300;
+
 /** Measurements of the last launch (set-up, frames) – for the recordings and diagnostics. */
 export const launchStats = { last: null };
 
@@ -69,6 +72,7 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
     const host = el.parentElement; // .session-screen
     const cs = host.querySelector('.console-screen');
     const mounted = performance.now();
+    const marks = [];
     let alive = true;
     let scene = null;
     let raf = 0;
@@ -102,6 +106,12 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       const rare = !reduced && member() && Math.random() < 1 / RARE_ODDS;
       const look = lookNow();
       const wrap = V.look === 'theme' ? sceneWrap(look.skin) : null;
+      // The set-up (≈ 100 ms of script and the GPU's shader work) waits for the game's first frame, at most BUILD_WAIT ms:
+      // the player page loads in the same thread and on the same GPU, and measured on an M1 every millisecond of set-up
+      // inside its start showed up in the game's first frame (GBA 160 → 300 ms). Waiting, the game starts exactly as
+      // without the animation; the device fades in a moment later (a fast GBA game: ≈ 0.25 s after the click).
+      const t1 = performance.now();
+      while (alive && !live.current.ready && performance.now() - t1 < BUILD_WAIT) await new Promise((r) => setTimeout(r, 15));
       const { S, atlas } = await loadScene();
       if (!alive) return;
       const box = host.getBoundingClientRect();
@@ -121,6 +131,7 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
         clearTint: CLEAR[cfg.clear] || CLEAR.atomic, pulse, glow: rare ? '#ffe2a6' : '#dfe8ff', warm: rare, plan: plan.plan,
         picture: picture || (() => liveCanvas(frame?.current, L)), atlas,
         hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, reduced },
+        yieldTo: () => new Promise((r) => setTimeout(r, 0)), mark: (what) => marks.push([what, Math.round(performance.now() - mounted)]),
       });
       if (!alive) { scene?.dispose(); scene = null; return; }
       scene.setStickers(placeLayout(look.stickers[devKey(system)] || [], scene.regions(), atlas?.rects || {}));
@@ -224,7 +235,7 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
         if (t >= T) {
           const at = scene.screensAt(plan.H0);
           const r4 = (q) => [q.x, q.y, q.w, q.h].map((v) => Math.round(v * 10) / 10);
-          launchStats.last = { system, look: lookId, pace: cfg.pace, reduced, rare, setup: Math.round(setup), T, held: Math.round(held), frames, final: r4(geo.f), landed: r4(at) };
+          launchStats.last = { system, look: lookId, pace: cfg.pace, reduced, rare, setup: Math.round(setup), marks, T, held: Math.round(held), frames, final: r4(geo.f), landed: r4(at) };
           finish();
           return;
         }

@@ -357,7 +357,10 @@ export async function createScene(canvas, o) {
   ARC = !!o.hh;
   const dev = DEVICES[o.sys];
   const fold = dev.kind === 'fold';
-  const G = partsOf(o.sys); // where the parts sit (geometry.mjs – the faces cut round the same numbers)
+  const G = partsOf(o.sys);
+  // the set-up gives the main thread back between its steps (o.yieldTo: the launch hands it to the game's player page,
+  // which loads in the same thread – the game's start must never wait for the device)
+  const pause = async (what) => { o.mark?.(what); if (o.yieldTo) await o.yieldTo(); }; // where the parts sit (geometry.mjs – the faces cut round the same numbers)
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: !!o.keep });
   renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
   renderer.setSize(o.w, o.h, false);
@@ -368,6 +371,7 @@ export async function createScene(canvas, o) {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.VSMShadowMap;
 
+  await pause('renderer');
   const scene = new THREE.Scene();
   const pmrem = new THREE.PMREMGenerator(renderer);
   scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
@@ -375,6 +379,7 @@ export async function createScene(canvas, o) {
 
   const cam = new THREE.PerspectiveCamera(o.fov || 28, o.w / o.h, 40, 3000);
 
+  await pause('environment');
   // ---- materials ----
   const P = { uPR: { value: 0 }, uPW: { value: 9 }, uPA: { value: 0 }, uPC: { value: new THREE.Color(o.pulse || '#fff4e0') }, uPO: { value: new THREE.Vector3() },
     uGA: { value: 0 }, uGR: { value: 60 }, uGC: { value: new THREE.Color(o.glow || '#dfe8ff') }, uGO: { value: new THREE.Vector3() } };
@@ -437,6 +442,7 @@ export async function createScene(canvas, o) {
   const scrMats = L.screens.map((r) => screenMat(ptex, [r.x / L.W, 1 - (r.y + r.h) / L.H, r.w / L.W, r.h / L.H], [r.w, r.h], o.sys, o.warm));
   if (fold && scrMats.length < 2) scrMats.push(screenMat(ptex, [0, 0, 0.0001, 0.0001], [1, 1], o.sys, o.warm)); // a screen the layout hides
 
+  await pause('materials');
   // ---- build ----
   const world = new THREE.Group();
   scene.add(world);
@@ -660,6 +666,7 @@ export async function createScene(canvas, o) {
     }
   }
 
+  await pause('build');
   // ---- design/launch5: the wrap (a skin, on moulded plastic only) and the stickers (on any shell) ----
   const HH = { surf: {}, art: null, tex: [], shared: null, skin: null, stickers: [], ghost: null };
   if (o.hh && parts.hh) {
@@ -743,6 +750,7 @@ export async function createScene(canvas, o) {
   }
   setStickers(o.hh?.stickers || []);
 
+  await pause('wrap');
   // ---- the cartridge ----
   const cartDims = fold ? dev.card : dev.cart;
   const [cw, cl, ct] = cartDims;
@@ -1063,10 +1071,14 @@ export async function createScene(canvas, o) {
 
   // every program now, not on the frame a part first shows (the cartridge drops in later: compiling it then is a hitch)
   {
+    await pause('world');
     const hidden = [];
     scene.traverse((x) => { if (!x.visible) { hidden.push(x); x.visible = true; } });
-    renderer.compile(scene, cam);
+    // in parallel where the driver can (KHR_parallel_shader_compile): the main thread stays free meanwhile
+    if (o.yieldTo && renderer.compileAsync) await renderer.compileAsync(scene, cam);
+    else renderer.compile(scene, cam);
     for (const x of hidden) x.visible = false;
+    o.mark?.('compiled');
   }
   // the backing's size and place (final rectangle, in body coordinates)
   {

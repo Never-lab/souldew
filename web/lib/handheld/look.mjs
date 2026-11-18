@@ -7,7 +7,7 @@ import { cleanHandheld, emptyHandheld, lookToPlay, wrapById, launchLook, cleanLa
 import { layoutKey } from '../cosmetics/launch/engine.mjs';
 import { packState, onChange as onCosmetics } from '../cosmetics/index.mjs';
 import { content } from '../cosmetics/state.mjs';
-import { earnedTrophies, syncTrophies } from '../trophies.mjs';
+import { earnedTrophies } from '../trophies.mjs';
 import { favourites } from '../favourites.mjs';
 import { loadAtlas } from './stickers.mjs';
 import { wrapComp, recipeOf } from './wrap.mjs';
@@ -72,8 +72,9 @@ export const playableLook = (id) => (launchLook(id).tier === 'plus' && !member()
 
 /** What the launch plays from the handheld right now: owned items only, Surprise me picks a design (shared/handheld.mjs). */
 export function lookNow(rnd = Math.random) {
+  // the trophies as the app last synced them (it does at its start) – never a sync here: that is the server's work at
+  // the very moment it starts the game. Not known yet: the earned stickers wait for the next start.
   const tr = earnedTrophies();
-  if (!tr) syncTrophies().catch(() => {}); // (not known yet: the earned stickers wait for the next start)
   return lookToPlay(doc, { member: member(), trophies: tr || new Set(), favDesigns: favourites().design || [], rnd });
 }
 
