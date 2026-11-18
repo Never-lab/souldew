@@ -5,18 +5,17 @@ import { CATALOG, EARNED_CATALOG, state, onChange, owned, has, setEarnedTrophies
 export { applySkin, previewSkin, endPreview, listSkins, skinState, onSkinChange, applyStoredSkin } from './skins.mjs';
 export { mountBanner, mountNameplate, bannerStats } from './banners/runtime.mjs';
 export { mountFrame, frameStats, sizing as frameSizing } from './frames/runtime.mjs';
-export { playLaunch, previewLaunch, launchAvailable, layoutKey } from './launch/player.mjs';
 export { refreshPack, forgetPack, packState, setPackAccessProvider, getPackAccess, startPackPreview, endPackPreview, GRACE_MS } from './pack/client.mjs';
 export { setReducedMotion } from './motion.mjs';
 export { setPlusHandler, openPlus } from './plus.mjs';
 export { onChange, owned, has, setEarnedTrophies };
 
-const KINDS = ['banners', 'frames', 'nameplates', 'skins', 'launch'];
+const KINDS = ['banners', 'frames', 'nameplates', 'skins'];
 const RARITY = ['free', 'common', 'rare', 'epic', 'legendary'];
 
 /**
  * Everything there is, owned or not – for pickers and profile editors:
- *   { banners, frames, nameplates, skins, launch: [{ id, name, collection, collectionName, rarity, pairsWith, plus,
+ *   { banners, frames, nameplates, skins: [{ id, name, collection, collectionName, rarity, pairsWith, plus,
  *     owned, available, sw, … }], collections: { banners, frames } }
  * owned: usable now (free, or souldew+ with the pack loaded). available: its content is in memory (owned or preview).
  */
@@ -30,7 +29,6 @@ export function catalog() {
     frames: tag('frames', CATALOG.frames),
     nameplates: tag('nameplates', nameplates),
     skins: tag('skins', CATALOG.skins),
-    launch: tag('launch', CATALOG.launch),
     collections: { ...CATALOG.collections, banners: [...CATALOG.collections.banners, { id: 'earned', name: 'Earned' }] },
   };
 }

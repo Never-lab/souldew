@@ -2,7 +2,15 @@
 // – a field with a path, a pond, trees and a house on the first screen, a touch-menu panel on the second. No game
 // content, so it can be committed and shown anywhere. (The play-view renders of the GBA layout use a real captured
 // frame from .cache/ instead when it is there; it is never committed.)
-import { LAYOUTS, h2 } from './engine.mjs';
+import { LAYOUTS } from './layouts.mjs';
+
+/** a stable hash of a grid cell → 0…1 (the grass's speckle) */
+function h1(i, s = 0) {
+  let h = Math.imul((i | 0) ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul((s | 0) + 0x632be5ab, 0xc2b2ae35);
+  h ^= h >>> 13; h = Math.imul(h, 0x27d4eb2f); h ^= h >>> 15; h = Math.imul(h, 0x165667b1); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+const h2 = (x, y, s = 0) => h1(Math.imul(x | 0, 73856093) ^ Math.imul(y | 0, 19349663), s);
 
 const C = {
   grass: '#6fae6a', grass2: '#62a05f', grassD: '#548c53', path: '#d9c690', pathE: '#b8a472', pond: '#4f8fb5', pondE: '#3a6d90', pondL: '#a3cde0',

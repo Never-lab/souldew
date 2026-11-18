@@ -9,6 +9,9 @@
 // A local setting (config.json `handheld`, lib/handheld/look.mjs): it is saved the moment it changes, like every
 // setting; Undo / Redo and "Back to how it was" are the safety net. Nobody else ever sees it. souldew+ items show when
 // their art is here (the pack); a design keeps them after a membership ends, and the launch plays the free parts.
+// What it holds follows the membership (shared/handheld.mjs launchRights): Supporter – the free skin, the free and the
+// earned stickers, one saved design, no Surprise me; souldew+ – everything. Free accounts have the 2D launch: here they
+// get a short page saying so (with what is earned), and whatever they dressed before stays for when they come back.
 //   #/handheld[?sys=gba|nds|3ds|gb]
 import { html, useEffect, useLayoutEffect, useMemo, useRef, useState } from '/vendor/htm-preact.mjs';
 import { t } from '../lib/i18n.mjs';
@@ -26,10 +29,10 @@ import { previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
 import { FavScope, FavFilter, FavEmpty, useFavourites, useFavFilter, isFavourite } from '../lib/favourites.mjs';
 import { filterChips, shownFilter } from '/shared/favourites.mjs';
 import {
-  STICKERS, WRAPS, FINISHES, UNLOCKS, STICKER_MAX, DESIGN_MAX, SCALE_MIN, SCALE_MAX, stickerById, wrapById, launchLook, devKey,
+  STICKERS, WRAPS, FINISHES, UNLOCKS, STICKER_MAX, SCALE_MIN, SCALE_MAX, stickerById, wrapById, launchLook, devKey, playableLookFor,
   designNotes, designDirty, saveAsNew, overwriteDesign, renameDesign, duplicateDesign, deleteDesign, applyDesign, exportHandheld, importHandheld, NAME_MAX,
 } from '/shared/handheld.mjs';
-import { useHandheld, setHandheld, handheld, launchConfig, poseScene, viewPlan, VIEWS, isFold, useCosmeticsTick, sceneWrap } from '../lib/handheld/look.mjs';
+import { useHandheld, setHandheld, handheld, launchConfig, poseScene, viewPlan, VIEWS, isFold, useCosmeticsTick, sceneWrap, useLaunchRights } from '../lib/handheld/look.mjs';
 import { PX, GAP, snapSticker, slideSticker, snapTurn, firstFree } from '../lib/handheld/geometry.mjs';
 import { insideCut } from '../lib/handheld/atlas.mjs';
 import { loadAtlas, atlasNow, stickerThumb } from '../lib/handheld/stickers.mjs';
@@ -66,15 +69,48 @@ function bannerThumb() {
 }
 
 export function HandheldView() {
+  const R = useLaunchRights();
+  return R.three ? html`<${HandheldEditor} R=${R} />` : html`<${HandheldFree} />`;
+}
+
+/** Free: no 3D launch – what it is, what comes with which tier, what is earned; nothing to dress, nothing lost. */
+function HandheldFree() {
+  const { navigate } = useApp();
+  const tr = useTrophies();
+  const doc = useHandheld();
+  const has = useMemo(() => new Set((tr?.achievements || []).filter((a) => a.ok).map((a) => a.id)), [tr]);
+  const kept = !!(doc.skin || doc.designs.length || Object.keys(doc.stickers).length);
+  return html`<div class="pe hh hh-free is-open">
+    <div class="pe-bar hh-bar"><nav class="hh-crumbs" aria-label=${t('hh.where', 'Where you are')}><a href=${`#/settings?s=play`}>${t('nav.settings', 'Settings')}</a><span>›</span><a href=${`#/settings?s=play`}>${t('set.secPlay', 'Play')}</a><span>›</span>
+        <a href=${`#/settings?s=play&f=launch`}>${t('launch.title', 'Launch animation')}</a><span>›</span><b>${t('hh.title', 'Your handheld')}</b></nav><span class="grow"></span>
+      <button type="button" class="btn primary" onClick=${() => navigate('settings', settingsLink('launch'))}>${t('hh.done', 'Done')}</button></div>
+    <div class="hh-free-body stack">
+      <h2>${t('hh.title', 'Your handheld')}</h2>
+      <p class="muted">${t('hh.freeLead', 'Your own souldew handheld in 3D – dressed with a skin and stickers – is the launch animation with Supporter or souldew+. Your games start with the cartridge sliding into the console.')}</p>
+      ${kept && html`<p class="small faint">${t('hh.freeKept', 'What you dressed it in is kept on this computer – it comes back with a membership.')}</p>`}
+      <div class="hh-sec"><span class="pe-kicker">${t('hh.earnedTitle', 'Earned, not bought')}</span><span class="tiny faint">${t('hh.earnedOf', '{n} of {all}', { n: UNLOCKS.filter((u) => has.has(u.trophy)).length, all: UNLOCKS.length })}</span></div>
+      <div class="hh-earn">${UNLOCKS.map((u) => { const ok = has.has(u.trophy); const thumb = u.kind === 'sticker' ? stickerThumb(u.id, 4) : null; return html`<div class=${`hh-earn-row ${ok ? 'ok' : 'off'}`}>
+        ${u.kind === 'banner' ? html`<span class="hh-earn-b" style=${`background-image:url(${bannerThumb()})`}></span>` : thumb ? html`<img class="hh-earn-s" src=${thumb} alt="" />` : html`<span></span>`}
+        <span class="hh-earn-t"><b>${u.name}${u.kind === 'banner' ? html` <span class="tiny faint">· ${t('hh.aBanner', 'a banner')}</span>` : ''}</b><span class=${`tiny ${ok ? 'faint' : ''}`}>${ok ? t('hh.earnedByT', 'Earned by {trophy}', { trophy: trophyName(u.trophy) }) : `${trophyName(u.trophy)}: ${trophyHow(u.trophy)}`}</span>
+          <span class="tiny faint">${u.kind === 'banner' ? t('hh.earnedBannerAll', 'On your profile – for everyone.') : t('hh.earned3d', 'Shows in the 3D launch – with Supporter or souldew+.')}</span></span>
+        <span class=${`hh-earn-k ${ok ? 'ok' : ''}`}>${ok ? t('hh.yours', 'Yours') : t('hh.locked', 'locked')}</span></div>`; })}</div>
+      <div class="row"><a class="btn" href="#/plus">${t('launch.seeTiers', 'What each tier gets')}</a></div>
+    </div>
+  </div>`;
+}
+
+function HandheldEditor({ R }) {
   const { route, navigate, status, library } = useApp();
   useCosmetics();
   usePreviews();
   useCosmeticsTick();
   const tr = useTrophies();
   const has = useMemo(() => new Set((tr?.achievements || []).filter((a) => a.ok).map((a) => a.id)), [tr]);
-  const member = !!packState().entitled;
+  const member = R.plus;
+  const designMax = R.designMax;
   const L = launchConfig(status?.config);
-  const look = launchLook(L.look).look;
+  const lookId = playableLookFor(L.look, R); // a souldew+ look kept from a membership that ended: "Your colours" plays
+  const look = launchLook(lookId).look;
   const shellOnly = look === 'clear' || look === 'gold'; // Clear and Gold are shells, not paint: no wrap on them
   const p0 = route.params?.sys;
   const [sys, setSys] = useState(DEVICE_TABS.includes(p0) ? p0 : 'nds');
@@ -452,9 +488,10 @@ export function HandheldView() {
   const active = designs.find((d) => d.id === doc.active) || null;
   const dirty = designDirty(doc);
   const own = { member, trophies: has };
-  const full = () => say(t('hh.designsFull', '{n} designs saved – delete or overwrite one first', { n: DESIGN_MAX }));
+  const full = () => (designMax < 2 ? plusHint(t('hh.designsOne', 'With Supporter you keep one saved design – save changes to it, or delete it. souldew+ keeps up to 12.'))
+    : say(t('hh.designsFull', '{n} designs saved – delete or overwrite one first', { n: designMax })));
   const saveNew = () => {
-    const next = saveAsNew(doc, { name: t('hh.designN', 'Design {n}', { n: designs.length + 1 }) });
+    const next = saveAsNew(doc, { name: t('hh.designN', 'Design {n}', { n: designs.length + 1 }), max: designMax });
     if (!next) return full();
     commit(next);
     setRenaming(next.active);
@@ -469,7 +506,7 @@ export function HandheldView() {
         : n.empty.includes(dk) ? t('hh.noteBare', 'No stickers on your {device} in this design – it plays bare', { device: devName(sys) }) : t('hh.noteOn', '“{name}” is on', { name: d.name }));
   };
   const rename = (id, name) => { setRenaming(null); const next = renameDesign(doc, id, name); if (next !== doc) commit(next); };
-  const duplicate = (d) => { const next = duplicateDesign(doc, d.id, { copyName: (nm) => t('hh.copyOf', '{name} copy', { name: nm }) }); if (!next) return full(); commit(next); return undefined; };
+  const duplicate = (d) => { const next = duplicateDesign(doc, d.id, { copyName: (nm) => t('hh.copyOf', '{name} copy', { name: nm }), max: designMax }); if (!next) return full(); commit(next); return undefined; };
   const del = (d) => { const before = doc; commit(deleteDesign(doc, d.id)); setToast({ text: t('hh.deleted', 'Deleted “{name}”', { name: d.name }), undo: before }); };
   // Export / Import of the look as a small file (no sync in 3.0 – this is how it goes to another computer)
   const exportFile = () => {
@@ -578,7 +615,7 @@ export function HandheldView() {
       <aside class="pe-drawer hh-drawer" aria-label=${t('hh.title', 'Your handheld')}>
         <div class="hh-ptitle"><h2>${t('hh.title', 'Your handheld')}</h2><span class="small muted">${t('hh.onlyYou', 'In your launch animation – only you see it')}</span></div>
         <div class="pe-body hh-body">
-          <a class="hh-variant" href="#/settings?s=play&f=launch"><span class="tiny faint">${t('launch.title', 'Launch animation')}</span><b>${lookName(L.look)}</b>${launchLook(L.look).tier === 'plus' && !member && html`<${PlusMark} />`}<span class="pe-chev"></span></a>
+          <a class="hh-variant" href="#/settings?s=play&f=launch"><span class="tiny faint">${t('launch.title', 'Launch animation')}</span><b>${lookName(lookId)}</b><span class="pe-chev"></span></a>
           <div class="hh-devs" role="tablist" aria-label=${t('hh.device', 'Handheld')}>${DEVICE_TABS.map((id) => html`<button type="button" role="tab" aria-selected=${sys === id} class=${`hh-dev ${sys === id ? 'on' : ''}`} onClick=${() => setSys(id)}>
             ${devName(id)}${(doc.stickers[id] || []).length ? html`<span class="hh-dev-n">${doc.stickers[id].length}</span>` : ''}</button>`)}</div>
           <p class="tiny faint hh-note">${t('hh.perDevice', 'Each handheld keeps its own stickers. The skin is one choice for all of them.')}</p>
@@ -595,25 +632,28 @@ export function HandheldView() {
               <button type="button" class="btn small ghost" title=${t('hh.peelKey', 'Peel off (Delete)')} onClick=${remove}>${t('hh.peel', 'Peel off')}</button></div>
             <div class="hh-selfin">${finishRow}</div></div>`}
 
-          <div class="hh-sec"><span class="pe-kicker">${t('hh.designs', 'Your designs')}</span><span class="tiny faint">${t('hh.designsOf', '{n} of {max} · a design dresses all four', { n: designs.length, max: DESIGN_MAX })}</span></div>
+          <div class="hh-sec"><span class="pe-kicker">${t('hh.designs', 'Your designs')}</span><span class="tiny faint">${designs.length > designMax ? t('hh.designCount', 'one saved design|{count} saved designs', { count: designs.length })
+            : t('hh.designsOf', '{n} of {max} · a design dresses all four', { n: designs.length, max: designMax })}</span></div>
+          ${designs.length > designMax && html`<p class="tiny faint hh-note">${t('hh.designsKept', 'Your designs from souldew+ are kept. With Supporter you can save one – delete some to save a new one.')}</p>`}
           <div class="hhd-grid">${designs.map(designCard)}
-            ${designs.length < DESIGN_MAX && html`<button type="button" class="hhd hhd-new" onClick=${saveNew}><span>+</span><b>${t('hh.saveLook', 'Save this look')}</b><span class="tiny faint">${t('hh.asNew', 'as a new design')}</span></button>`}</div>
+            ${designs.length < designMax && html`<button type="button" class="hhd hhd-new" onClick=${saveNew}><span>+</span><b>${t('hh.saveLook', 'Save this look')}</b><span class="tiny faint">${t('hh.asNew', 'as a new design')}</span></button>`}</div>
           ${active && html`<div class="hhd-tools">
             ${dirty && html`<button type="button" class="btn small" onClick=${() => commit(overwriteDesign(doc))}>${t('hh.saveTo', 'Save changes to “{name}”', { name: active.name })}</button>`}
-            <button type="button" class="btn small ghost" onClick=${saveNew} disabled=${designs.length >= DESIGN_MAX}>${t('hh.saveAsNew', 'Save as new')}</button>
+            <button type="button" class="btn small ghost" onClick=${saveNew} disabled=${designs.length >= designMax}>${t('hh.saveAsNew', 'Save as new')}</button>
             <button type="button" class="btn small ghost" onClick=${() => setRenaming(active.id)}>${t('hh.rename', 'Rename')}</button>
-            <button type="button" class="btn small ghost" onClick=${() => duplicate(active)} disabled=${designs.length >= DESIGN_MAX}>${t('hh.duplicate', 'Duplicate')}</button>
+            <button type="button" class="btn small ghost" onClick=${() => duplicate(active)} disabled=${designs.length >= designMax}>${t('hh.duplicate', 'Duplicate')}</button>
             <button type="button" class="btn small ghost" onClick=${() => del(active)}>${t('hh.delete', 'Delete')}</button></div>`}
-          <label class="check small hhd-surprise"><input type="checkbox" checked=${!!doc.surprise} disabled=${designs.length < 2} onChange=${(e) => commit({ ...doc, surprise: e.target.checked })} />
+          ${R.surprise ? html`<label class="check small hhd-surprise"><input type="checkbox" checked=${!!doc.surprise} disabled=${designs.length < 2} onChange=${(e) => commit({ ...doc, surprise: e.target.checked })} />
             <span>${t('hh.surprise', 'Surprise me at start')}<span class="hint">${designs.length < 2 ? t('hh.surpriseHint0', 'Save two designs or more and every launch picks one of them.')
-              : (favs.design || []).some((id) => designs.some((d) => d.id === id)) ? t('hh.surpriseHintFav', 'Every launch picks one of your designs at random – only your ★ ones.') : t('hh.surpriseHint', 'Every launch picks one of your designs at random.')}</span></span></label>
+              : (favs.design || []).some((id) => designs.some((d) => d.id === id)) ? t('hh.surpriseHintFav', 'Every launch picks one of your designs at random – only your ★ ones.') : t('hh.surpriseHint', 'Every launch picks one of your designs at random.')}</span></span></label>`
+            : html`<span class="tiny faint hh-note"><${PlusMark} /> ${t('hh.surprisePlus', 'Up to 12 designs and “Surprise me at start” come with souldew+.')}</span>`}
 
           <div class="hh-filters"><${FavFilter} chips=${chips} counts=${counts} value=${filter} onChange=${setFilter} /></div>
           ${filter === 'favs' && !counts.favs && html`<div class="hh-empty"><span class="hh-empty-star">☆</span><${FavEmpty} /></div>`}
 
           ${(skinsShown.length > 0 || filter === 'all' || filter === 'owned') && html`<div class="hh-sec"><span class="pe-kicker">${t('hh.skin', 'Skin')}</span><span class="tiny faint">${wrapById(doc.skin)
             ? `${wrapById(doc.skin).name} · ${wrapById(doc.skin).finish === 'gloss' ? t('hh.glossVinyl', 'gloss vinyl') : t('hh.satinVinyl', 'satin vinyl')}` : t('hh.themeColourCap', 'Theme colour')}</span></div>
-          ${shellOnly && html`<p class="small hh-shellnote">${t('hh.shellOnly2', 'Your launch animation is {shell}: that shell takes no skin, but your stickers go on it. The skin you pick shows with “Your colours” and Holo label.', { shell: lookName(L.look) })}</p>`}
+          ${shellOnly && html`<p class="small hh-shellnote">${t('hh.shellOnly2', 'Your launch animation is {shell}: that shell takes no skin, but your stickers go on it. The skin you pick shows with “Your colours” and Holo label.', { shell: lookName(lookId) })}</p>`}
           <div class=${`hh-skins ${shellOnly ? 'muted-skins' : ''}`}>
             ${(filter === 'all' || filter === 'owned') && html`<div class="hh-cell"><button type="button" class=${`hh-skin none ${!doc.skin ? 'on' : ''}`} onClick=${() => pickSkin(null)}><span class="hh-skin-art"></span><b>${t('cos.none', 'None')}</b><span class="tiny faint">${t('hh.themeColourCap', 'Theme colour')}</span></button></div>`}
             ${skinsShown.map((w) => { const u = wrapThumb(w.id) || previewSrc('wraps', w.id); return html`<${FavScope} key=${w.id} kind="skin" id=${w.id} name=${w.name} known=${knownSkins} class="hh-cell"><button type="button" class=${`hh-skin ${doc.skin === w.id ? 'on' : ''} ${w.finish}`} onClick=${() => pickSkin(w)}>

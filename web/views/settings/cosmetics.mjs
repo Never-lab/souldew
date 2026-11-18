@@ -1,7 +1,7 @@
 // souldew+ in Settings: the Theme row (General › Appearance, under the colour schemes) – the Launch animation row (Play)
 // is settings/launch.mjs. A theme is tried on the whole app with one click and reverts when you leave Settings or press "Back to …";
-// it changes the look only, never the layout or a text. The machinery is web/lib/cosmetics (skins.mjs, launch/).
-// Every theme and launch animation has its favourite star and the lists their favourites row (lib/favourites.mjs).
+// it changes the look only, never the layout or a text. The machinery is web/lib/cosmetics (skins.mjs).
+// Every theme has its favourite star and the lists their favourites row (lib/favourites.mjs).
 import { html, useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { t } from '../../lib/i18n.mjs';
 import { listSkins, previewSkin, endPreview, applySkin, skinState, onSkinChange, packState, catalog, startPackPreview } from '../../lib/cosmetics/index.mjs';
@@ -10,6 +10,8 @@ import { useCosmetics, PlusMark } from '../../lib/cosmetics/components.mjs';
 import { openPlus } from '../../lib/cosmetics/plus.mjs';
 import { PreviewPicture, previewSrc, usePreviews } from '../../lib/cosmetics/previews.mjs';
 import { Icon } from '../../lib/icons.mjs';
+import { LaunchTiers } from '../launchtiers.mjs';
+import { useLaunchRights } from '../../lib/handheld/look.mjs';
 import { FavScope, FavEmpty, useFavList, FAV_KIND_OF } from '../../lib/favourites.mjs';
 
 function useSkinState() {
@@ -161,21 +163,25 @@ function ShowItem({ kind, item, known }) {
 }
 
 /**
- * "What souldew+ holds": the real look of every premium theme, banner, frame, nameplate and launch animation, from the
- * signed preview media – for everyone, signed in or not (nobody buys what they can't see). Nothing when the previews
- * can't be reached.
+ * "What souldew+ holds": the real look of every premium theme, banner, frame and nameplate, from the signed preview
+ * media – for everyone, signed in or not (nobody buys what they can't see) – and, in words, what each tier gets for the
+ * launch animation (views/launchtiers.mjs). Only those words when the previews can't be reached.
  */
 export function PlusShowcase() {
   const pv = usePreviews();
   const [kind, setKind] = useState('skins');
-  if (!pv?.files) return null;
+  const launchTier = useLaunchRights().tier;
+  const tiers = html`<${LaunchTiers} current=${launchTier} />`;
+  const bare = html`<section class="plus-show stack-s" aria-label=${t('plusShow.title', 'What souldew+ holds')}>
+    <div class="row plus-show-head"><h3>${t('plusShow.title', 'What souldew+ holds')}</h3></div>${tiers}</section>`;
+  if (!pv?.files) return bare;
   const cat = catalog();
   const lists = {
     skins: cat.skins.filter((s) => s.plus), banners: cat.banners.filter((b) => b.plus && !b.drop), frames: cat.frames.filter((f) => f.plus),
     nameplates: cat.nameplates.filter((n) => n.plus && !n.drop),
   };
   const kinds = SHOW_KINDS().filter(([k]) => lists[k].some((x) => previewSrc(k, x.id)));
-  if (!kinds.length) return null;
+  if (!kinds.length) return bare;
   const k = kinds.some(([x]) => x === kind) ? kind : kinds[0][0];
   const items = lists[k].filter((x) => previewSrc(k, x.id));
   const known = (cat[k] || []).map((x) => x.id);
@@ -187,6 +193,7 @@ export function PlusShowcase() {
     </div>
     <p class="small faint">${k === 'skins' ? t('plusShow.themesHint', 'Every theme recolours the whole app – never a box or a word.') : t('plusShow.hint', 'Hover or focus one to see it move.')}</p>
     <${ShowGrid} key=${k} k=${k} items=${items} known=${known} />
+    ${tiers}
   </section>`;
 }
 

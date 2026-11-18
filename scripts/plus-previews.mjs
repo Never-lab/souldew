@@ -4,7 +4,7 @@
 // give away: the accounts service serves them to anyone (GET /v1/previews), signed like every pack, so the app still
 // checks them against the pinned pack key before it shows one.
 //
-//   <kind>/<id>.png    still, display size ×2: banners 768×112, nameplates 320×52, frames 208×208, launch 480×320
+//   <kind>/<id>.png    still, display size ×2: banners 768×112, nameplates 320×52, frames 208×208
 //   <kind>/<id>.webp   loop, native resolution (the page scales it pixelated), ≤ 150 KB, a few seconds
 //   skins/<id>.webp    the library in that skin, 960×600 (scripts/plus-skin-shots.mjs renders it in Electron)
 //
@@ -16,7 +16,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-export const PREVIEW_KINDS = ['banners', 'nameplates', 'frames', 'launch', 'skins'];
+export const PREVIEW_KINDS = ['banners', 'nameplates', 'frames', 'skins'];
 export const LOOP_MAX_BYTES = 150 * 1024;
 const FPS = 12;
 
@@ -50,43 +50,15 @@ function loopWebp(frames, w, h, encodePNG, file) {
   }
 }
 
-/** a canvas stand-in for the launch placeholder (fillStyle / fillRect into RGBA) */
-function fakeDoc() {
-  return {
-    createElement: () => {
-      const cv = { width: 0, height: 0 };
-      cv.getContext = () => {
-        cv.px = cv.px || new Uint32Array(cv.width * cv.height);
-        let col = 0xff000000;
-        return {
-          set fillStyle(c) {
-            const m = /^#([0-9a-f]{6})$/i.exec(c) || /^#([0-9a-f]{3})$/i.exec(c);
-            let h = m ? m[1] : '000';
-            if (h.length === 3) h = [...h].map((x) => x + x).join('');
-            const n = parseInt(h, 16);
-            col = (0xff000000 | ((n & 0xff) << 16) | (n & 0xff00) | (n >> 16)) >>> 0;
-          },
-          fillRect(x, y, w, h) {
-            for (let j = Math.max(0, y | 0); j < Math.min(cv.height, (y | 0) + (h | 0)); j++) cv.px.fill(col, j * cv.width + Math.max(0, x | 0), j * cv.width + Math.min(cv.width, (x | 0) + (w | 0)));
-          },
-        };
-      };
-      return cv;
-    },
-  };
-}
-
 /**
- * Renders every premium banner, nameplate, frame and launch animation into `out` (<kind>/<id>.png + .webp) and returns
- * the file list [{ path, bytes }]. design: the design/plus folder; banners / frames / anims: the premium items.
+ * Renders every premium banner, nameplate and frame into `out` (<kind>/<id>.png + .webp) and returns the file list
+ * [{ path, bytes }]. design: the design/plus folder; banners / frames: the premium items.
  */
-export async function renderItemPreviews({ design, banners, frames, anims, out, log = console.log }) {
+export async function renderItemPreviews({ design, banners, frames, out, log = console.log }) {
   const imp = (p) => import(pathToFileURL(join(design, p)).href);
   const { encodePNG } = await imp('banners/tools/png.mjs');
   const { compile } = await imp('banners/engine/index.mjs');
   const { compileFrame } = await imp('frames/engine/index.mjs');
-  const { LAYOUTS, pal32 } = await imp('launch/engine.mjs');
-  const { placeholderCanvas } = await import(pathToFileURL(join(ROOT, 'web', 'lib', 'cosmetics', 'launch', 'placeholder.mjs')).href);
   const files = [];
   const put = (path, bytes) => {
     const target = join(out, ...path.split('/'));
@@ -143,40 +115,6 @@ export async function renderItemPreviews({ design, banners, frames, anims, out, 
   }
   log(`previews: ${frames.length} frames`);
 
-  // launch animations: the GBA screen over the neutral placeholder game – the poster still (×2) and the whole run
-  const L = LAYOUTS.gba;
-  const game = placeholderCanvas('gba', fakeDoc()).px;
-  for (const a of anims) {
-    const env = { W: L.W, H: L.H, screens: L.screens, seed: 1 };
-    const st = a.setup ? a.setup(env) : {};
-    const lut = pal32(a.pal);
-    const idx = new Uint8Array(L.W * L.H);
-    const at = (t, r0) => {
-      idx.fill(0);
-      a.draw(idx, t, r0, st, env);
-      const f = new Uint32Array(L.W * L.H);
-      for (let i = 0; i < f.length; i++) f[i] = idx[i] ? lut[idx[i]] : game[i];
-      return f;
-    };
-    // the still: the animation's own poster, or else its richest moment up to the reveal – the most of the screen
-    // covered, in the most of its colours (a blank sheet or a bare game says nothing)
-    let still = a.poster;
-    if (still == null) {
-      let best = -1;
-      for (let t = 0; t <= a.revealAt + 1e-9; t += 1 / FPS) {
-        idx.fill(0);
-        a.draw(idx, t, a.revealAt, st, env);
-        let n = 0;
-        const cols = new Set();
-        for (let i = 0; i < idx.length; i++) if (idx[i]) { n++; cols.add(idx[i]); }
-        const score = n * cols.size;
-        if (score > best) { best = score; still = t; }
-      }
-    }
-    put(`launch/${a.id}.png`, encodePNG(L.W * 2, L.H * 2, upscale(L.W, L.H, at(still, a.revealAt), 2)));
-    loop(`launch/${a.id}.webp`, [...frameTimes(0, a.dur), ...frameTimes(a.dur, 0.6)].map((t) => at(t, a.revealAt)), L.W, L.H);
-  }
-  log(`previews: ${anims.length} launch animations`);
   return files;
 }
 

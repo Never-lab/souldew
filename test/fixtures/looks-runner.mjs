@@ -31,7 +31,7 @@ app.whenReady().then(async () => {
     result.shots = await js(`(async () => {
       const { loadScene, viewPlan } = await import('/lib/handheld/look.mjs');
       const { cleanLooks } = await import('/lib/handheld/looks.mjs');
-      const { layoutKey } = await import('/lib/cosmetics/launch/engine.mjs');
+      const { layoutKey } = await import('/lib/handheld/layouts.mjs');
       const { S, atlas } = await loadScene();
       const LK = cleanLooks(${JSON.stringify(looks)});
       const shot = async (o) => {

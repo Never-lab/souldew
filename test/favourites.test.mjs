@@ -79,7 +79,7 @@ test('the filter row shows only chips that narrow the list; a vanished filter fa
 });
 
 test('every catalog list maps to a favourite kind, and catalog ids pass the shape check', () => {
-  assert.deepEqual(Object.values(FAV_KIND_OF).sort(), ['banner', 'frame', 'launch', 'nameplate', 'theme']);
+  assert.deepEqual(Object.values(FAV_KIND_OF).sort(), ['banner', 'frame', 'nameplate', 'theme']);
   for (const [list, kind] of Object.entries(FAV_KIND_OF)) {
     const src = list === 'nameplates' ? CATALOG.banners : CATALOG[list];
     const ids = src.map((x) => x.id);

@@ -16,6 +16,7 @@ import { opaqueChunk } from '../web/lib/handheld/surface.mjs';
 import { productShot } from '../scripts/handheld/preview-shot.mjs';
 import { buildAtlas, stickerPicture } from '../web/lib/handheld/atlas.mjs';
 import { DESIGNS } from '../scripts/handheld/stickers-app.mjs';
+import { launchTier, launchRights, playableLookFor, LAUNCH_DEFAULT } from '../shared/handheld.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const enc = new TextEncoder();
@@ -119,6 +120,32 @@ test('without the pack\'s data a souldew+ look draws "Your colours", vinyl and n
   const chunk = opaqueChunk(L.finishes);
   assert.match(chunk, /if \(hh_holo > 0\.001\)/);
   assert.ok(chunk.includes(L.finishes.glitter.glsl));
+});
+
+test('the tier gate and the data gate together (web/lib/handheld/look.mjs playableLook): a souldew+ look plays only with souldew+, the pack AND its data', () => {
+  const L = cleanLooks(FAKE_LOOKS());
+  // look.mjs: playableLookFor (the tier, shared/handheld.mjs) – then the look's data from the pack, else "Your colours"
+  const play = (id, rights, looks) => { const p = playableLookFor(id, rights); return hasLook(p, looks) ? p : LAUNCH_DEFAULT; };
+  const rare = (rights, looks) => rights.rare && hasRare(looks);
+  const cases = [
+    [{ signedIn: false }, false],
+    [{ signedIn: true, tier: 'supporter' }, false],
+    [{ signedIn: true, tier: 'plus' }, false], // souldew+ on the account, but no pack on this computer
+    [{ signedIn: true, tier: 'patron', entitled: true }, true],
+    [{ signedIn: true, tier: 'none', entitled: true }, true], // a verified pack is souldew+
+  ];
+  for (const [who, full] of cases) {
+    const rights = launchRights(launchTier(who), { entitled: !!who.entitled });
+    for (const id of ['gold', 'clear-shell', 'holo']) {
+      assert.equal(play(id, rights, L), full ? id : LAUNCH_DEFAULT, `${JSON.stringify(who)} ${id} with the data`);
+      assert.equal(play(id, rights, null), LAUNCH_DEFAULT, `${JSON.stringify(who)} ${id} without the data`);
+    }
+    assert.equal(play('your-colours', rights, null), 'your-colours');
+    assert.equal(rare(rights, null), false, 'no Rare start without its data, whatever the tier');
+  }
+  // a patched client that hands itself every right still has no data to draw
+  const forged = { tier: 'member', three: true, plus: true, rare: true, surprise: true, designMax: 12, earned: true };
+  assert.deepEqual([play('gold', forged, null), rare(forged, null), finishIndex('glitter', null)], [LAUNCH_DEFAULT, false, 0]);
 });
 
 test('the pack client reads handheld/looks.json through the same check (and drops a damaged one)', () => {

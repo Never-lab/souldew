@@ -1,5 +1,5 @@
 // souldew+ PREVIEW MEDIA (souldew-accounts API.md §10.6): pictures of every premium banner, nameplate, avatar frame,
-// launch animation and colour skin – a PNG still and a short animated WebP each – so anyone, signed in or not, sees what
+// the handheld's stickers and wraps and colour skin – a PNG still and a short animated WebP each – so anyone, signed in or not, sees what
 // souldew+ holds before buying it. They hold no recipe or code (scripts/plus-previews.mjs renders them offline), and the
 // service hands them to anyone, but they come in a pack signed with the pack key like every other: nothing is shown
 // before the manifest's signature (pinned key) and the file's SHA-256 check out.
@@ -16,6 +16,8 @@ import { manifestSigned } from './pluspack.mjs';
 import { writeFileAtomic, httpError } from './fsutil.mjs';
 import { accountsBase } from './accounts/contract.mjs';
 
+// launch/: the 2D launch animations' pictures of an older previews pack – gone from the app, still accepted so such a
+// pack isn't refused as a whole (nothing shows them)
 export const PREVIEWS_PATH_RE = /^(banners|nameplates|frames|launch|skins|stickers|wraps)\/[a-z0-9][a-z0-9-]{0,47}\.(png|webp)$/;
 export const PREVIEW_FILE_MAX = 512 * 1024;
 const MANIFEST_MAX = 1024 * 1024;

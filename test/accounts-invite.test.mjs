@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { EventEmitter } from 'node:events';
 import { registerHooks } from 'node:module';
@@ -78,7 +79,7 @@ async function startApp(name) {
   const dir = mkdtempSync(join(tmpdir(), `souldew-inv-${name}-`));
   dirs.push(dir);
   const port = await freePort();
-  const child = spawn(process.execPath, [new URL('server/index.mjs', ROOT).pathname], {
+  const child = spawn(process.execPath, [fileURLToPath(new URL('server/index.mjs', ROOT))], {
     env: { ...process.env, SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_ACCOUNTS_URL: fake.base, SLS_ACCOUNTS_DEV_ENT_KEY: fake.ent.publicKey },
     stdio: ['ignore', 'pipe', 'pipe'],
   });

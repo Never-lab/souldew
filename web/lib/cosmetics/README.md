@@ -1,6 +1,6 @@
 # web/lib/cosmetics – souldew+ cosmetics
 
-Skins, profile banners, nameplates, avatar frames and launch animations. **The engines and runtimes in this folder are app code (open source). The premium content isn't.** Premium content means skin stylesheets and their assets, banner recipes, nameplate windows, frame recipes and launch animations. It arrives as a signed, per-account encrypted pack, and is only ever decrypted in memory, in the renderer.
+Skins, profile banners, nameplates and avatar frames – and the souldew+ part of "Your handheld" (the 3D launch animation lives in `web/lib/handheld/`). **The engines and runtimes in this folder are app code (open source). The premium content isn't.** Premium content means skin stylesheets and their assets, banner recipes, nameplate windows, frame recipes and the handheld's souldew+ wraps, stickers and launch looks (Gold, Clear shell, Holo label, the Rare start, holo / glitter). It arrives as a signed, per-account encrypted pack, and is only ever decrypted in memory, in the renderer.
 
 Import from `index.mjs` (plain functions) and `components.mjs` (Preact). Treat the names below as a stable interface: the profile / friends UI and the account client depend on them.
 
@@ -12,7 +12,7 @@ Import from `index.mjs` (plain functions) and `components.mjs` (Preact). Treat t
 |---|---|
 | `applySkin(id \| null)` | Commits the player's skin. `null` or `'classic'` is the look the app ships with. Returns `false` while the skin isn't owned yet: the wish is remembered and applied once the pack is loaded and owns it. Persisting the choice is the caller's job (`save({ skin })`, config key `skin`). |
 | `previewSkin(id)` / `endPreview()` | Tries a skin on the whole app without saving it, then puts the committed one back. Settings calls `endPreview()` when it unmounts. `previewSkin` returns `false` when that skin's stylesheet isn't in memory. |
-| `listSkins()` | `[{ id, name, hint, group: 'dark' \| 'light', plus, launch, sw, owned, available }]` – classic and the colour skins (souldew+ themes are colour only; an id the catalog doesn't have, e.g. a 2.x edition still in someone's config, is classic). `launch` is the launch animation that comes with the skin, or `null`. |
+| `listSkins()` | `[{ id, name, hint, group: 'dark' \| 'light', plus, sw, owned, available }]` – classic and the colour skins (souldew+ themes are colour only; an id the catalog doesn't have, e.g. a 2.x edition still in someone's config, is classic). |
 | `skinState()` / `onSkinChange(fn)` | `{ committed, pending, previewing, visible }`. |
 
 ### Banners, nameplates, frames
@@ -24,20 +24,19 @@ Import from `index.mjs` (plain functions) and `components.mjs` (Preact). Treat t
 | `mountFrame(el, id, size, { intro = true, reducedMotion, animate, hoverTarget })` | `el` is the avatar box and `size` its css size. The frame is one absolutely positioned canvas inserted right after the `<img>`, so it takes no space. Overhang: 15 % per side (at most 16 px) at 56 px and up, 2 native pixels for 20–55 px, and no frame below 20 px. Small frames animate while their row (`.cos-nameplate` / `[data-cos-row]`) is hovered. |
 | `setReducedMotion(true \| false \| null)` | Overrides `prefers-reduced-motion` for all of the above. `null` follows the OS again. |
 
-### Launch animations
+### Launch animation
 
-| Name | What it does |
-|---|---|
-| `playLaunch(gameBox, id, { onDone, firstFrame, system, dsLayout, ctrLayout \| layout, reduced })` | (2D, before 3.0 – the play view now plays `web/views/launchstage.mjs`.) Plays a souldew+ animation over the game box and returns `{ ready(), skip(), destroy(), done, stats }`, or `null` when `id` isn't available. `'cartridge'` is the free default: it stays the app's `views/cartinsert.mjs` and always gets `null` here. `firstFrame` may be a Promise or `true`. A click or any key skips the animation. It can never outlast 20 s + its own length. |
-| `launchAvailable(id)` | Tells whether `id` can be played now. |
-| `previewLaunch(box, id, opts)` | Plays the animation once over our neutral placeholder picture (used by Settings › Play). |
-| `layoutKey(system, dsLayout, ctrLayout)` | Maps the play view's system and layout to the animation's pixel grid. |
+The 2D souldew+ launch animations (13, and the free "Cartridge" as a catalog item) are gone since 3.0: not in the
+catalog, the pack, the previews or Settings. The launch is your handheld in 3D (`web/views/launchstage.mjs`,
+`web/lib/handheld/`) for Supporter and souldew+; without a membership the app's own 2D module (`web/views/cartinsert.mjs`)
+plays. What each tier gets: `shared/handheld.mjs` › `launchTier` / `launchRights`. A pack that still carries
+`launch.mjs` (an older one) loads; that file is left alone.
 
 ### Catalog and pack
 
 | Name | What it does |
 |---|---|
-| `catalog()` | `{ banners, frames, nameplates, skins, launch, collections }`. Each item is `{ id, name, collection, collectionName, rarity, pairsWith, plus, owned, available, sw, … }`. `owned` means usable now; `available` means the content is in memory (owned, or from a preview pack). This catalog is public data: names and swatches only, no art or recipes. |
+| `catalog()` | `{ banners, frames, nameplates, skins, collections }`. Each item is `{ id, name, collection, collectionName, rarity, pairsWith, plus, owned, available, sw, … }`. `owned` means usable now; `available` means the content is in memory (owned, or from a preview pack). This catalog is public data: names and swatches only, no art or recipes. |
 | `packState()` | `{ entitled, preview, previewUntil, previewLoading, until, packVersion, loading, error }`. `error` is one of `null`, `'offline'`, `'expired'`, `'key'`, `'signature'`, `'manifest'`, `'decrypt'`, `'hash'`, `'watermark'` or `'download'`. |
 | `startPackPreview()` / `endPackPreview()` | The 15-minute live theme preview for non-members (see below). |
 | `refreshPack()` / `forgetPack()` | Loads or re-checks the pack, or forgets it right away (sign-out). The app calls `refreshPack()` at boot, and it re-checks every 6 h and at `until`. |
@@ -95,7 +94,7 @@ envelope       one per file, made by the service per account at download time:
 - *Previews.* A preview pack is just another signed manifest (stylesheets + images ≤ 512 px, no `contents.json`) with
   a key for that preview only – no second container format.
 
-**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `handheld/*` ("Your handheld", see Free vs. pack), `skins/<id>.css` (colour only today; the format still allows `url('pack:fonts/…')` / `pack:assets/…` with `fonts/*.woff2`, `assets/*.svg`), `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css` (the service would also take `fonts/*.woff2` and `assets/*.png` ≤ 512 px, but the colour skins need neither).
+**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (colour only today; the format still allows `url('pack:fonts/…')` / `pack:assets/…` with `fonts/*.woff2`, `assets/*.svg`), `frames.mjs` (the part that must stay code: per-pixel recipe functions), `handheld/*` (the wraps, the stickers' atlas and the souldew+ launch looks – see Free vs. pack). Preview pack: `skins/<id>.css` (the service would also take `fonts/*.woff2` and `assets/*.png` ≤ 512 px, but the colour skins need neither).
 
 **Verification order (`openPack`):**
 1. Ed25519 over the manifest bytes against a pinned key (`pack/keys.mjs`: the owner's production key – the local server checks it too before it downloads anything; a dev key only when the local server offers one – `SLS_PLUS_DEV_PACK`, or `SLS_PLUS_DEV_KEY` with a service on this computer, never in a packaged build).
@@ -106,7 +105,7 @@ Only then is anything used.
 
 ## Where code from a pack runs (`sandbox.mjs`)
 
-`frames.mjs` and `launch.mjs` run in a **module worker inside a sandboxed iframe** (`/cosmetics-sandbox.html`, `sandbox="allow-scripts"` – an opaque origin; its own CSP has `connect-src 'none'`, no images, styles or fonts). Pack code there can't call the local API (the server refuses `Origin: null`, and the app window's secret cookie is never sent from there), can't read the page, its storage or the account, and has no network. The worker's imports are rewritten (`'@cosmetics/…'`) to the app's public engine modules (served with CORS for this). Canvases never cross into the sandbox: the page keeps them, the worker draws into stand-ins (`canvas-proxy.mjs`) and sends the pictures back as ImageData through the iframe's relay (`sandbox-frame.js`). Nothing from a pack ever runs in the Node / main process: the local server only checks the manifest signature, stores, serves and wipes the encrypted envelopes (`server/lib/pluspack.mjs`).
+`frames.mjs` runs in a **module worker inside a sandboxed iframe** (`/cosmetics-sandbox.html`, `sandbox="allow-scripts"` – an opaque origin; its own CSP has `connect-src 'none'`, no images, styles or fonts). Pack code there can't call the local API (the server refuses `Origin: null`, and the app window's secret cookie is never sent from there), can't read the page, its storage or the account, and has no network. The worker's imports are rewritten (`'@cosmetics/…'`) to the app's public engine modules (served with CORS for this). Canvases never cross into the sandbox: the page keeps them, the worker draws into stand-ins (`canvas-proxy.mjs`) and sends the pictures back as ImageData through the iframe's relay (`sandbox-frame.js`). Nothing from a pack ever runs in the Node / main process: the local server only checks the manifest signature, stores, serves and wipes the encrypted envelopes (`server/lib/pluspack.mjs`).
 
 Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fonts and art become `data:` URLs (allowed by `font-src` / `img-src data:`). Banner recipes are plain data, run by the public engine on the main thread.
 
@@ -129,7 +128,6 @@ Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fo
 - 16 colour skins (colour only – no fonts, no art);
 - 133 banners (125 at launch plus 8 monthly drops) with their nameplate windows;
 - 71 frames;
-- 13 launch animations (2D – no longer offered in Settings since 3.0's handheld launch; the engine stays);
 - "Your handheld": `handheld/wraps.json` (the six souldew+ wraps' compositions – their art is the pack's banner recipes),
   the souldew+ stickers' pre-built atlas `handheld/stickers.png` + `stickers-cut.png` + `stickers.json`, and
   `handheld/looks.json` – the souldew+ looks of the 3.0 launch: Gold, Clear shell (its plastic and the board inside),
@@ -142,7 +140,7 @@ Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fo
 
 ## Preview media (`previews.mjs`) – what everyone sees before buying
 
-Nobody buys what they can't see. Every premium banner, nameplate, frame and launch animation has a still (PNG, display
+Nobody buys what they can't see. Every premium banner, nameplate and frame has a still (PNG, display
 size ×2) and a short loop (animated WebP, native size, ≤ 150 KB), every colour skin a still of the app in it, every
 souldew+ sticker and wrap a product shot (turned a few degrees, resampled, a light sheen – `scripts/handheld/preview-shot.mjs`:
 a sticker IS its pixel art, so a clean ×6 copy would be the sticker itself) – rendered offline from the design sources (`scripts/plus-previews.mjs`, `scripts/plus-skin-shots.mjs`; `plus-dev-pack.mjs
@@ -172,7 +170,6 @@ localStorage['sl-plus-dev-preview'] = '1'      # try the non-member flow (previe
 | `test/cosmetics-pack.test.mjs` | Signatures, per-file envelopes, watermark trailers, hashes, manifest shape, an envelope made like the Worker makes it. |
 | `test/cosmetics-cache.test.mjs` | The server cache (SSRF allow-list, small updates, grace, wipe) and the client lifecycle (member, signed out, expired, key changed, offline grace, bad signature, damaged download, live preview). |
 | `test/cosmetics-skins.test.mjs` | Apply, preview and revert; pending wishes; losing the membership; `data:` asset inlining. |
-| `test/cosmetics-launch.test.mjs` | Timing: early, late and missing first frame, skip, reduced motion; the worker host. |
 | `test/cosmetics-runtime.test.mjs` | Draw, pause off-screen, reduced motion, worker wiring, destroy without leaks. |
 | `test/cosmetics-sandbox.test.mjs` | Real Chromium: pack code in the sandboxed iframe reaches no API, no config, no network – and its frame still paints. |
 | `test/skin-proof.test.mjs` | Every skin on 11 real app views in Electron, comparing element boxes, text and generated text with classic. Needs a pack: set `SLS_PLUS_PROOF_PACK`, or have the design folder next to the checkout. |

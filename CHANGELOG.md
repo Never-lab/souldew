@@ -130,8 +130,8 @@ Plus a new play view that gives the game the room it deserves.
   account everything works exactly as before.
 - **souldew+ with your account.** Support souldew on Buy Me a Coffee and link it in Settings › Account › souldew+ (or
   with /supporter claim in the souldew Discord): the souldew+ and Patron memberships unlock every theme, banner,
-  avatar frame, nameplate and launch animation, the small one adds a Supporter badge – friends see your badge, banner
-  and frame. Signed in without souldew+, you can try any theme on the whole app for 15 minutes (“Try for 15 minutes”,
+  avatar frame, nameplate and everything for the launch animation; the small one adds a Supporter badge and the 3D
+  launch with your own handheld – friends see your badge, banner and frame. Signed in without souldew+, you can try any theme on the whole app for 15 minutes (“Try for 15 minutes”,
   a Preview badge counts down, then your own look comes back). The looks arrive as one signed pack, encrypted for
   your account, checked file by file before anything is shown; updates only download what changed, and the pack is
   removed from your computer when the membership ends or you sign out. “Unlink membership” takes it off your account
@@ -141,8 +141,9 @@ Plus a new play view that gives the game the room it deserves.
 - **A tidier sidebar and a souldew+ page.** The sidebar puts the three things you play every day on top – Library,
   SoulLink, Nuzlocke – then Friends and Trophies, then Connection and Stream; Settings and Help sit at the bottom as
   two buttons next to **souldew+**, which replaces “Buy me a coffee” (members read “thank you”). The souldew+ page
-  shows you yourself wearing it – your own picture and name – a few of the best banners, frames, nameplates and
-  launch animations (their real look, even before you buy), every colour theme as a small swatch with a dressed-up
+  shows you yourself wearing it – your own picture and name – a few of the best banners, frames and nameplates
+  (their real look, even before you buy), your handheld turning slowly, what each tier gets for the launch
+  animation, every colour theme as a small swatch with a dressed-up
   profile in its colours, the three tiers, what always stays free, where the money goes and what happens if you stop.
   Every “Get souldew+” in the app leads there – never a pop-up; joining happens on the Buy Me a Coffee membership page.
 - **Your showcase, your way.** Pick the three trophies from a trophy cabinet (search, categories, rarities) and your
@@ -162,17 +163,26 @@ Plus a new play view that gives the game the room it deserves.
   controller) and “★ Favourites” above the list shows just those, in their usual order – no more scrolling through
   everything to find the ones you like. souldew+ items can be starred too, as a wish list. Favourites are kept on
   this computer.
-- **A new launch animation: your handheld, in 3D.** Starting a game, your own souldew handheld plays over the screen
-  area: a DS or 3DS lid swings open, a GBA or Game Boy turns round, the card or cartridge drops in and latches, the
-  screens power on with the game's own picture and the camera pushes into them – ending exactly on the game. It runs
-  next to the game's start and never makes it wait; a click or any key skips it; it is silent. Settings › Play ›
-  Launch animation: “Your colours” (free, in your theme's colours) with Full / Quick / Off; with souldew+ also Gold,
-  Clear shell (four colours), Holo label, and now and then a Rare start. With reduced motion it is a short fade.
-- **Your handheld.** Dress that device: one skin for all of them (made from a banner – Plain Dusk is free), up to
-  8 stickers per device out of 34 – turn them freely, size them 70–160 %, put them over the edges and on top of each
-  other; they slide round buttons and screens. Up to 12 saved designs, “Surprise me at start”, favourites, export /
-  import as a small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy.
-  Only you see your handheld. From the library's header tile, the souldew+ page or Settings › Play › Launch animation.
+- **A new launch animation: your handheld, in 3D – with Supporter or souldew+.** Starting a game, your own souldew
+  handheld plays over the screen area: a DS or 3DS lid swings open, a GBA or Game Boy turns round, the card or
+  cartridge drops in and latches, the screens power on with the game's own picture and the camera pushes into them –
+  ending exactly on the game. It runs next to the game's start and never makes it wait; a click or any key skips it; it
+  is silent. Settings › Play › Launch animation: with Supporter “Your colours” (in your theme's colours) with Full /
+  Quick / Off; with souldew+ (and Patron) also Gold, Clear shell (four colours), Holo label, and now and then – one
+  start in 64 – a Rare start. With reduced motion it is a short fade.
+- **Without a membership your games start as before:** the cartridge slides into the console and clicks in – On or Off
+  in Settings › Play › Launch animation, with a quiet line about the 3D one. The 13 older 2D souldew+ launch
+  animations are gone; a choice of one of them plays what your tier has.
+- **Your handheld.** Dress that device: one skin for all of them (made from a banner), up to 8 stickers per device out
+  of 34 – turn them freely, size them 70–160 %, put them over the edges and on top of each other; they slide round
+  buttons and screens. Supporter: the Plain Dusk skin, the 8 free stickers and one saved design; souldew+: every skin
+  and sticker, holo and glitter, up to 12 saved designs and “Surprise me at start”. Favourites, export / import as a
+  small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy: the banner is
+  on your profile for everyone, the stickers show in the 3D launch. Only you see your handheld. From the library's
+  header tile (with Supporter or souldew+), the souldew+ page or Settings › Play › Launch animation.
+- **When a membership ends, nothing you set is lost.** Your launch settings, your handheld and its designs stay as they
+  are and come back with the membership; meanwhile the launch plays what your tier has now – from souldew+ to
+  Supporter the free parts, without a membership the cartridge.
 - **souldew+ looks stay souldew+'s.** Gold, Clear shell, Holo label, the Rare start and the holo and glitter sticker
   finishes now come in the souldew+ pack like the banners and stickers, instead of being built into the app – a
   changed copy of the open-source app can't just switch them on. The pack's key belongs to the device you signed in
@@ -182,6 +192,10 @@ Plus a new play view that gives the game the room it deserves.
 - **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
   link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
   the board's Rules – and every change goes to the log; the others see them read-only.
+- **No DS save missed with the melonDS app.** A save melonDS wrote just as souldew began watching for it – right after
+  souldew started or the emulator launched, on a busy computer – could go unnoticed until your next in-game save,
+  most often a first save into melonDS's own save folder. souldew now notes every save file the moment it starts
+  watching, so that save is read like any other.
 - **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
   keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
   2.8.2 in the souldew engine too.

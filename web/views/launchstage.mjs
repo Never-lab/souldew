@@ -9,11 +9,11 @@
 // frame, it holds there until the frame is in. Silent – the game's sound is never touched. A click, any key or a resize
 // ends it at once. Reduced motion: one still of the device that cross-fades into the game (0.8 s). Off: not mounted.
 import { html, useEffect, useLayoutEffect, useRef } from '/vendor/htm-preact.mjs';
-import { layoutKey, LAYOUTS } from '../lib/cosmetics/launch/engine.mjs';
-import { placeholderCanvas } from '../lib/cosmetics/launch/placeholder.mjs';
+import { layoutKey, LAYOUTS } from '../lib/handheld/layouts.mjs';
+import { placeholderCanvas } from '../lib/handheld/placeholder.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { launchLook, devKey, RARE_ODDS } from '/shared/handheld.mjs';
-import { loadScene, lookNow, sceneWrap, shellColor, CLEAR, member, playableLook, paidLooks } from '../lib/handheld/look.mjs';
+import { loadScene, lookNow, sceneWrap, shellColor, CLEAR, playableLook, launchRightsNow, paidLooks } from '../lib/handheld/look.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { coverOf } from './library.mjs';
 
@@ -101,12 +101,15 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       const L = LAYOUTS[lk];
       const reduced = prefersReduced();
       const quick = cfg.pace === 'quick';
-      const lookId = playableLook(cfg.look);
+      // what the membership allows right now (shared/handheld.mjs launchRights): a Supporter plays "Your colours" with the
+      // free skin and stickers and the look on the device (no Surprise me); the Rare start is souldew+'s, automatic
+      const rights = launchRightsNow();
+      const lookId = playableLook(cfg.look, rights);
       const V = launchLook(lookId);
       // the souldew+ looks' data (Gold's light, the Rare start's) comes with the verified pack – without it there is none
       const LK = paidLooks();
-      const rare = !reduced && member() && !!LK?.rare && Math.random() < 1 / RARE_ODDS;
-      const look = lookNow();
+      const rare = !reduced && rights.rare && !!LK?.rare && Math.random() < 1 / RARE_ODDS;
+      const look = lookNow(Math.random, rights);
       const wrap = V.look === 'theme' ? sceneWrap(look.skin) : null;
       // The set-up (≈ 100 ms of script and the GPU's shader work) waits for the game's first frame, at most BUILD_WAIT ms:
       // the player page loads in the same thread and on the same GPU, and measured on an M1 every millisecond of set-up

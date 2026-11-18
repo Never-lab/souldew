@@ -94,8 +94,6 @@ export function contentFrom(files, { skinsByPath = false } = {}) {
     files: assets,
     framesModule: contents.frames?.module && files.has(contents.frames.module) ? text(files.get(contents.frames.module)) : null,
     frameIds: contents.frames?.ids || [],
-    launchModule: contents.launch?.module && files.has(contents.launch.module) ? text(files.get(contents.launch.module)) : null,
-    launchIds: contents.launch?.ids || [],
     handheld: handheldFrom(contents.handheld, files, json),
   };
 }
@@ -238,7 +236,7 @@ export function startPackPreview() {
       if (state.entitled) return { until: null, member: true }; // became a member meanwhile – nothing to preview
       // a preview pack has no contents.json (stylesheets and images only): its skins are skins/<id>.css
       const c = contentFrom(pack.files, { skinsByPath: true });
-      // a preview only ever carries skins: banners, frames and launch animations are never part of it
+      // a preview only ever carries skins: banners and frames are never part of it
       setContent({ skinCss: c.skinCss, files: c.files });
       clearTimeout(preview?.timer);
       preview = { until, timer: setTimeout(() => endPackPreview(), Math.max(0, Date.parse(until) - Date.now())) };
