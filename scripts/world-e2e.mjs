@@ -238,6 +238,7 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   if (profiles.length > 3) {
     await ev(0, `window.__slWorld.challenge('p4'); true`);
     const card = await until('D’s card', () => ev(3, `document.querySelector('.rps-card') ? document.querySelector('.rps-card').innerText : null`), 10000).catch(() => null);
+    log('D’s games', await ev(3, `import('/lib/worldrps.mjs').then((m) => JSON.stringify({ games: m.rpsFor(window.__slLink.sync)?.hub.list(), claimed: [...(m.rpsFor(window.__slLink.sync)?.claimed || [])] }))`));
     await shot('40-card-D', 3);
     await ev(3, `document.querySelectorAll('.rps-card .rps-hands button')[0].click(); true`); // rock
     await until('A picks vs D', async () => (await world(0))?.rps?.phase === 'pick', 6000);
@@ -368,8 +369,10 @@ async function main() {
     for (const [i] of profiles.entries()) {
       await until(`page ${i} in the overworld`, async () => {
         const s = await world(i);
-        if (s?.local && s.cam && !s.cam.locked && s.cam.cb2 && s.cam.fade === 0) return true;
-        await press(i, 'a', 900);
+        if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && s.cam.cb2 && s.cam.fade === 0) return true;
+        // (FR/LG replay your last steps after loading – B skips that; it must not count as being there)
+        if (s?.cam?.replay) log(`page ${i}: the quest-log replay – skipped`, JSON.stringify({ drawable: s.shown, local: s.local }));
+        await press(i, s?.cam?.replay ? 'b' : 'a', 900);
         return false;
       }, 120000);
     }

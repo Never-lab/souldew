@@ -63,6 +63,9 @@ export function worldTable(entry, rev = 0, code = '') {
     backupMap: w.backupMapLayout ? hex(w.backupMapLayout) : 0,
     tasks: w.tasks ? hex(w.tasks) : 0,
     help: w.inHelpSystem ? hex(w.inHelpSystem) : 0,
+    // FR/LG's "Previously on your quest…" replays your last steps with the overworld callback, unlocked: gQuestLogState
+    // 2/3 (QL_STATE_PLAYBACK*) – 1 is the recording that runs all the time
+    questLog: w.questLogState ? hex(w.questLogState) : 0,
     popup: w.mapNamePopup && w.tasks && rom?.mapNamePopupTask
       ? { task: (hex(rom.mapNamePopupTask) | 1) >>> 0, rect: w.mapNamePopup.rect, data: w.mapNamePopup.offsetData ?? null, base: w.mapNamePopup.offsetBase ?? 0 }
       : null,
@@ -103,6 +106,7 @@ export function watchRanges(t, sb1, spriteId = null) {
   if (t.saveBlock1Ptr) r.push([t.saveBlock1Ptr, 4]);
   if (sb1) r.push([sb1, 8]); // pos (x, y), location (mapGroup, mapNum)
   if (t.inBattle) r.push([t.inBattle.addr, 1]);
+  if (t.questLog) r.push([t.questLog, 1]);
   r.push([t.playerAvatar + 4, 2]); // the player's sprite and object event ids
   if (t.sprites && Number.isInteger(spriteId) && spriteId < 64) r.push([t.sprites + spriteId * 0x44, 0x44]);
   return r;
@@ -179,6 +183,7 @@ export function readCamera(t, read) {
   const lock = read(t.lock, 1);
   const battle = t.inBattle ? read(t.inBattle.addr, 1) : null;
   const help = t.help ? read(t.help, 1) : null;
+  const ql = t.questLog ? read(t.questLog, 1) : null;
   const fadeActive = ok(fade, 4) && !!(fade[3] & 0x80);
   return {
     sb1,
@@ -194,6 +199,7 @@ export function readCamera(t, read) {
     battle: !!(battle && battle[0] & t.inBattle.mask),
     // FR/LG's help screen (L/R) runs over the overworld without locking it or changing the callback
     help: !!(help && help[0]),
+    replay: !!(ql && (ql[0] === 2 || ql[0] === 3)),
   };
 }
 
@@ -298,7 +304,7 @@ export function popupRect(t, read, prev = null) {
  * learned while the player walked: `learned`), no battle, no menu or script holding the player, no full fade.
  */
 export function drawable(t, cam, learned = 0) {
-  if (!t || !cam || cam.battle || cam.locked || cam.help || cam.fade >= 16) return false;
+  if (!t || !cam || cam.battle || cam.locked || cam.help || cam.replay || cam.fade >= 16) return false;
   const cb2 = t.overworldCb2 || learned;
   return cb2 ? cam.cb2 === cb2 : true;
 }

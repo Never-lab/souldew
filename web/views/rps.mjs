@@ -17,7 +17,7 @@ const CSS = `
 .rps-card h4{margin:0 0 8px;font-size:13px;display:flex;gap:8px;align-items:center}
 .rps-card h4 .grow{flex:1}
 .rps-hands{display:flex;gap:6px}
-.rps-hands button{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 4px 6px;font-size:12px}
+.rps-hands button{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;padding:8px 4px 6px;font-size:12px;border-radius:10px;height:auto}
 .rps-hands button.picked{outline:2px solid var(--c,#ebe6da);outline-offset:-2px}
 .rps-hands img,.rps-vs img{image-rendering:pixelated;width:30px;height:30px;object-fit:contain}
 .rps-vs{display:flex;align-items:center;justify-content:center;gap:14px;padding:4px 0}
@@ -36,7 +36,7 @@ function useStyle() {
   document.head.append(el);
 }
 
-const handName = (h) => t(`rps.${HAND_ART[h]}`, HAND_ART[h]);
+const handName = (h) => [t('rps.rock', 'Rock'), t('rps.paper', 'Paper'), t('rps.scissors', 'Scissors')][h] || '';
 const color = (slot) => (typeof document !== 'undefined' && getComputedStyle(document.documentElement).getPropertyValue(`--${slot}`).trim()) || '#ebe6da';
 
 /** The cards of the games of mine the in-game overlay doesn't show (mount once, app-wide). */

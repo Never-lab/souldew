@@ -184,6 +184,8 @@ export class SharedWorld {
     if (e.type === 'round' && e.round?.result) w.rpsRound?.({ hands: e.round.result.hands, winner: e.round.result.winner });
     if (e.type !== 'change' || e.game.spectating) return;
     const id = e.game.id;
+    // (a finished game on screen makes way for a new one)
+    if (this.rpsShown && this.rpsShown !== id && !e.game.end && r.hub.games.get(this.rpsShown)?.end !== null) this.rpsShown = null;
     if (this.rpsShown && this.rpsShown !== id) return;
     if (!r.hub.games.has(id)) {
       if (this.rpsShown === id) {

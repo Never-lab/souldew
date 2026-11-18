@@ -1158,6 +1158,7 @@
     "backupMapLayout": "0x03005040",
     "tasks": "0x03005090",
     "inHelpSystem": "0x0203F177",
+    "questLogState": "0x0203ADFA",
     "mapNamePopup": {
      "rect": [
       0,
@@ -1214,7 +1215,7 @@
       12
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, VMap, gTasks, sInHelpSystem (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokefirered.sym, pokefirered_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, VMap, gTasks, sInHelpSystem, gQuestLogState (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokefirered.sym, pokefirered_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {
@@ -1282,6 +1283,73 @@
     "sb1": "0x03004F58",
     "sb2": "0x03004F5C",
     "source": "pokebot-gen3 pokefirered.yml gSaveBlock1Ptr/gSaveBlock2Ptr D/F/I/S; Ironmon-Tracker Feuerrote.json gSaveBlock1ptr/gSaveBlock2ptr"
+   },
+   "world": {
+    "family": "frlg",
+    "objectEvents": "0x02036E38",
+    "playerAvatar": "0x02037078",
+    "fieldCamera": "0x03004FA0",
+    "saveBlock1Ptr": "0x03004F58",
+    "main": "0x03003040",
+    "paletteFade": "0x02037AB8",
+    "lockFieldControls": "0x03000F9C",
+    "sprites": "0x0202063C",
+    "mapHeader": "0x02036DFC",
+    "backupMapLayout": "0x03004F90",
+    "tasks": "0x03004FE0",
+    "inHelpSystem": "0x0203F177",
+    "questLogState": "0x0203ADFA",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      192,
+      24
+     ],
+     "offsetData": 2,
+     "offsetBase": 0
+    },
+    "rom": {
+     "BPRD:0": {
+      "overworldCb2": "0x080565D4",
+      "graphicsInfo": "0x0839FC74",
+      "spritePalettes": "0x083A501C",
+      "mapNamePopupTask": "0x080982C4"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      7
+     ],
+     [
+      "bike",
+      1,
+      8
+     ],
+     [
+      "surf",
+      2,
+      9
+     ],
+     [
+      "fieldmove",
+      3,
+      10
+     ],
+     [
+      "fish",
+      4,
+      11
+     ],
+     [
+      "vsseeker",
+      5,
+      12
+     ]
+    ],
+    "source": "The English game's RAM table with IWRAM from gMain on 0xB0 lower (gMain, gSaveBlock1Ptr, gFieldCamera, VMap, gTasks; sLockFieldControls below gMain and all EWRAM – gObjectEvents, gPlayerAvatar, gPaletteFade, gSprites, gMapHeader, sInHelpSystem, gQuestLogState – unchanged), as the tracker tables say (see the entry's evidence). Derived per symbol by matching the English ROM's literal-pool loads in the German ROM (22–910 load sites each, no conflicting votes) and checked in the running German game, Nov 2026: SaveBlock1 pos = the player object's coords −7, the camera offset mid-step, CB2_Overworld on the overworld, sLockFieldControls with the START menu, the palette fade at a door, Task_MapNamePopup on entering Route 1, VMap = layout size +15/+14, the player's sprite at OAM 112/56, the L help. ROM addresses per language and revision (keyed by game code): CB2_Overworld and Task_MapNamePopup have the English bytes; graphicsInfo is also what findGraphicsTable finds. French, Italian and Spanish share the RAM (untested here); their ROM addresses are learned (overworld callback) and searched (sprite tables), no map-name popup cut-out."
    }
   },
   {
@@ -1356,6 +1424,7 @@
     "backupMapLayout": "0x03005040",
     "tasks": "0x03005090",
     "inHelpSystem": "0x0203F177",
+    "questLogState": "0x0203ADFA",
     "mapNamePopup": {
      "rect": [
       0,
@@ -1412,7 +1481,7 @@
       12
      ]
     ],
-    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, VMap, gTasks, sInHelpSystem (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokeleafgreen.sym, pokeleafgreen_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
+    "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, VMap, gTasks, sInHelpSystem, gQuestLogState (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup (ROM, per revision: pokeleafgreen.sym, pokeleafgreen_rev1.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
    }
   },
   {
@@ -1480,6 +1549,73 @@
     "sb1": "0x03004F58",
     "sb2": "0x03004F5C",
     "source": "pokebot-gen3 pokeleafgreen.yml gSaveBlock1Ptr/gSaveBlock2Ptr D/F/I/S; Ironmon-Tracker Feuerrote.json gSaveBlock1ptr/gSaveBlock2ptr"
+   },
+   "world": {
+    "family": "frlg",
+    "objectEvents": "0x02036E38",
+    "playerAvatar": "0x02037078",
+    "fieldCamera": "0x03004FA0",
+    "saveBlock1Ptr": "0x03004F58",
+    "main": "0x03003040",
+    "paletteFade": "0x02037AB8",
+    "lockFieldControls": "0x03000F9C",
+    "sprites": "0x0202063C",
+    "mapHeader": "0x02036DFC",
+    "backupMapLayout": "0x03004F90",
+    "tasks": "0x03004FE0",
+    "inHelpSystem": "0x0203F177",
+    "questLogState": "0x0203ADFA",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      192,
+      24
+     ],
+     "offsetData": 2,
+     "offsetBase": 0
+    },
+    "rom": {
+     "BPGD:0": {
+      "overworldCb2": "0x080565D4",
+      "graphicsInfo": "0x0839FC54",
+      "spritePalettes": "0x083A4FFC",
+      "mapNamePopupTask": "0x08098298"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      7
+     ],
+     [
+      "bike",
+      1,
+      8
+     ],
+     [
+      "surf",
+      2,
+      9
+     ],
+     [
+      "fieldmove",
+      3,
+      10
+     ],
+     [
+      "fish",
+      4,
+      11
+     ],
+     [
+      "vsseeker",
+      5,
+      12
+     ]
+    ],
+    "source": "The English game's RAM table with IWRAM from gMain on 0xB0 lower (gMain, gSaveBlock1Ptr, gFieldCamera, VMap, gTasks; sLockFieldControls below gMain and all EWRAM – gObjectEvents, gPlayerAvatar, gPaletteFade, gSprites, gMapHeader, sInHelpSystem, gQuestLogState – unchanged), as the tracker tables say (see the entry's evidence). Derived per symbol by matching the English ROM's literal-pool loads in the German ROM (22–910 load sites each, no conflicting votes) and checked in the running German game, Nov 2026: SaveBlock1 pos = the player object's coords −7, the camera offset mid-step, CB2_Overworld on the overworld, sLockFieldControls with the START menu, the palette fade at a door, Task_MapNamePopup on entering Route 1, VMap = layout size +15/+14, the player's sprite at OAM 112/56, the L help. ROM addresses per language and revision (keyed by game code): CB2_Overworld and Task_MapNamePopup have the English bytes; graphicsInfo is also what findGraphicsTable finds. French, Italian and Spanish share the RAM (untested here); their ROM addresses are learned (overworld callback) and searched (sprite tables), no map-name popup cut-out."
    }
   },
   {

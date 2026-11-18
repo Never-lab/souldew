@@ -544,7 +544,8 @@ function world(host, t, rom, dex) {
     const me = cam ? readPlayer(t, read, cam) : null;
     if (me) lastLocalGfx = gfxFor(t, me.kind, me.gender);
     // the partners see us wherever we stand on the overworld – also while a menu or a message is open here
-    const onOverworld = !!me && !!cam && !cam.battle && cam.fade < 16 && (t.overworldCb2 || learner.cb2 ? cam.cb2 === (t.overworldCb2 || learner.cb2) : true);
+    // (not FR/LG's replay of your last steps after loading: those aren't where you are)
+    const onOverworld = !!me && !!cam && !cam.battle && !cam.replay && cam.fade < 16 && (t.overworldCb2 || learner.cb2 ? cam.cb2 === (t.overworldCb2 || learner.cb2) : true);
     // (and the size of this map: a partner on the map north or west of it places us by it)
     const size = conns && cam && conns.map === cam.map ? [conns.w, conns.h] : null;
     host.post({ type: 'emu-world', st: onOverworld ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size, drawn: can, near });

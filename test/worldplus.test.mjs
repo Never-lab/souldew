@@ -194,7 +194,8 @@ test('the wire: the follower and the map size ride along as an optional 9th fiel
   const u = W.unpackState(withExt);
   assert.deepEqual(u.ext, { follower: { species: 201, shiny: true, form: 3 }, size: [20, 30] });
   assert.equal(W.unpackState(plain).ext, undefined, 'an older partner’s message: no follower known');
-  const { ext: _e, ...rest } = u;
+  const rest = { ...u };
+  delete rest.ext;
   assert.deepEqual(rest, W.unpackState(plain));
   // "nobody follows" is said as 0; a hidden player can carry it too
   assert.deepEqual(W.unpackState(W.packState(null, 1, 0, W.packExt({ follower: null }))).ext, { follower: null });
@@ -532,4 +533,34 @@ test('world tables: ROM addresses per language where one entry covers several (F
   const fr = W.worldTable(entry, 0, 'BPRF');
   assert.deepEqual([fr.overworldCb2, fr.graphicsInfo], [0, 0], 'French: learned and searched');
   assert.equal(fr.main, 0x03003040, 'the RAM is the same');
+});
+
+test('FR/LG: the replay of your last steps after loading ("Previously on your quest…") isn’t the overworld', () => {
+  const t = W.worldTable(findEntry(addresses, { platform: 'gba', code: 'BPGD' }), 0, 'BPGD');
+  const mem = new Map();
+  const put = (a, bytes) => bytes.forEach((b, i) => mem.set(a + i, b));
+  const read = (a, n) => {
+    const o = new Uint8Array(n);
+    for (let i = 0; i < n; i++) {
+      if (!mem.has(a + i)) return null;
+      o[i] = mem.get(a + i);
+    }
+    return o;
+  };
+  const u32 = (v) => [v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255];
+  put(t.saveBlock1Ptr, u32(0x02025000));
+  put(0x02025000, [14, 0, 14, 0, 3, 0, 0, 0]);
+  put(t.fieldCamera + 0x10, [...u32(0), ...u32(0)]);
+  put(t.main + 4, u32(t.overworldCb2));
+  put(t.main + 0x2c, [0, 0]);
+  put(t.paletteFade + 4, [0, 0, 0, 0]);
+  put(t.lock, [0]);
+  put(t.help, [0]);
+  put(t.questLog, [1]); // recording: that's normal play
+  assert.equal(W.drawable(t, W.readCamera(t, read)), true);
+  put(t.questLog, [2]);
+  assert.equal(W.readCamera(t, read).replay, true);
+  assert.equal(W.drawable(t, W.readCamera(t, read)), false);
+  assert.ok(W.watchRanges(t, 0x02025000, 0).some(([a]) => a === t.questLog), 'read with every picture');
+  assert.ok(W.watchRanges(t, 0x02025000, 0).length <= 16);
 });
