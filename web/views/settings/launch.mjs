@@ -111,7 +111,7 @@ function LaunchSetting3D({ cfg, save, R }) {
     <span class="small faint">${animsOff ? t('launch.off', 'Animations are switched off (General › Play animations) – the game starts without one.')
       : L.pace === 'off' ? t('launch.offHint', 'Off: the game starts without an animation.')
         : t('launch.hint3', 'Plays over the game screen while the game starts – it never makes the game wait, and it is silent. A click or any key skips it. With reduced motion (your system’s setting) it is a short fade, with your handheld in it.')}</span>
-    ${shown !== L.look && !packState().loading && html`<span class="small faint">${t('launch.waits', '{look} is kept for when souldew+ is active again – until then “Your colours” plays.', { look: names[L.look][0] })}</span>`}
+    ${shown !== L.look && !packState().loading && html`<span class="small faint">${t('launch.waits', '{look} is kept for when you have souldew+ – until then “Your colours” plays.', { look: names[L.look][0] })}</span>`}
     ${member ? html`<span class="small faint">${t('launch.rare', 'souldew+: one start in 64 is a Rare start – golden light, glints and a little dust.')}</span>`
       : html`<span class="small faint plus-note"><${PlusMark} /> ${t('launch.more3', 'Gold, Clear shell, Holo label and the Rare start come with souldew+.')}</span>`}
     <${HandheldRow} cfg=${cfg} R=${R} sys=${sys} setSys=${setSys} play=${playing} onPreview=${() => setPlaying((n) => n + 1)} />
