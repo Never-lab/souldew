@@ -21,9 +21,8 @@ import { FeatureCheck, romFeatures } from '/shared/live/features.mjs';
 import { gymCapsFamily } from '/shared/routes.mjs';
 import { shiftEntry } from '/shared/live/romwram.mjs';
 import { RulesTab } from './board.mjs';
-import { CartInsert } from './cartinsert.mjs';
-import { LaunchOverlay } from './launch.mjs';
-import { launchAvailable } from '../lib/cosmetics/index.mjs';
+import { LaunchStage, insertCover } from './launchstage.mjs';
+import { launchConfig } from '../lib/handheld/look.mjs';
 import { play as playCue } from '../lib/sound.mjs';
 import { addSample, typicalReach, offeredSteps, beyondReach, HELD } from '../lib/reach.mjs';
 import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
@@ -235,21 +234,18 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
  * you open another section: `mode` "full" fills the Play page, "mini" floats in the corner.
  */
 export function GameSession({ session, mode }) {
-  const { manifest, doc, me, applySnap, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus } = useApp();
+  const { manifest, doc, me, applySnap, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus, library } = useApp();
   const target = session.target;
-  // the module slides into the console while the game boots (Settings › animations; never with reduced motion) – or,
-  // with souldew+, the chosen launch animation plays over the screen itself (views/launch.mjs; it has its own
-  // reduced-motion form, so it runs then too). The cartridge stays the default and the fallback.
-  const animsOn = mode === 'full' && status?.config?.bootAnimation !== false;
-  const launchKind = status?.config?.launchAnimation || 'cartridge';
-  const [launching, setLaunching] = useState(() => animsOn && launchAvailable(launchKind));
-  const [inserting, setInserting] = useState(() => animsOn && !launching
-    && !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
-  // The emulator stays invisible until the module is home and the core has started: no black canvas or RetroArch
-  // menu flashing behind the animation. It loads all the while – only its visibility waits.
+  // the launch animation (views/launchstage.mjs: your handheld in 3D, Settings › Play › Launch animation) plays over the
+  // screen area while the game boots underneath – it never makes the game wait, and it is silent. Off (or the general
+  // "Play animations" switched off): nothing, the module's click sounds when the game appears, as before.
+  const launchCfg = launchConfig(status?.config);
+  const [launching, setLaunching] = useState(() => mode === 'full' && !launchCfg.off);
+  // The emulator stays invisible until the core has started: no black canvas or RetroArch menu flashing behind the
+  // animation. It loads all the while – only its visibility waits.
   const [screenShown, setScreenShown] = useState(mode !== 'full');
-  const animated = useRef(inserting || launching); // the animation plays the click itself (a launch animation: silent)
-  const overlaid = useRef(launching); // the picture comes up under a launch animation: no fade-in of its own
+  const animated = useRef(launching); // the launch animation is silent: the module's click isn't played under it
+  const overlaid = useRef(launching); // the picture comes up under the launch animation: no fade-in of its own
   const game = gameById(target.gameId);
   const frame = useRef(null);
   const [phase, setPhase] = useState('loading'); // loading | running | error
@@ -259,7 +255,7 @@ export function GameSession({ session, mode }) {
   const [volume, setVolumeState] = useState(() => ls.get('sl-volume', 0.6));
   const [muted, setMuted] = useState(false);
   useEffect(() => {
-    if (screenShown || inserting) return undefined;
+    if (screenShown) return undefined;
     if (phase === 'running') {
       setScreenShown(true);
       // no animation (reduced motion / turned off): the module still clicks in – when the game appears
@@ -268,7 +264,7 @@ export function GameSession({ session, mode }) {
     }
     const late = setTimeout(() => setScreenShown(true), 20000); // the core never started: show what the player says
     return () => clearTimeout(late);
-  }, [screenShown, inserting, phase]);
+  }, [screenShown, phase]);
   const [turboAudio, setTurboAudioState] = useState(readTurboAudio);
   // changed in Settings › Play while this game runs in the corner: it switches at once
   useEffect(() => {
@@ -1411,8 +1407,6 @@ export function GameSession({ session, mode }) {
           <div class="console-screen" style=${`--arn:${arn}`}>
             <iframe ref=${frame} src=${src} title=${t('play.screenTitle', 'Game screen')} allow="autoplay; fullscreen; gamepad"
               class=${screenShown ? (overlaid.current ? 'ci-under' : 'ci-shown') : 'ci-wait'} onLoad=${focusGame}></iframe>
-            ${launching && html`<${LaunchOverlay} kind=${launchKind} system=${target.system} dsLayout=${layout} ctrLayout=${layout3ds}
-              ready=${phase !== 'loading'} onDone=${() => { setLaunching(false); focusGame(); }} />`}
             ${osd && html`<div class="osd">${osd}</div>`}
             ${pendingLoad && html`<div class="screen-confirm" role="alertdialog" aria-live="assertive">
               <span class="grow">${pendingLoad.slot <= 4 ? t('play.loadConfirm', 'Load state {n}? Progress since then is lost. Press {n} again or click Load.', { n: pendingLoad.slot })
@@ -1433,6 +1427,9 @@ export function GameSession({ session, mode }) {
             </div>`}
             ${ctrFail && html`<${CtrFailed} fail=${ctrFail} target=${target} onClose=${actions.close} />`}
           </div>
+          ${launching && html`<${LaunchStage} cfg=${launchCfg} system=${target.system} dsLayout=${layout} ctrLayout=${layout3ds} frame=${frame}
+            ready=${phase !== 'loading'} cover=${insertCover(library, target, manifest)} cartColor=${game?.color} title=${target.label}
+            onDone=${() => { setLaunching(false); focusGame(); }} />`}
         </div>`;
   const barEl = html`<div class="session-bar" ref=${barRef} role="toolbar" aria-label=${t('play.controls', 'Game controls')}>
 ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.pause', 'Pause / resume') + ' (P)', actions.pause, { 'data-pad-first': '' })}
@@ -1636,8 +1633,6 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
       ${full && html`<${Dock} side=${side} folded=${folded} onFold=${setFolded} head=${head} sections=${sections} who=${who} dockRef=${dockRef} wide=${wide} />`}
       ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} pl=${pl} />`}
     </div>
-    ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false}
-      onDone=${() => setInserting(false)} />`}
     <${RulesDrawer} open=${rulesOpen && full} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${RulesTab} />
     ${mode === 'mini' && html`<button class="mini-open" onClick=${(e) => { e.currentTarget.blur(); actions.expand(); }} aria-label=${t('play.backToGameNamed', 'Back to the game: {name}', { name: target.label })}>
       <span class="mini-open-label"><${Icon} name="play" size=${14} />${t('play.backToGame', 'Back to the game')}</span></button>`}

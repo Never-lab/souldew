@@ -3,7 +3,7 @@
 import { html, useState, useEffect } from '/vendor/htm-preact.mjs';
 import { t } from '../../lib/i18n.mjs';
 import { Item, Group, Check, Elsewhere } from './parts.mjs';
-import { LaunchSetting } from './cosmetics.mjs';
+import { LaunchSetting } from './launch.mjs';
 
 /** Turbo audio: kept in this browser profile (the game's sound menu and Settings show the same value). */
 export const TURBO_AUDIO = ['music', 'mute', 'original', 'plain'];

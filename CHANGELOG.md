@@ -132,6 +132,17 @@ Plus a new play view that gives the game the room it deserves.
   controller) and “★ Favourites” above the list shows just those, in their usual order – no more scrolling through
   everything to find the ones you like. souldew+ items can be starred too, as a wish list. Favourites are kept on
   this computer.
+- **A new launch animation: your handheld, in 3D.** Starting a game, your own souldew handheld plays over the screen
+  area: a DS or 3DS lid swings open, a GBA or Game Boy turns round, the card or cartridge drops in and latches, the
+  screens power on with the game's own picture and the camera pushes into them – ending exactly on the game. It runs
+  next to the game's start and never makes it wait; a click or any key skips it; it is silent. Settings › Play ›
+  Launch animation: “Your colours” (free, in your theme's colours) with Full / Quick / Off; with souldew+ also Gold,
+  Clear shell (four colours), Holo label, and now and then a Rare start. With reduced motion it is a short fade.
+- **Your handheld.** Dress that device: one skin for all of them (made from a banner – Plain Dusk is free), up to
+  8 stickers per device out of 34 – turn them freely, size them 70–160 %, put them over the edges and on top of each
+  other; they slide round buttons and screens. Up to 12 saved designs, “Surprise me at start”, favourites, export /
+  import as a small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy.
+  Only you see your handheld. From the library's header tile, the souldew+ page or Settings › Play › Launch animation.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

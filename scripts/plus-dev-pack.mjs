@@ -17,6 +17,9 @@
 //        media (previews/, access-previews.json; public, so not sealed). Then start the
 //        server with SLS_PLUS_DEV_PACK=<dir>; the app trusts that key only then.
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --catalog        + the public catalog and the free content
+//   --handheld <dir>   "Your handheld"'s souldew+ sources (default <design>/handheld: stickers.mjs PLUS_DESIGNS, wraps.mjs
+//                      PLUS_WRAPS) → handheld/stickers.png + stickers-cut.png + stickers.json (the atlas, pre-built) and
+//                      handheld/wraps.json in the pack, and a picture of every souldew+ sticker and wrap in the previews
 //
 // --catalog rewrites web/lib/cosmetics/content/{catalog,banners-free,frames-free}.mjs: the PUBLIC part (names,
 // collections, rarities, swatches, pairings – what a locked card shows) and the free banners and frames.
@@ -28,6 +31,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { buildManifest, sealFile, makeSigner, b64encode, b64decode, b64url } from '../web/lib/cosmetics/pack/format.mjs';
 import { renderItemPreviews, renderSkinPreviews } from './plus-previews.mjs';
+import { buildAtlas, stickerPicture } from '../web/lib/handheld/atlas.mjs';
+import { STICKERS as HH_STICKERS, WRAPS as HH_WRAPS } from '../shared/handheld.mjs';
+import { atlasFiles, encodePng } from './handheld/png.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -42,6 +48,7 @@ const PREVIEW_SOURCE = opt('preview-source') ? resolve(opt('preview-source')) : 
 const PREVIEWS_SOURCE = opt('previews-source') ? resolve(opt('previews-source')) : null;
 const CATALOG = args.includes('--catalog');
 const DAYS = Number(opt('days', 30));
+const HANDHELD = resolve(opt('handheld', join(DESIGN, 'handheld')));
 if (!existsSync(join(DESIGN, 'themes', 'skins.json'))) {
   console.error(`no design sources at ${DESIGN} (expected themes/, banners/, frames/, launch/) – pass --design`);
   process.exit(2);
@@ -107,6 +114,25 @@ const plusBanners = B.BANNERS.filter((b) => b.set !== 'basics');
 const freeFrames = F.FRAMES.filter((f) => f.set === 'basics');
 const plusFrames = F.FRAMES.filter((f) => f.set !== 'basics');
 const plusAnims = L.SET;
+
+// ------------------------------------------------------------------ "Your handheld": the souldew+ stickers and wraps
+// The catalog (names, tiers) is public (shared/handheld.mjs); the art is here. The atlas is built now, once – the app
+// never builds it at run time.
+const HH = existsSync(join(HANDHELD, 'stickers.mjs')) ? {
+  stickers: (await import(pathToFileURL(join(HANDHELD, 'stickers.mjs')).href)).PLUS_DESIGNS,
+  wraps: (await import(pathToFileURL(join(HANDHELD, 'wraps.mjs')).href)).PLUS_WRAPS,
+} : null;
+if (HH) {
+  const want = (list) => list.filter((x) => x.tier === 'plus').map((x) => x.id).sort().join(',');
+  if (HH.stickers.map((d) => d.id).sort().join(',') !== want(HH_STICKERS)) throw new Error('handheld/stickers.mjs PLUS_DESIGNS ≠ shared/handheld.mjs souldew+ stickers');
+  if (HH.wraps.map((w) => w.id).sort().join(',') !== want(HH_WRAPS)) throw new Error('handheld/wraps.mjs PLUS_WRAPS ≠ shared/handheld.mjs souldew+ wraps');
+  for (const w of HH.wraps) {
+    assertData(w, `wrap ${w.id}`);
+    if (!B.BANNERS.some((b) => b.id === w.banner && b.set !== 'basics')) throw new Error(`wrap ${w.id}: its banner ${w.banner} is not a souldew+ banner`);
+  }
+  HH.atlas = buildAtlas(HH.stickers);
+  HH.files = await atlasFiles(HH.atlas);
+} else console.warn(`no handheld sources at ${HANDHELD} – the pack goes without the souldew+ stickers and wraps`);
 
 // ------------------------------------------------------------------ bundling code recipes into one module
 // Frames and launch animations are code (per-pixel functions). Each becomes ONE module whose imports point at the app's
@@ -213,6 +239,7 @@ function packFiles() {
     skins: SKINS.filter((k) => k.kind !== 'classic').map((s) => ({ id: s.id, css: `skins/${s.id}.css` })),
     banners: 'banners.json', frames: { module: 'frames.mjs', ids: plusFrames.map((f) => f.id) },
     launch: { module: 'launch.mjs', ids: plusAnims.map((a) => a.id) },
+    ...(HH ? { handheld: { wraps: 'handheld/wraps.json', stickers: 'handheld/stickers.json', art: 'handheld/stickers.png', cut: 'handheld/stickers-cut.png' } } : {}),
   };
   const files = [
     { path: 'contents.json', bytes: enc.encode(JSON.stringify(contents)) },
@@ -220,6 +247,12 @@ function packFiles() {
     { path: 'frames.mjs', bytes: enc.encode(framesModule) },
     { path: 'launch.mjs', bytes: enc.encode(launchModule) },
     ...skinFiles(),
+    ...(HH ? [
+      { path: 'handheld/wraps.json', bytes: enc.encode(JSON.stringify(HH.wraps)) },
+      { path: 'handheld/stickers.json', bytes: new Uint8Array(HH.files.layout) },
+      { path: 'handheld/stickers.png', bytes: new Uint8Array(HH.files.art) },
+      { path: 'handheld/stickers-cut.png', bytes: new Uint8Array(HH.files.cut) },
+    ] : []),
   ];
   return { files, contents };
 }
@@ -296,10 +329,45 @@ async function previewsMedia(dir) {
   const files = [
     ...await renderItemPreviews({ design: DESIGN, banners: plusBanners.filter((b) => !b.drop), frames: plusFrames, anims: plusAnims, out: dir }),
     ...renderSkinPreviews({ skins: skinFiles().filter((f) => f.path.startsWith('skins/')).map((f) => ({ id: basename(f.path, '.css'), css: new TextDecoder().decode(f.bytes) })), out: dir }),
+    ...await handheldPreviews(dir),
   ];
-  for (const f of files) if (!/^(banners|nameplates|frames|launch|skins)\/[a-z0-9][a-z0-9-]*\.(png|webp)$/.test(f.path)) throw new Error(`not a preview picture: ${f.path}`);
+  for (const f of files) if (!/^(banners|nameplates|frames|launch|skins|stickers|wraps)\/[a-z0-9][a-z0-9-]*\.(png|webp)$/.test(f.path)) throw new Error(`not a preview picture: ${f.path}`);
   console.log(`${files.length} preview pictures → ${dir}`);
   return files;
+}
+
+/**
+ * "Your handheld"'s preview pictures: every souldew+ sticker on its die-cut border (6 px per art pixel) and a window onto
+ * every souldew+ wrap at 2× (the skin card's picture) – what a non-member's sheet shows. Pictures only.
+ */
+async function handheldPreviews(dir) {
+  if (!HH) return [];
+  const { wrapArt } = await import('../web/lib/handheld/wrap.mjs');
+  const out = [];
+  const put = (path, w, h, rgba) => {
+    const bytes = encodePng(w, h, rgba, 4);
+    const target = join(dir, ...path.split('/'));
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+    out.push({ path, bytes: new Uint8Array(bytes) });
+  };
+  for (const d of HH.stickers) {
+    const p = stickerPicture(HH.atlas, d.id, 6);
+    put(`stickers/${d.id}.png`, p.w, p.h, p.rgba);
+  }
+  for (const w of HH.wraps) {
+    const recipe = B.BANNERS.find((b) => b.id === w.banner);
+    const art = wrapArt(w, recipe, [{ key: 't', w: 112, h: 74, cx: w.cx + 20, base: 72, word: null }], { reduced: true });
+    const r = art.rects.t, k = 2;
+    const rgba = new Uint8ClampedArray(r.w * k * r.h * k * 4);
+    const src = new Uint8ClampedArray(art.px.buffer);
+    for (let y = 0; y < r.h * k; y++) for (let x = 0; x < r.w * k; x++) {
+      const s = ((r.y + Math.floor(y / k)) * art.w + r.x + Math.floor(x / k)) * 4, o = (y * r.w * k + x) * 4;
+      rgba[o] = src[s]; rgba[o + 1] = src[s + 1]; rgba[o + 2] = src[s + 2]; rgba[o + 3] = 255;
+    }
+    put(`wraps/${w.id}.png`, r.w * k, r.h * k, rgba);
+  }
+  return out;
 }
 
 if (SOURCE) writeSource(SOURCE, packFiles().files);
@@ -346,6 +414,6 @@ if (OUT) {
     const { manifestBytes } = await buildManifest({ id: 'souldew-previews', version, kind: 'previews', title: 'souldew+ previews (dev)', files: media });
     writeFileSync(join(OUT, 'access-previews.json'), JSON.stringify({ manifest: b64url(manifestBytes), signature: b64url(await signer.sign(manifestBytes)), publicKey: b64url(signer.publicKey) }, null, 2) + '\n');
   }
-  console.log(`  skins ${contents.skins.length} · banners ${plusBanners.length} · frames ${plusFrames.length} · launch ${plusAnims.length}`);
+  console.log(`  skins ${contents.skins.length} · banners ${plusBanners.length} · frames ${plusFrames.length} · launch ${plusAnims.length}${HH ? ` · handheld: ${HH.stickers.length} stickers, ${HH.wraps.length} wraps` : ''}`);
   console.log(`  start the server with SLS_PLUS_DEV_PACK=${OUT}`);
 }

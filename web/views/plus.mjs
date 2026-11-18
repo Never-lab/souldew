@@ -1,6 +1,7 @@
 // The souldew+ page (#/plus – owner's choice "A – Showroom", made calmer): first the viewer themselves wearing souldew+
 // (their real Discord picture and name when signed in, through the local avatar proxy; a neutral placeholder when
-// not), then a handful of the strongest banners, frames, nameplates and launch animations and, kept small, the colour
+// not), then a handful of the strongest banners, frames and nameplates, "Your handheld" (live, turning slowly) with the
+// launch looks and, kept small, the colour
 // themes – live from the pack for members, the signed preview media (lib/cosmetics/previews.mjs) for everyone else –
 // then the three tiers, what
 // stays free, where the money goes, what happens when you stop, and a few questions. Members get the thank-you
@@ -8,20 +9,21 @@
 // loops play while hovered or focused (the hero card always), never with reduced motion. Every look listed here has
 // its favourite star (lib/favourites.mjs) – a wish list for later; the filters live in the pickers, where the full
 // lists are.
-import { html, useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
+import { html, useState } from '/vendor/htm-preact.mjs';
 import { t } from '../lib/i18n.mjs';
 import { Icon } from '../lib/icons.mjs';
 import { useApp, openExternal } from '../lib/ui.mjs';
 import { LINKS } from '../lib/links.mjs';
 import { useAccount } from '../lib/account.mjs';
 import { settingsLink } from '../lib/settingsindex.mjs';
-import { catalog, has, packState, previewSkin, startPackPreview, previewLaunch } from '../lib/cosmetics/index.mjs';
+import { catalog, has, packState, previewSkin, startPackPreview } from '../lib/cosmetics/index.mjs';
 import { Banner, Nameplate, Frame, useCosmetics } from '../lib/cosmetics/components.mjs';
-import { PreviewPicture, previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
+import { PreviewPicture, usePreviews } from '../lib/cosmetics/previews.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { TIERS, CURATED, plusState, hasPlusLooks, isMember, heroLook, tierAction, curatedFrom, plusCounts, plusSkins, themeLook, themeVars } from '../lib/pluspage.mjs';
 import { TitlePlate, achTitle, Badges } from './social.mjs';
 import { FavScope } from '../lib/favourites.mjs';
+import { HandheldShowcase } from './handheldtile.mjs';
 
 const RARITY = () => ({ common: t('cos.rarity.common', 'Common'), rare: t('cos.rarity.rare', 'Rare'), epic: t('cos.rarity.epic', 'Epic'), legendary: t('cos.rarity.legendary', 'Legendary') });
 const dateOf = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '');
@@ -173,22 +175,6 @@ function PlateItem({ p, me, sub }) {
   return html`<div class="plus-plate-item" tabIndex="0" ...${on} aria-label=${p.name}><${PlateRow} id=${p.id} me=${me} sub=${sub} loop=${hot} /></div>`;
 }
 
-/** A launch animation: its preview loop while hovered or focused – or, owned without a picture, the real one on hover. */
-function LaunchItem({ l, yours }) {
-  const [hot, on] = useHot();
-  const ref = useRef(null);
-  const live = !previewSrc('launch', l.id) && has('launch', l.id);
-  useEffect(() => {
-    if (!live || !hot || prefersReduced() || !ref.current) return undefined;
-    const h = previewLaunch(ref.current, l.id, { loop: true });
-    return () => h?.destroy();
-  }, [live, hot]);
-  if (!live && !previewSrc('launch', l.id)) return null;
-  return html`<figure class="plus-launch" tabIndex="0" ...${on}>
-    <div class="plus-launch-art">${live ? html`<div class="launch-screen" ref=${ref} aria-hidden="true"></div>` : html`<${PreviewPicture} kind="launch" id=${l.id} loop=${hot} />`}</div>
-    <figcaption><b>${l.name}</b><span class="small muted">${l.collection}</span><span class="spacer"></span><${Owned} yours=${yours} /></figcaption></figure>`;
-}
-
 /** "What you get": the strongest few of each kind – the rest is in the profile editor and Settings. */
 function Gallery({ state, me, navigate }) {
   useCosmetics();
@@ -216,12 +202,21 @@ function Gallery({ state, me, navigate }) {
         <div class="plus-plates">${c.nameplates.map((p) => star('nameplate', cat.nameplates, p, 'plus-fav plus-fav-plate', html`<${PlateItem} p=${p} me=${who} sub=${p.name} />`))}</div>
       </section>
     </div>
-    ${c.launch.some((l) => previewSrc('launch', l.id) || has('launch', l.id)) && html`<section class="plus-sec">
-      <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT', 'A short moment while your game boots')}>${t('plus.launchHint', 'It never makes the game wait – a click or any key skips it. {count} animations in all.', { count: n.launch })}<//>
-      <div class="plus-launches">${c.launch.filter((l) => previewSrc('launch', l.id) || has('launch', l.id)).map((l) => star('launch', cat.launch, l, 'plus-fav', html`<${LaunchItem} l=${l} yours=${yours} />`))}</div>
-    </section>`}
+    <${HandheldShowcase} />
+    <section class="plus-sec">
+      <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT3', 'Your handheld, in gold or see-through')}>${t('plus.launchHint3', 'It never makes the game wait – a click or any key skips it. “Your colours” is free; souldew+ adds three shells and, one start in 64, a Rare start.')}<//>
+      <ul class="plus-family" role="list">${PLUS_LAUNCH().map(([id, name, hint]) => html`<li key=${id} class="plus-family-i"><b>${name}</b><span class="small muted">${hint}</span></li>`)}</ul>
+    </section>
     <${Themes} skins=${plusSkins(cat)} state=${state} me=${me} count=${n.skins} navigate=${navigate} />`;
 }
+
+/** The souldew+ launch looks (the family: views/settings/launch.mjs) – names and one line each. */
+const PLUS_LAUNCH = () => [
+  ['gold', t('launch.gold', 'Gold'), t('launch.goldHint', 'A gold shell and a gold cartridge')],
+  ['clear-shell', t('launch.clear', 'Clear shell'), t('launch.clearHint4', 'See-through plastic, the board lit inside – four colours')],
+  ['holo', t('launch.holo', 'Holo label'), t('launch.holoHint', 'A holographic label on the cartridge')],
+  ['rare', t('launch.rareName', 'Rare start'), t('launch.rareHint', 'One start in 64: golden light, glints and a little dust')],
+];
 
 function Tiers({ state }) {
   const text = {

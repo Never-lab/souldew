@@ -95,6 +95,23 @@ export function contentFrom(files, { skinsByPath = false } = {}) {
     frameIds: contents.frames?.ids || [],
     launchModule: contents.launch?.module && files.has(contents.launch.module) ? text(files.get(contents.launch.module)) : null,
     launchIds: contents.launch?.ids || [],
+    handheld: handheldFrom(contents.handheld, files, json),
+  };
+}
+
+/**
+ * "Your handheld"'s souldew+ part (web/lib/handheld): the wraps' compositions (data, run by the public banner engine
+ * with the pack's banner recipes) and the souldew+ stickers' pre-built atlas – its layout and two PNGs (bytes, decoded
+ * by the page when the handheld is first drawn). A pack without it (an older one) simply has none.
+ */
+function handheldFrom(h, files, json) {
+  if (!h || typeof h !== 'object') return null;
+  const bytes = (p) => (typeof p === 'string' && files.has(p) ? files.get(p) : null);
+  const wraps = h.wraps ? json(h.wraps) : null;
+  const layout = h.stickers ? json(h.stickers) : null;
+  return {
+    wraps: Array.isArray(wraps) ? wraps : [],
+    stickers: layout && bytes(h.art) && bytes(h.cut) ? { layout, art: bytes(h.art), cut: bytes(h.cut) } : null,
   };
 }
 

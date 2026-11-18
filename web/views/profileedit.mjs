@@ -219,23 +219,27 @@ function useSeen(ref) {
   return seen;
 }
 
-const RAR = () => ({ free: t('cos.rarity.free', 'Free'), common: t('cos.rarity.common', 'Common'), rare: t('cos.rarity.rare', 'Rare'), epic: t('cos.rarity.epic', 'Epic'), legendary: t('cos.rarity.legendary', 'Legendary') });
+const RAR = () => ({ free: t('cos.rarity.free', 'Free'), common: t('cos.rarity.common', 'Common'), rare: t('cos.rarity.rare', 'Rare'), epic: t('cos.rarity.epic', 'Epic'), legendary: t('cos.rarity.legendary', 'Legendary'), earned: t('fav.earned', 'Earned') });
+/** An earned look (Summit Dawn): free with its trophy, never sold – locked, it says which trophy and how. */
+const earnedHow = (it) => t('cos.earnedBy', 'Earned by {trophy} – {how}', { trophy: achText(it.trophy).name, how: achText(it.trophy, 16).desc });
 
 function CosCard({ kind, it, on, locked, onPick, prof, accent }) {
   const ref = useRef(null);
   const seen = useSeen(ref);
   const name = it ? it.name : t('cos.none', 'None');
   const rarity = it ? RAR()[it.rarity] || it.rarity : '';
-  const label = [name, it && (locked ? t('cos.plus', 'souldew+') : rarity)].filter(Boolean).join(' · ');
-  return html`<button ref=${ref} type="button" role="radio" aria-checked=${on} aria-label=${label} data-cos-id=${it?.id || 'none'}
-    class=${`pe-card k-${kind} ${on ? 'on' : ''} ${locked ? 'locked' : ''}`} onClick=${() => onPick(it?.id || null)}>
+  const notEarned = !!it?.earned && !it.owned;
+  const label = [name, it && (notEarned ? t('hh.locked', 'locked') : locked ? t('cos.plus', 'souldew+') : rarity)].filter(Boolean).join(' · ');
+  return html`<button ref=${ref} type="button" role="radio" aria-checked=${on} aria-label=${label} data-cos-id=${it?.id || 'none'} title=${notEarned ? earnedHow(it) : undefined}
+    aria-disabled=${notEarned ? 'true' : undefined} class=${`pe-card k-${kind} ${on ? 'on' : ''} ${locked ? 'locked' : ''} ${notEarned ? 'not-earned' : ''}`} onClick=${() => !notEarned && onPick(it?.id || null)}>
     <span class="pe-art">${!it ? html`<span class="pe-none"></span>`
       : !seen ? html`<span class="cos-ph"></span>`
         : kind === 'banners' ? html`<${BannerArt} id=${it.id} loop=${on} />`
           : kind === 'frames' ? html`<span class="pe-frame"><${EdAvatar} user=${{ ...prof, frame: it.id }} size=${56} accent=${accent} /></span>`
             : html`<${PlateArt} id=${it.id} animate=${on ? 'always' : 'hover'} class="pe-plate"><${Avatar} user=${{ ...prof, frame: null }} size=${28} accent=${accent} /><b>${prof.name}</b><//>`}
       ${locked && html`<span class="pe-card-plus"><${PlusMark} /></span>`}</span>
-    <span class="pe-name"><span class="ellipsis">${name}</span>${it && (locked ? html`<span class="pe-plus-word">${t('cos.plus', 'souldew+')}</span>` : html`<span class=${`cos-rarity r-${it.rarity}`}>${rarity}</span>`)}</span>
+    <span class="pe-name"><span class="ellipsis">${name}</span>${it && (notEarned ? html`<span class="pe-earned-word">${t('hh.locked', 'locked')}</span>` : locked ? html`<span class="pe-plus-word">${t('cos.plus', 'souldew+')}</span>` : html`<span class=${`cos-rarity r-${it.rarity}`}>${rarity}</span>`)}</span>
+    ${notEarned && html`<span class="pe-earned-how tiny">${earnedHow(it)}</span>`}
   </button>`;
 }
 
@@ -253,6 +257,7 @@ function CosPick({ kind, value, onPick, member, prof, accent }) {
   const [q, setQ] = useState('');
   const fav = useFavList(`pe-${kind}`, all, { kind: fk });
   const isLocked = (it) => !member && it.plus;
+  const groupName = (g) => (g.id === 'earned' ? t('cos.earnedGroup', 'Earned with trophies') : g.name);
   const words = q.trim().toLowerCase();
   const list = fav.shown.filter((it) => !words || it.name.toLowerCase().includes(words));
   const groups = cols.map((c) => ({ ...c, items: list.filter((it) => it.collection === c.id) })).filter((g) => g.items.length)
@@ -262,8 +267,8 @@ function CosPick({ kind, value, onPick, member, prof, accent }) {
   return html`<div class="pe-pick pe-cos">
     <div class="pe-tools"><${Search} value=${q} onInput=${setQ} placeholder=${noun} />${fav.row}</div>
     <div class="pe-groups">
-      ${groups.map((g, gi) => html`<div class="pe-group" key=${g.id}><span class="pe-glabel">${g.name}<span class="faint">${g.items.length}</span>${!member && g.items.every((i) => i.plus) && html`<span class="pe-gplus"><${PlusMark} />${t('cos.plus', 'souldew+')}</span>`}</span>
-        <div class=${`pe-grid k-${kind}`} role="radiogroup" aria-label=${g.name}>
+      ${groups.map((g, gi) => html`<div class="pe-group" key=${g.id}><span class="pe-glabel">${groupName(g)}<span class="faint">${g.items.length}</span>${!member && g.items.every((i) => i.plus) && html`<span class="pe-gplus"><${PlusMark} />${t('cos.plus', 'souldew+')}</span>`}</span>
+        <div class=${`pe-grid k-${kind}`} role="radiogroup" aria-label=${groupName(g)}>
           ${gi === 0 && !words && fav.filter === 'all' && html`<${CosCard} kind=${kind} it=${null} on=${!value} onPick=${onPick} prof=${prof} accent=${accent} />`}
           ${g.items.map((it) => html`<${FavScope} key=${it.id} kind=${fk} id=${it.id} name=${it.name} known=${known} class=${`pe-fav k-${kind}`}>
             <${CosCard} kind=${kind} it=${it} on=${it.id === value} locked=${isLocked(it)} onPick=${onPick} prof=${prof} accent=${accent} /><//>`)}</div></div>`)}

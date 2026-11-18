@@ -24,7 +24,7 @@ test('signed out: no Friends entry, no empty group', () => {
 });
 
 test('routing: #/plus is the souldew+ page; every "Get souldew+" leads there, "Buy me a coffee" is gone from the rail', () => {
-  assert.match(app, /plus: PlusView \}\[route\.route\]/);
+  assert.match(app, /plus: PlusView, handheld: HandheldView \}\[route\.route\]/);
   assert.match(app, /href="#\/plus"/);
   assert.doesNotMatch(app, /CoffeeLink|rail\.coffee/);
   const social = readFileSync(new URL('../web/lib/socialapp.mjs', import.meta.url), 'utf8');

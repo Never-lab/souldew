@@ -1,0 +1,189 @@
+// "Your handheld" on the page: the local setting (config.json `handheld`, shared/handheld.mjs keeps the rules), what the
+// launch plays from it, and the 3D scene posed still (the editor's stage, the library's tile, the souldew+ page). The
+// scene and three.js are imported only here and only when something draws a device – never at the app's start.
+import { useState, useEffect } from '/vendor/htm-preact.mjs';
+import { api } from '../api.mjs';
+import { cleanHandheld, emptyHandheld, lookToPlay, wrapById, launchLook, cleanLaunchLook, cleanLaunchPace, cleanClearTint, CLEAR_TINTS, devKey } from '/shared/handheld.mjs';
+import { layoutKey } from '../cosmetics/launch/engine.mjs';
+import { packState, onChange as onCosmetics } from '../cosmetics/index.mjs';
+import { content } from '../cosmetics/state.mjs';
+import { earnedTrophies, syncTrophies } from '../trophies.mjs';
+import { favourites } from '../favourites.mjs';
+import { loadAtlas } from './stickers.mjs';
+import { wrapComp, recipeOf } from './wrap.mjs';
+import { placeLayout } from './geometry.mjs';
+
+let doc = emptyHandheld();
+const subs = new Set();
+const notify = () => { for (const fn of [...subs]) fn(doc); };
+
+/** At boot, from /api/status config.handheld. */
+export function initHandheld(raw) {
+  doc = cleanHandheld(raw);
+  notify();
+}
+export const handheld = () => doc;
+
+/** The handheld; re-renders when it changes (here or in another view). */
+export function useHandheld() {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const fn = () => tick((n) => n + 1);
+    subs.add(fn);
+    return () => subs.delete(fn);
+  }, []);
+  return doc;
+}
+
+// saved the moment it changes, like every setting – one write at a time, always the latest look
+let writing = Promise.resolve();
+let pending = false;
+function persist() {
+  if (pending) return;
+  pending = true;
+  writing = writing.then(() => new Promise((r) => setTimeout(r, 250))).then(() => {
+    pending = false;
+    return api.post('/api/config', { handheld: doc });
+  }).catch((e) => {
+    pending = false;
+    console.warn('handheld not saved', e);
+  });
+}
+/** Change the handheld (a clean copy is kept and saved). */
+export function setHandheld(next) {
+  doc = cleanHandheld(next);
+  notify();
+  persist();
+}
+/** Waits for the last write (the editor's Done). */
+export const handheldSaved = () => writing;
+
+// ---- the launch settings ----------------------------------------------------------------------------------------------
+
+/** { look, pace, clear, off } from the config: the animation's family id, Full / Quick / Off, the Clear shell's colour. */
+export function launchConfig(cfg) {
+  const look = cleanLaunchLook(cfg?.launchAnimation);
+  const pace = cleanLaunchPace(cfg?.launchPace);
+  return { look, pace, clear: cleanClearTint(cfg?.launchClear), off: pace === 'off' || cfg?.bootAnimation === false };
+}
+export const member = () => !!packState().entitled;
+/** The launch look this account can play: a souldew+ look without souldew+ plays "Your colours" (the choice is kept). */
+export const playableLook = (id) => (launchLook(id).tier === 'plus' && !member() ? 'your-colours' : launchLook(id).id);
+
+/** What the launch plays from the handheld right now: owned items only, Surprise me picks a design (shared/handheld.mjs). */
+export function lookNow(rnd = Math.random) {
+  const tr = earnedTrophies();
+  if (!tr) syncTrophies().catch(() => {}); // (not known yet: the earned stickers wait for the next start)
+  return lookToPlay(doc, { member: member(), trophies: tr || new Set(), favDesigns: favourites().design || [], rnd });
+}
+
+/** a wrap for the scene: { skin: composition + finish, recipe } – or null (the theme colour, or its data isn't here) */
+export function sceneWrap(id) {
+  const meta = wrapById(id);
+  const comp = meta && wrapComp(id);
+  const recipe = recipeOf(comp);
+  return comp && recipe ? { skin: { ...comp, finish: meta.finish }, recipe } : null;
+}
+
+/** a CSS colour (any syntax, incl. color-mix and variables) → #rrggbb, resolved inside `el` */
+export function cssColor(el, css) {
+  const p = document.createElement('span');
+  p.style.cssText = `position:absolute;visibility:hidden;color:${css}`;
+  (el || document.body).appendChild(p);
+  const c = getComputedStyle(p).color;
+  p.remove();
+  const m = c.match(/[\d.]+/g) || [0, 0, 0];
+  if (/color\(srgb/.test(c)) return `#${m.slice(0, 3).map((v) => Math.round(Number(v) * 255).toString(16).padStart(2, '0')).join('')}`;
+  return `#${m.slice(0, 3).map((v) => Math.round(Number(v)).toString(16).padStart(2, '0')).join('')}`;
+}
+/** "Your colours": the shell takes the theme's accent (the same formula as the design rounds) */
+export const shellColor = (el) => cssColor(el, 'color-mix(in srgb, var(--sk-accent, var(--tri)) 58%, var(--shell-4))');
+export const CLEAR = CLEAR_TINTS;
+
+// ---- the scene, loaded on demand ----------------------------------------------------------------------------------------
+
+let sceneMod = null;
+/** three.js + the scene module (once); the sticker atlas decoded. Called at idle so a launch finds them ready. */
+export function loadScene() {
+  sceneMod ??= import('./scene.mjs').catch((e) => {
+    sceneMod = null;
+    throw e;
+  });
+  return Promise.all([sceneMod, loadAtlas()]).then(([m, atlas]) => ({ S: m, atlas }));
+}
+/** The quiet warm-up: at idle after the app is up, so the first launch spends no time importing. */
+export function prewarm() {
+  const go = () => loadScene().catch(() => {});
+  if (globalThis.requestIdleCallback) requestIdleCallback(go, { timeout: 4000 });
+  else setTimeout(go, 1500);
+}
+
+// camera poses for a still device: fold devices orbit the table (tilt from overhead), slab devices stand (yaw 0 = front)
+export const VIEWS = {
+  fold: { lid: { lid: 0, tilt: 36, yaw: -16, dist: 430, target: [0, 7, 4], face: 'lid:top' },
+    open: { lid: 150, tilt: 44, yaw: -12, dist: 470, target: [0, 20, -26], face: 'deck:top' },
+    under: { lid: 0, tilt: 146, yaw: 12, dist: 430, target: [0, 5, 2], face: 'base:bottom' } },
+  slab: { front: { lid: 0, tilt: 6, yaw: 18, dist: 430, target: [0, 8, 11], face: 'body:top' },
+    back: { lid: 0, tilt: 10, yaw: 162, dist: 430, target: [0, 8, 11], face: 'body:bottom' } },
+};
+export const isFold = (sys) => sys === 'nds' || sys === '3ds';
+export const viewPlan = (sys, view, orbit = { yaw: 0, tilt: 0, zoom: 1 }) => {
+  const set = VIEWS[isFold(sys) ? 'fold' : 'slab'];
+  const V = set[view] || Object.values(set)[0];
+  return { lid: V.lid, cam: { tilt: V.tilt + orbit.tilt, yaw: V.yaw + orbit.yaw, dist: V.dist / orbit.zoom, target: V.target } };
+};
+
+/**
+ * The launch scene posed still (the editor's stage, a still of your handheld): o = { sys, look ('theme' | 'clear' |
+ * 'gold'), skin (wrap id | null), plan () → pose, w, h, el (where the theme's colours are read), reduced, keep, cover,
+ * cartColor }. Resolves to the scene (scene.mjs) and the atlas.
+ */
+export async function poseScene(canvas, o) {
+  const { S, atlas } = await loadScene();
+  const fold = isFold(o.sys);
+  const wrap = o.look === 'clear' || o.look === 'gold' ? null : sceneWrap(o.skin);
+  const w = o.w, h = o.h;
+  const scene = await S.createScene(canvas, {
+    sys: o.sys, lk: layoutKey(o.sys, 'tb', 'tb'), w, h, final: { x: w * 0.3, y: h * 0.2, w: w * 0.4, h: h * 0.6 }, dark: true,
+    look: o.look || 'theme', shell: shellColor(o.el), clearTint: CLEAR[o.clear] || CLEAR.ice, cartLook: o.look === 'gold' ? 'gold' : undefined,
+    cartColor: o.cartColor, cover: o.cover, title: '', pulse: '#fff4e0', glow: '#dfe8ff', picture: 'placeholder', keep: !!o.keep, atlas,
+    plan: () => ({ ...o.plan(), cart: fold ? 999 : 0, power: [-2000, -2000], led: 1, shadow: 1, clean: 0, canvasO: 1, glassOff: 0.35 }),
+    hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, reduced: !!o.reduced },
+  });
+  return { scene, atlas };
+}
+
+const stills = new Map();
+/**
+ * One still of your handheld as a data: URL (rendered once, then the GPU is let go) – cached per look while the app runs.
+ * o = { sys, look, skin, stickers, w, h, el, view }
+ */
+export async function handheldStill(o) {
+  const key = JSON.stringify([o.sys, o.look, o.skin, o.stickers, o.w, o.h, o.view, content.banners.size, packState().entitled, shellColor(o.el)]);
+  if (stills.has(key)) return stills.get(key);
+  const p = (async () => {
+    const cv = document.createElement('canvas');
+    const fold = isFold(o.sys);
+    const { scene, atlas } = await poseScene(cv, { ...o, keep: true, reduced: true,
+      plan: () => viewPlan(o.sys, o.view || (fold ? 'lid' : 'back'), { yaw: fold ? 4 : -10, tilt: fold ? 4 : 2, zoom: o.zoom || 1.75 }) });
+    try {
+      scene.setStickers(placeLayout(o.stickers || [], scene.regions(), atlas?.rects || {}));
+      scene.render(0);
+      return cv.toDataURL();
+    } finally {
+      scene.dispose();
+    }
+  })();
+  stills.set(key, p);
+  p.catch(() => stills.delete(key));
+  if (stills.size > 24) stills.delete(stills.keys().next().value);
+  return p;
+}
+
+/** Re-render when the pack or the trophies change (a wrap's banner arrives, an earned sticker unlocks). */
+export function useCosmeticsTick() {
+  const [, tick] = useState(0);
+  useEffect(() => onCosmetics(() => tick((n) => n + 1)), []);
+}
+
+export { devKey };

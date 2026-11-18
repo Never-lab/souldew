@@ -34,8 +34,8 @@ export const SETTINGS = [
   { id: 'skin', section: 'general', keys: ['skin.title', 'skin.note', 'skin.dark', 'skin.light'],
     kw: 'theme themes skin skins souldew+ plus look style light mode dark mode thema design aussehen hell dunkel thème apparence clair sombre tema aspecto claro oscuro aspetto chiaro scuro' },
   // Play
-  { id: 'launch', section: 'play', keys: ['launch.title', 'launch.hint', 'set.gameStart'],
-    kw: 'launch start startup start-up boot intro animation cartridge module slot souldew+ plus spielstart startanimation modul démarrage lancement inicio arranque avvio' },
+  { id: 'launch', section: 'play', keys: ['launch.title', 'launch.hint3', 'set.gameStart', 'hh.title', 'hh.dress'],
+    kw: 'launch start startup start-up boot intro animation cartridge module slot souldew+ plus spielstart startanimation modul démarrage lancement inicio arranque avvio handheld device console skin wrap sticker stickers design designs gold clear holo rare quick handheld konsole gerät aufkleber sticker skin design console autocollant pegatina adesivo' },
   { id: 'full-turbo', section: 'play', keys: ['set.fullTurbo', 'set.fullTurboHint'], kw: `${TURBO} performance` },
   { id: 'speed-guard', section: 'play', keys: ['set.speedGuard', 'set.speedGuardHint'], kw: `${TURBO} slow lag stutter performance` },
   { id: 'turbo-max', section: 'play', keys: ['set.turboMax', 'set.turboMaxHint'], kw: `${TURBO} unlimited maximum` },

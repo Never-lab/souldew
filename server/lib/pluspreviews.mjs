@@ -16,7 +16,7 @@ import { manifestSigned } from './pluspack.mjs';
 import { writeFileAtomic, httpError } from './fsutil.mjs';
 import { accountsBase } from './accounts/contract.mjs';
 
-export const PREVIEWS_PATH_RE = /^(banners|nameplates|frames|launch|skins)\/[a-z0-9][a-z0-9-]{0,47}\.(png|webp)$/;
+export const PREVIEWS_PATH_RE = /^(banners|nameplates|frames|launch|skins|stickers|wraps)\/[a-z0-9][a-z0-9-]{0,47}\.(png|webp)$/;
 export const PREVIEW_FILE_MAX = 512 * 1024;
 const MANIFEST_MAX = 1024 * 1024;
 const REFRESH_MS = 10 * 60e3;

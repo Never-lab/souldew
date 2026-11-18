@@ -1,14 +1,13 @@
-// souldew+ in Settings: the Theme row (General › Appearance, under the colour schemes) and the Launch animation row
-// (Play). A theme is tried on the whole app with one click and reverts when you leave Settings or press "Back to …";
+// souldew+ in Settings: the Theme row (General › Appearance, under the colour schemes) – the Launch animation row (Play)
+// is settings/launch.mjs. A theme is tried on the whole app with one click and reverts when you leave Settings or press "Back to …";
 // it changes the look only, never the layout or a text. The machinery is web/lib/cosmetics (skins.mjs, launch/).
 // Every theme and launch animation has its favourite star and the lists their favourites row (lib/favourites.mjs).
 import { html, useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { t } from '../../lib/i18n.mjs';
-import { listSkins, previewSkin, endPreview, applySkin, skinState, onSkinChange, packState, previewLaunch, launchAvailable, catalog, startPackPreview } from '../../lib/cosmetics/index.mjs';
+import { listSkins, previewSkin, endPreview, applySkin, skinState, onSkinChange, packState, catalog, startPackPreview } from '../../lib/cosmetics/index.mjs';
 import { signedIn } from '../../lib/account.mjs';
 import { useCosmetics, PlusMark } from '../../lib/cosmetics/components.mjs';
 import { openPlus } from '../../lib/cosmetics/plus.mjs';
-import { CartInsert } from '../cartinsert.mjs';
 import { PreviewPicture, previewSrc, usePreviews } from '../../lib/cosmetics/previews.mjs';
 import { Icon } from '../../lib/icons.mjs';
 import { FavScope, FavEmpty, useFavList, FAV_KIND_OF } from '../../lib/favourites.mjs';
@@ -146,66 +145,9 @@ export function SkinSetting({ cfg, save }) {
   </div>`;
 }
 
-/** Settings › Play › Launch animation: the free cartridge plus the souldew+ animations this account owns. */
-export function LaunchSetting({ cfg, save }) {
-  useCosmetics();
-  const pack = packState();
-  const all = catalog().launch;
-  const choices = all.filter((a) => a.id === 'cartridge' || (a.owned && launchAvailable(a.id)));
-  const value = choices.some((a) => a.id === cfg.launchAnimation) ? cfg.launchAnimation : 'cartridge';
-  const [playing, setPlaying] = useState(null);
-  const screen = useRef(null);
-  const ctl = useRef(null);
-  const animsOff = cfg.bootAnimation === false;
-  const stop = () => {
-    ctl.current?.destroy();
-    ctl.current = null;
-    setPlaying(null);
-  };
-  useEffect(() => stop, []);
-  const preview = (id) => {
-    stop();
-    if (id === 'cartridge') return setPlaying('cartridge');
-    if (!screen.current) return undefined;
-    ctl.current = previewLaunch(screen.current, id, { loop: false });
-    setPlaying(id);
-    // the preview ends with its animation: the screen shows the placeholder "game" until the next one
-    return undefined;
-  };
-  const pick = async (id) => {
-    preview(id);
-    if (id !== value) await save({ launchAnimation: id });
-  };
-  const name = (a) => (a.id === 'cartridge' ? t('launch.cartridge', 'Cartridge') : a.name);
-  const fav = useFavList('settings-launch', choices, { kind: 'launch' });
-  const known = all.map((a) => a.id);
-  return html`<div class="stack-s">
-    <span class="launch-title">${t('launch.title', 'Launch animation')}</span>
-    ${fav.row}
-    <div class="launch-picker">
-      <div class="launch-cards" role="radiogroup" aria-label=${t('launch.title', 'Launch animation')}>
-        ${fav.shown.map((a) => html`<${FavScope} key=${a.id} kind="launch" id=${a.id} name=${name(a)} known=${known} class="launch-fav"><button type="button" role="radio" aria-checked=${a.id === value}
-          class=${`launch-card${a.id === value ? ' on' : ''}`} onClick=${() => pick(a.id)}>
-          <b>${name(a)}</b><span class="hint">${a.id === 'cartridge' ? t('launch.cartridgeHint', 'The module drops into the slot – free') : a.collection}</span>
-        </button><//>`)}
-        ${fav.filter === 'favs' && !fav.counts.favs && html`<${FavEmpty} />`}
-      </div>
-      <div class="launch-stage">
-        <div class="launch-screen" ref=${screen} aria-hidden="true">
-          ${playing === 'cartridge' && html`<${CartInsert} target=${{ system: 'gba', label: 'souldew', params: {} }} sound=${false} onDone=${() => setPlaying(null)} />`}
-        </div>
-        <button type="button" class="btn small ghost" onClick=${() => preview(value)}><${Icon} name="play" size=${14} />${t('launch.preview', 'Preview')}</button>
-      </div>
-    </div>
-    <span class="small faint">${animsOff ? t('launch.off', 'Animations are switched off (General › Play animations) – the game starts without one.')
-      : t('launch.hint', 'Plays over the game screen while the game starts – it never makes the game wait. A click or any key skips it.')}</span>
-    ${!pack.entitled && html`<span class="small faint plus-note"><${PlusMark} /> ${t('launch.more', 'More launch animations come with souldew+.')}</span>`}
-  </div>`;
-}
-
 const SHOW_KINDS = () => [
   ['skins', t('plusShow.themes', 'Themes')], ['banners', t('cos.banners', 'Banners')], ['frames', t('cos.frames', 'Avatar frames')],
-  ['nameplates', t('cos.nameplates', 'Nameplates')], ['launch', t('launch.title', 'Launch animation')],
+  ['nameplates', t('cos.nameplates', 'Nameplates')],
 ];
 
 /** One item of the showcase: its picture (the loop while hovered / focused), its name, its favourite star. */
@@ -230,7 +172,7 @@ export function PlusShowcase() {
   const cat = catalog();
   const lists = {
     skins: cat.skins.filter((s) => s.plus), banners: cat.banners.filter((b) => b.plus && !b.drop), frames: cat.frames.filter((f) => f.plus),
-    nameplates: cat.nameplates.filter((n) => n.plus && !n.drop), launch: cat.launch.filter((a) => a.plus),
+    nameplates: cat.nameplates.filter((n) => n.plus && !n.drop),
   };
   const kinds = SHOW_KINDS().filter(([k]) => lists[k].some((x) => previewSrc(k, x.id)));
   if (!kinds.length) return null;

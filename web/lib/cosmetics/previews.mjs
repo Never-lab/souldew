@@ -28,12 +28,14 @@ export function loadPreviews(force = false) {
   return loading;
 }
 
-const KINDS = { banners: 'banners', nameplates: 'nameplates', frames: 'frames', launch: 'launch', skins: 'skins' };
+// stickers / wraps: "Your handheld"'s souldew+ stickers and skins – a still each (scripts/plus-dev-pack.mjs handheldPreviews)
+const KINDS = { banners: 'banners', nameplates: 'nameplates', frames: 'frames', launch: 'launch', skins: 'skins', stickers: 'stickers', wraps: 'wraps' };
+const STILL_ONLY = new Set(['skins', 'stickers', 'wraps']);
 
-/** kind: banners | nameplates | frames | launch | skins. loop: the animated WebP (skins have a still only). */
+/** kind: banners | nameplates | frames | launch | skins | stickers | wraps. loop: the animated WebP (skins, stickers and wraps have a still only). */
 export function previewSrc(kind, id, { loop = false } = {}) {
   if (!list?.files || !KINDS[kind] || typeof id !== 'string') return null;
-  const path = `${KINDS[kind]}/${id}.${kind === 'skins' || loop ? 'webp' : 'png'}`;
+  const path = `${KINDS[kind]}/${id}.${kind === 'skins' || (loop && !STILL_ONLY.has(kind)) ? 'webp' : 'png'}`;
   if (!list.files[path]) return loop ? previewSrc(kind, id) : null;
   return `/api/plus/previews/file?path=${encodeURIComponent(path)}&v=${encodeURIComponent(list.version || '')}`;
 }

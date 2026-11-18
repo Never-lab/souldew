@@ -1,16 +1,17 @@
-// Favourites in the cosmetics pickers (banners, frames, nameplates, themes, launch animations – and any kind added
-// later): one object keyed by kind, { banner: [ids], frame: [ids], … }, kept in the local config (config.json
-// `favourites`, POST /api/config) next to the theme and the launch animation. The pure parts live here so the server
-// (which only stores the shape) and the page (web/lib/favourites.mjs: the star, the filter row) share one set of rules,
-// and test/favourites.test.mjs checks them without a page.
+// Favourites in the cosmetics pickers (banners, frames, nameplates, themes, launch animations, the handheld's skins,
+// stickers and designs – and any kind added later): one object keyed by kind, { banner: [ids], frame: [ids], … }, kept
+// in the local config (config.json `favourites`, POST /api/config) next to the theme and the launch animation. The pure
+// parts live here so the server (which only stores the shape) and the page (web/lib/favourites.mjs: the star, the
+// filter row) share one set of rules, and test/favourites.test.mjs checks them without a page.
 //
 // Rules: a favourite is a wish as much as a choice – souldew+ and locked items can be one too. The lists keep the
 // order things were starred in, but a picker always shows its items in its own order; a favourite is never moved up.
 // Ids the catalog doesn't know (an item retired from the pack, a typo in a hand-edited config) are ignored when a
 // picker filters and pruned quietly the next time that kind is written.
 
-/** The kinds the app's own pickers use. Other kinds (handheld skins, stickers …) are kept as long as their shape is right. */
-export const FAV_KINDS = ['banner', 'frame', 'nameplate', 'theme', 'launch'];
+/** The kinds the app's own pickers use – "Your handheld" adds its skins, stickers and saved designs. Other kinds are kept as
+ * long as their shape is right. */
+export const FAV_KINDS = ['banner', 'frame', 'nameplate', 'theme', 'launch', 'skin', 'sticker', 'design'];
 
 /** The cosmetics catalog's list names (web/lib/cosmetics catalog()) → favourite kinds. */
 export const FAV_KIND_OF = { banners: 'banner', frames: 'frame', nameplates: 'nameplate', skins: 'theme', launch: 'launch' };

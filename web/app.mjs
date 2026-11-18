@@ -7,6 +7,7 @@ import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
 import { applySkin, refreshPack } from './lib/cosmetics/index.mjs';
 import { initFavourites } from './lib/favourites.mjs';
+import { initHandheld, prewarm as prewarmHandheld } from './lib/handheld/look.mjs';
 import { detectLayout } from './lib/controls.mjs';
 import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules } from './lib/run.mjs';
 import { play } from './lib/sound.mjs';
@@ -43,6 +44,7 @@ import { syncTrophies, rememberSlots, watchRun, onTrophyUnlock } from './lib/tro
 import { FriendsView } from './views/friends.mjs';
 import { ProfileView } from './views/profile.mjs';
 import { PlusView } from './views/plus.mjs';
+import { HandheldView } from './views/handheld.mjs';
 import { railGroups, FOOT_SECTIONS } from './lib/railnav.mjs';
 import { accountEvent } from './lib/account.mjs';
 import { useSocial } from './lib/socialapp.mjs';
@@ -385,6 +387,8 @@ function App() {
       // souldew+: the chosen skin is remembered now and shows as soon as the pack is loaded and verified (in the background)
       applySkin(s.config?.skin);
       initFavourites(s.config?.favourites); // the starred looks in the cosmetics pickers
+      initHandheld(s.config?.handheld); // "Your handheld" in the launch animation (a local setting)
+      prewarmHandheld(); // three.js and the sticker atlas at idle, so the first launch spends no time loading them
       refreshPack().catch((e) => console.warn('souldew+ pack', e));
       const lang = await setLang(s.config?.lang || guessLang());
       sendMenuLabels();
@@ -800,7 +804,7 @@ function App() {
     return html`<div class="boot"><div class="boot-screen"></div></div>`;
   }
   const showOnboarding = !!status && !status.config?.onboarded;
-  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView, friends: FriendsView, profile: ProfileView, plus: PlusView }[route.route] || LibraryView;
+  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView, friends: FriendsView, profile: ProfileView, plus: PlusView, handheld: HandheldView }[route.route] || LibraryView;
   const names = runDoc ? getPlayers(runDoc, manifest) : null;
   // Fullscreen – the window's (macOS: green button, Windows: F11) or the game's (F): the side rail folds away, the game gets the room
   const [winFs, setWinFs] = useState(false);
@@ -857,7 +861,8 @@ function App() {
     return r ? runMode(r) : 'soullink';
   };
   const playingIn = session ? (session.target.runId ? sectionOf(session.target.runId) : 'library') : null;
-  const here = route.route !== 'play' ? route.route
+  const here = route.route === 'handheld' ? 'settings' // (Settings › Play › Launch animation › Your handheld)
+    : route.route !== 'play' ? route.route
     : showsSession && session ? playingIn : rp.run ? sectionOf(rp.run) : 'library';
   // souldew+ at the rail's foot says "thank you" to every member (supporter, souldew+, patron)
   const thanks = !!social.signedIn && (social.me?.entitlement?.tier || 'none') !== 'none';

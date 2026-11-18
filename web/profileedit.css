@@ -420,3 +420,9 @@ html.platform-win32 .app-native.rail-folded .pe-bar, html.platform-linux .app-na
 .pe-fs-list .fr-text { max-width: 64%; }
 /* the category bar scrolls sideways where it doesn't fit: its end fades, so it reads as more, not as cut off */
 @media (max-width: 1360px) { .pe-cats { mask-image: linear-gradient(90deg, #000 calc(100% - 48px), transparent); padding-right: 32px; } }
+
+/* an earned look you haven't earned yet (Summit Dawn): grey, with the trophy that unlocks it – never a souldew+ upsell */
+.pe-card.not-earned { cursor: help; }
+.pe-card.not-earned .pe-art { filter: grayscale(1) brightness(.6); }
+.pe-earned-word { font-size: 11px; color: var(--ink-3); }
+.pe-earned-how { display: block; padding: 0 2px 2px; color: var(--ink-3); line-height: 1.3; }

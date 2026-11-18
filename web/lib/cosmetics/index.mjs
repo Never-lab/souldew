@@ -1,6 +1,6 @@
 // souldew+ cosmetics – the public interface (README.md in this folder documents every name; keep them stable, the
 // profile / friends UI and the account client import them).
-import { CATALOG, state, onChange, owned, has } from './state.mjs';
+import { CATALOG, EARNED_CATALOG, state, onChange, owned, has, setEarnedTrophies } from './state.mjs';
 
 export { applySkin, previewSkin, endPreview, listSkins, skinState, onSkinChange, applyStoredSkin } from './skins.mjs';
 export { mountBanner, mountNameplate, bannerStats } from './banners/runtime.mjs';
@@ -9,7 +9,7 @@ export { playLaunch, previewLaunch, launchAvailable, layoutKey } from './launch/
 export { refreshPack, forgetPack, packState, setPackAccessProvider, getPackAccess, startPackPreview, endPackPreview, GRACE_MS } from './pack/client.mjs';
 export { setReducedMotion } from './motion.mjs';
 export { setPlusHandler, openPlus } from './plus.mjs';
-export { onChange, owned, has };
+export { onChange, owned, has, setEarnedTrophies };
 
 const KINDS = ['banners', 'frames', 'nameplates', 'skins', 'launch'];
 const RARITY = ['free', 'common', 'rare', 'epic', 'legendary'];
@@ -22,14 +22,16 @@ const RARITY = ['free', 'common', 'rare', 'epic', 'legendary'];
  */
 export function catalog() {
   const tag = (kind, list) => list.map((x) => ({ ...x, owned: owned(kind, x.id), available: has(kind, x.id) }));
-  const nameplates = CATALOG.banners.map((b) => ({ id: b.id, name: b.name, collection: b.collection, collectionName: b.collectionName, rarity: b.rarity, pairsWith: b.pairsWith, plus: b.plus, sw: b.sw }));
+  // the earned banners (summit-dawn …) are part of the banner list – in a collection of their own, `earned` and `trophy` set
+  const banners = [...CATALOG.banners, ...EARNED_CATALOG];
+  const nameplates = banners.map((b) => ({ id: b.id, name: b.name, collection: b.collection, collectionName: b.collectionName, rarity: b.rarity, pairsWith: b.pairsWith, plus: b.plus, sw: b.sw, ...(b.earned ? { earned: true, trophy: b.trophy } : {}) }));
   return {
-    banners: tag('banners', CATALOG.banners),
+    banners: tag('banners', banners),
     frames: tag('frames', CATALOG.frames),
     nameplates: tag('nameplates', nameplates),
     skins: tag('skins', CATALOG.skins),
     launch: tag('launch', CATALOG.launch),
-    collections: CATALOG.collections,
+    collections: { ...CATALOG.collections, banners: [...CATALOG.collections.banners, { id: 'earned', name: 'Earned' }] },
   };
 }
 

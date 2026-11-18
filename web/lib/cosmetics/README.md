@@ -28,7 +28,7 @@ Import from `index.mjs` (plain functions) and `components.mjs` (Preact). Treat t
 
 | Name | What it does |
 |---|---|
-| `playLaunch(gameBox, id, { onDone, firstFrame, system, dsLayout, ctrLayout \| layout, reduced })` | Plays a souldew+ animation over the game box and returns `{ ready(), skip(), destroy(), done, stats }`, or `null` when `id` isn't available. `'cartridge'` is the free default: it stays the app's `views/cartinsert.mjs` and always gets `null` here. `firstFrame` may be a Promise or `true`. A click or any key skips the animation. It can never outlast 20 s + its own length. |
+| `playLaunch(gameBox, id, { onDone, firstFrame, system, dsLayout, ctrLayout \| layout, reduced })` | (2D, before 3.0 – the play view now plays `web/views/launchstage.mjs`.) Plays a souldew+ animation over the game box and returns `{ ready(), skip(), destroy(), done, stats }`, or `null` when `id` isn't available. `'cartridge'` is the free default: it stays the app's `views/cartinsert.mjs` and always gets `null` here. `firstFrame` may be a Promise or `true`. A click or any key skips the animation. It can never outlast 20 s + its own length. |
 | `launchAvailable(id)` | Tells whether `id` can be played now. |
 | `previewLaunch(box, id, opts)` | Plays the animation once over our neutral placeholder picture (used by Settings › Play). |
 | `layoutKey(system, dsLayout, ctrLayout)` | Maps the play view's system and layout to the animation's pixel grid. |
@@ -115,15 +115,25 @@ Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fo
 **Free (in the app):**
 - the classic skin;
 - banners LCD Grid and Plain Dusk (`content/banners-free.mjs`);
+- the earned banner Summit Dawn (`content/banners-earned.mjs`) – free with its trophy (Hardcore Legend), never sold, so
+  it ships like the free ones; `catalog()` lists it in the collection `earned` with `earned: true`, owned once the
+  trophy is on this computer (`setEarnedTrophies`, fed by `web/lib/trophies.mjs`);
 - frames Plain and Pencil (`content/frames-free.mjs`);
-- the Cartridge launch animation;
-- the public catalog (`content/catalog.mjs`: names, collections, rarities, swatches, pairings).
+- the 3.0 launch animation's scene and "Your colours" (`web/lib/handheld/`, three.js vendored in `web/vendor/three/`,
+  loaded only for the launch and the editor), the free wrap Plain Dusk and the free and earned stickers as a pre-built
+  atlas (`web/assets/handheld/`, `scripts/build-handheld-atlas.mjs`);
+- the public catalog (`content/catalog.mjs`: names, collections, rarities, swatches, pairings; the handheld's in
+  `shared/handheld.mjs`).
 
 **Pack:**
 - 16 colour skins (colour only – no fonts, no art);
 - 133 banners (125 at launch plus 8 monthly drops) with their nameplate windows;
 - 71 frames;
-- 13 launch animations.
+- 13 launch animations (2D – no longer offered in Settings since 3.0's handheld launch; the engine stays);
+- "Your handheld": `handheld/wraps.json` (the six souldew+ wraps' compositions – their art is the pack's banner recipes)
+  and the souldew+ stickers' pre-built atlas `handheld/stickers.png` + `stickers-cut.png` + `stickers.json`
+  (`contents.json` › `handheld`; built by `scripts/plus-dev-pack.mjs --handheld <design/plus/handheld>`). Gold, Clear
+  shell and Holo label are material settings in the public scene – the membership unlocks them, there is no art.
 
 ## Preview media (`previews.mjs`) – what everyone sees before buying
 
