@@ -38,7 +38,9 @@ Plus a new play view that gives the game the room it deserves.
   Colosseum when the link ends goes on alone in its link mode – Gold, Silver and Crystal even start the next battle
   against the partner's team they already received. souldew counts nothing of it (no deaths, no catches, no team
   changes) until you walk out or start the game again. The result card says “₽2,000 to pay …” until the money has
-  really left your game – in the Gen 1 Colosseum, which has no way out, that's after switching the game off and on.
+  really left your game – in the Gen 1 Colosseum, which has no way out, that's after switching the game off and on –
+  and in the Game Boy games it now waits for Continue: on the title screen the money would have been lost when the
+  save loads, so the winner never got it.
 - **Trades in Gold, Silver and Crystal go into the log** too – two of your own Pokémon with the same trainer ID and
   stats no longer hide the trade. The “You are here” sign knows the Union Room and the Colosseums of Diamond, Pearl,
   Platinum, HeartGold and SoulSilver.

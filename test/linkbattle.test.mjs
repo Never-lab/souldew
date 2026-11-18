@@ -262,7 +262,7 @@ test('wager: the money goes into each game once – again only into a game start
   const doc = memDoc();
   doc.set('lb:abc123:p1', entry({}));
   doc.set('lb:abc123:p2', entry({}));
-  const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [0] }); // Red, ₽5,000, in the overworld
+  const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [2] }); // Red, ₽5,000, two Pokémon, in the overworld
   const paid = [];
   const pay = new WagerPay({ doc, me: 'p2', onPaid: (o) => paid.push(o) });
   const tick = (o = {}) => pay.tick({ game: 'redblue', read: tim.read, write: tim.write, ...o });
@@ -294,7 +294,7 @@ test('wager: the money goes into each game once – again only into a game start
   await tick();
   assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000);
   // the winner's game: +₽2,000; a write that didn't land (the money still the old sum) goes in again
-  const marius = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0] });
+  const marius = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [1] });
   const pay1 = new WagerPay({ doc, me: 'p1' });
   await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write });
   assert.equal(L.bcdDecode(marius.read(0xd347, 3)), 5000);
@@ -316,7 +316,7 @@ test('wager: the result card says "paid" only once the money went into the game 
   assert.equal(before.settled, false, 'nothing taken yet: the game is still linked / in the Colosseum');
   assert.equal(W.wagerStatus(doc, 'abc123', 'p1', o.pays).settled, false);
   // the overworld: WagerPay takes it (Red: wIsInBattle and wLinkState 0)
-  const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [4] }); // wLinkState 4: still in the Colosseum
+  const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [4], 0xd163: [2] }); // wLinkState 4: still in the Colosseum
   const pay = new WagerPay({ doc, me: 'p2' });
   await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
   assert.equal(W.wagerStatus(doc, 'abc123', 'p2', o.pays).settled, false, 'the Colosseum is no overworld');
@@ -348,4 +348,25 @@ test('the run applies nothing of a game that says it is still linked (web/app.mj
   assert.match(src, /snap\.linkedGame && snap\.source === 'live' && !getRules\(doc, manifest\)\?\.linkBattleDeaths\) return null/);
   const play = (await import('node:fs')).readFileSync(new URL('../web/views/play.mjs', import.meta.url), 'utf8');
   assert.match(play, /gameLinked\(g0, e\.read, \{ inBattle: !!seen \}\)/);
+});
+
+test('wager: never into a game on its title screen – Gen 1/2 read as "idle" there, before Continue loads the save', async () => {
+  // (seen in the e2e: Crystal switched off and on after the Colosseum – the wager went into RAM at ₽0 and was gone
+  // when the save loaded; the winner's game never got it)
+  assert.equal(await L.fieldIdle('crystal', bus({ 0xdcd7: [0] }).read), false, 'no team yet: the title screen');
+  assert.equal(await L.fieldIdle('crystal', bus({ 0xdcd7: [2] }).read), true, 'Continue: the save is loaded');
+  assert.equal(await L.fieldIdle('goldsilver', bus({ 0xda22: [0xff] }).read), false, 'garbage is no team');
+  assert.equal(await L.fieldIdle('redblue', bus({ 0xd163: [0] }).read), false);
+  assert.equal(await L.fieldIdle('yellow', bus({ 0xd162: [6] }).read), true);
+  const doc = memDoc();
+  doc.set('lb:abc123:p1', entry({}));
+  doc.set('lb:abc123:p2', entry({}));
+  const tim = bus({ 0xd347: [0, 0, 0], 0xd057: [0], 0xd12b: [0], 0xd163: [0] }); // reset: WRAM cleared, money ₽0
+  const pay = new WagerPay({ doc, me: 'p2' });
+  await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
+  assert.equal(doc.get('lbpay:abc123:p2'), undefined, 'nothing written on the title screen');
+  tim.put(0xd347, [0x00, 0x50, 0x00]);
+  tim.put(0xd163, [2]); // Continue
+  await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000, 'paid from the loaded ₽5,000');
 });
