@@ -68,32 +68,42 @@ const DS = {
 
 // Gen 6/7 (3DS): the bag is the save data's MyItem block, which the game keeps in its heap at a fixed address per
 // game and update (addresses.json partyAddrs[].bag – Multi-PokemonFramework (semaj14, GPL-3) writes the pockets there
-// for X/Y 1.5, ORAS 1.4, Sun/Moon 1.2 and Ultra Sun/Moon 1.2; the 1.0 addresses moved by the same distance as the party
-// and the badges; Sun 1.0 checked live). Pockets as in PKHeX PlayerBag6XY / 6AO / 7SM / 7USUM (offsets in the block,
-// slots). Gen 6 slots are { u16 id, u16 count }; Gen 7 slots one u32: id (bits 0–9), count (10–19), the place in the
-// Free Space pocket (20–29, 0: not in it), NEW (30), bit 31 unused (PKHeX InventoryItem7). 999 per slot. Rare Candy goes into Medicine.
-// Sun/Moon keep a table of pointers to the pockets right behind the block (seen live in Sun 1.0) – when it is there it
-// has to point at exactly these pockets; either way every slot has to look like an item of its pocket.
+// for X/Y 1.5, ORAS 1.4, Sun/Moon 1.2 and Ultra Sun/Moon 1.2; the X/Y and ORAS 1.0 addresses moved by the same distance
+// as the party and the badges; Sun 1.0 and Ultra Moon 1.0 checked live: the same address as 1.2). Pockets as in PKHeX
+// PlayerBag6XY / 6AO / 7SM / 7USUM (offsets in the block, slots). Gen 6 slots are { u16 id, u16 count }; Gen 7 slots one
+// u32: id (bits 0–9), count (10–19), the place in the Free Space pocket (20–29, 0: not in it), NEW (30), bit 31 unused
+// (PKHeX InventoryItem7). 999 per slot. Rare Candy goes into Medicine.
+// Sun/Moon and Ultra Sun/Moon keep a table of pointers to the pockets right behind the block (seen live in Sun 1.0 and
+// Ultra Moon 1.0, from the intro on, in the order Medicine, Items, TMs, Berries, Key Items, Z-Crystals(, Rotom Powers)) –
+// when it is there it has to point at exactly these pockets; either way every slot has to look like an item of its
+// pocket. The table also tells an empty bag (a new game has nothing in it until well after the starter) from memory that
+// is merely all zeros, and it is what the search finds when the bag isn't at a known address (`table: true`: the game
+// is known to have it – its bag is searched for by the table alone).
 const range = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 const MED67 = new Set([...range(17, 54), 65, 66, 67, 134, 504, ...range(565, 571), 591, 645, 708, 709, 852]); // PKHeX ItemStorage6XY/6AO/7SM Medicine
 const TM67 = new Set([...range(328, 425), 618, 619, 620, ...range(690, 694), 737]); // TMs, HMs (ORAS: 425, 737)
 const CTR = {
   xy: { gen: 6, maxId: 717, size: 0xb88, pockets: { items: [0x000, 400], key: [0x640, 96], tm: [0x7c0, 106], medicine: [0x968, 64], berries: [0xa68, 72] } },
   oras: { gen: 6, maxId: 775, size: 0xb90, pockets: { items: [0x000, 400], key: [0x640, 96], tm: [0x7c0, 108], medicine: [0x970, 64], berries: [0xa70, 72] } },
-  sm: { gen: 7, maxId: 920, size: 0xde0, pockets: { items: [0x000, 430], key: [0x6b8, 184], tm: [0x998, 108], medicine: [0xb48, 64], berries: [0xc48, 72], z: [0xd68, 30] } },
-  usum: { gen: 7, maxId: 959, size: 0xe28, pockets: { items: [0x000, 427], key: [0x6ac, 198], tm: [0x9c4, 108], medicine: [0xb74, 60], berries: [0xc64, 67], z: [0xd70, 35], battle: [0xdfc, 11] } },
+  sm: { gen: 7, maxId: 920, size: 0xde0, table: true, pockets: { items: [0x000, 430], key: [0x6b8, 184], tm: [0x998, 108], medicine: [0xb48, 64], berries: [0xc48, 72], z: [0xd68, 30] } },
+  usum: { gen: 7, maxId: 959, size: 0xe28, table: true, pockets: { items: [0x000, 427], key: [0x6ac, 198], tm: [0x9c4, 108], medicine: [0xb74, 60], berries: [0xc64, 67], z: [0xd70, 35], battle: [0xdfc, 11] } },
 };
-/** The bag's addresses to try for a 3DS game: the update the party was found at first (state.g67), then the others. */
+const ctrLen = (L) => L.size + Object.keys(L.pockets).length * 4; // the block and the pointer table behind it
+const hex = (v) => `0x${(v >>> 0).toString(16).toUpperCase().padStart(8, '0')}`;
+/**
+ * The bag's addresses to try for a 3DS game: where this session found it (state.ctrBag – the search, see
+ * locateCtrBag), the update the party was found at (state.g67), then the other updates'.
+ */
 function ctrBags(entry, state) {
   const all = (entry.partyAddrs || []).map((a) => (a?.bag ? parseInt(a.bag, 16) : 0));
-  const first = state?.g67 != null && all[state.g67] ? [all[state.g67]] : [];
-  return [...new Set([...first, ...all.filter(Boolean)])];
+  const first = [state?.ctrBag?.base || 0, state?.g67 != null ? all[state.g67] || 0 : 0];
+  return [...new Set([...first, ...all].filter(Boolean))];
 }
 /** The memory a 3DS game's bag needs (the block and the pointer table behind it) – for the 3DS player's watch list. */
 export function cheatRegions(entry) {
   const L = layoutOf(entry);
   if (L?.kind !== 'ctr') return [];
-  return ctrBags(entry, null).map((addr) => ({ addr, len: L.size + Object.keys(L.pockets).length * 4, name: 'bag' }));
+  return ctrBags(entry, null).map((addr) => ({ addr, len: ctrLen(L), name: 'bag' }));
 }
 
 function layoutOf(entry) {
@@ -310,48 +320,240 @@ function dsBag(L, entry, read, state, pocketName = 'medicine', allowEmpty = fals
 // ---------------------------------------------------------------------------
 // Gen 6/7
 
-function ctrBagAt(L, base, read, pocketName = 'medicine') {
+const ctrSlot = (L, b, o) => (L.gen === 7 ? u32le(b, o) : u16le(b, o) | (u16le(b, o + 2) << 16)) >>> 0;
+const ctrId = (L, v) => (L.gen === 7 ? v & 0x3ff : v & 0xffff);
+const ctrCount = (L, v) => (L.gen === 7 ? (v >>> 10) & 0x3ff : v >>> 16);
+/** One slot of `pocket`: 0 empty, 1 an item that may be in that pocket, 2 not a slot of it. */
+function ctrSlotKind(L, v, pocket) {
+  const id = ctrId(L, v);
+  const qty = ctrCount(L, v);
+  if (!id) return qty ? 2 : 0; // (an empty slot has no count)
+  if (id > L.maxId || qty < 1 || qty > 999 || (L.gen === 7 && v >>> 31)) return 2;
+  if ((pocket === 'medicine' && !MED67.has(id)) || (pocket === 'tm' && !TM67.has(id))) return 2;
+  return 1;
+}
+const isPtr = (p) => p >= 0x08000000 && p < 0x40000000;
+/**
+ * The pocket pointers behind a block at `base` (Sun/Moon, Ultra Sun/Ultra Moon): 'match' – exactly this block's pockets,
+ * 'none' – no pointers there (a game without the table), 'other' – pointers to anything else. `t`: the words there.
+ */
+function ctrTable(L, base, t) {
+  if (!t) return 'none';
+  const n = Object.keys(L.pockets).length;
+  const want = new Set(Object.values(L.pockets).map(([off]) => (base + off) >>> 0));
+  const got = new Set(Array.from({ length: n }, (_, i) => u32le(t, i * 4)));
+  if (![...got].some(isPtr)) return 'none';
+  return got.size === want.size && [...got].every((p) => want.has(p)) ? 'match' : 'other';
+}
+
+/**
+ * Is the block at `base` the bag? → { ok: true, used, table } or { why } – why not, for the diagnostics: 'unread'
+ * (not in the memory souldew sees), 'slot <pocket>#<n> <value>' (a slot that is no item of its pocket), 'pointers'
+ * (the table behind it points at other pockets), 'empty' (nothing in it and no table that says it is the bag: all
+ * zeros would look the same).
+ */
+function ctrCheck(L, base, read) {
   const b = read(base, L.size);
-  if (!b) return null;
-  const g7 = L.gen === 7;
-  const slot = (o) => (g7 ? u32le(b, o) : u16le(b, o) | (u16le(b, o + 2) << 16)) >>> 0;
-  const idOf = (v) => (g7 ? v & 0x3ff : v & 0xffff);
-  const countOf = (v) => (g7 ? (v >>> 10) & 0x3ff : v >>> 16);
+  if (!b) return { why: 'unread' };
   let used = 0;
   for (const [name, [off, n]] of Object.entries(L.pockets)) {
     for (let i = 0; i < n; i++) {
-      const v = slot(off + i * 4);
-      const id = idOf(v);
-      const qty = countOf(v);
-      if (!id) {
-        if (qty) return null; // (an empty slot has no count)
-        continue;
-      }
-      if (id > L.maxId || qty < 1 || qty > 999 || (g7 && v >>> 31)) return null;
-      if ((name === 'medicine' && !MED67.has(id)) || (name === 'tm' && !TM67.has(id))) return null;
-      used++;
+      const v = ctrSlot(L, b, off + i * 4);
+      const k = ctrSlotKind(L, v, name);
+      if (k === 2) return { why: `slot ${name}#${i} ${hex(v)}` };
+      used += k;
     }
   }
-  // an all-zero region passes the checks above: a real bag has something in it (the key item that comes with the
-  // starter, at the latest)
-  if (!used) return null;
-  // the pocket pointers behind the block (Sun / Moon): when they are there, they point at these pockets and no others
-  const n = Object.keys(L.pockets).length;
-  const t = read(base + L.size, n * 4);
-  if (t) {
-    const want = new Set(Object.values(L.pockets).map(([off]) => (base + off) >>> 0));
-    const got = new Set(Array.from({ length: n }, (_, i) => u32le(t, i * 4)));
-    const anyPtr = [...got].some((p) => p >= 0x08000000 && p < 0x40000000);
-    if (anyPtr && (got.size !== want.size || [...got].some((p) => !want.has(p)))) return null;
+  const table = ctrTable(L, base, read(base + L.size, Object.keys(L.pockets).length * 4));
+  if (table === 'other') return { why: 'pointers' };
+  if (!used && table !== 'match') return { why: 'empty' };
+  return { ok: true, used, table: table === 'match', b };
+}
+
+function ctrBagAt(L, base, read, pocketName = 'medicine', tried = null) {
+  const c = ctrCheck(L, base, read);
+  if (!c.ok) {
+    tried?.push({ at: hex(base), why: c.why });
+    return null;
   }
+  const { b } = c;
   const [off, slots] = L.pockets[pocketName];
-  return { addr: base + off, slots, bytes: b.subarray(off, off + slots * 4), g7, slot: (i) => slot(off + i * 4), idOf, countOf };
+  const slot = (i) => ctrSlot(L, b, off + i * 4);
+  return { base, addr: base + off, slots, bytes: b.subarray(off, off + slots * 4), g7: L.gen === 7, slot, idOf: (v) => ctrId(L, v), countOf: (v) => ctrCount(L, v) };
+}
+
+/** The bag at the first of the game's addresses (ctrBags) where it checks out; `tried` collects why the others didn't. */
+function ctrFind(L, entry, read, state, pocketName, tried = null) {
+  for (const base of ctrBags(entry, state)) {
+    const bag = ctrBagAt(L, base, read, pocketName, tried);
+    if (bag) return bag;
+  }
+  return null;
+}
+
+// ---- the search ----------------------------------------------------------------------------------------------------
+// When the bag isn't at any address souldew knows (an update or a build it hasn't seen), it is searched for near them:
+// the 3DS player reads windows of 64 KB (CTR_WINDOW, the host's most per region), a few at a time on top of the game's
+// own regions, each overlapping the next by more than a bag, so a bag anywhere in the range lies whole in one window.
+// A game with the pocket table (Sun/Moon, Ultra Sun/Ultra Moon) is found by it alone: the words at T that point at
+// exactly T − size + each pocket's offset, with every slot of that block an item of its pocket. A game without it
+// (X/Y, ORAS – none seen there so far) by its slots: no slot that isn't an item of its pocket, every pocket packed
+// from the front (one with a gap is refused – better no bag than a wrong one), items in at least two pockets, no item
+// twice (the game stacks it in one slot), and nowhere else in the
+// range anything that would pass the same – two places that both look like the bag (a nearly empty one shifted by a
+// slot) are refused. (Searched by its slots, the heap of Sun 1.0 and Ultra Moon 1.0 – 72 MB each – has a few hundred
+// places that look like a bag with one pocket filled, none with two; by the table, exactly one: the bag.) The place
+// found is kept for the session (state.ctrBag) and tried first from then on.
+export const CTR_WINDOW = 0x10000;
+const CTR_STEP = CTR_WINDOW - 0x1000; // (a bag and its table: at most 0xE44 bytes)
+const CTR_RADIUS = 0x50000; // searched on both sides of each known address
+const CTR_PER_ROUND = 6; // windows per read (the player watches 16 regions at most, the game's own included)
+
+/** The windows to search for a 3DS game's bag, nearest to the known addresses first, in rounds of CTR_PER_ROUND. */
+export function ctrScanPlan(entry, { radius = CTR_RADIUS } = {}) {
+  const L = layoutOf(entry);
+  if (L?.kind !== 'ctr') return [];
+  const known = ctrBags(entry, null);
+  // the ranges around the known addresses, merged where they overlap
+  const spans = known.map((a) => [Math.max(0, a - radius), a + radius + ctrLen(L)]).sort((x, y) => x[0] - y[0]);
+  const merged = [];
+  for (const s of spans) {
+    const last = merged.at(-1);
+    if (last && s[0] <= last[1]) last[1] = Math.max(last[1], s[1]);
+    else merged.push([...s]);
+  }
+  const wins = [];
+  for (const [a, b] of merged) for (let w = a; w < b - 0x1000; w += CTR_STEP) wins.push(w);
+  const dist = (w) => Math.min(...known.map((k) => Math.abs(w + CTR_WINDOW / 2 - k)));
+  wins.sort((x, y) => dist(x) - dist(y) || x - y);
+  const rounds = [];
+  for (let i = 0; i < wins.length; i += CTR_PER_ROUND) rounds.push(wins.slice(i, i + CTR_PER_ROUND).map((addr) => ({ addr, len: CTR_WINDOW, name: 'bagSearch' })));
+  return rounds;
+}
+
+/**
+ * The places in one window of a 3DS game's memory (`b`: its bytes, read at `addr`) that look like its bag →
+ * [{ base, how: 'table'|'slots' }]. `table` false searches by the slots even in a game with the pocket table (research).
+ */
+export function ctrScanWindow(entry, addr, b, { table } = {}) {
+  const L = layoutOf(entry);
+  return L?.kind === 'ctr' && b ? scanWindow(table === false ? { ...L, table: false } : L, addr, b) : [];
+}
+/**
+ * A game with the table only by it; the others by their slots (see above), with prefix sums – every word of the window
+ * is classed once, then each place costs a few lookups per pocket.
+ */
+function scanWindow(L, addr, b) {
+  const words = b.length >> 2;
+  const n = Object.keys(L.pockets).length;
+  const blockWords = L.size >> 2;
+  const out = [];
+  const check = (base) => ctrCheck(L, base, (a, len) => (a >= addr && a + len <= addr + b.length ? b.subarray(a - addr, a - addr + len) : null));
+  if (L.table) {
+    // the table: its first word points at one of the pockets – the base follows, then the rest has to match
+    const offs = new Set(Object.values(L.pockets).map(([off]) => off));
+    for (let i = blockWords; i + n <= words; i++) {
+      const base = (addr + (i - blockWords) * 4) >>> 0;
+      if (!offs.has((u32le(b, i * 4) - base) >>> 0)) continue;
+      if (ctrTable(L, base, b.subarray(i * 4, i * 4 + n * 4)) !== 'match') continue;
+      if (check(base).ok) out.push({ base, how: 'table' });
+    }
+    return out;
+  }
+  // per word: not a slot of any pocket / an item / an item that isn't medicine / … that isn't a TM – as prefix sums
+  const pre = (f) => {
+    const p = new Int32Array(words + 1);
+    for (let i = 0; i < words; i++) p[i + 1] = p[i] + f(ctrSlot(L, b, i * 4));
+    return p;
+  };
+  const bad = pre((v) => (ctrSlotKind(L, v, 'items') === 2 ? 1 : 0));
+  const item = pre((v) => (ctrSlotKind(L, v, 'items') === 1 ? 1 : 0));
+  const notMed = pre((v) => (ctrSlotKind(L, v, 'items') === 1 && ctrSlotKind(L, v, 'medicine') !== 1 ? 1 : 0));
+  const notTm = pre((v) => (ctrSlotKind(L, v, 'items') === 1 && ctrSlotKind(L, v, 'tm') !== 1 ? 1 : 0));
+  const sum = (p, i, len) => p[i + len] - p[i];
+  const pockets = Object.entries(L.pockets).map(([name, [off, len]]) => [name, off >> 2, len]);
+  for (let s = 0; s + blockWords + n <= words; s++) {
+    let filled = 0;
+    let ok = true;
+    for (const [name, o, len] of pockets) {
+      const i = s + o;
+      const k = sum(item, i, len);
+      if (sum(bad, i, len) || (name === 'medicine' && sum(notMed, i, len)) || (name === 'tm' && sum(notTm, i, len)) || sum(item, i, k) !== k) {
+        ok = false;
+        break;
+      }
+      if (k) filled++;
+    }
+    if (!ok || filled < 2) continue;
+    const base = (addr + s * 4) >>> 0;
+    const c = check(base);
+    if (!c.ok) continue;
+    // no item twice (the game stacks it in one slot)
+    const ids = [];
+    for (const [, o, len] of pockets) for (let i = 0; i < len; i++) ids.push(ctrId(L, ctrSlot(L, b, (s + o + i) * 4)));
+    const held = ids.filter(Boolean);
+    if (new Set(held).size === held.length) out.push({ base, how: c.table ? 'table' : 'slots' });
+  }
+  return out;
+}
+
+/**
+ * Search the bag of a 3DS game near its known addresses (when it isn't at one of them) and keep what was found for the
+ * session: state.ctrBag = { base, how }. `mem.watch(regions)` lets the 3DS player read more memory and resolves once it
+ * has (false: it couldn't); the windows are let go afterwards, the bag found stays watched. Several calls at once share
+ * one search. → { found: hex | null, how?, why?, windows, candidates? } – what the diagnostics keep.
+ */
+export function locateCtrBag(entry, mem, state) {
+  const L = layoutOf(entry);
+  if (L?.kind !== 'ctr' || typeof mem?.watch !== 'function' || !state) return Promise.resolve(null);
+  if (state.ctrBagSearch) return state.ctrBagSearch;
+  const run = async () => {
+    const hits = new Map(); // base → how
+    let windows = 0;
+    let why = null;
+    for (const round of ctrScanPlan(entry)) {
+      if (!(await mem.watch(round))) {
+        why = 'noMemory';
+        break;
+      }
+      for (const w of round) {
+        const b = mem.read(w.addr, w.len);
+        if (!b) continue; // (not mapped)
+        windows++;
+        for (const h of scanWindow(L, w.addr, b)) if (!hits.has(h.base) || h.how === 'table') hits.set(h.base, h.how);
+      }
+      if ([...hits.values()].includes('table')) break; // (nothing else could beat that)
+    }
+    const tables = [...hits].filter(([, how]) => how === 'table');
+    const pick = tables.length ? tables : [...hits];
+    const done = { windows, ...(hits.size ? { candidates: hits.size } : {}) };
+    if (pick.length !== 1) {
+      await mem.watch([]);
+      return { found: null, why: why || (pick.length ? 'ambiguous' : 'none'), ...done };
+    }
+    const [base, how] = pick[0];
+    // the bag found stays in the memory the player reads – checked once more there
+    await mem.watch([{ addr: base, len: ctrLen(L), name: 'bag' }]);
+    if (!ctrCheck(L, base, mem.read).ok) return { found: null, why: 'moved', ...done };
+    state.ctrBag = { base, how };
+    return { found: hex(base), how, ...done };
+  };
+  state.ctrBagSearch = run().finally(() => {
+    state.ctrBagSearch = null;
+  });
+  return state.ctrBagSearch;
 }
 
 function ctrAdd(L, entry, mem, state, item, count, pocketName = 'medicine') {
-  let bag = null;
-  for (const base of ctrBags(entry, state)) if ((bag = ctrBagAt(L, base, mem.read, pocketName))) break;
-  if (!bag) return { error: 'notFound' };
+  const tried = [];
+  const bag = ctrFind(L, entry, mem.read, state, pocketName, tried);
+  if (!bag) {
+    // not at a known address: search it nearby where the player can read more memory, then once more
+    const search = typeof mem.watch === 'function' ? locateCtrBag(entry, mem, state) : null;
+    const notFound = (scan) => ({ error: 'notFound', why: tried.length && tried.every((t) => t.why === 'empty') ? 'empty' : 'missing', tried, ...(scan ? { scan } : {}) });
+    if (!search) return notFound(null);
+    return search.then((scan) => (scan?.found ? ctrAdd(L, entry, { read: mem.read, write: mem.write }, state, item, count, pocketName) : notFound(scan)));
+  }
   const { addr, slots, g7, slot, idOf, countOf } = bag;
   const enc = (v) => [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff];
   for (let i = 0; i < slots; i++) {
@@ -407,12 +609,16 @@ function commit(mem, writes, before, after) {
  * Put `count` Rare Candies into the player's bag (onto the stack they have, else into a free slot; capped at the
  * game's stack size: 99, Gen 4–7 999).
  * @param {object} entry   addresses.json entry (findEntry)
- * @param {{read:(addr:number,len:number)=>Uint8Array|null, write:(addr:number,bytes:Uint8Array)=>boolean|Promise<boolean|{ok:false,why:string}>}} mem
+ * @param {{read:(addr:number,len:number)=>Uint8Array|null, write:(addr:number,bytes:Uint8Array)=>boolean|Promise<boolean|{ok:false,why:string}>, watch?:(regions:object[])=>Promise<boolean>}} mem
+ *                         `watch` (the 3DS player): more memory to read – a 3DS bag not at a known address is then
+ *                         searched for nearby (locateCtrBag)
  * @param {object} state   the live reader's state (readLiveParty) – DS games find the bag through the party, 3DS games
- *                         try the update the party was found at first
- * @returns the result – a Promise of it when `mem.write` answers later (the 3DS player):
+ *                         try where this session found it, then the update the party was found at
+ * @returns the result – a Promise of it when `mem.write` answers later (the 3DS player) or the bag is searched for:
  *          {ok:true, before:number, after:number, added:number} | {error:'unsupported'|'notFound'|'full'|'max'|'changed'}
  *          | {error:'write', why?:string} ('changed': the game changed those bytes just then; `why`: the 3DS host's reason)
+ *          A 3DS game's notFound says more: why 'empty' (the bag looked empty everywhere – nothing tells it from zeros
+ *          yet) or 'missing', tried [{at, why}] (each known address and why it wasn't the bag) and scan (the search).
  */
 export function addRareCandies(entry, mem, state, count = 99) {
   return addItem(entry, mem, state, RARE_CANDY[entry?.gen], count);
@@ -504,17 +710,16 @@ export function readBalls(entry, read, state = null) {
     return n;
   }
   if (L.kind === 'ctr') {
-    for (const base of ctrBags(entry, state)) {
-      const bag = ctrBagAt(L, base, read, 'items');
-      if (!bag) continue;
-      let n = 0;
-      for (let i = 0; i < bag.slots; i++) {
-        const v = bag.slot(i);
-        if (isBall567(bag.idOf(v))) n += bag.countOf(v);
-      }
-      return n;
+    // (an empty bag counts where the game's pocket table vouches for it: 0 balls; a bag elsewhere: once
+    // locateCtrBag has found it)
+    const bag = ctrFind(L, entry, read, state, 'items');
+    if (!bag) return null;
+    let n = 0;
+    for (let i = 0; i < bag.slots; i++) {
+      const v = bag.slot(i);
+      if (isBall567(bag.idOf(v))) n += bag.countOf(v);
     }
-    return null;
+    return n;
   }
   if (L.kind === 'gba') {
     const G = L.found ? (state?.sb1PtrAddr ? { ...L, sb1Ptr: state.sb1PtrAddr, sb2Ptr: state.sb1PtrAddr + 4 } : null) : L;

@@ -10,7 +10,7 @@ import { serverErrorText } from '../lib/errors.mjs';
 import { gameById, gameTitle, speciesName, hackById, itemName, moveName } from '../lib/data.mjs';
 import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
 import { findEntry, readLiveParty, readLiveBattle, playerBattle, withBattleHp, confirmFaints, inBattleFlag, LiveTables, expandedEntry } from '/shared/live/parse.mjs';
-import { applyCheat, cheatsFor, cheatBlock, CHEATS, readBalls } from '/shared/live/cheats.mjs';
+import { applyCheat, cheatsFor, cheatBlock, CHEATS, readBalls, locateCtrBag } from '/shared/live/cheats.mjs';
 import { DeathReveal, effectiveSpeed } from '../lib/reveal.mjs';
 import { MusicKeyTracker } from '/shared/live/location.mjs';
 import { probeGen67 } from '/shared/live/gen67.mjs';
@@ -1179,7 +1179,13 @@ export function GameSession({ session, mode }) {
               const bw = ballsRef.current;
               if (isRun && bw?.waiting && !fight && Date.now() - lastBalls > 3000) {
                 lastBalls = Date.now();
-                if (readBalls(ent, e.read, state) > 0) bw.seen(party.filter((m) => m?.key && m.maxHp > 0 && m.hp === 0).map((m) => m.key));
+                const balls = readBalls(ent, e.read, state);
+                if (balls > 0) bw.seen(party.filter((m) => m?.key && m.maxHp > 0 && m.hp === 0).map((m) => m.key));
+                // a 3DS bag that isn't where souldew knows it: searched for nearby, at most once a minute
+                else if (balls === null && ent.platform === '3ds' && e.watch && Date.now() - (state.ctrBagSearched || 0) > 60000) {
+                  state.ctrBagSearched = Date.now();
+                  locateCtrBag(ent, { read: e.read, watch: e.watch }, state).then((r) => r && diag('live', { type: 'ctrBagSearch', ...r }), () => {});
+                }
               }
             } else if (isRun) {
               // no team in memory (a menu, the title screen after a reset): the held deaths still come when their time is up
@@ -1576,18 +1582,22 @@ export function GameSession({ session, mode }) {
     let res;
     try {
       // (the 3DS player answers once its host has written – between two frames)
-      res = await applyCheat(id, entry, { read: e.read, write: e.write }, state);
+      // (a 3DS game's bag that isn't where souldew knows it is searched for nearby: the player reads more memory then)
+      res = await applyCheat(id, entry, { read: e.read, write: e.write, ...(entry.platform === '3ds' && e.watch ? { watch: e.watch } : {}) }, state);
     } catch {
       res = { error: 'write' };
     }
-    diag('cheat', { cheat: id, game: entry.id, ...res });
+    // (a 3DS bag that wasn't found: each address tried and why it wasn't the bag, and how the search went)
+    diag('cheat', { cheat: id, game: entry.id, ...(entry.platform === '3ds' ? { version: entry.partyAddrs?.[state?.g67]?.version || null } : {}), ...res });
     if (res.ok) {
       if (isRun) logCheat(doc, manifest, me, { added: res.added, cheat: id });
       flash(text.done(res.added), 2500);
     } else {
       toast({ kind: 'death', title: text.failed, text: {
-        // (a 3DS game keeps its bag at one address per update: not there means an update souldew doesn't know)
-        notFound: entry.gen >= 6 ? t('cheat.notFoundVersion', 'Your bag wasn’t found where this version of the game keeps it – souldew may not know this game update yet.')
+        // (a 3DS game: not where souldew knows it, not nearby either – or, without the game's own pocket table, an
+        // empty bag that can't be told from other memory yet)
+        notFound: entry.gen >= 6 ? (res.why === 'empty' ? t('cheat.notFoundEmpty', 'Your bag looks empty, and souldew can’t tell an empty bag from other memory in this game. Pick up any item in the game, then try again.')
+          : t('cheat.notFoundCtr', 'souldew couldn’t find your bag in the game’s memory – not where this game keeps it, and not nearby. “Save diagnostics” in the sound menu records where it looked; please send it along with a report.'))
           : t('cheat.notFound', 'Your bag wasn’t found in the game’s memory just now. Try again outside of menus and battles.'),
         changed: t('cheat.changed', 'The game changed your bag just then – try again.'),
         full: t('cheat.full', 'The bag pocket is full – make room and try again.'),

@@ -116,6 +116,16 @@ Good to know:
   other Game Boy look load once you switch back to it.
 - Gen 2 and Gen 4 trades work, but don't appear in the run's log yet. Gen 5 (Black/White) links come later.
 
+## 2.8.4
+
+- **Cheats in Sun, Moon, Ultra Sun and Ultra Moon work right from the start** (thanks to a player for the report). In
+  these games your bag stays empty for a while after you get your first Pokémon, and souldew never writes into memory
+  it can't be sure is your bag – an empty bag looked just like empty memory, so “Add 99 Rare Candies” and “Add 10 Max
+  Repels” said your bag wasn't found and blamed a game update you didn't have. souldew now recognises the empty bag by
+  the game's own bookkeeping, and when the bag of a 3DS game isn't where souldew expects it, it now looks for it nearby
+  instead of giving up. If it still can't find it, the message says so plainly, and “Save diagnostics” records where it
+  looked.
+
 ## 2.8.3
 
 - **Nothing counts before your first Poké Balls** (thanks to players on Discord). Most Nuzlocke rules only start once
