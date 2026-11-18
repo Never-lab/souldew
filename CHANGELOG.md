@@ -108,6 +108,17 @@ Plus a new play view that gives the game the room it deserves.
   again (to move it to another one; the email can be linked again after 30 days), and Settings › Account lists every
   device you're signed in on, each with its own “Sign out”. Quitting souldew tells your friends you're offline right
   away.
+- **A tidier sidebar and a souldew+ page.** The sidebar puts the three things you play every day on top – Library,
+  SoulLink, Nuzlocke – then Friends and Trophies, then Connection and Stream; Settings and Help sit at the bottom as
+  two buttons next to **souldew+**, which replaces “Buy me a coffee” (members read “thank you”). The souldew+ page
+  shows you yourself wearing it – your own picture and name – a few of the best themes, banners, frames, nameplates
+  and launch animations (their real look, even before you buy), the three tiers, what always stays free, where the
+  money goes and what happens if you stop. Every “Get souldew+” in the app leads there – never a pop-up.
+- **Your showcase, your way.** Pick the three trophies from a trophy cabinet (search, categories, rarities) and your
+  most trusted Pokémon from your regulars – the lines your own runs relied on most, with how many teams they were on,
+  their top level and how often they fell, plus a line in your own words. On your profile you choose how friends see
+  it: a display case, a trainer card on the handheld's screen, or a compact shelf. The numbers update themselves
+  while “Show my runs on my profile” is on.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

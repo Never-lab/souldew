@@ -20,9 +20,9 @@ const out = process.argv[process.argv.length - 1];
 app.commandLine.appendSwitch('mute-audio');
 app.disableHardwareAcceleration();
 
-const VIEWS = ['library', 'soullink', 'nuzlocke', 'link', 'stream', 'trophies', 'settings?s=general', 'settings?s=play', 'settings?s=controls', 'settings?s=about', 'guide'];
+const VIEWS = ['library', 'soullink', 'nuzlocke', 'link', 'stream', 'trophies', 'settings?s=general', 'settings?s=play', 'settings?s=controls', 'settings?s=about', 'guide', 'plus'];
 // signed in: the account's own pages, and the library again (the account chip in the sidebar)
-const ACCOUNT_VIEWS = ['friends', 'profile', 'library'];
+const ACCOUNT_VIEWS = ['friends', 'profile', 'library', 'plus'];
 // collected in the page: every element of the shell and the view, its box (to 1/4 px) and its generated text.
 // SKIP: subtrees left out of a comparison (the preview bar in Settings is UI that names the skin – not the skin)
 const COLLECT = (skip = '') => `(() => {
@@ -352,7 +352,7 @@ app.whenReady().then(async () => {
     await until("import('/lib/cosmetics/index.mjs').then((m) => m.packState().entitled)");
     await sleep(1500);
     await dismissToasts();
-    const READY = { friends: '.fr-list .fr-row', profile: '.profile .pf-stats', library: '.rail-me' };
+    const READY = { friends: '.fr-list .fr-row', profile: '.profile .pf-stats', library: '.rail-me', plus: '.plus-page .plus-tiers' };
     for (const view of ACCOUNT_VIEWS) {
       await proveView(view, { ready: READY[view], contrast: view === 'library' ? '.rail-me, .nav' : '.rail-me, .nav, main.main' });
     }

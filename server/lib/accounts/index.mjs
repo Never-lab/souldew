@@ -12,15 +12,16 @@ import { createSession, errorCode } from './session.mjs';
 import { API, accountsBase } from './contract.mjs';
 import { authPage, AUTH_PAGE_HEADERS, AUTH_RESULTS } from './authpage.mjs';
 import { entitlementKeys, verifyEntitlementToken, serviceClock, isPackagedBuild, SKEW_S } from './enttoken.mjs';
-import { currentStats, editorChoices } from './stats.mjs';
+import { currentStats, editorChoices, trustedNumbers } from './stats.mjs';
 import {
   cleanMe, cleanProfile, cleanFriend, cleanRequest, cleanPresence, cleanInvite, cleanJoinRequest, cleanCatalog, cleanEntitlements,
   catalogId, inviteCode, isPlusTier,
 } from './clean.mjs';
 import {
-  cleanText, withoutFileNames, safeAvatarUrl, parseFriendQuery, normalizeHandle, oneOf, presenceSystem,
-  PROFILE_VISIBILITY, PRESENCE_VISIBILITY, ACCENTS, STATUS_MAX, NAME_MAX, TRUSTED_MAX, FAVORITE_MAX, RUN_NAME_MAX,
+  cleanText, withoutFileNames, safeAvatarUrl, parseFriendQuery, normalizeHandle, oneOf, presenceSystem, int,
+  PROFILE_VISIBILITY, PRESENCE_VISIBILITY, ACCENTS, STATUS_MAX, NAME_MAX, FAVORITE_MAX, RUN_NAME_MAX, SHOWCASE_LAYOUTS,
 } from '../../../shared/social.mjs';
+import { SPECIES_MAX, TRUSTED_NOTE_MAX } from '../../../shared/trustedlines.mjs';
 
 const ID = '[A-Za-z0-9_-]{3,64}';
 const BODY_LIMIT = 64 * 1024;
@@ -75,7 +76,7 @@ function serviceError(r) {
  * rotated, signed out) – the encrypted pack cache must go (server/lib/pluspack.mjs wipe). packaged: an installed build (no
  * dev entitlement key, ./enttoken.mjs). fetchImpl / env / now / stats / entKeys: for tests.
  */
-export function createAccounts({ secure = null, port, emit = () => {}, openExternal = null, focus = () => {}, lang = () => 'en', onPackKeyChange = () => {}, fetchImpl = fetch, env = process.env, now = Date.now, stats = currentStats, choices = editorChoices, packaged = isPackagedBuild(), entKeys = null } = {}) {
+export function createAccounts({ secure = null, port, emit = () => {}, openExternal = null, focus = () => {}, lang = () => 'en', onPackKeyChange = () => {}, fetchImpl = fetch, env = process.env, now = Date.now, stats = currentStats, choices = editorChoices, numbers = trustedNumbers, packaged = isPackagedBuild(), entKeys = null } = {}) {
   const service = accountsBase(env);
   const trusted = entKeys || entitlementKeys({ env, packaged });
   const store = createTokenStore(secure);
@@ -324,6 +325,29 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     if (hash === statsHash && !force) return;
     const r = await session.request(API.stats, { method: 'PUT', json: body });
     if (r.status === 200) statsHash = hash;
+    await refreshTrusted();
+  }
+
+  /**
+   * "The numbers update themselves": the most trusted line's teams / top level / fallen from this computer's runs,
+   * sent again when they changed – only while "Show my runs on my profile" is on (they are run numbers, like stats).
+   */
+  async function refreshTrusted() {
+    const sc = me?.showcase;
+    if (!me?.privacy?.showRuns || !sc?.trusted) return;
+    let n;
+    try {
+      n = numbers(sc.trusted.line);
+    } catch {
+      return;
+    }
+    if (!n || (n.teams === sc.trusted.teams && n.top_level === sc.trusted.topLevel && n.fell === sc.trusted.fell)) return;
+    const r = await session.request(API.me, { method: 'PATCH', json: { showcase: showcaseBody(sc, n) } });
+    if (r.status === 200) {
+      me = cleanMe(r.body, service);
+      meAt = now();
+      meGen++;
+    }
   }
 
   /** The page's report of what the player does → cleaned; a change goes out soon (the service takes 6 a minute). */
@@ -390,7 +414,10 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   // own account
   route('PATCH', '/me', async (req) => {
     signedIn();
-    const patch = mePatch(await readJson(req));
+    const b = await readJson(req);
+    // a most trusted line goes with its numbers from this computer's runs – only when the runs are shared
+    const share = typeof b.privacy?.showRuns === 'boolean' ? b.privacy.showRuns : !!me?.privacy?.showRuns;
+    const patch = mePatch(b, { numbers: share ? (line) => numbers(line) : null });
     const body = cleanMe(await call(API.me, { method: 'PATCH', json: patch }), service);
     me = body;
     meAt = now();
@@ -826,20 +853,45 @@ export function userText(v, max, field) {
   return s;
 }
 
-/** The page's profile edits (camelCase) → the PATCH body of §2.2 – known fields only, each checked. */
-export function mePatch(b) {
+/**
+ * The showcase as §2.2 takes it (it replaces the whole showcase) from the page's shape: the most trusted line with
+ * `numbers` ({ teams, top_level, fell } or null), else the old free text unchanged (the service keeps it only as it
+ * was), else nothing.
+ */
+export function showcaseBody(s, numbers = null) {
+  const tr = s.trusted && typeof s.trusted === 'object' ? s.trusted : null;
+  const species = int(tr?.species, 1, SPECIES_MAX);
+  let trusted = null;
+  if (species) {
+    trusted = { species, line: int(tr.line, 1, SPECIES_MAX) || species, note: tr.note == null || tr.note === '' ? null : userText(tr.note, TRUSTED_NOTE_MAX, 'showcase.trusted.note') };
+    if (numbers) Object.assign(trusted, { teams: numbers.teams, top_level: numbers.top_level, fell: numbers.fell });
+  } else if (tr === null && typeof s.trustedText === 'string' && s.trustedText) {
+    trusted = s.trustedText; // the old free text, sent back exactly as the service has it
+  }
+  return {
+    trophies: [...new Set((Array.isArray(s.trophies) ? s.trophies : []).map(catalogId).filter(Boolean))].slice(0, 3),
+    trusted,
+    favorite_game: userText(s.favoriteGame, FAVORITE_MAX, 'showcase.favorite_game'),
+  };
+}
+
+/**
+ * The page's profile edits (camelCase) → the PATCH body of §2.2 – known fields only, each checked. `numbers(line)`:
+ * the most trusted line's numbers from this computer's runs, or null when they aren't shared.
+ */
+export function mePatch(b, { numbers = null } = {}) {
   const out = {};
   if ('name' in b) out.display_name = b.name === null ? null : userText(b.name, NAME_MAX, 'display_name');
   for (const k of ['banner', 'frame', 'nameplate', 'title', 'accent']) if (k in b) out[k] = b[k] === null ? null : catalogId(b[k]);
   if ('accent' in b && !out.accent) delete out.accent; // never null: the palette always has a colour
   if ('status' in b) out.status = userText(b.status, STATUS_MAX, 'status');
   if ('showcase' in b && b.showcase && typeof b.showcase === 'object') {
-    const s = b.showcase;
-    out.showcase = {
-      trophies: [...new Set((Array.isArray(s.trophies) ? s.trophies : []).map(catalogId).filter(Boolean))].slice(0, 3),
-      trusted: userText(s.trusted, TRUSTED_MAX, 'showcase.trusted'),
-      favorite_game: userText(s.favoriteGame, FAVORITE_MAX, 'showcase.favorite_game'),
-    };
+    const line = int(b.showcase.trusted?.line, 1, SPECIES_MAX) || int(b.showcase.trusted?.species, 1, SPECIES_MAX);
+    out.showcase = showcaseBody(b.showcase, line && numbers ? numbers(line) : null);
+  }
+  if ('showcaseLayout' in b) {
+    if (!SHOWCASE_LAYOUTS.includes(b.showcaseLayout)) throw httpError(400, 'Unknown showcase layout', 'acct', { code: 'invalid_field', field: 'showcase_layout' });
+    out.showcase_layout = b.showcaseLayout;
   }
   if ('privacy' in b && b.privacy && typeof b.privacy === 'object') {
     const p = b.privacy;

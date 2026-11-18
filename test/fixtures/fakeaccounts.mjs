@@ -86,7 +86,9 @@ export const CATALOG = {
   accents: ACCENTS, // the same palette as the service (shared/social.mjs)
 };
 
-const ME_FIELDS = ['display_name', 'banner', 'frame', 'nameplate', 'title', 'accent', 'status', 'showcase', 'privacy'];
+const ME_FIELDS = ['display_name', 'banner', 'frame', 'nameplate', 'title', 'accent', 'status', 'showcase', 'showcase_layout', 'privacy'];
+const LAYOUTS = ['case', 'lcd', 'shelf'];
+const TRUSTED_KEYS = ['species', 'line', 'note', 'teams', 'top_level', 'fell'];
 
 /** A GET with exactly these headers (fetch would set its own Sec-Fetch-* – a browser navigation sends navigate/document). */
 export function rawGet(url, headers = {}) {
@@ -121,7 +123,7 @@ export async function startFakeAccounts({ port = 0 } = {}) {
       id, handle, display_name: o.display_name || handle, display_name_is_custom: false, discord: { id: String(80351110224678912n + BigInt(f.users.size)), username: handle, global_name: o.display_name || handle },
       friend_code: o.friend_code || `SD-${randomBytes(3).toString('hex').toUpperCase().slice(0, 4).replace(/[ILOU]/g, '7')}-${randomBytes(3).toString('hex').toUpperCase().slice(0, 4).replace(/[ILOU]/g, '9')}`,
       banner: o.banner ?? null, frame: o.frame ?? null, nameplate: o.nameplate ?? null, title: o.title ?? null, accent: o.accent || 'moss', status: o.status ?? null,
-      showcase: o.showcase || { trophies: [], trusted: null, favorite_game: null },
+      showcase: o.showcase || { trophies: [], trusted: null, favorite_game: null }, showcase_layout: o.showcase_layout || 'case',
       privacy: { profile: 'friends', presence: 'friends', show_location: false, show_runs: false, friend_requests: 'everyone', ...(o.privacy || {}) },
       stats: o.stats || null, entitlement: o.entitlement || { tier: 'none', until: null, badges: [] }, created_at: iso(o.createdAt || Date.parse('2026-03-02T10:00:00Z')),
       avatar_hash: o.avatar === false ? null : randomBytes(8).toString('hex'),
@@ -139,17 +141,25 @@ export async function startFakeAccounts({ port = 0 } = {}) {
   const premium = (kind, id) => CATALOG.cosmetics.find((c) => c.kind === kind && c.id === id)?.tier === 'plus';
   const shown = (u, k) => (u[k] && premium(k, u[k]) && !plusOk(u) ? null : u[k]);
   const card = (u) => ({ id: u.id, handle: u.handle, display_name: u.display_name, avatar_url: avatarUrl(u), frame: shown(u, 'frame'), nameplate: shown(u, 'nameplate'), accent: u.accent, title: u.title, badges: u.entitlement.badges });
+  // §2.1/§3.1: the most trusted line, or the old free text as trusted_text; others see the numbers only with show_runs
+  const showcaseView = (u, own) => {
+    const sc = u.showcase || {};
+    const tr = sc.trusted && typeof sc.trusted === 'object' ? sc.trusted : null;
+    const numbers = tr && (own || u.privacy.show_runs);
+    return { trophies: sc.trophies || [], favorite_game: sc.favorite_game ?? null, trusted_text: typeof sc.trusted === 'string' ? sc.trusted : null,
+      trusted: tr ? { species: tr.species, line: tr.line, note: tr.note ?? null, teams: numbers ? tr.teams ?? null : null, top_level: numbers ? tr.top_level ?? null : null, fell: numbers ? tr.fell ?? null : null } : null };
+  };
   const me = (u) => {
     const locked = ['banner', 'frame', 'nameplate'].filter((k) => u[k] && premium(k, u[k]) && !plusOk(u));
     return { id: u.id, handle: u.handle, display_name: u.display_name, display_name_is_custom: u.display_name_is_custom, avatar_url: avatarUrl(u), discord: u.discord, friend_code: u.friend_code,
-      banner: u.banner, frame: u.frame, nameplate: u.nameplate, title: u.title, accent: u.accent, status: u.status, showcase: u.showcase, privacy: u.privacy,
+      banner: u.banner, frame: u.frame, nameplate: u.nameplate, title: u.title, accent: u.accent, status: u.status, showcase: showcaseView(u, true), showcase_layout: u.showcase_layout, privacy: u.privacy,
       stats: u.privacy.show_runs ? u.stats : null, entitlement: u.entitlement, created_at: u.created_at, ...(locked.length ? { locked } : {}) };
   };
   const relationship = (viewer, u) => (viewer === u.id ? 'self' : areFriends(viewer, u.id) ? 'friend'
     : [...f.requests.values()].some((r) => r.status === 'pending' && r.from === viewer && r.to === u.id) ? 'request_sent'
       : [...f.requests.values()].some((r) => r.status === 'pending' && r.from === u.id && r.to === viewer) ? 'request_received' : 'none');
   const profile = (viewer, u) => ({ id: u.id, handle: u.handle, display_name: u.display_name, avatar_url: avatarUrl(u), banner: shown(u, 'banner'), frame: shown(u, 'frame'), nameplate: shown(u, 'nameplate'),
-    title: u.title, accent: u.accent, badges: u.entitlement.badges, status: u.status, showcase: u.showcase, stats: u.privacy.show_runs ? u.stats : null,
+    title: u.title, accent: u.accent, badges: u.entitlement.badges, status: u.status, showcase: showcaseView(u, false), showcase_layout: u.showcase_layout, stats: u.privacy.show_runs ? u.stats : null,
     relationship: relationship(viewer, u), member_since: u.created_at.slice(0, 10) });
   const pendingOf = (uid) => ({
     friend_requests: [...f.requests.values()].filter((r) => r.to === uid && r.status === 'pending').length,
@@ -316,11 +326,31 @@ export async function startFakeAccounts({ port = 0 } = {}) {
       if ('showcase' in body) {
         const s = body.showcase;
         if (unknown(s, ['trophies', 'trusted', 'favorite_game']) || !Array.isArray(s.trophies) || s.trophies.length > 3) return err(res, 400, 'invalid_field', { field: 'showcase' });
+        const tr = s.trusted;
+        if (typeof tr === 'string' && tr !== u.showcase?.trusted) return err(res, 400, 'invalid_field', { field: 'showcase.trusted' }); // free text: only the old value, unchanged
+        if (tr && typeof tr === 'object') {
+          const bad3 = unknown(tr, TRUSTED_KEYS);
+          if (bad3) return err(res, 400, 'unknown_field', { field: `showcase.trusted.${bad3}` });
+          const intIn = (v, a, b) => Number.isInteger(v) && v >= a && v <= b;
+          if (!intIn(tr.species, 1, 1025) || !intIn(tr.line, 1, 1025)) return err(res, 400, 'invalid_field', { field: 'showcase.trusted.species' });
+          const nums = ['teams', 'top_level', 'fell'].filter((k) => tr[k] != null).length;
+          if (nums !== 0 && nums !== 3) return err(res, 400, 'invalid_field', { field: 'showcase.trusted' });
+          if (nums && (!intIn(tr.teams, 0, 10000) || !intIn(tr.top_level, 1, 100) || !intIn(tr.fell, 0, 10000))) return err(res, 400, 'invalid_field', { field: 'showcase.trusted' });
+          if (tr.note != null && (typeof tr.note !== 'string' || !tr.note || tr.note.length > 60 || /https?:|badword|[<>]/i.test(tr.note))) return err(res, 400, 'text_rejected', { field: 'showcase.trusted.note' });
+        }
+      }
+      if ('showcase_layout' in body) {
+        if (!LAYOUTS.includes(body.showcase_layout)) return err(res, 400, 'invalid_field', { field: 'showcase_layout' });
+        u.showcase_layout = body.showcase_layout;
       }
       if ('privacy' in body) {
         const bad2 = unknown(body.privacy, ['profile', 'presence', 'show_location', 'show_runs', 'friend_requests']);
         if (bad2) return err(res, 400, 'unknown_field', { field: `privacy.${bad2}` });
-        if (body.privacy.show_runs === false) u.stats = null;
+        if (body.privacy.show_runs === false) {
+          u.stats = null;
+          const tr = (body.showcase || u.showcase)?.trusted; // §2.2: turning it off deletes the line's numbers too
+          if (tr && typeof tr === 'object') for (const k of ['teams', 'top_level', 'fell']) delete tr[k];
+        }
         u.privacy = { ...u.privacy, ...body.privacy };
       }
       for (const k of ['banner', 'frame', 'nameplate', 'title', 'accent', 'status', 'showcase']) if (k in body) u[k] = body[k];

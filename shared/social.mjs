@@ -9,7 +9,7 @@
 export const AVATAR_HOST = 'cdn.discordapp.com';
 export const STATUS_MAX = 60;
 export const NAME_MAX = 32;
-export const TRUSTED_MAX = 80;
+export const TRUSTED_MAX = 80; // the old free-text "most trusted" (read only now – it is a Pokémon line, shared/trustedlines.mjs)
 export const FAVORITE_MAX = 40;
 export const RUN_NAME_MAX = 40;
 
@@ -102,6 +102,13 @@ export function parseFriendQuery(v) {
   return code ? { friend_code: code } : null;
 }
 
+/**
+ * How the profile shows its showcase (API.md §2.2 showcase_layout), the owner's choice: 'case' – a full-width display
+ * case under the numbers; 'lcd' – a trainer card on the handheld's screen in the side column; 'shelf' – the compact
+ * side column.
+ */
+export const SHOWCASE_LAYOUTS = ['case', 'lcd', 'shelf'];
+export const DEFAULT_SHOWCASE_LAYOUT = 'case';
 export const PROFILE_VISIBILITY = ['link', 'friends', 'nobody'];
 export const PRESENCE_VISIBILITY = ['friends', 'nobody', 'offline'];
 /** What a player is doing (API.md §5.1), plus what the service reports for a friend who is away. */

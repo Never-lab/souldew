@@ -1,4 +1,5 @@
-// "Most trusted" on the profile is free text the player typed ("Breloom line – on 6 teams, fell once"). When it names a
+// "Most trusted" on the profile used to be free text the player typed ("Breloom line – on 6 teams, fell once"); it is a
+// Pokémon line now (shared/trustedlines.mjs), and an old text is shown as it was until a line replaces it. When it names a
 // Pokémon – in any of the app's languages, the way the editor's quick picks write it ("Kapilz line", "Breloom-Linie") –
 // the profile shows that Pokémon's sprite next to it (design "A – Logbook"); otherwise a neutral placeholder.
 // Pure functions over the PokeAPI name table (shared/data/pokeapi.json `names`), so they test without a page.

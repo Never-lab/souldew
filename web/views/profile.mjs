@@ -5,21 +5,21 @@
 // (the curated palette only), showcase, status line and privacy with a live preview; souldew+ items can be previewed
 // by everyone and are marked quietly, never pushed.
 import { html, useState, useEffect, useMemo } from '/vendor/htm-preact.mjs';
-import { useApp, Modal, Led, Sprite } from '../lib/ui.mjs';
+import { useApp, Modal, Led } from '../lib/ui.mjs';
 import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
-import { speciesName, pokeapi } from '../lib/data.mjs';
-import { speciesInText, splitTrusted } from '../lib/trusted.mjs';
 import { settingsLink } from '../lib/settingsindex.mjs';
 import { useAccount, useCatalog, accentHex, profileOf, updateMe, editorChoices, useFriends, askToJoin } from '../lib/account.mjs';
 import { toCatalogId, fromCatalogId } from '../lib/achievementids.mjs';
-import { achText } from '../lib/trophytexts.mjs';
 import { presenceFrom } from '../lib/presence.mjs';
 import { takenSlots } from './invitecode.mjs';
 import { Avatar, presenceText, canAskToJoin, Badges, TitlePlate, achTitle } from './social.mjs';
 import { SignInFirst, InviteModal, coverForTitle } from './friends.mjs';
-import { Banner, CosmeticPicker } from '../lib/cosmetics/components.mjs';
-import { STATUS_MAX, TRUSTED_MAX, FAVORITE_MAX } from '/shared/social.mjs';
+import { Banner, CosmeticPicker, PlusMark } from '../lib/cosmetics/components.mjs';
+import { catalog as cosmetics } from '../lib/cosmetics/index.mjs';
+import { STATUS_MAX, FAVORITE_MAX, DEFAULT_SHOWCASE_LAYOUT } from '/shared/social.mjs';
+import { ShowcaseCase, ShowcaseLcd, ShowcaseShelf, TrophyCabinet, TrustedPicker, TrustedCard, achOf } from './showcase.mjs';
+import { AchIcon } from './trophies.mjs';
 
 const RANK = { none: 0, supporter: 1, plus: 2, patron: 2 }; // patron = souldew+ (and a badge)
 const NEEDS = { free: 0, supporter: 1, plus: 2 };
@@ -89,40 +89,14 @@ function NowCard({ presence, own, name, onAsk, asked }) {
   </section>`;
 }
 
-/** "Most trusted": the Pokémon's sprite when the line names one (in any of the app's languages), else a quiet ball. */
-function Trusted({ text }) {
-  const id = useMemo(() => speciesInText(text, pokeapi()?.names), [text]);
-  const { head, rest } = splitTrusted(text);
-  return html`<div class="pf-trusted">
-    <span class=${`pf-trusted-mon${id ? '' : ' blank'}`}>${id ? html`<${Sprite} id=${id} gen=${5} size=${80} alt=${speciesName(id)} />` : html`<${Icon} name="ball" size=${26} />`}</span>
-    <div class="stack-s pf-trusted-text">${head && html`<b class="pf-trusted-head">${head}</b>`}<p>${rest}</p></div>
-  </div>`;
-}
-
-function SideColumn({ prof }) {
-  const { library } = useApp();
-  const sc = prof.showcase || {};
-  const cover = coverForTitle(library, sc.favoriteGame);
-  const trophies = sc.trophies.map((id) => ({ id, ach: fromCatalogId(id) })).filter((x) => x.ach);
-  return html`<div class="pf-side stack-l">
-    ${sc.trusted && html`<section class="pf-section"><div class="pf-head"><h2>${t('pf.trusted', 'Most trusted')}</h2><span class="pf-rule"></span></div>
-      <${Trusted} text=${sc.trusted} /></section>`}
-    ${sc.favoriteGame && html`<div class="pf-fav">${cover ? html`<img class="pixel" src=${cover} alt="" />` : html`<span class="pf-fav-blank"><${Icon} name="play" size=${16} /></span>`}
-      <div class="stack-s" style="gap:0"><b>${sc.favoriteGame}</b><span class="small muted">${t('pf.favorite', 'Favourite game')}</span></div></div>`}
-    ${trophies.length > 0 && html`<section class="pf-section"><div class="pf-head"><h2>${t('pf.showcase', 'Showcase')}</h2><span class="pf-rule"></span></div>
-      <div class="stack-s">${trophies.map(({ ach }) => html`<div class="pf-trophy"><span class="pf-trophy-icon"><${Icon} name="trophy" size=${18} /></span>
-        <div class="stack-s" style="gap:0"><b>${achText(ach).name}</b><span class="small muted">${achText(ach).desc}</span></div></div>`)}</div></section>`}
-  </div>`;
-}
-
 /**
  * The masthead (shared by the profile and the editor's live preview), design "A – Logbook": the banner on top, the avatar
  * overhanging its lower edge – the only thing that may – and below the banner the name row, then the meta row with the
  * actions on its right. test/skin-proof.test.mjs checks the banner stays clear at 1024–1440 px in every skin.
  */
-function Masthead({ prof, presence, accent, actions, meta }) {
+function Masthead({ prof, presence, accent, actions, meta, bannerNote = null }) {
   return html`<header class="pf-mast" style=${accent ? `--acc:${accent}` : ''}>
-    <div class="pf-banner"><${Banner} id=${prof.banner || null} size="fill" shade /></div>
+    <div class="pf-banner"><${Banner} id=${prof.banner || null} size="fill" shade />${bannerNote}</div>
     <div class="pf-id">
       <${Avatar} user=${prof} size=${104} presence=${presence} accent=${accent} />
       <div class="pf-names grow">
@@ -141,7 +115,7 @@ function Editor({ me, onClose }) {
   const [choices, setChoices] = useState(null);
   const [d, setD] = useState(() => ({
     banner: me.banner, frame: me.frame, nameplate: me.nameplate, title: me.title, accent: me.accent, status: me.status || '', name: me.name,
-    showcase: { trophies: [...me.showcase.trophies], trusted: me.showcase.trusted || '', favoriteGame: me.showcase.favoriteGame || '' },
+    showcase: { trophies: [...me.showcase.trophies], trusted: me.showcase.trusted || null, trustedText: me.showcase.trustedText || null, favoriteGame: me.showcase.favoriteGame || '' },
     privacy: { profile: me.privacy.profile },
   }));
   const [busy, setBusy] = useState(false);
@@ -153,7 +127,6 @@ function Editor({ me, onClose }) {
   const earned = new Set((choices?.achievements || []).map(toCatalogId));
   // earned on this computer – plus what the profile already shows (earned elsewhere), so nothing silently disappears
   const titles = items('title').filter((c) => (earned.has(c.id) || c.id === me.title) && fromCatalogId(c.id));
-  const trophyItems = items('trophy').filter((c) => (earned.has(c.id) || me.showcase.trophies.includes(c.id)) && fromCatalogId(c.id));
   const itemOf = (kind, id) => (cat?.cosmetics || []).find((c) => c.kind === kind && c.id === id);
   // locked: the service's catalog says so for this tier – or the cosmetics module says the pick isn't owned
   const [notOwned, setNotOwned] = useState({});
@@ -165,15 +138,23 @@ function Editor({ me, onClose }) {
   const accent = accentHex(cat, d.accent);
   const set = (patch) => setD((x) => ({ ...x, ...patch }));
   const setShow = (patch) => setD((x) => ({ ...x, showcase: { ...x.showcase, ...patch } }));
-  const toggleTrophy = (id) => setShow({ trophies: d.showcase.trophies.includes(id) ? d.showcase.trophies.filter((x) => x !== id) : [...d.showcase.trophies, id].slice(0, 3) });
+  const [picking, setPicking] = useState(null); // 'trophies' | 'trusted' – the showcase's pickers, on top of the editor
+  // a picked line with its numbers from this computer's runs (the preview; the local server sends the real ones)
+  const withNumbers = (tr) => {
+    if (!tr) return null;
+    const l = (choices?.lines || []).find((x) => x.line === tr.line);
+    return { ...tr, teams: l ? l.teams : null, topLevel: l ? l.top : null, fell: l ? l.fell : null };
+  };
 
   const save = async () => {
     const patch = {};
     for (const k of ['banner', 'frame', 'nameplate', 'title', 'accent']) if ((d[k] || null) !== (me[k] || null)) patch[k] = d[k] || null;
     if (d.status.trim() !== (me.status || '')) patch.status = d.status.trim() || null;
     if (d.name.trim() !== me.name) patch.name = d.name.trim() || null;
-    const sc = { trophies: d.showcase.trophies, trusted: d.showcase.trusted.trim() || null, favoriteGame: d.showcase.favoriteGame.trim() || null };
-    if (JSON.stringify(sc) !== JSON.stringify({ trophies: me.showcase.trophies, trusted: me.showcase.trusted, favoriteGame: me.showcase.favoriteGame })) patch.showcase = sc;
+    const pickOf = (tr) => (tr ? { species: tr.species, line: tr.line, note: tr.note || null } : null);
+    const sc = { trophies: d.showcase.trophies, trusted: pickOf(d.showcase.trusted), trustedText: d.showcase.trusted ? null : d.showcase.trustedText, favoriteGame: d.showcase.favoriteGame.trim() || null };
+    const was = { trophies: me.showcase.trophies, trusted: pickOf(me.showcase.trusted), trustedText: me.showcase.trusted ? null : me.showcase.trustedText || null, favoriteGame: me.showcase.favoriteGame };
+    if (JSON.stringify(sc) !== JSON.stringify(was)) patch.showcase = sc;
     if (d.privacy.profile !== me.privacy.profile) patch.privacy = { profile: d.privacy.profile };
     if (!Object.keys(patch).length) return onClose();
     setBusy(true);
@@ -190,7 +171,7 @@ function Editor({ me, onClose }) {
   const preview = { ...me, ...d, showcase: { ...d.showcase, trophies: d.showcase.trophies } };
   return html`<${Modal} open wide onClose=${onClose} title=${t('pf.editTitle', 'Edit profile')}
     footer=${html`${lockedPicks.length > 0 && html`<span class="small muted grow acct-lockline"><${Icon} name="lock" size=${12} />${t('pf.lockedNote', 'Preview only – {what} comes with souldew+.', { what: lockedPicks.map((k) => ({ banner: t('pf.banner', 'Banner'), frame: t('pf.frame', 'Frame'), nameplate: t('pf.nameplate', 'Nameplate') }[k])).join(', ') })}
-        <a href="#" onClick=${(e) => { e.preventDefault(); onClose(); navigate('settings', settingsLink('plus')); }}>${t('pf.aboutPlus', 'About souldew+')}</a></span>`}
+        <a href="#/plus" onClick=${(e) => { e.preventDefault(); onClose(); navigate('plus'); }}>${t('pf.aboutPlus', 'About souldew+')}</a></span>`}
       <button class="btn ghost" onClick=${onClose}>${t('common.cancel', 'Cancel')}</button>
       <button class="btn primary" disabled=${busy || lockedPicks.length > 0} onClick=${save}>${t('common.save', 'Save')}</button>`}>
     <div class="pf-editor">
@@ -218,12 +199,15 @@ function Editor({ me, onClose }) {
           <div class="pf-swatches" role="radiogroup" aria-label=${t('pf.accent', 'Accent colour')}>${(cat?.accents || []).map((a) => html`<button type="button" role="radio" aria-checked=${d.accent === a.key} title=${a.key}
             class=${`pf-swatch ${d.accent === a.key ? 'on' : ''}`} style=${`--sw:${a.hex}`} onClick=${() => set({ accent: a.key })}><span class="sr-only">${a.key}</span></button>`)}</div></section>
         <section class="stack"><h3 class="fr-head">${t('pf.showcase', 'Showcase')} <span class="small muted">${t('pf.showcaseHint', 'up to 3 trophies')}</span></h3>
-          ${trophyItems.length ? html`<div class="pf-chips">${trophyItems.map((c) => html`<button type="button" class=${`chip pf-chip ${d.showcase.trophies.includes(c.id) ? 'on' : ''}`} aria-pressed=${d.showcase.trophies.includes(c.id)}
-            disabled=${!d.showcase.trophies.includes(c.id) && d.showcase.trophies.length >= 3} onClick=${() => toggleTrophy(c.id)}><${Icon} name="trophy" size=${12} />${achTitle(c.id)}</button>`)}</div>`
-            : html`<p class="small muted">${t('pf.noTrophies', 'Trophies you earn can go here.')}</p>`}
-          <label class="field"><span>${t('pf.trusted', 'Most trusted')}</span>
-            <input type="text" maxLength=${TRUSTED_MAX} value=${d.showcase.trusted} placeholder=${t('pf.trustedPh', 'e.g. Breloom line – carried us through the E4')} onInput=${(e) => setShow({ trusted: e.target.value })} />
-            ${choices?.species?.length > 0 && html`<div class="pf-chips">${choices.species.slice(0, 8).map((s) => html`<button type="button" class="chip pf-chip" onClick=${() => setShow({ trusted: t('pf.lineOf', '{name} line', { name: speciesName(s.id) }) })}>${speciesName(s.id)}</button>`)}</div>`}</label>
+          <div class="pf-sc-row"><div class="pf-sc-mini" aria-label=${t('pf.showcase', 'Showcase')}>${[0, 1, 2].map((i) => {
+            const a = achOf(d.showcase.trophies[i]);
+            return a ? html`<span title=${achTitle(d.showcase.trophies[i])}><${AchIcon} a=${a} size=${16} /></span>` : html`<span class="empty" aria-hidden="true"></span>`;
+          })}<span class="small muted" style="align-self:center">${d.showcase.trophies.map(achTitle).filter(Boolean).join(' · ')}</span></div>
+            <button type="button" class="btn small" onClick=${() => setPicking('trophies')}><${Icon} name="trophy" size=${14} />${t('pf.openCabinet', 'Open the trophy cabinet')}</button></div>
+          <span class="fr-head small">${t('pf.trusted', 'Most trusted')}</span>
+          <div class="pf-sc-row">${d.showcase.trusted ? html`<${TrustedCard} tr=${{ ...d.showcase.trusted, teams: me.privacy.showRuns ? d.showcase.trusted.teams : null }} />`
+            : html`<span class="small muted grow">${d.showcase.trustedText ? `“${d.showcase.trustedText}”` : t('pf.noTrusted', 'Not picked yet.')}</span>`}
+            <button type="button" class="btn small" onClick=${() => setPicking('trusted')}><${Icon} name="ball" size=${14} />${d.showcase.trusted ? t('pf.changeTrusted', 'Change') : t('pf.pickTrusted', 'Pick a Pokémon')}</button></div>
           <label class="field"><span>${t('pf.favorite', 'Favourite game')}</span>
             <input type="text" list="pf-games" maxLength=${FAVORITE_MAX} value=${d.showcase.favoriteGame} onInput=${(e) => setShow({ favoriteGame: e.target.value })} />
             <datalist id="pf-games">${(choices?.games || []).map((g) => html`<option value=${g.title}></option>`)}</datalist></label>
@@ -235,6 +219,11 @@ function Editor({ me, onClose }) {
           <span class="hint">${t('pf.moreprivacy', 'Presence, location and your runs: Settings › Account.')}</span></label>
       </div>
     </div>
+    ${picking === 'trophies' && html`<${TrophyCabinet} chosen=${d.showcase.trophies} allowed=${cat ? new Set(items('trophy').map((c) => c.id)) : null}
+      onDone=${(ids) => { setShow({ trophies: ids }); setPicking(null); }} onClose=${() => setPicking(null)} />`}
+    ${picking === 'trusted' && html`<${TrustedPicker} value=${d.showcase.trusted} lines=${choices?.lines || []} runs=${choices?.runs || 0} share=${!!me.privacy.showRuns}
+      onDone=${(tr) => { setShow({ trusted: withNumbers(tr), trustedText: null }); setPicking(null); }}
+      onClose=${() => setPicking(null)} />`}
   <//>`;
 }
 
@@ -250,6 +239,7 @@ export function ProfileView() {
   const [editing, setEditing] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [asked, setAsked] = useState(false);
+  const [layoutBusy, setLayoutBusy] = useState(false);
   const { data: friends, reload: reloadFriends } = useFriends(!!acct.session?.signedIn);
   useEffect(() => {
     setOther(null);
@@ -280,21 +270,38 @@ export function ProfileView() {
       toast({ kind: 'death', title: t('fr.askFailed', 'Couldn’t ask to join'), text: e.message });
     }
   };
+  // the showcase in the layout the player picked (friends see the same); your own is switched right on the page
+  const layout = prof.showcaseLayout || DEFAULT_SHOWCASE_LAYOUT;
+  const setLayout = async (showcaseLayout) => {
+    setLayoutBusy(true);
+    try {
+      await updateMe({ showcaseLayout });
+    } catch (e) {
+      toast({ kind: 'death', title: t('pf.saveFailed', 'Couldn’t save the profile'), text: e.message });
+    }
+    setLayoutBusy(false);
+  };
+  const scProps = { prof, own, onLayout: own ? setLayout : null, busy: layoutBusy, onEdit: own ? () => setEditing(true) : null };
+  // a friend's souldew+ banner says what it is and links to the souldew+ page (on hover / focus – never a pop-up)
+  const plusBanner = !own && prof.banner ? cosmetics().banners.find((b) => b.id === prof.banner && b.plus) : null;
+  const bannerNote = plusBanner ? html`<a class="pf-banner-note" href="#/plus" onClick=${(e) => { e.preventDefault(); navigate('plus'); }}>
+    <${PlusMark} title="" /><span>${t('pf.plusBanner', '{name} · a souldew+ banner', { name: plusBanner.name })}</span></a>` : null;
   const actions = own ? html`<button class="btn ghost" onClick=${() => setEditing(true)}><${Icon} name="user" size=${14} />${t('pf.edit', 'Edit profile')}</button>`
     : prof.relationship === 'friend' ? html`<button class="btn go" onClick=${() => setInviting(true)}><${Icon} name="link" size=${14} />${t('fr.inviteTo', 'Invite to a run')}</button>` : null;
   return html`<div class="stack-l profile" style=${accent ? `--acc:${accent}` : ''}>
     ${!own && html`<nav class="pf-crumbs small" aria-label=${t('pf.crumbs', 'Breadcrumb')}><a href="#/friends">${t('nav.friends', 'Friends')}</a><span aria-hidden="true">›</span><span>${prof.name}</span></nav>`}
-    <${Masthead} prof=${prof} presence=${presence} accent=${accent} actions=${actions} meta=${meta} />
+    <${Masthead} prof=${prof} presence=${presence} accent=${accent} actions=${actions} meta=${meta} bannerNote=${bannerNote} />
     ${prof.stats ? html`<${StatsStrip} stats=${prof.stats} />`
       : html`<div class="pf-private small muted"><${Icon} name="lock" size=${12} />${own ? html`<span>${t('pf.privateOwn', 'Your runs stay private. Turn on “Show my runs on my profile” to show friends your numbers and last runs.')}</span>
           <a href="#" onClick=${(e) => { e.preventDefault(); navigate('settings', settingsLink('account-privacy')); }}>${t('pf.turnOn', 'Privacy settings')}</a>`
         : html`<span>${t('pf.privateOther', '{name} keeps their runs private.', { name: prof.name })}</span>`}</div>`}
-    <div class="pf-cols">
+    ${layout === 'case' && html`<${ShowcaseCase} ...${scProps} />`}
+    <div class=${`pf-cols ${layout === 'case' ? 'sc-one' : ''}`}>
       <div class="pf-main stack-l">
         <${NowCard} presence=${presence} own=${own ? acct.me?.privacy?.presence : null} name=${prof.name} onAsk=${ask} asked=${asked} />
         ${prof.stats && html`<${RunHistory} stats=${prof.stats} title=${own ? t('pf.history', 'Run history') : t('pf.theirRuns', '{name}’s runs', { name: prof.name })} />`}
       </div>
-      <${SideColumn} prof=${prof} />
+      ${layout === 'lcd' ? html`<${ShowcaseLcd} ...${scProps} />` : layout === 'shelf' ? html`<${ShowcaseShelf} ...${scProps} />` : null}
     </div>
     ${editing && html`<${Editor} me=${acct.me} onClose=${() => setEditing(false)} />`}
     ${inviting && html`<${InviteModal} friend=${prof} onClose=${() => setInviting(false)} />`}

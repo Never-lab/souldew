@@ -6,7 +6,9 @@
 import {
   cleanText, safeAvatarUrl, safeHex, oneOf, int, time, id as cleanId, normalizeHandle, normalizeFriendCode,
   PROFILE_VISIBILITY, PRESENCE_VISIBILITY, PRESENCE_STATES, STATUS_MAX, NAME_MAX, TRUSTED_MAX, FAVORITE_MAX, RUN_NAME_MAX,
+  SHOWCASE_LAYOUTS, DEFAULT_SHOWCASE_LAYOUT,
 } from '../../../shared/social.mjs';
+import { SPECIES_MAX, TRUSTED_NOTE_MAX } from '../../../shared/trustedlines.mjs';
 
 const KINDS = ['banner', 'frame', 'nameplate', 'title', 'trophy'];
 // API.md §8.0: supporter = badge only; plus and patron = souldew+ (patron adds its own badge, nothing else)
@@ -47,14 +49,36 @@ export function cleanCard(u, service) {
   };
 }
 
+/**
+ * "Most trusted" (§2.2): a Pokémon line – { species, line, note, teams, topLevel, fell } – or null. The numbers are null
+ * when the owner doesn't share them (others only see them with "Show my runs on my profile"); all three or none.
+ */
+export function cleanTrusted(v) {
+  const o = obj(v);
+  const species = int(o?.species, 1, SPECIES_MAX);
+  if (!species) return null;
+  const teams = int(o.teams, 0, 10000);
+  const topLevel = int(o.top_level, 1, 100);
+  const fell = int(o.fell, 0, 10000);
+  const numbers = teams !== null && topLevel !== null && fell !== null;
+  return { species, line: int(o.line, 1, SPECIES_MAX) || species, note: cleanText(o.note, TRUSTED_NOTE_MAX) || null,
+    teams: numbers ? teams : null, topLevel: numbers ? topLevel : null, fell: numbers ? fell : null };
+}
+
 function cleanShowcase(v) {
   const o = obj(v) || {};
+  const trusted = cleanTrusted(o.trusted);
   return {
     trophies: [...new Set(arr(o.trophies, 3).map(catalogId).filter(Boolean))],
-    trusted: cleanText(o.trusted, TRUSTED_MAX) || null,
+    trusted,
+    // the old free text, before it became a line: shown as it was, kept until a line replaces it
+    trustedText: trusted ? null : cleanText(typeof o.trusted === 'string' ? o.trusted : o.trusted_text, TRUSTED_MAX) || null,
     favoriteGame: cleanText(o.favorite_game, FAVORITE_MAX) || null,
   };
 }
+
+/** The showcase's layout (§2.2 showcase_layout) – 'case' when the service sends none. */
+export const cleanLayout = (v) => oneOf(v, SHOWCASE_LAYOUTS, DEFAULT_SHOWCASE_LAYOUT);
 
 const TOTALS = ['runs_started', 'runs_completed', 'runs_failed', 'soullink_runs', 'nuzlocke_runs', 'badges_earned', 'pokemon_caught', 'deaths', 'playtime_minutes'];
 const camel = (k) => k.replace(/_([a-z])/g, (m, c) => c.toUpperCase());
@@ -92,6 +116,7 @@ export function cleanMe(v, service) {
     banner: catalogId(o.banner),
     status: cleanText(o.status, STATUS_MAX) || null,
     showcase: cleanShowcase(o.showcase),
+    showcaseLayout: cleanLayout(o.showcase_layout),
     privacy: {
       profile: oneOf(p.profile, PROFILE_VISIBILITY, 'friends'), presence: oneOf(p.presence, PRESENCE_VISIBILITY, 'friends'),
       showLocation: p.show_location === true, showRuns: p.show_runs === true, friendRequests: oneOf(p.friend_requests, ['everyone', 'nobody'], 'everyone'),
@@ -115,6 +140,7 @@ export function cleanProfile(v, service) {
     banner: catalogId(o.banner),
     status: cleanText(o.status, STATUS_MAX) || null,
     showcase: cleanShowcase(o.showcase),
+    showcaseLayout: cleanLayout(o.showcase_layout),
     stats: cleanStats(o.stats),
     relationship: oneOf(o.relationship, ['self', 'friend', 'request_sent', 'request_received', 'none'], 'none'),
     memberSince: time(o.member_since),

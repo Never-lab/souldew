@@ -402,6 +402,59 @@ test('a keychain keeps the session over a restart – encrypted', async () => {
   assert.ok(!existsSync(file), 'signing out removes it');
 });
 
+test('showcase: the layout is saved on the service and friends see it; a most trusted line, the old free text kept as it was', async () => {
+  const a = await app();
+  await a.signIn(robin);
+  assert.equal((await a.get('/api/account')).body.me.showcaseLayout, 'case', 'the display case until the player picks another');
+  const r = await a.patch('/api/account/me', { showcaseLayout: 'lcd' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.showcaseLayout, 'lcd');
+  assert.equal(fake.log.filter((l) => l.method === 'PATCH' && l.path === '/v1/me').at(-1).body.showcase_layout, 'lcd');
+  assert.equal(fake.users.get(robin.id).showcase_layout, 'lcd');
+  assert.equal((await a.get('/api/account')).body.me.showcaseLayout, 'lcd', 'kept');
+  for (const bad of ['grid', '', null, 3]) {
+    const x = await quiet(() => a.patch('/api/account/me', { showcaseLayout: bad }));
+    assert.deepEqual([x.status, x.body.vars?.field], [400, 'showcase_layout'], String(bad));
+  }
+  // a friend's profile comes with their layout and their line – its numbers only when their runs are shared
+  fake.users.get(kim.id).showcase = { trophies: [], trusted: { species: 130, line: 129, note: 'never again', teams: 4, top_level: 61, fell: 1 }, favorite_game: null };
+  fake.users.get(kim.id).showcase_layout = 'shelf';
+  let p = (await a.get(`/api/account/users/${kim.id}`)).body;
+  assert.equal(p.showcaseLayout, 'shelf');
+  assert.deepEqual(p.showcase.trusted, { species: 130, line: 129, note: 'never again', teams: null, topLevel: null, fell: null });
+  fake.users.get(kim.id).privacy.show_runs = true;
+  p = (await a.get(`/api/account/users/${kim.id}`)).body;
+  assert.deepEqual([p.showcase.trusted.teams, p.showcase.trusted.topLevel, p.showcase.trusted.fell], [4, 61, 1]);
+  // the old free text: shown as it was, and sent back unchanged when the showcase is saved without a new line
+  fake.users.get(robin.id).showcase = { trophies: [], trusted: 'Breloom line – carried us through the E4', favorite_game: 'Emerald' };
+  const me = (await a.patch('/api/account/me', { status: 'hi' })).body;
+  assert.equal(me.showcase.trusted, null);
+  assert.equal(me.showcase.trustedText, 'Breloom line – carried us through the E4');
+  const kept = await a.patch('/api/account/me', { showcase: { ...me.showcase, favoriteGame: 'Crystal' } });
+  assert.equal(kept.status, 200, JSON.stringify(kept.body));
+  assert.equal(fake.log.filter((l) => l.method === 'PATCH' && l.path === '/v1/me').at(-1).body.showcase.trusted, 'Breloom line – carried us through the E4');
+  assert.equal(kept.body.showcase.trustedText, 'Breloom line – carried us through the E4');
+  // a picked line replaces it
+  const line = await a.patch('/api/account/me', { showcase: { trophies: [], trusted: { species: 260, line: 258, note: '' }, trustedText: 'ignored', favoriteGame: null } });
+  assert.deepEqual(line.body.showcase.trusted, { species: 260, line: 258, note: null, teams: null, topLevel: null, fell: null });
+  assert.equal(line.body.showcase.trustedText, null);
+  await a.patch('/api/account/me', { showcaseLayout: 'case' });
+});
+
+test('showcase: the most trusted line goes out with its numbers only when the runs are shared', () => {
+  const numbers = (line) => (line === 258 ? { teams: 5, top_level: 58, fell: 1 } : null);
+  const body = { showcase: { trophies: ['badges16'], trusted: { species: 260, line: 258, note: 'carried me' }, favoriteGame: 'Emerald' } };
+  assert.deepEqual(mePatch(body, { numbers }).showcase.trusted, { species: 260, line: 258, note: 'carried me', teams: 5, top_level: 58, fell: 1 });
+  assert.deepEqual(mePatch(body).showcase.trusted, { species: 260, line: 258, note: 'carried me' }, 'not shared: no numbers');
+  // a line the runs don't know (picked by search): no numbers either
+  assert.deepEqual(mePatch({ showcase: { trophies: [], trusted: { species: 1, line: 1 } } }, { numbers }).showcase.trusted, { species: 1, line: 1, note: null });
+  // out of range / not a species → nothing; markup in the note is refused like any text
+  assert.equal(mePatch({ showcase: { trophies: [], trusted: { species: 4000 } } }).showcase.trusted, null);
+  assert.throws(() => mePatch({ showcase: { trophies: [], trusted: { species: 25, line: 25, note: '<b>x</b>' } } }), (e) => e.vars?.field === 'showcase.trusted.note');
+  assert.throws(() => mePatch({ showcaseLayout: 'wall' }), (e) => e.vars?.field === 'showcase_layout');
+  assert.deepEqual(mePatch({ showcaseLayout: 'shelf' }), { showcase_layout: 'shelf' });
+});
+
 test('profile: edit round trip – only known fields go out, the service’s rules come back as the page’s errors', async () => {
   const a = await app();
   await a.signIn(robin);
@@ -411,13 +464,14 @@ test('profile: edit round trip – only known fields go out, the service’s rul
   assert.equal((await quiet(() => a.patch('/api/account/me', { status: '– … –' }))).body.vars.code, 'text_rejected');
   const r = await a.patch('/api/account/me', {
     status: 'grinding   Victory Road', accent: 'dusk', title: 'win-nuzlocke', banner: 'dusk-ridge',
-    showcase: { trophies: ['win-nuzlocke', 'badges16', 'win-nuzlocke'], trusted: 'Breloom line', favoriteGame: 'Emerald' },
+    showcase: { trophies: ['win-nuzlocke', 'badges16', 'win-nuzlocke'], trusted: { species: 286, line: 285, note: 'carried   us', teams: 99 }, favoriteGame: 'Emerald' },
     privacy: { profile: 'link', presence: 'friends', showLocation: true }, isAdmin: true,
   });
   assert.equal(r.status, 200);
   const sent = fake.log.filter((l) => l.method === 'PATCH' && l.path === '/v1/me').at(-1).body;
   assert.deepEqual(Object.keys(sent).sort(), ['accent', 'banner', 'privacy', 'showcase', 'status', 'title']);
-  assert.deepEqual(sent.showcase, { trophies: ['win-nuzlocke', 'badges16'], trusted: 'Breloom line', favorite_game: 'Emerald' });
+  // the most trusted line: species, line and the note – the page's own numbers never go out (runs aren't shared here)
+  assert.deepEqual(sent.showcase, { trophies: ['win-nuzlocke', 'badges16'], trusted: { species: 286, line: 285, note: 'carried us' }, favorite_game: 'Emerald' });
   assert.equal(r.body.status, 'grinding Victory Road', 'single spaces, as the service stores it');
   assert.equal(r.body.accent, 'dusk');
   assert.equal(fake.users.get(robin.id).privacy.profile, 'link');

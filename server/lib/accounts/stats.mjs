@@ -9,6 +9,21 @@ import { runDir } from '../build.mjs';
 import { catalog } from '../library.mjs';
 import { runDigests, unlockedAchievements } from '../trophies.mjs';
 import { cleanText, withoutFileNames, shortGameName, RUN_NAME_MAX } from '../../../shared/social.mjs';
+import { trustedLines, lineNumbers } from '../../../shared/trustedlines.mjs';
+import { SHARED_DIR } from '../paths.mjs';
+
+let evolvesFrom = null;
+/** PokeAPI's evolvesFrom table (shared/data/pokeapi.json) – read once. */
+function evolutions() {
+  if (!evolvesFrom) {
+    try {
+      evolvesFrom = JSON.parse(readFileSync(join(SHARED_DIR, 'data', 'pokeapi.json'), 'utf8')).evolvesFrom || [];
+    } catch {
+      evolvesFrom = [];
+    }
+  }
+  return evolvesFrom;
+}
 
 const clamp = (n) => Math.max(0, Math.min(10000000, Math.round(Number(n) || 0)));
 
@@ -68,7 +83,11 @@ export function statsFrom(digests, minutesOf = (d) => (d.archived ? 0 : playMinu
   return { totals, recent_runs };
 }
 
-/** What the profile editor offers: earned achievement ids, the most-caught species, the games played (most runs first). */
+/**
+ * What the profile editor offers: earned achievement ids, the most-caught species, the games played (most runs first),
+ * and the "most trusted" candidates – every line of these runs, most relied-on first, with its numbers
+ * (shared/trustedlines.mjs) – plus how many runs that is.
+ */
 export function editorChoices(digests = runDigests()) {
   const species = new Map();
   for (const d of digests) for (const c of d.catches || []) species.set(c.first || c.species, (species.get(c.first || c.species) || 0) + 1);
@@ -81,7 +100,14 @@ export function editorChoices(digests = runDigests()) {
     achievements: unlockedAchievements(),
     species: [...species.entries()].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([id, n]) => ({ id, n })),
     games: [...games.entries()].sort((a, b) => b[1] - a[1]).slice(0, 24).map(([title, n]) => ({ title, n })),
+    lines: trustedLines(digests, evolutions()).slice(0, 60).map((l) => ({ ...l, nicknames: l.nicknames.map((n) => cleanText(n, 20)), runs: l.runs.map((r) => withoutFileNames(r, RUN_NAME_MAX)) })),
+    runs: digests.length,
   };
+}
+
+/** The numbers of one "most trusted" line from this computer's runs ({ teams, top_level, fell }), or null. */
+export function trustedNumbers(line, digests = runDigests()) {
+  return lineNumbers(line, digests, evolutions());
 }
 
 /** The upload body for this computer's runs now. */
