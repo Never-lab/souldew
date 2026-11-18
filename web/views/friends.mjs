@@ -15,7 +15,7 @@ import {
   useAccount, useFriends, useInvites, useCatalog, accentHex, addFriend, answerRequest, cancelRequest, removeFriend, blockUser, report, askToJoin, profileOf,
 } from '../lib/account.mjs';
 import { inviteFriends, letIn, allowFriend, declineFriend, cancelInvite, useHostedInvites, declineInvite, freeSeats } from '../lib/friendinvite.mjs';
-import { shortTitle } from '../lib/presence.mjs';
+import { shortTitle } from '../lib/friendpresence.mjs';
 import { coverOf } from './library.mjs';
 import { takenSlots } from './invitecode.mjs';
 import { Avatar, presenceText, canAskToJoin, Badges, CodeChip, TitlePlate, achTitle } from './social.mjs';

@@ -1,63 +1,40 @@
-// What the player is doing, for friends (souldew account › presence): online, in the library, playing a game, or in a
-// run – with whether it has a free seat and whether friends may ask to join it. Coarse on purpose: the game's short
-// title, the run's name and mode, and the route only when the player allowed "show where I am" (the local server and
-// the service drop it otherwise). app.mjs calls reportFrom() when any of it changes; account.mjs sends it only while
-// signed in, and the local server not at all while the presence is hidden or "appear offline".
-import { reportPresence } from './account.mjs';
-import { gameById, hackById } from './data.mjs';
-import { locationName } from './run.mjs';
-import { slotsOf, runMode } from '/shared/slots.mjs';
-import { shortGameName } from '/shared/social.mjs';
+// "Playing now" (docs/PRIVACY.md): while a game actually runs, the page tells the local server every minute – the
+// server sends the anonymous heartbeat to the souldew Discord bot when Settings › General allows it
+// (server/lib/presence.mjs). Only the system and the mode leave this page; the game, the run and the player don't.
 
-const ASK_KEY = 'sl-ask-to-join';
-/** "Friends may ask to join my SoulLink when a seat is free" (Settings › Account) – a choice of this computer. */
-export function askToJoinAllowed() {
-  try {
-    return localStorage.getItem(ASK_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-export function setAskToJoin(on) {
-  try {
-    localStorage.setItem(ASK_KEY, on ? '1' : '0');
-  } catch {
-    // private mode – stays off
-  }
-}
+export const EVERY_MS = 60_000;
+const SYSTEM = { gb: 'gb', gbc: 'gb', gba: 'gba', nds: 'nds', '3ds': '3ds' };
 
-/** "Pokémon Emerald Version" → "Emerald", "Pokémon Black Version 2" → "Black 2"; a hack by its own name. */
-export function shortTitle({ gameId, hackId, title } = {}) {
-  const h = hackId ? hackById(hackId) : null;
-  if (h) return h.name;
-  const g = gameId ? gameById(gameId) : null;
-  const t = g?.title || title || '';
-  return Array.from(shortGameName(t)).slice(0, 60).join('');
-}
+/** The target's system → what the count knows ('gbc' counts as 'gb'), or null. */
+export const presenceSystem = (system) => SYSTEM[system] || null;
 
 /**
- * The presence for the app's state: route, the running game (session.target), the open run (manifest) with its doc
- * and this computer's slot, and the slots that have somebody (views/invitecode.mjs takenSlots).
+ * A timer that calls `send(state)` right away and then every `every` ms while a state ({ system, mode }) is set, and
+ * `send(null)` once when it is cleared. Setting the same state again changes nothing.
  */
-export function presenceFrom({ route, session, manifest, doc, me, taken = [] }) {
-  const target = session?.target;
-  if (target) {
-    const game = { title: shortTitle({ gameId: target.gameId || manifest?.game?.id, hackId: target.runId ? manifest?.game?.hackId : null, title: target.label }), system: target.system };
-    if (target.runId && manifest?.id === target.runId) {
-      const soullink = runMode(manifest) === 'soullink';
-      const freeSlot = soullink && slotsOf(manifest).some((s) => !taken.includes(s));
-      const where = doc?.get?.(`where:${me}`, null);
-      const location = where?.id != null ? locationName(where.gen, where.id) : null;
-      return {
-        state: 'in_run', game,
-        run: { name: manifest.name || '', mode: runMode(manifest), freeSlot, joinable: freeSlot && askToJoinAllowed() },
-        ...(location ? { location: String(location).slice(0, 40) } : {}),
-      };
-    }
-    return { state: 'playing', game };
-  }
-  return { state: route === 'library' ? 'library' : 'online' };
+export function presenceLoop({ send, every = EVERY_MS, timers = globalThis }) {
+  let state = null;
+  let timer = null;
+  const keyOf = (s) => (s ? `${s.system}|${s.mode}` : '');
+  const tick = () => { if (state) send({ ...state }); };
+  return {
+    set(next) {
+      const s = next && presenceSystem(next.system) && next.mode ? { system: presenceSystem(next.system), mode: next.mode } : null;
+      if (keyOf(s) === keyOf(state)) return;
+      if (timer) timers.clearInterval(timer);
+      timer = null;
+      const had = !!state;
+      state = s;
+      if (!s) {
+        if (had) send(null);
+        return;
+      }
+      tick();
+      timer = timers.setInterval(tick, every);
+    },
+    get state() { return state; },
+  };
 }
 
-/** Send what the player does now (only while signed in – account.mjs checks). */
-export const reportFrom = (ctx) => reportPresence(presenceFrom(ctx));
+/** What the page posts to /api/presence for a state. */
+export const presenceBody = (state) => (state ? { system: state.system, mode: state.mode } : { playing: false });

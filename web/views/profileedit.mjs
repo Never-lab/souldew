@@ -21,7 +21,7 @@ import { setLeaveGuard } from '../lib/leaveguard.mjs';
 import { PARTS, GROUPS, ORDER, LOCKABLE, draftFrom, partChanged, changedParts, revertPart, placeTrophy, nextSlot, savePatch, leaveAsks } from '../lib/profiledraft.mjs';
 import { toCatalogId, fromCatalogId } from '../lib/achievementids.mjs';
 import { speciesName, pokeapi, catalog as gameCatalog } from '../lib/data.mjs';
-import { shortTitle } from '../lib/presence.mjs';
+import { shortTitle } from '../lib/friendpresence.mjs';
 import { useTrophies } from '../lib/trophies.mjs';
 import { achText, catLabel, rarityLabel } from '../lib/trophytexts.mjs';
 import { cabinetList, searchSpecies } from '../lib/showcasepick.mjs';

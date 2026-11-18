@@ -47,9 +47,11 @@ export const SETTINGS = [
   { id: 'native', section: 'play', keys: ['set.native', 'set.nativeHint'], kw: 'fast player emulator melonds mgba sameboy libretro performance speed core schneller player lecteur rapide reproductor rápido' },
   { id: 'engine', section: 'play', keys: ['set.engine', 'set.engineHint'], kw: 'souldew engine beta trade battle link cable tausch kampf échange combat intercambio combate scambio lotta' },
   // Controls
-  { id: 'keyboard', section: 'controls', keys: ['set.keyboard', 'set.controlsText', 'ctl.presets'],
-    kw: 'keys keyboard key bindings keybindings remap rebind wasd arrows zqsd azerty tastatur tasten tastenbelegung clavier touches teclado teclas tastiera tasti' },
-  { id: 'controller', section: 'controls', keys: ['pad.title', 'pad.text', 'pad.use', 'pad.layouts'],
+  { id: 'keyboard', section: 'controls', keys: ['set.keyboard', 'set.controlsText2', 'ctl.presets', 'guide.shortcuts', 'ctl.sneakHint'],
+    kw: 'keys keyboard key bindings keybindings remap rebind wasd arrows zqsd azerty tastatur tasten tastenbelegung clavier touches teclado teclas tastiera tasti '
+      + `shortcut shortcuts hotkey hotkeys ${TURBO} pause screenshot quick save load state mute fullscreen reset kurzbefehl tastenkürzel raccourci atajo scorciatoia `
+      + 'circle pad half tilt sneak walk slowly 3ds schleichen' },
+  { id: 'controller', section: 'controls', keys: ['pad.title', 'pad.text', 'pad.use', 'pad.layouts', 'pad.sneak'],
     kw: 'gamepad game pad joystick joypad pad xbox playstation ps4 ps5 dualsense dualshock switch pro joy-con 8bitdo steam deck bluetooth usb bindings remap manette mando' },
   { id: 'pad-nav', section: 'controls', keys: ['pad.nav', 'pad.navHint'], kw: 'gamepad controller joystick navigate navigation menus couch big picture d-pad manette mando' },
   // Games
@@ -63,6 +65,7 @@ export const SETTINGS = [
   { id: 'share-screen', section: 'online', keys: ['set.shareScreenAll', 'set.shareScreenHint'],
     kw: 'multiplayer partner players screen share sharing watch soullink stream bildschirm teilen écran partager pantalla compartir schermo condividere' },
   { id: 'discord', section: 'online', keys: ['live.title', 'live.codeLabel'], kw: 'discord live runs hall of fame bot connect link code share post' },
+  { id: 'presence', section: 'online', keys: ['set.presence', 'set.presenceHint'], kw: 'playing now player count anonymous heartbeat privacy statistics discord spielen gerade anonym datenschutz joueurs anonyme jugadores anónimo giocatori anonimo' },
   { id: 'coffee-pop', section: 'online', keys: ['set.coffeePop', 'set.coffeePopHint', 'nav.stream'], kw: 'stream streaming obs overlay alerts coffee legendary twitch youtube' },
   // Account
   { id: 'account', section: 'account', keys: ['acct.title', 'acct.signIn', 'acct.handle', 'acct.friendCode', 'acct.signOut', 'acct.signOutAll'],

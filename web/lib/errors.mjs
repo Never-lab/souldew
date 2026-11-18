@@ -1,6 +1,15 @@
-// Server error messages in the player's language. The server answers { error, code, vars } (server/lib/fsutil.mjs
-// httpError); its `error` text is German and stays the fallback for codes this table doesn't know.
+// Server texts in the player's language. The server answers errors as { error, code, vars } (server/lib/fsutil.mjs
+// httpError) and writes a build's log as { code, text, vars } lines (fsutil.mjs logLine); its own `error` / `text` is
+// English and only shows for a code these tables don't know. test/i18n-leaks.test.mjs keeps every code the server
+// sends in TEXTS.
 import { t } from './i18n.mjs';
+import { IS_MAC } from './platform.mjs';
+
+/** Which file a randomizer file error is about (toolchain.mjs ioFailure `where`). */
+const randoFile = (where) => where === 'game' ? t('err.randoFile.game', 'the game file')
+  : where === 'output' ? t('err.randoFile.output', 'the new game in the run folder')
+    : where === 'work' ? t('err.randoFile.work', 'the randomizer’s working files')
+      : t('err.randoFile.other', 'a file');
 
 /** The accounts service's error codes (souldew-accounts docs/API.md §0.3), passed on by the local server as vars.code. */
 function accountError({ code, field, retryAfter } = {}) {
@@ -52,9 +61,13 @@ const TEXTS = {
   idMissing: () => t('err.idMissing', 'ID missing'),
   emptySave: () => t('err.emptySave', 'Empty save file – not saved'),
   noSaveYet: () => t('err.noSaveYet', 'No save file yet'),
+  introEmpty: () => t('err.introEmpty', 'There is no game save in this file yet – save in the game first'),
+  introUnsupported: () => t('err.introUnsupported', 'Intro saves don’t work for this game'),
   runNotFound: () => t('err.runNotFound', 'Run not found'),
   runBuilding: () => t('err.runBuilding', 'This run is being built right now'),
   runIsLocal: () => t('err.runIsLocal', 'This run was created on this computer and can’t be replaced by a run pack'),
+  notHost: () => t('err.notHost', 'Only the host can change the rules of this run'),
+  badRules: () => t('err.badRules', 'Invalid rules'),
   noRomForPlayer: () => t('err.noRomForPlayer', 'No ROM for this player'),
   romNotBuilt: () => t('err.romNotBuilt', 'The ROM for this player hasn’t been built yet'),
   badPath: () => t('err.badPath', 'Invalid path'),
@@ -66,6 +79,8 @@ const TEXTS = {
   playersGap: () => t('err.playersGap', 'Players must be p1 to p4 without gaps'),
   noBuildPlayer: () => t('err.noBuildPlayer', 'No valid player to build'),
   packInvalid: () => t('err.packInvalid', 'Not a valid run pack'),
+  packNewer: (v) => t('err.packNewer', 'This run needs souldew {version} or newer – update souldew to join it', v),
+  packNewerAny: () => t('err.packNewerAny', 'This run needs a newer souldew – update souldew to join it'),
   packBroken: (v) => t('err.packBroken', 'The run pack is damaged ({what})', v),
   badWebhook: () => t('err.badWebhook', 'Invalid Discord webhook URL'),
   liveCard: (v) => t('err.liveCard', 'The card image couldn’t be made ({what}).', v),
@@ -109,12 +124,23 @@ const TEXTS = {
   emulatorOpen: (v) => t('err.emulatorOpen', '{emu} is already open – start the game there, or close {emu} and start it from here', v),
   ctrNoPatch: () => t('err.ctrNoPatch', 'Nintendo 3DS games can’t be patched here'),
   ctrInArchive: () => t('err.ctrInArchive', 'Unpack the 3DS game from its archive into the library first'),
+  shinyUnsupported: () => t('err.shinyUnsupported', 'This run changes the shiny rate, and souldew can’t build that into this copy of the game – it needs an original Gen 3–5 game (Game Boy Advance or DS).'),
 // (one text for playing and randomizing: the player, the randomizer and Azahar all need a decrypted dump)
   ctrEncrypted: () => t('err.ctrEncrypted', 'This 3DS game file is encrypted. souldew and Azahar only play decrypted games, and the randomizer needs a decrypted copy too (.3ds, .cci or .cxi) – souldew doesn’t decrypt games. Dump your cartridge decrypted (for example with GodMode9 on your 3DS) and add that file.'),
+  ctrIncomplete: () => t('err.ctrIncomplete', 'This 3DS game file is incomplete – part of the game is missing, so it would only show a black screen. This happens when copying it was interrupted (souldew or the computer closed meanwhile) or a download stopped. Remove it from the library and add the game again.'),
   notCtr: () => t('err.notCtr', 'Not a Nintendo 3DS game'),
+  notCtrUpdate: () => t('err.notCtrUpdate', 'Not a 3DS game update'),
   ctrNoSpace: (v) => t('err.ctrNoSpace', 'Not enough disk space: the randomized 3DS games need about {need} GB, {free} GB are free.', v),
   ctrMemory: () => t('err.ctrMemory', 'Not enough memory for the 3DS randomizer (it needs up to 4.5 GB). Close other programs and try again.'),
   ctrTimeout: () => t('err.ctrTimeout', 'The 3DS randomizer took too long and was stopped. Try again – a fast drive helps.'),
+  randoFailed: (v) => t('err.randoFailed', 'The randomizer can’t build this game with these settings – its data isn’t where the randomizer expects it, as in some ROM hacks and releases. Try another preset, or play without the randomizer. (Randomizer error: {what})', v),
+  randoTimeout: () => t('err.randoTimeout', 'The randomizer took too long and was stopped. Try again.'),
+  // a file the randomizer couldn't read or write (server/lib/toolchain.mjs ioFailure): {what} is the system's own words
+  randoNoSpace: (v) => t('err.randoNoSpace', 'The disk ran full while the randomizer was writing {file} ({what}). Free up a few GB – a randomized 3DS game takes about 3 GB, plus about 1 GB while it is built – and build again.', { ...v, file: randoFile(v?.where) }),
+  randoNoAccess: (v) => IS_MAC ? t('err.randoNoAccessMac', 'souldew isn’t allowed to use {file} ({what}). On a Mac: System Settings › Privacy & Security › Files and Folders (or Full Disk Access) – allow souldew there. If it’s the game file, you can also move it into souldew’s library folder and add it again. Then build again.', { ...v, file: randoFile(v?.where) })
+    : t('err.randoNoAccess', 'souldew isn’t allowed to use {file} ({what}). Check that your user account may use that folder and that no security program blocks souldew (on Windows: Windows Security › Virus & threat protection › Ransomware protection › Controlled folder access). If it’s the game file, you can also move it into souldew’s library folder and add it again. Then build again.', { ...v, file: randoFile(v?.where) }),
+  randoReadFailed: (v) => t('err.randoReadFailed', 'The game file couldn’t be read completely ({what}). Is it on an external drive, a network folder or in iCloud Drive? Copy it onto the computer’s own disk – best into souldew’s library folder – add it again and build again. If that doesn’t help, the copy is damaged: get the game file again.', v),
+  randoIoFailed: (v) => t('err.randoIoFailed', 'The randomizer stopped at a file error: {what} ({file}). Check that the drive has free space and that souldew may use the folder, then build again. If it happens again, save the diagnostics (Help › Save diagnostics) and send them along.', { ...v, file: randoFile(v?.where) }),
   badEmulatorPath: () => t('err.badEmulatorPath', 'Invalid emulator path'),
   scriptMissing: () => t('err.scriptMissing', 'The mGBA script is missing – restart souldew to create it again'),
   emulatorRunning: () => t('err.emulatorRunning', 'The external emulator is still running. Save in the game, close the emulator, then try again.'),
@@ -138,16 +164,67 @@ const TEXTS = {
   unpackFailed: (v) => t('err.unpackFailed', '{name} couldn’t be unpacked: {why}', v),
   badRomHack: () => t('err.badRomHack', 'This ROM hack choice isn’t valid'),
   uploadType: () => t('err.uploadType', 'Only ROMs (.gb/.gbc/.gba/.nds), patches or .zip'),
+  archiveUnsupported: () => t('lib.skipArchive', 'souldew can’t open .7z or .rar archives – unpack the game first (with 7-Zip, for example), then add the .3ds, .cci or .cxi file.'),
+  importFailed: (v) => t('err.importFailed', '{name} couldn’t be copied into the library ({why}). Another program may be using the file – close it (or wait for the virus scan) and try again.', v),
+  importVerify: (v) => t('err.importVerify', 'The copy of {name} doesn’t match the original, so it wasn’t added. Try again – if it happens again, the drive may have a problem.', v),
   notRom: () => t('err.notRom', 'Not a ROM file'),
   notPatch: () => t('err.notPatch', 'Not a patch file'),
   badCoverId: () => t('err.badCoverId', 'Invalid picture ID'),
   coverType: () => t('err.coverType', 'Only PNG, JPEG or WebP pictures'),
   coverTooLarge: () => t('err.coverTooLarge', 'Picture too large (4 MB at most)'),
   noCover: () => t('err.noCover', 'No picture of your own yet'),
+  noRun: () => t('err.noRun', 'No run yet'),
+  discordFailed: (v) => t('err.discordFailed', 'Discord didn’t take the message (HTTP {status})', v),
+  badThumb: () => t('err.badThumb', 'The screenshot isn’t a JPEG picture'),
+  badRequest: () => t('err.badRequest', 'The request isn’t valid'),
+  badSeed: (v) => t('err.badSeed', 'Invalid seed for {name}', v),
+  wrongBaseRom: (v) => t('err.wrongBaseRom', 'Wrong base ROM: {name} needs the game with CRC32 {expected}, this one has {found}.', v),
+  patchResult: (v) => t('err.patchResult', 'Patching gave another game than {name} should (CRC32 {found} instead of {expected}) – is it the right base ROM?', v),
+  javaMissing: () => t('err.javaMissing', 'Java wasn’t found, so the randomizer can’t run. Install Java (e.g. Temurin 21 from adoptium.net) and restart the app.'),
+  uprMissing: () => t('err.uprMissing', 'The randomizer (Universal Pokémon Randomizer ZX) is missing – reinstall souldew, or play without the randomizer.'),
+  uprDownload: (v) => t('err.uprDownload', 'Downloading the randomizer failed ({detail}) – check the internet connection and try again.', v),
+  uprChecksum: () => t('err.uprChecksum', 'The randomizer download is damaged – nothing was installed. Try again.'),
+  // a HeartGold / SoulSilver save the graveyard or the save watcher can't use (shared/gen4save.mjs)
+  saveTooSmall: (v) => t('err.saveTooSmall', 'The save file is too small ({size} bytes) – a HeartGold / SoulSilver save has 512 KB.', v),
+  saveNotFound: () => t('err.saveNotFound', 'No valid save in the file – save once in the game first.'),
+  saveAmbiguous: () => t('err.saveAmbiguous', 'The save file isn’t clear about the latest save – save once in the game and try again.'),
+  teamEmpty: () => t('err.teamEmpty', 'The team can’t become empty – at least one Pokémon has to stay in it.'),
+  boxesFull: () => t('err.boxesFull', 'No free box slots left.'),
+};
+
+// the lines of a build's log (server/lib/build.mjs, roms.mjs)
+const LOG_TEXTS = {
+  romLoaded: (v) => t('buildLog.romLoaded', 'Base ROM loaded ({mb} MB, CRC32 {crc})', v),
+  patchCached: (v) => t('buildLog.patchCached', 'Patched ROM from the cache (CRC32 {crc})', v),
+  patchApplying: (v) => t('buildLog.patchApplying', 'Applying the patch ({format}, {mb} MB) …', v),
+  patchApplied: (v) => t('buildLog.patchApplied', 'Patch applied in {s} s – result CRC32 {crc}', v),
+  ctrGame: (v) => t('buildLog.ctrGame', '3DS game {code} ({mb} MB)', v),
+  ctrCopy: () => t('buildLog.ctrCopy', 'Copying the 3DS game into the run folder …'),
+  shinyRate: (v) => t('buildLog.shinyRate', 'Shiny rate 1/{rate} built in', v),
+  shinyTrainers: (v) => t('buildLog.shinyTrainers', 'Shiny rate 1/{rate} built in (trainers’ Pokémon too)', v),
+  ctrReuse: (v) => t('buildLog.ctrReuse', 'Same seed as {from} – using their game for {name}', v),
+  ctrRandomize: (v) => t('buildLog.ctrRandomize', 'Randomizing the 3DS game for {name} (seed {seed}) – this takes a few minutes …', v),
+  ctrHash: (v) => t('buildLog.ctrHash', 'Done in {s} s – computing the checksum …', v),
+  randomize: (v) => t('buildLog.randomize', 'Randomizing the ROM for {name} (seed {seed}) …', v),
+  randomized: (v) => t('buildLog.randomized', 'Done in {s} s', v),
+  romMatches: (v) => t('buildLog.romMatches', '✔ The ROM for {name} is byte-identical to your friend’s', v),
+  romDiffers: (v) => t('buildLog.romDiffers', '⚠ The ROM for {name} differs from the run pack (another base ROM or version?)', v),
+  romPairMate: (v) => t('buildLog.romPairMate', 'ℹ {name} plays the other edition of the pair than the host – that’s fine, everyone plays their own copy', v),
+  introApplied: () => t('buildLog.introApplied', 'Your game starts from your intro save'),
+  romOtherRelease: (v) => t('buildLog.romOtherRelease', 'ℹ The ROM for {name} is another release of the game than the host’s – that’s fine, everyone plays their own copy', v),
 };
 
 /** The text to show for a failed API call: translated when the server sent a known code, else its own message. */
 export function serverErrorText({ code, vars, error } = {}, status) {
-  const text = code && TEXTS[code] ? TEXTS[code](vars || {}) : '';
+  const text = code && Object.hasOwn(TEXTS, code) ? TEXTS[code](vars || {}) : '';
   return text || error || (status ? `HTTP ${status}` : '');
 }
+
+/** One line of a build's log in the player's language (a plain string – an older server's line – as it is). */
+export function buildLogText(line) {
+  if (!line || typeof line !== 'object') return String(line ?? '');
+  return (line.code && Object.hasOwn(LOG_TEXTS, line.code) ? LOG_TEXTS[line.code](line.vars || {}) : '') || String(line.text || '');
+}
+
+/** The codes these tables translate (test/i18n-leaks.test.mjs). */
+export const SERVER_CODES = Object.freeze({ errors: Object.keys(TEXTS), log: Object.keys(LOG_TEXTS) });

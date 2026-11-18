@@ -20,6 +20,23 @@
 //                                   whenever k changes, right before the first sound made with it)
 //                                   gpu: the Vulkan device chosen (name, type, vendor, driver …) – sent before the core
 //                                   touches it, so a crash in the driver still says which one it was
+//                    8 FFSOUND s16 stereo samples – fast-forward only, next to AUDIO: the core's own sound as it comes
+//                             (the game's pace: its normal pitch and full bandwidth, k seconds of it per second) – the
+//                             turbo mixer's "Music continues" records it instead of slowing AUDIO back down (see ff_frame)
+//                    9 ROMFS  u64 frame, u32 count, u32 flags (1: that frame was fast-forwarded), count × { u64 serial,
+//                             u64 offset, u32 length, u32 tag, u64 frame } – the
+//                             game's RomFS reads (native/azahar-patch/souldew-romfs.patch), sent ten times a second right
+//                             before that frame's AUDIO, with the emulated frame each read was seen in (an empty one twice a
+//                             second keeps the page's clock): souldew's "music from the ROM" (web/lib/rommusic.mjs) sees
+//                             which music stream the game reads and how far
+//                   10 ROMDATA u32 id, u32 status (0 ok, 1 the core can't, 2 no such RomFS), u64 size of that RomFS, bytes –
+//                             the answer to ROMREAD
+//                   11 SFX    u32 flags (2: music voices were left out, 4: somewhere in it the core kept the music in –
+//                             not to be played), u32 count, count × u32 (where in the samples a new sound began: key-on
+//                             of a voice that isn't music), s16 stereo samples – fast-forward only, in place of FFSOUND,
+//                             while souldew asks for it (SFX): the core's own sound without the voices that play the
+//                             game's streamed music (native/azahar-patch/souldew-sfx.patch) – the sound effects, which
+//                             souldew's turbo mixer plays at 1× over the music track from the ROM (web/lib/sfxplayer.mjs)
 //   souldew → host   1 INPUT  u32 joypad bits (RETRO_DEVICE_ID_JOYPAD_*), s16 lx, ly, rx, ry, s16 px, py (pointer,
 //                             -0x7fff…0x7fff over the whole picture), u8 pressed
 //                    2 SPEED  f32 (1 = normal, 0 = paused, ≥ 100 = as fast as possible)
@@ -29,6 +46,14 @@
 //                    9 WRITE  u32 id, u32 addr, u32 len (≤ 256, inside one 4 KB page of the game's heaps), the bytes
 //                             expected there now, the new bytes – a cheat; answered by the event { event: 'written',
 //                             id, ok, why } (see mem_write)
+//                   10 ROMREAD u32 id, u32 tag, u64 offset, u32 length (≤ 1 MB) – bytes of the RomFS `tag` (from a ROMFS
+//                             read) as the game sees it, its update's or a LayeredFS mod's included; answered by ROMDATA
+//                             between frames, at most ROMREAD_BUDGET bytes per frame
+//                   11 MUSIC  u32 tag, u32 count, count × { u64 start, u64 end } – where the music streams of RomFS `tag`
+//                             are (offsets in its level 3; count 0 forgets them): the core recognises the voices that
+//                             play them (souldew_audio_music_ranges)
+//                   12 SFX    u32 on – leave the music voices out of the fast-forward sound (message 11); the host does
+//                             it only while it fast-forwards, the 1× sound is never touched
 // Memory reads go through souldew_read_memory (native/azahar-patch: the game process's virtual memory, page by page)
 // between two frames – never torn. Azahar's own core (no patch) runs the game without live data.
 // Builds on macOS, Linux and Windows (compat.h); scripts/build-ctr.mjs builds it.
@@ -264,196 +289,7 @@ static int16_t input_state(unsigned port, unsigned device, unsigned index, unsig
 static int16_t *audio_buf;
 static size_t audio_n, audio_cap;
 
-// ---- fast-forward sound -------------------------------------------------------------------------------------------
-// While fast-forwarding the core makes k seconds of sound per second, k being the speed it really reaches – and on a
-// 3DS that swings from frame to frame (Pokémon Sun's overworld on a mid-range PC: anywhere between 1.1× and 3× within
-// a second). 2.7.2 averaged every frame's sound down by the speed measured over the last quarter second and threw
-// away whole frames once it was ahead of real time (as the fast player's host does – its cores hold their speed):
-// with a swinging speed the page got too little sound, then too much, and played it with ~10 holes a second.
-// Now the frames' sound goes into a queue and comes out resampled by k, exactly as many samples as wall-clock time
-// has passed – without holes. k follows the measured speed and how full the queue is (about FF_TARGET seconds); it is
-// glides (no jumps in pitch), and every change is announced right before the first sound made with it (event
-// "ffrate"), so souldew's turbo mixer can slow the sound back down by exactly the ratio it was sped up with.
-// A low-pass at the new Nyquist frequency goes first (two biquads – the plain average let the overtones fold back
-// into the audible range: harsh). Above FF_MAXK× the queue overflows and skips ahead, with a short crossfade.
-#define FF_MAXK 16.0
-#define FF_TARGET 0.15 // seconds of output kept in the queue (latency doesn't matter much for sped-up sound)
-#define FF_GLIDE 0.15  // seconds k takes to follow the speed (time constant)
-#define FF_XFADE 256   // output frames of crossfade where the queue skips ahead
-#define FF_PI 3.14159265358979323846
-#define FF_CHUNK 160  // output frames sent at least at a time (~5 ms)
-static struct {
-  float *q; // queue: interleaved stereo, `n` frames
-  size_t n, cap;
-  double pos;       // read position in the queue (frames, fractional)
-  double k;         // the ratio in use (announced)
-  double glide;     // where k is gliding
-  double kin;       // the speed the sound comes in at (smoothed)
-  double due;       // output frames owed to wall-clock time
-  int primed;       // the queue was full enough to start (again)
-  double xpos;      // where the queue skipped from (crossfade), and how many frames of it are left
-  int xleft;
-  double b[2][5];   // the low-pass: two biquads (b0 b1 b2 a1 a2) …
-  double z[2][2][2]; // … and their state [biquad][channel][2]
-  int lp;           // low-pass on
-  int16_t *out;
-  size_t ocap;
-  uint32_t holes;   // times the queue ran dry (diagnostics: stats)
-} ff;
-
-/** The low-pass for ratio k: 4th-order Butterworth at 0.45 × the output's Nyquist frequency (none near 1×). */
-static void ff_lowpass(double k) {
-  ff.lp = k > 1.05;
-  if (!ff.lp) return;
-  static const double qs[2] = {0.5412, 1.3066};
-  const double w = 2 * FF_PI * 0.45 * 0.5 / k; // (in the input's samples: its Nyquist is π)
-  for (int s = 0; s < 2; s++) {
-    const double c = cos(w), al = sin(w) / (2 * qs[s]), a0 = 1 + al;
-    ff.b[s][0] = (1 - c) / 2 / a0;
-    ff.b[s][1] = (1 - c) / a0;
-    ff.b[s][2] = (1 - c) / 2 / a0;
-    ff.b[s][3] = -2 * c / a0;
-    ff.b[s][4] = (1 - al) / a0;
-  }
-}
-
-/** A fresh start: turbo began (or ended). */
-static void ff_reset(double k) {
-  ff.n = 0;
-  ff.pos = 0;
-  ff.due = 0;
-  ff.primed = 0;
-  ff.xleft = 0;
-  ff.k = ff.glide = ff.kin = k;
-  memset(ff.z, 0, sizeof ff.z);
-  ff_lowpass(k);
-}
-
-/** The frame's sound (n stereo frames) into the queue, low-passed. */
-static void ff_push(const int16_t *d, size_t n) {
-  // drop what was read (but keep 2 frames before the read position – and the crossfade's source – for interpolation)
-  double keep = ff.xleft && ff.xpos < ff.pos ? ff.xpos : ff.pos;
-  size_t drop = keep > 3 ? (size_t)keep - 2 : 0;
-  if (drop > ff.n) drop = ff.n;
-  if (drop > 4096 || ff.n + n > ff.cap) {
-    memmove(ff.q, ff.q + drop * 2, (ff.n - drop) * 2 * sizeof *ff.q);
-    ff.n -= drop;
-    ff.pos -= (double)drop;
-    ff.xpos -= (double)drop;
-  }
-  if (ff.n + n > ff.cap) {
-    size_t cap = (ff.n + n) * 2;
-    float *q = realloc(ff.q, cap * 2 * sizeof *q);
-    if (!q) return; // out of memory: this frame's sound is left out
-    ff.q = q;
-    ff.cap = cap;
-  }
-  float *o = ff.q + ff.n * 2;
-  for (size_t i = 0; i < n; i++)
-    for (int c = 0; c < 2; c++) {
-      double x = d[i * 2 + c] / 32768.0;
-      if (ff.lp)
-        for (int s = 0; s < 2; s++) { // transposed direct form II
-          const double *b = ff.b[s];
-          double *z = ff.z[s][c];
-          const double y = b[0] * x + z[0];
-          z[0] = b[1] * x - b[3] * y + z[1];
-          z[1] = b[2] * x - b[4] * y;
-          x = y;
-        }
-      o[i * 2 + c] = (float)x;
-    }
-  ff.n += n;
-}
-
-/** The queue at position p, channel c (4-point Hermite; p ≥ 1 and p + 2 < n). */
-static double ff_at(double p, int c) {
-  const size_t i = (size_t)p;
-  const double t = p - (double)i;
-  const float *q = ff.q + c;
-  const double xm = q[(i - 1) * 2], x0 = q[i * 2], x1 = q[(i + 1) * 2], x2 = q[(i + 2) * 2];
-  const double c1 = 0.5 * (x1 - xm), c2 = xm - 2.5 * x0 + 2 * x1 - 0.5 * x2, c3 = 0.5 * (x2 - xm) + 1.5 * (x0 - x1);
-  return ((c3 * t + c2) * t + c1) * t + x0;
-}
-
-/** Up to `want` output frames into ff.out at ratio ff.k; returns how many there were. */
-static size_t ff_make(size_t want) {
-  if (ff.pos < 1) ff.pos = 1;
-  const double avail = (double)ff.n - 3 - ff.pos;
-  size_t m = avail > 0 ? (size_t)(avail / ff.k) : 0;
-  if (m > want) m = want;
-  if (ff.ocap < m) {
-    int16_t *o = realloc(ff.out, m * 2 * sizeof *o);
-    if (!o) return 0;
-    ff.out = o;
-    ff.ocap = m;
-  }
-  for (size_t j = 0; j < m; j++) {
-    for (int c = 0; c < 2; c++) {
-      double v = ff_at(ff.pos, c);
-      if (ff.xleft) { // equal-power crossfade from where the queue skipped
-        const double g = (double)ff.xleft / FF_XFADE;
-        v = v * sin((1 - g) * FF_PI / 2) + ff_at(ff.xpos, c) * sin(g * FF_PI / 2);
-      }
-      v *= 32768;
-      ff.out[j * 2 + c] = (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v);
-    }
-    ff.pos += ff.k;
-    if (ff.xleft) {
-      ff.xpos += ff.k;
-      ff.xleft--;
-    }
-  }
-  return m;
-}
-
-/** Fast-forward, after a frame: its sound into the queue, and the sped-up sound for `dt` seconds out to souldew. */
-static void ff_frame(double dt, double sample_rate) {
-  ff_push(audio_buf, audio_n / 2);
-  ff.due += dt * sample_rate;
-  if (ff.due > sample_rate * 0.1) ff.due = sample_rate * 0.1; // stalled (loading): the page went without meanwhile
-  double fill = ((double)ff.n - 3 - ff.pos) / ff.k / sample_rate; // seconds of output in the queue
-  if (fill > FF_TARGET * 3 && ff.k >= FF_MAXK * 0.99 && !ff.xleft) {
-    // faster than FF_MAXK×: skip ahead to the target (crossfaded)
-    ff.xpos = ff.pos;
-    ff.xleft = FF_XFADE;
-    ff.pos += (fill - FF_TARGET) * ff.k * sample_rate;
-    fill = FF_TARGET;
-  }
-  // the ratio: the speed the sound comes in at, nudged towards the queue's target fill, gliding there (no jumps in
-  // pitch); souldew hears of every change of more than 1 %, right before the sound made with it
-  if (dt > 0) ff.kin += ((double)(audio_n / 2) / (dt * sample_rate) - ff.kin) * (dt < FF_GLIDE ? dt / FF_GLIDE : 1);
-  double e = (fill - FF_TARGET) / FF_TARGET;
-  if (e < -1) e = -1;
-  if (e > 1.5) e = 1.5;
-  double to = ff.kin * (1 + 0.6 * e);
-  if (to < 1) to = 1;
-  if (to > FF_MAXK) to = FF_MAXK;
-  ff.glide += (to - ff.glide) * (dt < FF_GLIDE ? dt / FF_GLIDE : 1);
-  if (fabs(ff.glide / ff.k - 1) > 0.01) {
-    ff.k = ff.glide;
-    ff_lowpass(ff.k);
-    send_event("{\"event\":\"ffrate\",\"k\":%.4f}", ff.k);
-    fill = ((double)ff.n - 3 - ff.pos) / ff.k / sample_rate;
-  }
-  if (!ff.primed) {
-    // (re)starting: wait until the queue holds its target – one short gap instead of a crackle of small ones
-    if (fill < FF_TARGET * 0.6) {
-      ff.due = 0;
-      return;
-    }
-    ff.primed = 1;
-  }
-  const size_t want = (size_t)ff.due;
-  if (want < FF_CHUNK) return; // (at Max a frame takes well under a millisecond: its few samples go out together)
-  const size_t m = ff_make(want);
-  ff.due -= (double)m;
-  if (m) send_msg(3, ff.out, (uint32_t)(m * 2 * sizeof *ff.out));
-  if (m + 64 < want) { // ran dry (the game stalled)
-    ff.primed = 0;
-    ff.holes++;
-  }
-}
+#include "ffsound.h" // fast-forward sound: the queue, the ratio and the resampler (shared with retrohost.c)
 
 static void audio_push(const int16_t *d, size_t frames) {
   if (!frames) return;
@@ -471,7 +307,31 @@ static void audio_sample(int16_t l, int16_t r) {
   int16_t s[2] = {l, r};
   audio_push(s, 1);
 }
+// souldew's sound effects during fast-forward (native/azahar-patch/souldew-sfx.patch): while the page asks for them and
+// the game fast-forwards, the core leaves the voices that play the game's streamed music out of its sound (the page plays
+// the music itself, from the ROM) and says per DSP frame (160 samples) what that frame is – asked from right here, the
+// core hands each frame to this callback as it makes it. sfx_onsets: where in audio_buf a new sound (not music) began.
+static void (*souldew_audio_music_ranges)(uint32_t tag, const uint64_t *pairs, uint32_t n);
+static void (*souldew_audio_mute_music)(uint32_t on);
+static uint32_t (*souldew_audio_frame_flags)(void);
+static uint32_t (*souldew_audio_music_state)(uint64_t *out, uint32_t max);
+#define SFX_ONSET 1u
+#define SFX_MUTED 2u
+#define SFX_UNSURE 4u
+#define SFX_MUSIC 16u
+#define MAX_ONSETS 256
+static int sfx_muting; // the core leaves the music out now (asked for this frame)
+static uint32_t sfx_flags, sfx_onsets[MAX_ONSETS], sfx_n;
 static size_t audio_batch(const int16_t *d, size_t frames) {
+  if (sfx_muting && souldew_audio_frame_flags) {
+    const uint32_t f = souldew_audio_frame_flags();
+    if ((f & SFX_ONSET) && sfx_n < MAX_ONSETS) sfx_onsets[sfx_n++] = (uint32_t)(audio_n / 2);
+    // a frame that kept music in it (asked but unsure, or a music voice not left out) spoils the whole message: the page
+    // must not play it as sound effects
+    sfx_flags |= f & SFX_UNSURE;
+    if ((f & SFX_MUSIC) && !(f & SFX_MUTED)) sfx_flags |= SFX_UNSURE;
+    sfx_flags |= f & SFX_MUTED;
+  }
   audio_push(d, frames);
   return frames;
 }
@@ -1213,6 +1073,12 @@ static bool environment(unsigned cmd, void *data) {
 // the heaps the game allocates after loading are readable too. The official core only has the memory map from load.
 static bool (*souldew_read_memory)(uint32_t addr, void *out, uint32_t size);
 static uint64_t (*souldew_title_id)(void);
+// Save states that stop the game only while its memory is copied (native/azahar-patch/souldew-state.patch): zstd runs on
+// a thread of the core's own and the state goes out once it is packed, a few frames later. Without them (an older core)
+// retro_serialize_size packs it between two frames – 0.4 s without sound or pictures on a Windows PC.
+static int (*souldew_state_begin)(void);
+static int64_t (*souldew_state_poll)(void);
+static bool (*souldew_state_take)(void *out, size_t size);
 
 static const uint8_t *mem_at(uint32_t addr, uint32_t len) {
   for (unsigned i = 0; i < memmap_n; i++) {
@@ -1367,9 +1233,92 @@ static void send_mem(void) {
   free(b);
 }
 
+// ---- the game's RomFS reads (souldew's "music from the ROM") ------------------------------------------------------
+// The core notes every RomFS read the game makes (native/azahar-patch/souldew-romfs.patch, a lock-free ring); the host
+// drains it after each frame – tagged with that frame – and sends what came ten times a second (ROMFS), right before
+// the frame's sound, so the page knows exactly which sound the reads belong to. Nothing here waits on the core or
+// changes how the game runs. ROMREAD asks for RomFS bytes (the tables, a stream's header and data): read between
+// frames, a little per frame.
+static uint32_t (*souldew_romfs_reads)(uint64_t *out, uint32_t max);
+static uint32_t (*souldew_romfs_read)(uint32_t tag, uint64_t offset, void *out, uint32_t size);
+static uint64_t (*souldew_romfs_size)(uint32_t tag);
+#define ROMFS_MAX 1024     // reads kept between two sends (a loading screen reads hundreds a second)
+#define ROMREAD_MAX (1u << 20)
+#define ROMREAD_BUDGET (2u << 20) // bytes of ROMREAD answered per frame (a few ms of disk at most)
+#define MAX_ROMREADS 32
+static uint8_t romfs_buf[16 + ROMFS_MAX * 32];
+static uint32_t romfs_n;
+static uint64_t romfs_lost; // reads that didn't fit until the next send (diagnostics: the page sees the serial gap)
+static struct romread { uint32_t id, tag, len; uint64_t offset; } romreads[MAX_ROMREADS]; // (cmd_lock)
+static unsigned romreads_n;
+
+/** After a frame: the reads the core noted during it, into the next ROMFS message. */
+static void romfs_drain(uint64_t frame) {
+  if (!souldew_romfs_reads) return;
+  uint64_t r[3 * 64];
+  for (;;) {
+    uint32_t n = souldew_romfs_reads(r, 64);
+    for (uint32_t i = 0; i < n; i++) {
+      if (romfs_n >= ROMFS_MAX) {
+        romfs_lost++;
+        continue;
+      }
+      uint8_t *e = romfs_buf + 16 + romfs_n * 32;
+      const uint32_t len = (uint32_t)r[3 * i + 2], tag = (uint32_t)(r[3 * i + 2] >> 32);
+      memcpy(e, &r[3 * i], 8), memcpy(e + 8, &r[3 * i + 1], 8), memcpy(e + 16, &len, 4), memcpy(e + 20, &tag, 4), memcpy(e + 24, &frame, 8);
+      romfs_n++;
+    }
+    if (n < 64) break;
+  }
+}
+
+/** Ten times a second (reads came), or twice a second (an empty one: the frame, for the page's clock). */
+static int romfs_now; // send with the next frame (fast-forward started or ended: the page lines the music up again)
+static void romfs_send(uint64_t frame, double t, int turbo) {
+  static double last_send, last_empty;
+  if (!souldew_romfs_reads) return;
+  if (!romfs_now && (romfs_n ? (t - last_send < 0.1 && romfs_n < ROMFS_MAX) : t - last_empty < 0.5)) return;
+  romfs_now = 0;
+  last_send = last_empty = t;
+  const uint32_t flags = turbo ? 1 : 0; // (the page lines the music up with 1× frames only)
+  memcpy(romfs_buf, &frame, 8);
+  memcpy(romfs_buf + 8, &romfs_n, 4);
+  memcpy(romfs_buf + 12, &flags, 4);
+  send_msg(9, romfs_buf, 16 + romfs_n * 32);
+  romfs_n = 0;
+}
+
+/** The ROMREADs that came since the last frame (as many as the budget allows – the rest wait for the next one). */
+static void romfs_answer(void) {
+  static struct romread q[MAX_ROMREADS];
+  pthread_mutex_lock(&cmd_lock);
+  unsigned n = 0;
+  uint32_t bytes = 0;
+  while (n < romreads_n && (n == 0 || bytes + romreads[n].len <= ROMREAD_BUDGET)) bytes += romreads[n].len, q[n] = romreads[n], n++;
+  memmove(romreads, romreads + n, (romreads_n - n) * sizeof *romreads);
+  romreads_n -= n;
+  pthread_mutex_unlock(&cmd_lock);
+  static uint8_t *buf;
+  if (n && !buf) buf = malloc(16 + ROMREAD_MAX);
+  for (unsigned i = 0; i < n; i++) {
+    uint8_t head[16] = {0};
+    uint32_t status = 0, got = 0;
+    uint64_t size = 0;
+    if (!souldew_romfs_read || !buf) status = 1; // (no patched core – or out of memory: an answer without bytes)
+    else if (!(size = souldew_romfs_size(q[i].tag))) status = 2;
+    else if (q[i].len) got = souldew_romfs_read(q[i].tag, q[i].offset, buf, q[i].len);
+    memcpy(head, &q[i].id, 4), memcpy(head + 4, &status, 4), memcpy(head + 8, &size, 8);
+    send_msg2(10, head, 16, buf, got);
+  }
+}
+
 // ---- commands from souldew ---------------------------------------------------------------------------------------
 static float speed = 1.0f;
 static int want_save, want_quit, want_reset;
+static int sfx_want; // the page wants the sound effects without the music while fast-forwarding (SFX)
+#define MAX_MUSIC_RANGES 8192
+static struct music_ranges { uint32_t tag, n; uint64_t *pairs; } music_pending[8]; // (cmd_lock) MUSIC, applied between frames
+static unsigned music_pending_n;
 static uint8_t *load_data;
 static size_t load_len;
 
@@ -1420,7 +1369,7 @@ static void *reader(void *arg) {
         speed = isfinite(v) ? v : v > 0 ? 1000.0f : 1.0f; // NaN would stop the frame pacing for good
       }
       break;
-    case 3: want_save = 1; break;
+    case 3: want_save++; break; // (each ask gets its answer)
     case 4: free(load_data); load_data = p; load_len = h[1]; p = NULL; break;
     case 5:
       if (h[1] >= 4) {
@@ -1453,6 +1402,40 @@ static void *reader(void *arg) {
           } else {
             send_event("{\"event\":\"written\",\"id\":%u,\"ok\":false,\"why\":\"busy\"}", id);
           }
+        }
+      }
+      break;
+    case 11: // MUSIC u32 tag, u32 n, n × { u64 start, u64 end }
+      if (h[1] >= 8) {
+        uint32_t tag, n;
+        memcpy(&tag, p, 4), memcpy(&n, p + 4, 4);
+        if (n <= MAX_MUSIC_RANGES && h[1] >= 8 + n * 16 && music_pending_n < 8) {
+          uint64_t *pairs = n ? malloc(n * 16) : NULL;
+          if (!n || pairs) {
+            if (n) memcpy(pairs, p + 8, n * 16);
+            music_pending[music_pending_n++] = (struct music_ranges){tag, n, pairs};
+          }
+        }
+      }
+      break;
+    case 12: // SFX u32 on
+      if (h[1] >= 4) {
+        uint32_t on;
+        memcpy(&on, p, 4);
+        sfx_want = on != 0;
+      }
+      break;
+    case 10: // ROMREAD u32 id, u32 tag, u64 offset, u32 length
+      if (h[1] >= 20) {
+        struct romread r;
+        memcpy(&r.id, p, 4), memcpy(&r.tag, p + 4, 4), memcpy(&r.offset, p + 8, 8), memcpy(&r.len, p + 16, 4);
+        if (r.len > ROMREAD_MAX) r.len = ROMREAD_MAX;
+        if (romreads_n < MAX_ROMREADS) romreads[romreads_n++] = r;
+        else { // (too many at once: answered "can't" right away – the page asks again)
+          uint8_t b[16] = {0};
+          const uint32_t st = 1;
+          memcpy(b, &r.id, 4), memcpy(b + 4, &st, 4);
+          send_msg(10, b, 16);
         }
       }
       break;
@@ -1528,7 +1511,22 @@ int main(int argc, char **argv) {
   SYM(unserialize, "retro_unserialize");
   souldew_read_memory = dlsym(lib, "souldew_read_memory");
   souldew_title_id = dlsym(lib, "souldew_title_id");
+  souldew_state_begin = dlsym(lib, "souldew_state_begin");
+  souldew_state_poll = dlsym(lib, "souldew_state_poll");
+  souldew_state_take = dlsym(lib, "souldew_state_take");
+  if (!souldew_state_begin || !souldew_state_poll || !souldew_state_take) souldew_state_begin = NULL;
   souldew_write_memory = dlsym(lib, "souldew_write_memory");
+  souldew_romfs_reads = dlsym(lib, "souldew_romfs_reads");
+  souldew_romfs_read = dlsym(lib, "souldew_romfs_read");
+  souldew_romfs_size = dlsym(lib, "souldew_romfs_size");
+  if (!souldew_romfs_read || !souldew_romfs_size) souldew_romfs_reads = NULL; // (all three or none)
+  souldew_audio_music_ranges = dlsym(lib, "souldew_audio_music_ranges");
+  souldew_audio_mute_music = dlsym(lib, "souldew_audio_mute_music");
+  souldew_audio_frame_flags = dlsym(lib, "souldew_audio_frame_flags");
+  souldew_audio_music_state = dlsym(lib, "souldew_audio_music_state");
+  if (!souldew_audio_music_ranges || !souldew_audio_mute_music || !souldew_audio_frame_flags || !souldew_romfs_reads) souldew_audio_mute_music = NULL; // (all or none)
+  logf_("sound effects without the music (fast-forward): %s", souldew_audio_mute_music ? "yes" : "no (a core without souldew_audio_mute_music)");
+  logf_("RomFS reads (music from the ROM): %s", souldew_romfs_reads ? "yes" : "no (a core without souldew_romfs_reads)");
   logf_("memory writes (cheats): %s", souldew_write_memory ? "through the core (souldew_write_memory)"
                                       : souldew_read_memory ? "page scan (a core without souldew_write_memory)" : "none (Azahar's own core)");
 
@@ -1559,8 +1557,9 @@ int main(int argc, char **argv) {
   memset(&av, 0, sizeof av);
   core.get_system_av_info(&av);
   double fps = av.timing.fps > 1 ? av.timing.fps : 60.0;
-  send_event("{\"event\":\"loaded\",\"width\":%u,\"height\":%u,\"fps\":%.4f,\"sampleRate\":%.1f,\"maps\":%u,\"memory\":%s,\"renderer\":\"%s\"}",
-             av.geometry.base_width, av.geometry.base_height, fps, av.timing.sample_rate, memmap_n, souldew_read_memory ? "true" : "false", RENDERER_NAMES[renderer]);
+  send_event("{\"event\":\"loaded\",\"width\":%u,\"height\":%u,\"fps\":%.4f,\"sampleRate\":%.1f,\"maps\":%u,\"memory\":%s,\"renderer\":\"%s\",\"romfs\":%s,\"sfx\":%s}",
+             av.geometry.base_width, av.geometry.base_height, fps, av.timing.sample_rate, memmap_n, souldew_read_memory ? "true" : "false", RENDERER_NAMES[renderer],
+             souldew_romfs_reads ? "true" : "false", souldew_audio_mute_music ? "true" : "false");
 
   if (opt_bench) {
     double t0 = now_s();
@@ -1611,11 +1610,20 @@ int main(int argc, char **argv) {
     size_t ll = load_len;
     want_save = want_reset = 0;
     load_data = NULL;
+    const int sfx = sfx_want;
+    struct music_ranges mq[8];
+    const unsigned mn = music_pending_n;
+    memcpy(mq, music_pending, mn * sizeof *mq);
+    music_pending_n = 0;
     static struct pending_write wq[MAX_WRITES];
     unsigned wn = writes_n;
     memcpy(wq, writes, wn * sizeof *wq);
     writes_n = 0;
     pthread_mutex_unlock(&cmd_lock);
+    for (unsigned i = 0; i < mn; i++) {
+      if (souldew_audio_mute_music) souldew_audio_music_ranges(mq[i].tag, mq[i].pairs, mq[i].n);
+      free(mq[i].pairs);
+    }
     if (quit) break;
     for (unsigned i = 0; i < wn; i++) {
       const char *r = mem_write(wq[i].addr, wq[i].old, wq[i].val, wq[i].len);
@@ -1629,12 +1637,34 @@ int main(int argc, char **argv) {
       free(ld);
       send_event("{\"event\":\"stateLoaded\",\"ok\":%s}", ok ? "true" : "false");
     }
+    static int state_asked; // save states asked for and not answered yet (the page asks one at a time)
+    static double state_t0, state_t1;
     if (save) {
-      size_t n = core.serialize_size();
-      uint8_t *b = n ? malloc(n) : NULL;
-      if (b && core.serialize(b, n)) send_msg(5, b, (uint32_t)n);
-      else send_msg(5, NULL, 0);
-      free(b);
+      if (souldew_state_begin) {
+        state_t0 = now_s();
+        const int r = state_asked ? 1 : souldew_state_begin(); // (one still being packed answers this ask too)
+        state_t1 = now_s();
+        if (r < 0) for (int i = 0; i < save; i++) send_msg(5, NULL, 0);
+        else state_asked += save;
+      } else {
+        const double t0 = now_s();
+        size_t n = core.serialize_size();
+        uint8_t *b = n ? malloc(n) : NULL;
+        const bool ok = b && core.serialize(b, n);
+        for (int i = 0; i < save; i++) send_msg(5, ok ? b : NULL, ok ? (uint32_t)n : 0);
+        free(b);
+        logf_("save state: %zu bytes, %.0f ms between two frames", n, (now_s() - t0) * 1000);
+      }
+    }
+    if (state_asked) {
+      const int64_t n = souldew_state_poll();
+      if (n != 0) {
+        uint8_t *b = n > 0 ? malloc((size_t)n) : NULL;
+        const bool ok = b && souldew_state_take(b, (size_t)n);
+        for (; state_asked > 0; state_asked--) send_msg(5, ok ? b : NULL, ok ? (uint32_t)n : 0);
+        free(b);
+        logf_("save state: %lld bytes, %.0f ms between two frames, packed %.0f ms later", (long long)n, (state_t1 - state_t0) * 1000, (now_s() - state_t1) * 1000);
+      }
     }
     if (sp <= 0.0f) { // paused
       compat_sleep(0.01);
@@ -1645,11 +1675,21 @@ int main(int argc, char **argv) {
     const int turbo = sp > 1.01f;
     if (turbo != was_turbo) { // a fresh start for the sped-up sound: the asked-for speed until it is measured
       was_turbo = turbo;
+      romfs_now = 1;
       ff_reset(turbo ? (sp > FF_MAXK ? FF_MAXK : sp) : 1);
       if (turbo) send_event("{\"event\":\"ffrate\",\"k\":%.4f}", ff.k);
     } else if (turbo && ff.kin > sp) {
       ff.kin = sp; // a slower step: the game won't go faster than asked (a faster one: measured as it comes)
     }
+    // the sound effects without the music: only while fast-forwarding and asked for – at 1× the core's sound is never
+    // touched (the page lines its music track up with it)
+    const int mute = sfx && turbo && souldew_audio_mute_music;
+    if (mute != sfx_muting) {
+      sfx_muting = mute;
+      if (souldew_audio_mute_music) souldew_audio_mute_music((uint32_t)mute);
+    }
+    sfx_flags = 0;
+    sfx_n = 0;
     double t = now_s();
     // turbo: a picture for the screen about 60 times a second, not one per emulated frame (at 1×: every one)
     want_frame = !turbo || t - last_shown >= 1.0 / 62;
@@ -1661,13 +1701,28 @@ int main(int argc, char **argv) {
     if (++frame == 120) stage = "running the game";
     stat_frames++;
     t = now_s();
+    romfs_drain(frame);
+    romfs_send(frame, t, turbo); // (before the frame's sound: the page lines the reads up with it)
+    romfs_answer();
     if (!turbo) {
       if (audio_n) send_msg(3, audio_buf, (uint32_t)(audio_n * sizeof *audio_buf));
       if (audio_n && frame > 120) {
         pace_frames++;
         pace_samples += audio_n / 2;
       }
-    } else ff_frame(t - last_audio, sample_rate); // fast-forward: sped up, resampled to real time (see ff_frame)
+    } else {
+      // fast-forward: the core's sound as it is (the turbo mixer's music, see FFSOUND) – and sped up, resampled to real
+      // time (see ff_frame)
+      if (audio_n && sfx_muting) {
+        // the sound effects alone (SFX): the frame's sound without the music voices, where new sounds began in it
+        uint32_t head[2 + MAX_ONSETS];
+        head[0] = sfx_flags;
+        head[1] = sfx_n;
+        memcpy(head + 2, sfx_onsets, sfx_n * 4);
+        send_msg2(11, head, 8 + sfx_n * 4, audio_buf, (uint32_t)(audio_n * sizeof *audio_buf));
+      } else if (audio_n) send_msg(8, audio_buf, (uint32_t)(audio_n * sizeof *audio_buf));
+      ff_frame(t - last_audio, sample_rate);
+    }
     audio_n = 0;
     last_audio = t;
     if (t - last_mem >= 0.1) { // ten times a second, whatever the speed
@@ -1690,6 +1745,15 @@ int main(int argc, char **argv) {
       // (ffk / ffHoles: the fast-forward sound's ratio, and how often its queue ran dry – diagnostics)
       send_event("{\"event\":\"stats\",\"fps\":%.1f,\"speed\":%.3f,\"shown\":%llu,\"frame\":%llu,\"ffk\":%.3f,\"ffHoles\":%u}", stat_frames / (t - stat_t), real,
                  (unsigned long long)frames_shown, (unsigned long long)frame, turbo ? ff.k : 1.0, ff.holes);
+      static double sfx_told;
+      if (sfx && souldew_audio_music_state && t - sfx_told >= 1) { // (the page asked for sound effects: how the core tells music)
+        sfx_told = t;
+        uint64_t m[8] = {0};
+        souldew_audio_music_state(m, 8);
+        send_event("{\"event\":\"sfx\",\"voices\":%llu,\"noted\":%llu,\"hits\":%llu,\"misses\":%llu,\"aac\":%llu,\"romfs\":%llu,\"unsure\":%llu,\"muting\":%d}",
+                   (unsigned long long)m[0], (unsigned long long)m[1], (unsigned long long)m[2], (unsigned long long)m[3], (unsigned long long)m[4],
+                   (unsigned long long)m[5], (unsigned long long)m[6], sfx_muting);
+      }
       stat_t = t;
       stat_frames = 0;
     }

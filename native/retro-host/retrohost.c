@@ -10,8 +10,9 @@
 // link session: the link host's state of this player's console, docs/MULTIPLAYER.md › "Seamless").
 //
 // Messages: native/common/protocol.h. This host sends VIDEO (the core's format: XRGB8888 as BGRA bytes, or RGB565),
-// AUDIO, STATE, LOG, EVENT ('loaded' | 'error' | 'stateLoaded' | 'stats' {fps, speed, shown, frame} | 'stepped' {frame} |
-// 'saved' {size} | 'written' {addr, len, ok}), RAM, SRAM, WATCHED; it takes INPUT, SPEED, SAVE, LOAD, QUIT, RESET,
+// AUDIO (fast-forward: sped up by the real speed, resampled to real time – ffaudio.h), STATE, LOG, EVENT ('loaded' |
+// 'error' | 'stateLoaded' | 'stats' {fps, speed, shown, frame, ffk, ffHoles} | 'stepped' {frame} | 'saved' {size} |
+// 'written' {addr, len, ok} | 'ffrate' {k} | 'audioRate' {sampleRate}), RAM, SRAM, WATCHED; it takes INPUT, SPEED, SAVE, LOAD, QUIT, RESET,
 // WRITE, FLUSH, SRAM, RESYNC, STEP, WATCH.
 // Builds on macOS, Linux and Windows (../ctr-host/compat.h); scripts/build-native.mjs builds it.
 #include "libretro.h"
@@ -623,6 +624,7 @@ int main(int argc, char **argv) {
       if (cadence_every(&cad.last_sram, 0.5, t)) check_sram(false); // a save made right before the pause still settles
       host_sleep(0.01);
       cadence_restart(&cad, host_now());
+      ffa_idle(&ffa, host_now()); // (the pause is no time the fast-forward sound owes)
       continue;
     }
     const bool turbo = speed > 1.01f;
@@ -652,7 +654,9 @@ int main(int argc, char **argv) {
     double rfps, real;
     if (cadence_stats(&cad, t, &rfps, &real)) { // the page measures the real speed with the frame count
       ffa_measured(&ffa, real);
-      host_event("{\"event\":\"stats\",\"fps\":%.1f,\"speed\":%.3f,\"shown\":%llu,\"frame\":%llu}", rfps, real, (unsigned long long)cad.shown, (unsigned long long)frame_no);
+      // (ffk / ffHoles: the fast-forward sound's ratio, and how often its queue ran dry – diagnostics)
+      host_event("{\"event\":\"stats\",\"fps\":%.1f,\"speed\":%.3f,\"shown\":%llu,\"frame\":%llu,\"ffk\":%.3f,\"ffHoles\":%u}", rfps, real,
+                 (unsigned long long)cad.shown, (unsigned long long)frame_no, ffa.k, ffa.holes);
     }
     cadence_wait(&cad, speed, t);
   }

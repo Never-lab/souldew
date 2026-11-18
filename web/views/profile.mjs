@@ -10,7 +10,7 @@ import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
 import { settingsLink } from '../lib/settingsindex.mjs';
 import { useAccount, useCatalog, accentHex, profileOf, updateMe, useFriends, askToJoin } from '../lib/account.mjs';
-import { presenceFrom } from '../lib/presence.mjs';
+import { presenceFrom } from '../lib/friendpresence.mjs';
 import { takenSlots } from './invitecode.mjs';
 import { Avatar, presenceText, canAskToJoin, Badges, TitlePlate, achTitle } from './social.mjs';
 import { SignInFirst, InviteModal, coverForTitle } from './friends.mjs';

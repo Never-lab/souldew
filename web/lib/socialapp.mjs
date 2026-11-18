@@ -5,7 +5,7 @@ import { useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { api } from './api.mjs';
 import { t } from './i18n.mjs';
 import { useAccount, onPending, onSignedIn, useOnlineFriends, accountState, cosmeticsPackAccess } from './account.mjs';
-import { reportFrom } from './presence.mjs';
+import { reportFrom } from './friendpresence.mjs';
 import { setRequestListener, allowFriend } from './friendinvite.mjs';
 import { authTexts } from './authtexts.mjs';
 import { takenSlots } from '../views/invitecode.mjs';

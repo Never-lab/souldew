@@ -26,18 +26,19 @@ const OLD_SETTINGS = [
   ['keyboard', 'save({ controls: next })'], ['controller', "save({ pads: { preset: id"], ['pad-nav', 'save({ padNav:'],
   ['library', "api.post('/api/library/reveal'"], ['library', 'folders({ remove: f })'], ['library', 'folders({ add: paths[0] })'],
   ['emulator-for', 'save({ emulatorFor:'], ['install', 'install(id)'], ['install', 'mgbaScriptAgain'],
-  ['share-screen', 'save({ shareScreen:'], ['discord', '<${LiveRunsSettings} />'], ['coffee-pop', "api.post('/api/stream', { coffee: on })"],
+  ['share-screen', 'save({ shareScreen:'], ['discord', '<${LiveRunsSettings} />'], ['coffee-pop', "api.post('/api/stream', { coffee: on })"], ['presence', 'save({ presence:'],
   ['updates', '<${UpdateSection} />'], ['gpu', 'save({ gpuBackend:'], ['ctr-renderer', 'save({ ctrRenderer:'], ['nag', 'save({ nagOff:'],
   ['credits', 'LINKS.github'], ['credits', 'LINKS.issues'], ['credits', 'LINKS.coffee'],
 ];
 
-// Every label, hint and message of the old page (its t() keys) – still shown somewhere in Settings.
-const OLD_KEYS = `common.cancel common.copied common.copy common.remove common.save ctl.custom ctl.customHint ctl.escape ctl.layoutGuess
-ctl.layoutSystem ctl.presetArrows ctl.presets ctl.press ctl.reserved ctl.swap ctl.taken ctl.touch ctl.unbindable keys.button keys.key keys.pause
-keys.turbo lib.reveal nav.settings pad.auto pad.autoHint pad.autoNone pad.button pad.connectFirst pad.generic pad.hotkey pad.layouts pad.missing
-pad.nav pad.navHint pad.nintendo pad.none pad.nonStandard pad.notAPad pad.onlyOdd pad.pause pad.posBottom pad.posLeft pad.posRight pad.posTop
-pad.press pad.remembered pad.stick pad.swapped pad.switch pad.text pad.title pad.turbo pad.use pad.xbox rail.coffee set.about set.addFolder
-set.appearance set.boot set.builtin set.bundled set.coffeePop set.coffeePopHint set.controls set.controlsText set.covers set.ctrRenderer
+// Every label, hint and message of the old page (its t() keys) – still shown somewhere in Settings. (2.8.3's page: the
+// shortcuts became rows of their own – the texts about keys taken by a shortcut went with it – and "playing now".)
+const OLD_KEYS = `common.cancel common.copied common.copy common.remove common.save ctl.custom ctl.customHint ctl.layoutGuess
+ctl.layoutSystem ctl.presetArrows ctl.presets ctl.press ctl.swap ctl.touch ctl.unbindable keys.button keys.key
+ lib.reveal nav.settings pad.auto pad.autoHint pad.autoNone pad.button pad.connectFirst pad.generic pad.layouts pad.missing
+pad.nav pad.navHint pad.nintendo pad.none pad.nonStandard pad.notAPad pad.onlyOdd pad.posBottom pad.posLeft pad.posRight pad.posTop
+pad.press pad.remembered pad.stick pad.switch pad.text pad.title pad.use pad.xbox rail.coffee set.about set.addFolder
+set.appearance set.boot set.builtin set.bundled set.coffeePop set.coffeePopHint set.controls set.covers set.ctrRenderer
 set.ctrRendererAuto set.ctrRendererCompat set.ctrRendererHint set.ctrRendererLearned set.ctrRendererSoftware set.ctrScale set.ctrScale1
 set.ctrScaleHint set.data set.emuCore set.emulators set.emuText set.engine set.engineHint set.fullTurbo set.fullTurboHint set.gbLook
 set.gbLookColor set.gbLookHint set.gbLookOriginal set.general set.github set.gpu set.gpuAuto set.gpuFallbackCrash set.gpuFallbackStart
@@ -46,7 +47,9 @@ set.library set.libraryText set.liveRpc set.liveSave set.liveScript set.mgbaScri
 set.nativeShort set.notInstalled set.randomizer set.replayOnboarding set.reportBug set.saveFailed set.shareScreenAll set.shareScreenHint
 set.soundsAll set.speedGuard set.speedGuardFull set.speedGuardHint set.system set.theme set.themeText set.turboMax set.turboMaxHint set.useEmu
 set.wholePixels set.wholePixelsHint theme.classic theme.classicHint theme.contrast theme.contrastHint theme.deutan theme.deutanHint theme.tritan
-theme.tritanHint upd.restart`.split(/\s+/);
+theme.tritanHint upd.restart
+ctl.alsoKey ctl.hotkeyUnbindable ctl.keepKey ctl.menu ctl.noKey ctl.none ctl.pressFor ctl.refusedNow ctl.resetBar ctl.sneakHint ctl.system
+ctl.tookOver2 ctl.undo guide.shortcuts pad.home pad.navHintHome pad.pressFor pad.sneak set.controlsText2 set.presence set.presenceHint set.presenceMore`.split(/\s+/);
 
 test('every setting of the old page still has its entry, is rendered in its tab and still saves the same thing', () => {
   for (const [id, code] of OLD_SETTINGS) {

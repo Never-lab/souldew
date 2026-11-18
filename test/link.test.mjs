@@ -149,8 +149,8 @@ test('native: link host arguments – every system incl. the DS, a rejoin\'s sta
   assert.ok(!plain.includes('--script') && plain[plain.indexOf('--rtc') + 1] === '7');
   const e2e = linkArgs({ system: 'gba', roms: ['/a', '/b'], saves: [], local: 0, rtc: 7, env: { ...env, SLS_E2E: '1' } });
   assert.ok(e2e.includes('--script') && e2e[e2e.indexOf('--rtc') + 1] === '42');
-  assert.throws(() => linkArgs({ system: '3ds', roms: ['a', 'b'], saves: [], local: 0 }), /Linken/);
-  assert.throws(() => linkArgs({ system: 'gba', roms: ['a'], saves: [], local: 0 }), /Plätze/);
+  assert.throws(() => linkArgs({ system: '3ds', roms: ['a', 'b'], saves: [], local: 0 }), { code: 'linkSystem' });
+  assert.throws(() => linkArgs({ system: 'gba', roms: ['a'], saves: [], local: 0 }), { code: 'linkSeats' });
 });
 
 test('native: a page may send a link session buttons, a peer\'s request, a session state request – never LOAD, POKE, READ', () => {
@@ -159,7 +159,7 @@ test('native: a page may send a link session buttons, a peer\'s request, a sessi
     command(LCMD.SEATSTATE, u32(300))]);
   assert.equal(checkLinkCommands(ok), ok);
   for (const bad of [command(4, Buffer.alloc(8)), command(23, u32(0, 0, 1)), command(22, u32(0, 0, 4)), command(LCMD.NEED, u32(1)), command(LCMD.RINPUT, Buffer.alloc(9)), command(LCMD.SEATSTATE, Buffer.alloc(0))]) {
-    assert.throws(() => checkLinkCommands(bad), /Befehl/);
+    assert.throws(() => checkLinkCommands(bad), { code: 'badCommand' });
   }
 });
 
@@ -168,8 +168,11 @@ test('location: the link rooms are named as such, not after the place their map 
   const maps = JSON.parse(readFileSync(new URL('../shared/data/maps.json', import.meta.url), 'utf8'));
   const bus = (cells) => (addr, len) => Uint8Array.from({ length: len }, (_, i) => cells[addr + i] ?? 0);
   const at = (base, bytes) => Object.fromEntries(bytes.map((b, i) => [base + i, b]));
-  assert.deepEqual(readLocation(maps, 'red_us', bus(at(0xd35e, [0xef]))), { gen: 1, id: 'link:trade', link: 'trade', map: 0xef });
-  assert.equal(readLocation(maps, 'red_us', bus(at(0xd35e, [0xf0]))).link, 'colosseum');
+  // (Gen 1: wCurMap, and the header copy after it loaded – its height and width are never 0; zeroed WRAM is no place)
+  const gen1 = (map) => at(0xd35e, [map, 0, 0, 0, 0, 0, 0, 0, 0, 0x0e, 4, 5]);
+  assert.deepEqual(readLocation(maps, 'red_us', bus(gen1(0xef))), { gen: 1, id: 'link:trade', link: 'trade', map: 0xef });
+  assert.equal(readLocation(maps, 'red_us', bus(gen1(0xf0))).link, 'colosseum');
+  assert.equal(readLocation(maps, 'red_us', bus(at(0xd35e, [0xef]))), null, 'no header loaded yet: no place');
   assert.equal(readLocation(maps, 'crystal_us', bus(at(0xdcb5, [20, 2]))).link, 'trade');
   assert.equal(readLocation(maps, 'silver_us', bus(at(0xda00, [20, 3]))).link, 'colosseum');
   // Gen 3: the header the link host read in Emerald's Trade Center (MAPSEC 0x57, music 0x1A6) – and the S.S. Tidal
@@ -178,7 +181,9 @@ test('location: the link rooms are named as such, not after the place their map 
   assert.equal(readLocation(maps, 'emerald_us', bus(at(0x02037318, hdr(0x1a6, 0x57)))).link, 'cableclub');
   assert.equal(readLocation(maps, 'emerald_us', bus(at(0x02037318, hdr(0x190, 0x57)))).link, undefined, 'a real place with that MAPSEC');
   // Platinum: the save data (behind its pointer) says map 466 – the Union Room
-  const pt = { ...at(0x02101d40, le(0x0227e148)), ...at(0x0227e148 + 0x1294, le(466)) };
+  // (the save data holds a named trainer – "Lou", money, a gender – or it is no save data: gen4HasTrainer)
+  const trainer = [0x16, 0x01, 0x19, 0x01, 0x1f, 0x01, 0xff, 0xff, ...Array(12).fill(0), ...le(3000), 0];
+  const pt = { ...at(0x02101d40, le(0x0227e148)), ...at(0x0227e148 + 0x1294, le(466)), ...at(0x0227e148 + 0x14 + 0x68, trainer) };
   assert.equal(readLocation(maps, 'platinum_us', bus(pt)).link, 'union');
 });
 

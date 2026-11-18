@@ -69,6 +69,11 @@ void avout_sound(int local, bool play, bool turbo, double asked, double now) {
   }
   if (B->sample_rate) ffa_rate(&ffa, B->sample_rate()); // (a GBA game switches its sound rate after it boots)
   if (play) ffa_frame(&ffa, snd, have, turbo, asked, now);
+  else ffa_idle(&ffa, now); // (drained, never played: no time the fast-forward sound owes)
 }
+
+void avout_idle(double now) { ffa_idle(&ffa, now); }
+
+void avout_ff(double *k, unsigned *holes) { *k = ffa.k, *holes = ffa.holes; }
 
 void avout_measured(double real) { ffa_measured(&ffa, real); }

@@ -8,21 +8,28 @@ import { join, extname, resolve, basename, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { WEB_DIR, SHARED_DIR, CACHE_DIR, DATA_DIR, CONFIG_PATH, NODE_MODULES, DEV, LIBRARY_DIR } from './lib/paths.mjs';
-import { writeFileAtomic, httpError, safeFileName, safeJoin, realInside } from './lib/fsutil.mjs';
-import { detectJava, uprStatus, installUpr, runBridge } from './lib/toolchain.mjs';
+import { writeFileAtomic, httpError, safeFileName, safeJoin, realInside, logLine, readRange } from './lib/fsutil.mjs';
+import { detectJava, uprStatus, installUpr, runBridge, inspectRom } from './lib/toolchain.mjs';
 import { preparePatchedRom, KNOWN_PATCHES } from './lib/roms.mjs';
-import { ROM_EXTENSIONS, PATCH_EXTENSIONS, isCtrExt } from '../shared/romid.mjs';
+import { ROM_EXTENSIONS, PATCH_EXTENSIONS, isCtrExt, matchCatalog } from '../shared/romid.mjs';
 import { ALL_SLOTS, slotsOf, runMode } from '../shared/slots.mjs';
-import { scanLibrary, catalog, loadFile, importFiles, uploadTarget, resolveId, discoverRoms, approvedFolder, placeUploadedZip, unpackLibraryZip, MAX_CTR_BYTES, setRomHack } from './lib/library.mjs';
+import { scanLibrary, catalog, loadFile, importFiles, removeStaleParts, uploadTarget, resolveId, discoverRoms, approvedFolder, placeUploadedZip, unpackLibraryZip, MAX_CTR_BYTES, setRomHack, removeCtrUpdate } from './lib/library.mjs';
 import { freeBytes } from './lib/zip.mjs';
 import { saveCover, deleteCover, coverFile, customCovers, coverUrl, COVER_LIMIT } from './lib/covers.mjs';
 import { inspectCtr, ncchSizeOf } from './lib/ctrrando.mjs';
+import { shinySupport, isOriginalRom } from './lib/shiny.mjs';
+import { packFormatState, packMinVersion } from '../shared/runpack.mjs';
+import { isHostKey, unsigned } from '../shared/hostrules.mjs';
+import { signRules, isHostComputer } from './lib/hostkey.mjs';
+import { shinyThreshold } from '../shared/shiny.mjs';
 import { buildRun, listRuns, readManifest, writeManifest, runDir, runPack, runSummary, trashRun, checkPack, stripLocalRules, isDiscordWebhook, mergeDocEntries, renamePlayers } from './lib/build.mjs';
-import { SaveWatcher } from './lib/savewatch.mjs';
-import { EMULATORS, detectEmulator, installEmulator, launchRom, revealInFileManager, emulatorRunning } from './lib/emulator.mjs';
+import { SaveWatcher, saveParser, isHgssGame } from './lib/savewatch.mjs';
+import { EMULATORS, detectEmulator, installEmulator, launchRom, revealInFileManager, emulatorRunning, melonConfigFiles, melonSaveDirs } from './lib/emulator.mjs';
 import { LiveBridge } from './lib/livebridge.mjs';
 import { AzaharBridge, enableRpc } from './lib/azahar.mjs';
-import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted } from './lib/ctr.mjs';
+import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypted, ctrFileReport, saveDirFor } from './lib/ctr.mjs';
+import { prepareUpdate, updateStamp } from './lib/ctrupdate.mjs';
+import { pickUpdate } from '../shared/ctr/update.mjs';
 import { pickRenderer, validRenderer, gpuKey, remember, validScale, scaleFor } from './lib/ctrrenderer.mjs';
 import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS } from './lib/native.mjs';
 import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem } from '../shared/link.mjs';
@@ -44,6 +51,7 @@ import { COFFEE_CORNERS } from '../shared/coffee.mjs';
 import { LINKS } from '../shared/links.mjs';
 import { randomBytes } from 'node:crypto';
 import { syncTrophies } from './lib/trophies.mjs';
+import { listIntroSaves, introFor, introKeyFor, introKeyForLibrary, publicIntro, keepIntroSave, removeIntroSave, applyIntroSave, introState } from './lib/introsave.mjs';
 import * as liveRuns from './lib/liveruns.mjs';
 import { createAccounts } from './lib/accounts/index.mjs';
 import { isPackagedBuild } from './lib/accounts/enttoken.mjs';
@@ -57,6 +65,7 @@ export function withoutDevSwitches(env) {
 }
 import { createPlusPack, plusRoutes } from './lib/pluspack.mjs';
 import { createPlusPreviews, servePreview } from './lib/pluspreviews.mjs';
+import { presence as presenceCounter } from './lib/presence.mjs';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
@@ -125,7 +134,7 @@ function send(res, status, body, headers = {}) {
 /** 413 before reading a body that announces itself as too big – the client gets the answer instead of a reset. */
 function checkLength(req, limit) {
   const len = Number(req.headers['content-length']);
-  if (Number.isFinite(len) && len > limit) throw httpError(413, 'Request zu groß', 'requestTooLarge');
+  if (Number.isFinite(len) && len > limit) throw httpError(413, 'Request too large', 'requestTooLarge');
 }
 
 async function readRaw(req, limit = 512 * 1024 * 1024) {
@@ -134,7 +143,7 @@ async function readRaw(req, limit = 512 * 1024 * 1024) {
   let size = 0;
   for await (const c of req) {
     size += c.length;
-    if (size > limit) throw httpError(413, 'Request zu groß', 'requestTooLarge');
+    if (size > limit) throw httpError(413, 'Request too large', 'requestTooLarge');
     chunks.push(c);
   }
   return Buffer.concat(chunks);
@@ -158,7 +167,7 @@ export async function streamToFile(req, target, limit) {
   try {
     for await (const c of req) {
       size += c.length;
-      if (size > limit) throw httpError(413, 'Datei zu groß', 'fileTooLarge');
+      if (size > limit) throw httpError(413, 'File too large', 'fileTooLarge');
       if (failed) throw failed;
       if (!out.write(c)) {
         // (the listener that didn't fire is taken off again – a multi-GB upload waits here thousands of times)
@@ -166,7 +175,7 @@ export async function streamToFile(req, target, limit) {
         await Promise.race([once(out, 'drain', { signal: ac.signal }), once(out, 'close', { signal: ac.signal })]).finally(() => ac.abort());
       }
     }
-    if (!size) throw httpError(400, 'Leere Datei', 'emptyFile');
+    if (!size) throw httpError(400, 'Empty file', 'emptyFile');
     out.end();
     if (!out.closed) await once(out, 'close');
     if (failed) throw failed;
@@ -186,10 +195,10 @@ async function readBody(req) {
   try {
     body = JSON.parse(text);
   } catch {
-    throw httpError(400, 'Ungültiges JSON', 'badJson');
+    throw httpError(400, 'Invalid JSON', 'badJson');
   }
   // Handlers destructure the body – null / arrays / primitives would throw a TypeError there.
-  if (!body || typeof body !== 'object' || Array.isArray(body)) throw httpError(400, 'JSON-Objekt erwartet', 'jsonObject');
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw httpError(400, 'JSON object expected', 'jsonObject');
   return body;
 }
 
@@ -201,8 +210,8 @@ function serveFile(res, path, extraHeaders = {}, head = false) {
   createReadStream(path).on('error', () => res.destroy()).pipe(res);
 }
 
-/** Only HeartGold/SoulSilver battery saves can be parsed (shared/gen4save.mjs). */
-const isHgssRun = (m) => /^IP[KG]/i.test(m?.game?.code || '') || /heartgold|soulsilver/i.test(m?.game?.id || '');
+/** HeartGold/SoulSilver: their saves have their own parser (shared/gen4save.mjs), the only ones the graveyard edits. */
+const isHgssRun = (m) => isHgssGame(m?.game);
 
 /**
  * A file in a run's folder by name (a query parameter, or a name from run.json – which can be damaged or edited by
@@ -259,7 +268,7 @@ function rotateAutoState(key) {
  */
 async function handleStates(req, res, path, url) {
   const id = url.searchParams.get('id');
-  if (!id) return send(res, 400, { error: 'id fehlt', code: 'idMissing' });
+  if (!id) return send(res, 400, { error: 'ID missing', code: 'idMissing' });
   const key = keyOf(id);
   if (path === '/api/saves/states' && req.method === 'GET') {
     let names = [];
@@ -284,7 +293,7 @@ async function handleStates(req, res, path, url) {
     return send(res, 200, list.sort((a, b) => a.slot - b.slot));
   }
   const slot = Number(url.searchParams.get('slot') ?? 1);
-  if (!Number.isInteger(slot) || slot < 1 || slot > 99) return send(res, 400, { error: 'Ungültiger Slot', code: 'badSlot' });
+  if (!Number.isInteger(slot) || slot < 1 || slot > 99) return send(res, 400, { error: 'Invalid slot', code: 'badSlot' });
   const file = statePath(key, slot, 'state');
   if (path === '/api/saves/state/thumb' && req.method === 'GET') {
     const jpg = statePath(key, slot, 'jpg');
@@ -298,15 +307,15 @@ async function handleStates(req, res, path, url) {
     } catch (e) {
       if (e.status) throw e;
     }
-    if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'JSON-Objekt erwartet', code: 'jsonObject' });
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return send(res, 400, { error: 'JSON object expected', code: 'jsonObject' });
     if (body.thumb != null) {
       const jpg = Buffer.from(String(body.thumb), 'base64');
-      if (jpg.length < 4 || jpg.length > 256 * 1024 || jpg[0] !== 0xff || jpg[1] !== 0xd8) return send(res, 400, { error: 'Kein JPEG' });
+      if (jpg.length < 4 || jpg.length > 256 * 1024 || jpg[0] !== 0xff || jpg[1] !== 0xd8) return send(res, 400, { error: 'Not a JPEG picture', code: 'badThumb' });
       writeFileAtomic(statePath(key, slot, 'jpg'), jpg);
     }
     if (body.info && typeof body.info === 'object' && !Array.isArray(body.info)) {
       const text = JSON.stringify(body.info);
-      if (text.length > 16 * 1024) return send(res, 413, { error: 'Info zu groß' });
+      if (text.length > 16 * 1024) return send(res, 413, { error: 'Request too large', code: 'requestTooLarge' });
       writeFileAtomic(statePath(key, slot, 'json'), text);
     }
     return send(res, 200, { ok: true });
@@ -315,7 +324,7 @@ async function handleStates(req, res, path, url) {
   if (req.method === 'GET') return existsSync(file) ? send(res, 200, readFileSync(file)) : send(res, 404, { error: 'no state' });
   if (req.method === 'PUT') {
     const bytes = await readRaw(req, 64 * 1024 * 1024);
-    if (!bytes.length) return send(res, 400, { error: 'Leerer Spielstand – nicht gespeichert', code: 'emptySave' });
+    if (!bytes.length) return send(res, 400, { error: 'Empty save file – not saved', code: 'emptySave' });
     mkdirSync(STATE_DIR, { recursive: true });
     if (slot === AUTO_SLOT) rotateAutoState(key);
     writeFileAtomic(file, bytes);
@@ -358,7 +367,7 @@ function sendDownload(req, res, name, source) {
     } catch {
       // missing
     }
-    if (!st?.isFile()) return send(res, 404, { error: 'Datei nicht gefunden', code: 'fileNotFound' });
+    if (!st?.isFile()) return send(res, 404, { error: 'File not found', code: 'fileNotFound' });
     res.writeHead(200, { ...headers, 'Content-Length': st.size, 'Last-Modified': st.mtime.toUTCString() });
     if (req.method === 'HEAD') return res.end();
     createReadStream(source).on('error', () => res.destroy()).pipe(res);
@@ -418,34 +427,34 @@ function handleExport(req, res, path, url) {
     const config = loadConfig();
     const romId = q('romId') || q('id');
     const patchId = q('patchId');
-    if (romId && !ROM_EXTENSIONS.includes(idExt(romId))) return send(res, 400, { error: 'Keine ROM-Datei', code: 'notRom' });
-    if (patchId && !PATCH_EXTENSIONS.includes(idExt(patchId))) return send(res, 400, { error: 'Keine Patch-Datei', code: 'notPatch' });
+    if (romId && !ROM_EXTENSIONS.includes(idExt(romId))) return send(res, 400, { error: 'Not a ROM file', code: 'notRom' });
+    if (patchId && !PATCH_EXTENSIONS.includes(idExt(patchId))) return send(res, 400, { error: 'Not a patch file', code: 'notPatch' });
     if (romId && patchId) {
       const r = preparePatchedRom(romId, patchId, () => {}, config);
       return sendDownload(req, res, `${patchedTitle(patchId, config)}${extname(r.path)}`, r.path);
     }
     const id = romId || patchId;
-    if (!id) return send(res, 400, { error: 'id, romId oder patchId fehlt', code: 'idMissing' });
+    if (!id) return send(res, 400, { error: 'id, romId or patchId missing', code: 'idMissing' });
     const { abs, entry } = resolveId(id, config);
     if (!entry) return sendDownload(req, res, basename(abs), abs);
     return sendDownload(req, res, idFileName(id), loadFile(id, config));
   }
   if (path === '/api/saves/solo/download') {
     const id = q('id');
-    if (!id) return send(res, 400, { error: 'id fehlt', code: 'idMissing' });
+    if (!id) return send(res, 400, { error: 'ID missing', code: 'idMissing' });
     const file = join(SOLO_SAVES, `${keyOf(id)}.sav`);
-    if (!existsSync(file)) return send(res, 404, { error: 'Noch kein Spielstand', code: 'noSaveYet' });
+    if (!existsSync(file)) return send(res, 404, { error: 'No save file yet', code: 'noSaveYet' });
     const [romId, patchId] = id.split('|');
     const base = patchId ? patchedTitle(patchId, loadConfig()) : idFileName(romId).replace(/\.\w+$/, '');
-    return sendDownload(req, res, `${base || 'Spielstand'}.sav`, file);
+    return sendDownload(req, res, `${base || 'Save'}.sav`, file);
   }
   const run = path.match(/^\/api\/runs\/([a-f0-9]{8})\/download$/);
   if (run) {
     const manifest = readManifest(run[1]);
-    if (!manifest) return send(res, 404, { error: 'Run nicht gefunden', code: 'runNotFound' });
+    if (!manifest) return send(res, 404, { error: 'Run not found', code: 'runNotFound' });
     const what = q('what') || 'rom';
     const slot = q('slot') || 'p1';
-    if (!ALL_SLOTS.includes(slot)) return send(res, 400, { error: 'slot muss p1 bis p4 sein', code: 'badPlayer' });
+    if (!ALL_SLOTS.includes(slot)) return send(res, 400, { error: 'slot must be p1 to p4', code: 'badPlayer' });
     const out = manifest.outputs?.[slot];
     let name = null;
     let downloadName = null;
@@ -458,10 +467,10 @@ function handleExport(req, res, path, url) {
     else if (what === 'pack') {
       name = 'run-pack.soullink.json';
       downloadName = `${manifest.name || 'SoulLink'}.soullink.json`;
-    } else return send(res, 400, { error: 'what muss rom, save, spoiler oder pack sein' });
-    if (!name) return send(res, 404, { error: 'Datei nicht vorhanden' });
+    } else return send(res, 400, { error: 'what must be rom, save, spoiler or pack', code: 'badRequest' });
+    if (!name) return send(res, 404, { error: 'File not found', code: 'fileNotFound' });
     const file = runPath(run[1], name);
-    if (!file) return send(res, 400, { error: 'bad name' });
+    if (!file) return send(res, 400, { error: 'bad name', code: 'badRequest' });
     return sendDownload(req, res, downloadName || name, file);
   }
   return false;
@@ -501,7 +510,55 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const res of sseClients) res.write(msg);
   };
-  const watcher = new SaveWatcher(GEN4, emit);
+  let addressTable = null;
+  const addresses = () => {
+    if (!addressTable) {
+      try {
+        addressTable = JSON.parse(readFileSync(join(SHARED_DIR, 'data', 'addresses.json'), 'utf8'));
+      } catch {
+        addressTable = { games: [] };
+      }
+    }
+    return addressTable;
+  };
+  /** How the battery save of a run's game is read, or null: souldew can't (shared/live/parse.mjs readSaveFile). */
+  const parserOfRun = (manifest) => (manifest ? saveParser(manifest.game, { gen4: GEN4, addresses: addresses() }) : null);
+  const watcher = new SaveWatcher(GEN4, emit, {
+    parserFor: (id) => {
+      try {
+        return parserOfRun(readManifest(id));
+      } catch {
+        return null;
+      }
+    },
+    shinyOdds: (id) => {
+      try {
+        return shinyThreshold(readManifest(id)?.shiny);
+      } catch {
+        return shinyThreshold(null); // (an unreadable run.json – the games' own odds)
+      }
+    },
+  });
+  /**
+   * Watch a run's battery save – where the built-in players keep it and, for an external emulator, wherever else it
+   * may write it (`more`: melonDS's own save folder) – for every game whose saves souldew reads (it used to be
+   * HeartGold/SoulSilver only). A save the built-in players write starts a watch only where there is none yet;
+   * launching an emulator from the play view (`replace`) watches the places it writes to now – a watch kept from an
+   * earlier session may name a file the run doesn't use anymore.
+   */
+  const sameFile = (a, b) => (process.platform === 'win32' || process.platform === 'darwin' ? String(a).toLowerCase() === String(b).toLowerCase() : a === b);
+  const watchRunSave = (runId, manifest, path, { more = [], replace = false } = {}) => {
+    if (!path || !parserOfRun(manifest)) return;
+    const want = [path, ...more.filter((p) => p && !sameFile(p, path))];
+    const now = watcher.paths(runId);
+    if (now && (!replace || (now.length === want.length && want.every((p, i) => sameFile(p, now[i]))))) return;
+    watcher.watch(runId, want);
+    saveConfig({ watches: { ...(loadConfig().watches || {}), [runId]: want.length > 1 ? want : path } });
+  };
+  /** The save watch of a run as the page gets it – with whether souldew can read and edit (the graveyard) its saves. */
+  const watchStatus = (runId, manifest) => ({ ...watcher.status(runId), readable: !!parserOfRun(manifest), graveyard: isHgssRun(manifest) });
+  // the anonymous "playing now" heartbeat – it reads the setting on every call, so "off" applies at once
+  const playingNow = presenceCounter({ enabled: () => loadConfig().presence !== false });
   const live = new LiveBridge(emit);
   // 3DS in souldew's own player (server/lib/ctr.mjs): one game at a time
   const ctr = new CtrSessions();
@@ -523,10 +580,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     writeSave: ({ path, runId }, bytes) => {
       writeFileAtomic(path, bytes);
       const manifest = runId ? readManifest(runId) : null;
-      if (manifest && isHgssRun(manifest) && !watcher.status(runId).watching) {
-        watcher.watch(runId, path);
-        saveConfig({ watches: { ...(loadConfig().watches || {}), [runId]: path } });
-      }
+      if (manifest) watchRunSave(runId, manifest, path);
     },
   });
   /** Where the play view keeps the battery save behind `saveUrl` (its GET/PUT address), or null. */
@@ -555,20 +609,20 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     try {
       u = new URL(String(src || ''), 'http://localhost');
     } catch {
-      throw httpError(400, 'Ungültige ROM-Adresse', 'badRomUrl');
+      throw httpError(400, 'Invalid game address', 'badRomUrl');
     }
     if (u.pathname === '/api/library/rom') {
       const { abs, entry } = resolveId(u.searchParams.get('id'), loadConfig());
-      if (entry) throw httpError(400, '3DS-Spiele müssen entpackt in der Bibliothek liegen', 'ctrInArchive');
+      if (entry) throw httpError(400, 'Unpack the 3DS game from its archive into the library first', 'ctrInArchive');
       return abs;
     }
     const run = u.pathname.match(/^\/api\/runs\/([a-f0-9]{8})\/file$/);
     if (run) {
       const f = runPath(run[1], u.searchParams.get('name') || '');
-      if (!f || !existsSync(f)) throw httpError(404, 'ROM nicht gefunden', 'romNotFound');
+      if (!f || !existsSync(f)) throw httpError(404, 'Game file not found', 'romNotFound');
       return f;
     }
-    throw httpError(400, 'Ungültige ROM-Adresse', 'badRomUrl');
+    throw httpError(400, 'Invalid game address', 'badRomUrl');
   };
   // The native host opens the game from a file: a ROM inside an archive and a ROM patched on the fly are written to a
   // cache file first (the two newest stay – DS games are up to 512 MB). Plain library files and runs' games as they are.
@@ -577,7 +631,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     try {
       u = new URL(String(src || ''), 'http://localhost');
     } catch {
-      throw httpError(400, 'Ungültige ROM-Adresse', 'badRomUrl');
+      throw httpError(400, 'Invalid game address', 'badRomUrl');
     }
     if (u.pathname === '/api/library/patched') return preparePatchedRom(u.searchParams.get('romId'), u.searchParams.get('patchId'), () => {}, loadConfig()).path;
     if (u.pathname === '/api/library/rom') {
@@ -743,7 +797,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   const overlayLang = (v) => (['en', 'de', 'fr', 'es', 'it'].includes(String(v || '').slice(0, 2)) ? String(v).slice(0, 2) : 'en');
   const overlayData = (runId, lang) => {
     const manifest = readManifest(runId);
-    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
     const L = overlayLookups(lang);
     const snap = overlaySnapshot(manifest, readDoc(runId) || {}, L);
     // the coffee pop-up while it is on screen (server/lib/streamapi.mjs decides) – with its Pokémon's name
@@ -921,6 +975,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         launchClear: cleanClearTint(config.launchClear),
         handheld: cleanHandheld(config.handheld),
         favourites: cleanFavourites(config.favourites),
+        presence: config.presence !== false,
       },
       plusDev: plusPack.dev,
     };
@@ -931,7 +986,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence']) {
       if (k in body) allowed[k] = body[k];
     }
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
@@ -976,6 +1031,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if ('nativeEngine' in allowed) allowed.nativeEngine = allowed.nativeEngine === true; // the souldew engine (beta): off unless switched on
     if ('gbLook' in allowed && !GB_LOOKS.includes(allowed.gbLook)) delete allowed.gbLook; // Game Boy games: original / GBC colours
     if ('padNav' in allowed) allowed.padNav = allowed.padNav !== false; // controller navigation (web/lib/padnav.mjs): on unless switched off
+    if ('presence' in allowed) allowed.presence = allowed.presence !== false; // the anonymous "playing now" count: on unless switched off
     // the graphics backend electron/main.mjs applies at the next start; the fallback notice can only be dismissed
     if ('gpuBackend' in allowed) {
       if (gpuBackends(process.platform).includes(allowed.gpuBackend)) allowed.gpuStart = null; // a new choice starts counting afresh
@@ -990,11 +1046,12 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         && (p.device == null || (typeof p.device === 'string' && p.device.length <= 200 && !/[\u0000-\u001f]/.test(p.device))));
       if (!ok) delete allowed.pads;
       else if (p) {
-        allowed.pads = { ...(p.preset ? { preset: p.preset } : {}), ...(p.map ? { map: Object.fromEntries(Object.entries(p.map).filter(([k]) => /^[a-z]{1,8}$/.test(k))) } : {}),
+        allowed.pads = { ...(p.preset ? { preset: p.preset } : {}), ...(p.map ? { map: Object.fromEntries(Object.entries(p.map).filter(([k]) => PAD_MAP_IDS.has(k))) } : {}),
           ...(p.device ? { device: p.device.trim() } : {}) };
       }
     }
     const saved = saveConfig(allowed);
+    if (allowed.presence === false) playingNow.stop().catch(() => {}); // switched off: the bot forgets this game right away
     if ('lastRun' in allowed) followCheck(); // another run opened in the app: the overlays that follow it switch
     return saved;
   });
@@ -1026,7 +1083,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   const onUnpack = (p) => emit('unpack', p);
   route('POST', /^\/api\/library\/import$/, async (req) => {
     const { paths } = await readBody(req);
-    return { added: await importFiles(paths || [], loadConfig(), { onUnpack }) };
+    // (skipped: files souldew can't take – a .7z / .rar archive – the page says so instead of "0 files added")
+    const skipped = [];
+    return { added: await importFiles(paths || [], loadConfig(), { onUnpack, skipped }), skipped };
   });
   // a zipped 3DS game in a library folder (scanLibrary().zipped): unpacked into the library folder, the zip stays
   route('POST', /^\/api\/library\/unpack$/, async (req) => {
@@ -1040,6 +1099,13 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     saveConfig({ romHacks });
     return { romHacks };
   });
+  // a 3DS game's update taken off it (library.mjs removeCtrUpdate): souldew's copy deleted, or the player's own file marked
+  route('POST', /^\/api\/library\/ctr-update\/remove$/, async (req) => {
+    const { id } = await readBody(req);
+    const { deleted, ctrUpdatesDetached } = removeCtrUpdate(id, loadConfig());
+    saveConfig({ ctrUpdatesDetached });
+    return { removed: true, deleted };
+  });
   // Search this Mac / PC for ROMs (the usual folders) – the import below then copies the ones the player picked.
   route('POST', /^\/api\/library\/discover$/, () => discoverRoms({ known: scanLibrary(loadConfig()).roms }));
   route('POST', /^\/api\/library\/upload$/, async (req, m, url) => {
@@ -1051,7 +1117,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const free = freeBytes(dirname(target));
     const len = Number(req.headers['content-length']);
     if (free !== null && Number.isFinite(len) && len <= limit && len > free - 64 * 1024 * 1024) {
-      throw httpError(507, `Nicht genug Speicherplatz für ${basename(target)}`, 'diskFull', { name: basename(target), need: `${(len / 1024 ** 3).toFixed(1)} GB`, free: `${(free / 1024 ** 3).toFixed(1)} GB` });
+      throw httpError(507, `Not enough free disk space for ${basename(target)}`, 'diskFull', { name: basename(target), need: `${(len / 1024 ** 3).toFixed(1)} GB`, free: `${(free / 1024 ** 3).toFixed(1)} GB` });
     }
     if (extname(target).toLowerCase() !== '.zip') {
       await streamToFile(req, target, limit);
@@ -1070,7 +1136,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     try {
       bytes = await readRaw(req, COVER_LIMIT);
     } catch (e) {
-      throw e.status === 413 ? httpError(413, 'Bild zu groß (höchstens 4 MB)', 'coverTooLarge') : e;
+      throw e.status === 413 ? httpError(413, 'Picture too large (4 MB at most)', 'coverTooLarge') : e;
     }
     const f = saveCover(id, bytes);
     return { id, url: coverUrl(id, f.mtimeMs) };
@@ -1097,10 +1163,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
 
   // ---- saves for the integrated emulator ------------------------------------------
   route('PUT', /^\/api\/saves\/solo$/, async (req, m, url) => {
-    if (!url.searchParams.get('id')) throw httpError(400, 'id fehlt', 'idMissing'); // would all land in one shared "null" save
+    if (!url.searchParams.get('id')) throw httpError(400, 'ID missing', 'idMissing'); // would all land in one shared "null" save
     mkdirSync(SOLO_SAVES, { recursive: true });
     const bytes = await readRaw(req, 4 * 1024 * 1024);
-    if (!bytes.length) throw httpError(400, 'Leerer Spielstand – nicht gespeichert', 'emptySave');
+    if (!bytes.length) throw httpError(400, 'Empty save file – not saved', 'emptySave');
     writeFileAtomic(join(SOLO_SAVES, `${keyOf(url.searchParams.get('id'))}.sav`), bytes);
     return { ok: true, size: bytes.length };
   });
@@ -1116,7 +1182,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const run = src.pathname.match(/^\/api\/runs\/([a-f0-9]{8})\/file$/);
     if (run) {
       const file = runPath(run[1], src.searchParams.get('name') || '');
-      if (!file) throw httpError(400, 'bad name');
+      if (!file) throw httpError(400, 'bad name', 'badRequest');
       return romDataFor({ file }, env);
     }
     if (src.pathname === '/api/library/rom') {
@@ -1130,7 +1196,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       // (patched in the worker too – a hack's detail view never patches or hashes a ROM on this thread)
       return romDataFor({ patched: { romId: src.searchParams.get('romId'), patchId: src.searchParams.get('patchId'), config: loadConfig() } }, env);
     }
-    throw httpError(400, 'bad src');
+    throw httpError(400, 'bad src', 'badRequest');
   });
 
   // ---- ROM inspection & run building ----------------------------------------------
@@ -1140,6 +1206,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const patched = preparePatchedRom(romId, patchId || null, (l) => log.push(l), loadConfig());
     let info = null;
     if (patched.system === '3ds') {
+      // a cut-off copy can't be randomized or played (server/lib/ctrcheck.mjs)
+      if (ctrFileReport(patched.path).integrity?.state === 'damaged') throw httpError(409, 'This 3DS game file is incomplete', 'ctrIncomplete');
       // UPR ZX randomizes X/Y, ORAS, Sun/Moon and USUM (decrypted dumps only – server/lib/ctrrando.mjs); the generation
       // for the rest of the form comes from the catalog when UPR can't read the game
       const game = (catalog().games || []).find((g) => g.system === '3ds' && (g.serial === patched.header?.code || g.productCode === patched.header?.code || (g.titleIds || []).includes(patched.header?.titleId)));
@@ -1148,17 +1216,14 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       else if (info.unsupported && !uprStatus().installed) info.missingTool = 'upr';
       // outputSize: what one randomized game will take (its NCCH – a cartridge image is padded to 2/4 GB)
       return { patched: { crc: null, baseCrc: null, size: patched.size, outputSize: ncchSizeOf(patched.path), header: patched.header, patchName: null, system: '3ds' },
-        info: { generation: game?.generation || null, ...info }, log };
+        info: { generation: game?.generation || null, ...info }, shiny: { ok: false, reason: 'game' }, log };
     }
-    try {
-      info = (await runBridge(['info', patched.path])).json;
-    } catch (e) {
-      // missingTool: the game may be fine – Java or the randomizer is what's missing (the UI says so instead of
-      // "this game can't be randomized")
-      const missingTool = !detectJava().ok ? 'java' : !uprStatus().installed ? 'upr' : null;
-      info = { unsupported: true, error: e.message, missingTool };
-    }
-    return { patched: { crc: patched.crc, baseCrc: patched.baseCrc, size: patched.size, header: patched.header, patchName: patched.patchName, system: patched.system }, info, log };
+    // (missingTool: the game may be fine – Java or the randomizer is what's missing, the UI says so instead of "this
+    // game can't be randomized"; the generation picks the trial run's values)
+    info = await inspectRom(patched.path, { gen: matchCatalog({ crc: patched.crc, ...patched.header }, catalog())?.game?.generation || null });
+    // another shiny rate: Gen 3–5 originals whose shiny check is where it should be (server/lib/shiny.mjs)
+    const shiny = shinySupport(patched.path, { original: isOriginalRom(patched, patchId) });
+    return { patched: { crc: patched.crc, baseCrc: patched.baseCrc, size: patched.size, header: patched.header, patchName: patched.patchName, system: patched.system }, info, shiny, log };
   });
 
   const building = new Set(); // run ids with a build in progress
@@ -1181,15 +1246,24 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     let identity = null;
     if (body.runId) {
       const m = readManifest(body.runId);
-      if (!m) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+      if (!m) throw httpError(404, 'Run not found', 'runNotFound');
       identity = { id: m.id, room: m.room, secret: m.secret };
       // Two builds of the same run would write the same ROM files at the same time.
-      if (building.has(m.id)) throw httpError(409, 'Dieser Run wird gerade gebaut', 'runBuilding');
+      if (building.has(m.id)) throw httpError(409, 'This run is being built right now', 'runBuilding');
       building.add(m.id);
     }
     try {
       if (body.runId) discordWebhookFor(body.runId); // moves a legacy webhook out of the rules before they are rewritten
-      const manifest = await buildRun({ ...body, identity, config: loadConfig() }, (l) => log.push(l), (p) => (track.progress = p));
+      let manifest = await buildRun({ ...body, identity, config: loadConfig() }, (l) => log.push(l), (p) => (track.progress = p));
+      // "Start from my intro save": the player on this computer (introSlot) begins with the intro save of the game –
+      // only theirs, and only while they have no save in this run yet
+      if (body.introSave === true && ALL_SLOTS.includes(body.introSlot)) {
+        const started = applyIntroSave(manifest.id, body.introSlot, { savePath: defaultSavePath });
+        if (started) {
+          manifest = started;
+          log.push(logLine('introApplied', 'Your game starts from your intro save'));
+        }
+      }
       adoptLegacyWebhook(manifest.id, body.rules?.discordWebhook); // older clients still send it inside the rules
       saveConfig({ lastRun: manifest.id });
       followCheck();
@@ -1204,12 +1278,19 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('POST', /^\/api\/runs\/import$/, async (req) => {
     const { pack } = await readBody(req);
     // The pack comes from another computer (file, clipboard, code invite): bad input is the sender's, a 400 with a code.
-    if (!pack || typeof pack !== 'object' || pack.format !== 'soullink-studio/run-pack@1') throw httpError(400, 'Kein gültiges Run-Paket', 'packInvalid');
-    if (typeof pack.id !== 'string' || !/^[a-f0-9]{8}$/.test(pack.id)) throw httpError(400, 'Run-Paket ist beschädigt (id)', 'packBroken', { what: 'id' });
+    // (a format of a later version: say to update – shared/runpack.mjs)
+    const format = packFormatState(pack);
+    if (format === 'newer') {
+      const version = packMinVersion(pack);
+      if (version) throw httpError(400, `This run needs souldew ${version} or newer – update souldew to join it`, 'packNewer', { version });
+      throw httpError(400, 'This run needs a newer souldew – update souldew to join it', 'packNewerAny');
+    }
+    if (format !== 'ok') throw httpError(400, 'Not a valid run pack', 'packInvalid');
+    if (typeof pack.id !== 'string' || !/^[a-f0-9]{8}$/.test(pack.id)) throw httpError(400, 'The run pack is damaged (id)', 'packBroken', { what: 'id' });
     const checked = checkPack(pack);
     const existing = readManifest(pack.id);
     // A pack must never replace a run this computer created itself (its room/secret, rules and builds).
-    if (existing && !existing.imported) throw httpError(409, 'Dieser Run wurde auf diesem Computer erstellt und kann nicht durch ein Run-Paket ersetzt werden', 'runIsLocal');
+    if (existing && !existing.imported) throw httpError(409, 'This run was created on this computer and can’t be replaced by a run pack', 'runIsLocal');
     const manifest = {
       ...(existing || {}),
       id: pack.id, ...checked, updatedAt: new Date().toISOString(),
@@ -1225,15 +1306,15 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('GET', /^\/api\/runs\/([a-f0-9]{8})$/, (req, m) => {
     if (readManifest(m[1])) discordWebhookFor(m[1]); // one-time migration out of the shared rules
     const manifest = readManifest(m[1]);
-    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
     const defaultSaves = Object.fromEntries(slotsOf(manifest).map((s) => [s, defaultSavePath(manifest, s)]));
-    return { ...manifest, pack: runPack(manifest), watch: watcher.status(m[1]), defaultSaves };
+    return { ...manifest, pack: runPack(manifest), watch: watchStatus(m[1], manifest), defaultSaves };
   });
 
   // Delete = move the run folder to runs/.trash (recoverable by hand), forget watches / lastRun.
   route('DELETE', /^\/api\/runs\/([a-f0-9]{8})$/, (req, m) => {
-    if (!readManifest(m[1])) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
-    if (building.has(m[1])) throw httpError(409, 'Dieser Run wird gerade gebaut', 'runBuilding');
+    if (!readManifest(m[1])) throw httpError(404, 'Run not found', 'runNotFound');
+    if (building.has(m[1])) throw httpError(409, 'This run is being built right now', 'runBuilding');
     watcher.unwatch(m[1]);
     const trash = trashRun(m[1]);
     const cfg = loadConfig();
@@ -1246,18 +1327,43 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
 
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/meta$/, async (req, m) => {
     const manifest = readManifest(m[1]);
-    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
     const body = await readBody(req);
-    if (body.rules && typeof body.rules === 'object' && !Array.isArray(body.rules)) {
+    // (the host's computer keeps its signed rules – they change through POST …/rules)
+    if (body.rules && typeof body.rules === 'object' && !Array.isArray(body.rules) && !(isHostComputer(manifest) && manifest.hostKey)) {
       discordWebhookFor(m[1]); // migrate a legacy webhook first, so it isn't lost
       adoptLegacyWebhook(m[1], body.rules.discordWebhook);
       manifest.rules = stripLocalRules(body.rules);
+    }
+    // a run joined before 2.8.2: the host's key as their app announced it in the doc (shared/hostrules.mjs) – taken
+    // once, never replaced (a key that came with the invite stays too)
+    if (manifest.imported && !manifest.hostKey && isHostKey(body.hostKey) && runMode(manifest) === 'soullink') {
+      manifest.hostKey = body.hostKey;
+      manifest.host = slotsOf(manifest).includes(body.host) ? body.host : 'p1';
     }
     if (body.name) manifest.name = String(body.name).slice(0, 80);
     if (body.players) manifest.players = renamePlayers(manifest, body.players);
     writeManifest(manifest);
     pushOverlay(m[1]);
     return manifest;
+  });
+
+  // The host changes a SoulLink's rules (shared/hostrules.mjs): signed here with the run's key, which only the computer
+  // that created the run has – any other computer gets a 403. body: { rules, after: the newest doc timestamp the app
+  // has seen, me: the slot that plays on this computer (a run from before 2.8.2 names its host by it) } → the signed
+  // value for the doc's `rules`, written at its `rev`.
+  route('POST', /^\/api\/runs\/([a-f0-9]{8})\/rules$/, async (req, m) => {
+    const manifest = readManifest(m[1]);
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
+    const body = await readBody(req);
+    const rules = body.rules;
+    if (!rules || typeof rules !== 'object' || Array.isArray(rules) || JSON.stringify(rules).length > 4000) throw httpError(400, 'Invalid rules', 'badRules');
+    discordWebhookFor(m[1]); // a legacy webhook in the rules moves into the local config first
+    adoptLegacyWebhook(m[1], rules.discordWebhook);
+    const signed = signRules(manifest, stripLocalRules(unsigned(rules)), { after: Number(body.after) || 0, mySlot: body.me });
+    writeManifest(manifest);
+    pushOverlay(m[1]);
+    return { rules: signed, host: manifest.host, hostKey: manifest.hostKey };
   });
 
   route('GET', /^\/api\/runs\/([a-f0-9]{8})\/data\/(p[1-4])$/, (req, m) => {
@@ -1274,7 +1380,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // `current` instead of an ID: the run being played (a link that keeps working across runs)
   route('GET', /^\/api\/runs\/(current|[a-f0-9]{8})\/overlay$/, (req, m, url) => {
     const runId = m[1] === 'current' ? followCheck() : m[1];
-    if (!runId) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!runId) throw httpError(404, 'Run not found', 'runNotFound');
     if (url.searchParams.get('preview') !== '1') {
       overlayPolls.set(`${runId}|${String(url.searchParams.get('w') || 'team').slice(0, 12)}`, Date.now());
       streamHub.prime(runId);
@@ -1301,7 +1407,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   });
   // "Preview pop-up": a sample coffee pop-up in every overlay of the run (OBS too) and to the API's clients
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/coffee\/preview$/, (req, m) => {
-    if (!readManifest(m[1])) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!readManifest(m[1])) throw httpError(404, 'Run not found', 'runNotFound');
     const popup = streamHub.previewCoffee(m[1]);
     const lang = overlayLang(loadConfig().lang);
     let n = 0;
@@ -1310,7 +1416,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   });
   // "Send a test alert" in the app's Stream page: every open overlay of the run shows a sample (in OBS too)
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/overlay\/test$/, async (req, m) => {
-    if (!readManifest(m[1])) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!readManifest(m[1])) throw httpError(404, 'Run not found', 'runNotFound');
     const body = await readBody(req);
     const type = ['death', 'catch', 'badge', 'evolve', 'level', 'run'].includes(body?.type) ? body.type : 'catch';
     // the sample may show Pokémon the run hasn't met: their names come along, in each overlay's language
@@ -1364,29 +1470,59 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // Run save file: written by the integrated emulator, read back when playing again.
   route('GET', /^\/api\/runs\/([a-f0-9]{8})\/save\/(p[1-4])$/, (req, m) => {
     const p = defaultSavePath(readManifest(m[1]), m[2]);
-    if (!p || !existsSync(p)) throw httpError(404, 'Noch kein Spielstand', 'noSaveYet');
+    if (!p || !existsSync(p)) throw httpError(404, 'No save file yet', 'noSaveYet');
     return readFileSync(p);
   });
   route('PUT', /^\/api\/runs\/([a-f0-9]{8})\/save\/(p[1-4])$/, async (req, m) => {
     const manifest = readManifest(m[1]);
-    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
     const p = defaultSavePath(manifest, m[2]);
-    if (!p) throw httpError(409, 'Kein ROM für diesen Spieler', 'noRomForPlayer');
+    if (!p) throw httpError(409, 'No ROM for this player', 'noRomForPlayer');
     const bytes = await readRaw(req, 4 * 1024 * 1024);
-    if (!bytes.length) throw httpError(400, 'Leerer Spielstand – nicht gespeichert', 'emptySave');
+    if (!bytes.length) throw httpError(400, 'Empty save file – not saved', 'emptySave');
     writeFileAtomic(p, bytes);
-    // Other games' saves can't be parsed – watching them would only produce error toasts.
-    if (isHgssRun(manifest) && !watcher.status(m[1]).watching) {
-      watcher.watch(m[1], p);
-      const cfg = loadConfig();
-      saveConfig({ watches: { ...(cfg.watches || {}), [m[1]]: p } });
-    }
+    // (games whose saves can't be read aren't watched – that would only produce error toasts)
+    watchRunSave(m[1], manifest, p);
     return { ok: true, size: bytes.length };
+  });
+
+  // ---- intro saves (server/lib/introsave.mjs): a save after the intro that new attempts of the game start from ----
+  route('GET', /^\/api\/intro-saves$/, () => ({ saves: listIntroSaves().map(publicIntro) }));
+  // the one kept for a run's game (?run=<id>) or for a library ROM + patch the new-run wizard picked (?romId=&patchId=)
+  route('GET', /^\/api\/intro-saves\/for$/, (req, m, url) => {
+    const runId = url.searchParams.get('run');
+    let key = null;
+    if (runId) {
+      const manifest = readManifest(runId);
+      if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
+      key = introKeyFor(manifest);
+    } else {
+      const lib = scanLibrary(loadConfig());
+      const rom = lib.roms.find((r) => r.id === url.searchParams.get('romId'));
+      const patchId = url.searchParams.get('patchId');
+      const patch = patchId ? lib.patches.find((p) => p.id === patchId) : null;
+      if (!rom || (patchId && !patch)) return { intro: null };
+      key = introKeyForLibrary(rom, patch);
+    }
+    return { intro: publicIntro(introFor(key)) };
+  });
+  route('DELETE', /^\/api\/intro-saves\/([a-f0-9]{16})$/, (req, m) => ({ removed: removeIntroSave(m[1]) }));
+  route('GET', /^\/api\/runs\/([a-f0-9]{8})\/intro\/(p[1-4])$/, (req, m) => {
+    const manifest = readManifest(m[1]);
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
+    return introState(manifest, m[2], { savePath: defaultSavePath });
+  });
+  // keep this player's current battery save (3DS: save folder) as the intro save of the run's game
+  route('POST', /^\/api\/runs\/([a-f0-9]{8})\/intro\/(p[1-4])$/, (req, m) => {
+    const manifest = readManifest(m[1]);
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
+    if (!slotsOf(manifest).includes(m[2])) throw httpError(400, 'Invalid player', 'badPlayer');
+    return { intro: publicIntro(keepIntroSave(manifest, m[2], { savePath: defaultSavePath })) };
   });
 
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/watch$/, async (req, m) => {
     const { path } = await readBody(req);
-    if (path && typeof path !== 'string') throw httpError(400, 'Ungültiger Pfad', 'badPath');
+    if (path && typeof path !== 'string') throw httpError(400, 'Invalid path', 'badPath');
     const cfg = loadConfig();
     const watches = { ...(cfg.watches || {}) };
     if (!path) {
@@ -1400,20 +1536,32 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     saveConfig({ watches });
     return watcher.watch(m[1], abs);
   });
+  // what is watched for the run's save, for the play view of an external emulator ("souldew reads p1.sav – 14:32")
+  route('GET', /^\/api\/runs\/([a-f0-9]{8})\/watch$/, (req, m) => {
+    const manifest = readManifest(m[1]);
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
+    return watchStatus(m[1], manifest);
+  });
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/rescan$/, (req, m) => watcher.read(m[1], true) || watcher.last(m[1]));
   route('GET', /^\/api\/runs\/([a-f0-9]{8})\/save-parsed$/, (req, m) => watcher.last(m[1]));
 
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/graveyard$/, async (req, m) => {
     const { keys } = await readBody(req);
     const status = watcher.status(m[1]);
-    if (!status.watching || !existsSync(status.path)) throw httpError(500, 'Kein überwachter Spielstand für diesen Run.', 'noWatchedSave');
-    if (emulatorRunning()) throw httpError(409, 'Der externe Emulator läuft noch. Im Spiel speichern, Emulator schließen, dann erneut versuchen.', 'emulatorRunning');
+    if (!status.watching || !existsSync(status.path)) throw httpError(500, 'No watched save file for this run.', 'noWatchedSave');
+    if (emulatorRunning()) throw httpError(409, 'The external emulator is still running. Save in the game, close the emulator, then try again.', 'emulatorRunning');
     const original = readFileSync(status.path);
-    const { file, moved, box } = moveToGraveyard(new Uint8Array(original), keys || []);
+    let result;
+    try {
+      result = moveToGraveyard(new Uint8Array(original), keys || []);
+    } catch (e) {
+      throw e.code ? httpError(409, e.message, e.code, e.vars) : e; // the save can't be edited (shared/gen4save.mjs saveError)
+    }
+    const { file, moved, box } = result;
     if (!moved.length) return { moved: [] };
     const check = parseHgssSave(file, GEN4);
     const ok = moved.every((k) => check.boxes.some((b) => b.key === k && b.checksumOk) && !check.party.some((p) => p.key === k));
-    if (!ok) throw httpError(500, 'Prüfung nach dem Bearbeiten fehlgeschlagen – Spielstand wurde nicht verändert.', 'graveyardCheckFailed');
+    if (!ok) throw httpError(500, 'The check after editing failed – the save file was not changed.', 'graveyardCheckFailed');
     const backupDir = join(runDir(m[1]), 'backups');
     mkdirSync(backupDir, { recursive: true });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -1425,7 +1573,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/reveal$/, async (req, m) => {
     const { file } = await readBody(req);
     const target = file ? runPath(m[1], String(file)) : runDir(m[1]);
-    if (!target || !existsSync(target)) throw httpError(500, 'Datei nicht gefunden', 'fileNotFound');
+    if (!target || !existsSync(target)) throw httpError(500, 'File not found', 'fileNotFound');
     revealInFileManager(target);
     return { ok: true };
   });
@@ -1440,14 +1588,16 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       // ROM hacks: launch the patched copy from the cache, not the vanilla base ROM
       romPath = preparePatchedRom(romId, patchId, () => {}, loadConfig()).path;
     } else if (runId) {
-      if (!ALL_SLOTS.includes(slot)) throw httpError(400, 'Ungültiger Spieler', 'badPlayer');
+      if (!ALL_SLOTS.includes(slot)) throw httpError(400, 'Invalid player', 'badPlayer');
       const manifest = readManifest(runId);
       const out = manifest?.outputs?.[slot];
-      if (!out) throw httpError(409, 'ROM für diesen Spieler wurde noch nicht gebaut', 'romNotBuilt');
+      if (!out) throw httpError(409, 'The ROM for this player hasn’t been built yet', 'romNotBuilt');
       romPath = typeof out.rom === 'string' && out.rom ? runPath(runId, out.rom) : null;
-      if (!romPath) throw httpError(409, 'ROM für diesen Spieler wurde noch nicht gebaut', 'romNotBuilt');
+      if (!romPath) throw httpError(409, 'The ROM for this player hasn’t been built yet', 'romNotBuilt');
+      // melonDS writes "<ROM name>.sav" next to the ROM – or into the save folder set in its own settings
       const sav = defaultSavePath(manifest, slot);
-      if (sav && isHgssRun(manifest) && !watcher.status(runId).watching) watcher.watch(runId, sav);
+      const more = m[1] === 'melonds' && sav ? melonSaveDirs(melonConfigFiles({ exePath: detectEmulator('melonds', loadConfig().emulatorPaths?.melonds).path || null })).map((d) => join(d, basename(sav))) : [];
+      watchRunSave(runId, manifest, sav, { more, replace: true });
     } else {
       // external emulators need a real file: unpack zipped ROMs into the cache
       const { abs, entry } = resolveId(romId, loadConfig());
@@ -1487,18 +1637,51 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('POST', /^\/api\/ctr\/start$/, async (req) => {
     const { rom, key, scale } = await readBody(req);
     const tools = ctrToolsNow();
-    if (!tools.ok) throw httpError(409, 'Der 3DS-Teil von souldew fehlt', 'ctrMissing');
-    if (typeof key !== 'string' || !key || key.length > 600) throw httpError(400, 'Ungültiger Spielstand-Schlüssel', 'badKey');
+    if (!tools.ok) throw httpError(409, 'The 3DS part of souldew is missing', 'ctrMissing');
+    if (typeof key !== 'string' || !key || key.length > 600) throw httpError(400, 'Invalid save key', 'badKey');
     const romPath = romPathFromUrl(rom);
+    // what the file is (size, header, its own hashes – server/lib/ctrcheck.mjs): checked before the game starts, and
+    // kept for "Save diagnostics"
+    const file = ctrFileReport(romPath);
     // an encrypted cartridge dump: Azahar's core plays decrypted games only – say so instead of "couldn't load the game"
-    if (ctrEncrypted(romPath)) throw httpError(409, 'Die 3DS-Spieldatei ist verschlüsselt', 'ctrEncrypted');
+    if (file.encrypted || (file.encrypted == null && ctrEncrypted(romPath))) throw httpError(409, 'This 3DS game file is encrypted', 'ctrEncrypted');
+    // a copy that was cut off (souldew closed while copying, a download that stopped): the header is there, the game
+    // isn't – it would start to a black screen (ticket #19)
+    if (file.integrity?.state === 'damaged') {
+      ctr.last = { at: new Date().toISOString(), error: 'game file incomplete', file };
+      throw httpError(409, 'This 3DS game file is incomplete', 'ctrIncomplete');
+    }
     const cfg = loadConfig();
     const { mode, auto } = ctrRendererNow(cfg);
     // the resolution: Settings › Emulators › "3DS resolution" unless the page asks for one (tests, diagnostics)
     const sc = scaleFor(Number.isInteger(scale) ? scale : cfg.ctrScale, mode);
-    const id = ctr.start({ rom: romPath, key, tools, scale: sc, renderer: mode, auto });
-    return { id, liveMemory: tools.souldewCore, renderer: mode, auto, scale: sc };
+    // the game's update (server/lib/ctrupdate.mjs): the one the library has for it goes onto this save folder's SD card,
+    // where the core finds it – a randomized run's game never gets it (the update's code would undo the randomization)
+    ctr.stop(); // (the game that runs now may play from the same save folder)
+    const update = file.kind === 'game' ? await ctrUpdateFor(rom, file.titleId, key) : null;
+    const id = ctr.start({ rom: romPath, key, tools, scale: sc, renderer: mode, auto, file: update ? { ...file, update } : file });
+    return { id, liveMemory: tools.souldewCore, renderer: mode, auto, scale: sc, update };
   });
+  /** The update a 3DS game starts with (prepareUpdate): from the library – none for a randomized run's game. */
+  const ctrUpdateFor = async (rom, titleId, key) => {
+    let randomized = false;
+    try {
+      const run = new URL(String(rom || ''), 'http://localhost').pathname.match(/^\/api\/runs\/([a-f0-9]{8})\/file$/);
+      randomized = !!(run && readManifest(run[1])?.randomizer?.enabled);
+    } catch {
+      // (romPathFromUrl accepted it already)
+    }
+    const lib = scanLibrary(loadConfig());
+    const keep = [];
+    for (const u of lib.ctrUpdates || []) {
+      try {
+        keep.push(updateStamp(u.file));
+      } catch {
+        // gone meanwhile
+      }
+    }
+    return prepareUpdate({ saveDir: saveDirFor(key), gameTid: titleId, update: pickUpdate(lib.ctrUpdates, titleId), randomized, keep });
+  };
   // the game's own saves changed? (a fingerprint – see saveStamp)
   route('GET', /^\/api\/ctr\/savestamp$/, (req, m, url) => ({ stamp: saveStamp(ctr.get(url.searchParams.get('id')).save) }));
   route('POST', /^\/api\/ctr\/stop$/, async (req) => {
@@ -1510,16 +1693,16 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('GET', /^\/api\/native\/status$/, () => ({ tools: nativeStatus(), session: native.status() }));
   route('POST', /^\/api\/native\/start$/, async (req) => {
     const { rom, key, system, save, saveUrl, state, model: asked } = await readBody(req);
-    if (typeof key !== 'string' || !key || key.length > 600) throw httpError(400, 'Ungültiger Spielstand-Schlüssel', 'badKey');
-    if (!Object.hasOwn(NATIVE_CORES, system)) throw httpError(400, 'Kein nativer Kern für dieses System', 'nativeSystem');
+    if (typeof key !== 'string' || !key || key.length > 600) throw httpError(400, 'Invalid save key', 'badKey');
+    if (!Object.hasOwn(NATIVE_CORES, system)) throw httpError(400, 'The fast player doesn’t play this system', 'nativeSystem');
     const b64ok = (v, maxBytes) => typeof v === 'string' && v.length <= Math.ceil(maxBytes / 3) * 4 && /^[A-Za-z0-9+/]*={0,2}$/.test(v);
-    if (save != null && !b64ok(save, MAX_SAVE)) throw httpError(400, 'Ungültiger Spielstand', 'badSave');
+    if (save != null && !b64ok(save, MAX_SAVE)) throw httpError(400, 'Invalid save file', 'badSave');
     // (state: the save state to go on from – the player's own console as a link session left it, docs/MULTIPLAYER.md)
-    if (state != null && !b64ok(state, MAX_STATE)) throw httpError(400, 'Ungültiger Zustand', 'badSave');
+    if (state != null && !b64ok(state, MAX_STATE)) throw httpError(400, 'Invalid save state', 'badSave');
     const tools = nativeTools();
     // the souldew engine (beta): the link host plays the game (the same states and protocol); else retrohost and its core
     const engine = loadConfig().nativeEngine === true && ENGINE_SYSTEMS.includes(system) ? linkTool() : null;
-    if (!engine && !tools.cores?.[system]) throw httpError(409, 'Der schnelle Emulator fehlt für dieses System', 'nativeMissing');
+    if (!engine && !tools.cores?.[system]) throw httpError(409, 'The fast player is missing for this system', 'nativeMissing');
     // a Game Boy game's console: Settings › "Game Boy look" – or the one a state to go on from was made on
     const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, loadConfig().gbLook);
     const id = await native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
@@ -1531,7 +1714,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const { id } = await readBody(req);
     // (only with the engine switched on – a link host started from the board otherwise hands over to retrohost as before)
     const r = typeof id === 'string' && loadConfig().nativeEngine === true ? await native.unlink(id) : null;
-    if (!r) throw httpError(409, 'Keine Link-Sitzung des Spiels', 'noNativeSession');
+    if (!r) throw httpError(409, 'This game has no link session', 'noNativeSession');
     return r;
   });
   // ---- link sessions: trades and battles between the players of a run (docs/MULTIPLAYER.md) -----------------------
@@ -1553,7 +1736,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   };
   const linkManifest = (runId) => {
     const manifest = readManifest(String(runId || ''));
-    if (!manifest) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
     return manifest;
   };
   // the run's peer connections: STUN + short-lived TURN credentials from souldew's bot (server/lib/linkice.mjs)
@@ -1574,13 +1757,13 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('POST', /^\/api\/link\/resolve$/, async (req) => {
     const { runId, seats } = await readBody(req);
     const manifest = linkManifest(runId);
-    if (!seats || typeof seats !== 'object') throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    if (!seats || typeof seats !== 'object') throw httpError(400, 'Invalid seats', 'linkSeats');
     const runSlots = slotsOf(manifest);
     const deps = linkDeps(manifest);
     const out = {};
     const missing = [];
     for (const [slot, v] of Object.entries(seats)) {
-      if (!runSlots.includes(slot)) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+      if (!runSlots.includes(slot)) throw httpError(400, 'Invalid seats', 'linkSeats');
       const r = resolveSeat(manifest, slot, v?.sha1, v?.crc, deps);
       out[slot] = { ok: !!r, how: r?.how || null };
       if (!r) missing.push({ slot, canBuild: needsIdenticalRom(manifest) && !!(baseRomsFor(manifest, deps.lib.roms).length) });
@@ -1591,10 +1774,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('POST', /^\/api\/link\/pick$/, async (req) => {
     const { runId, slot, sha1, romId } = await readBody(req);
     const manifest = linkManifest(runId);
-    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Invalid seat', 'linkSeats');
     const deps = linkDeps(manifest);
     const rom = deps.lib.roms.find((r) => r.id === romId);
-    if (!rom) throw httpError(404, 'Datei nicht gefunden', 'noFile');
+    if (!rom) throw httpError(404, 'File not found', 'noFile');
     const p = pickSeat(rom, sha1, { dir: deps.dir, extract: deps.extract });
     if (!p) throw httpError(409, 'Das ist eine andere Fassung des Spiels', 'linkPickDiffers', { slot });
     return { ok: true };
@@ -1604,13 +1787,13 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   route('POST', /^\/api\/link\/build$/, async (req) => {
     const { runId, slot } = await readBody(req);
     const manifest = linkManifest(runId);
-    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Invalid seat', 'linkSeats');
     let body;
     try {
       body = partnerBuildRequest(manifest, slot, scanLibrary(loadConfig()));
     } catch (e) {
       if (e.code !== 'no-rom' && e.code !== 'no-patch') throw e;
-      throw httpError(409, 'Das Grundspiel dieses Runs fehlt in der Bibliothek', e.code === 'no-patch' ? 'linkBuildNoPatch' : 'linkBuildNoRom');
+      throw httpError(409, 'The base game of this run is missing from the library', e.code === 'no-patch' ? 'linkBuildNoPatch' : 'linkBuildNoRom');
     }
     if (building.has(manifest.id)) throw httpError(409, 'Dieser Run wird gerade gebaut', 'runBuilding');
     building.add(manifest.id);
@@ -1626,16 +1809,16 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const { runId, local, seats, delay, rtc, state } = await readBody(req);
     const manifest = linkManifest(runId);
     const system = manifest.game?.system;
-    if (!LINK_SYSTEMS.includes(system)) throw httpError(400, 'Für dieses System gibt es noch kein Linken', 'linkSystem');
+    if (!LINK_SYSTEMS.includes(system)) throw httpError(400, 'Linking isn’t available for this system yet', 'linkSystem');
     const runSlots = slotsOf(manifest);
-    if (!Array.isArray(seats) || seats.length < 2 || seats.length > MAX_LINK_SEATS) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
-    if (new Set(seats.map((s) => s?.slot)).size !== seats.length || !seats.every((s) => runSlots.includes(s?.slot))) throw httpError(400, 'Ungültige Plätze', 'linkSeats');
+    if (!Array.isArray(seats) || seats.length < 2 || seats.length > MAX_LINK_SEATS) throw httpError(400, 'Invalid seats', 'linkSeats');
+    if (new Set(seats.map((s) => s?.slot)).size !== seats.length || !seats.every((s) => runSlots.includes(s?.slot))) throw httpError(400, 'Invalid seats', 'linkSeats');
     const localIndex = seats.findIndex((s) => s.slot === local);
-    if (localIndex < 0) throw httpError(400, 'Ungültiger Platz', 'linkSeats');
+    if (localIndex < 0) throw httpError(400, 'Invalid seat', 'linkSeats');
     const deps = linkDeps(manifest);
     const out = seats.map((s, i) => {
       const r = resolveSeat(manifest, s.slot, s.sha1, s.crc, deps);
-      if (!r) throw httpError(409, 'Das Spiel dieses Spielers fehlt hier', 'linkRomMissing', { slot: s.slot });
+      if (!r) throw httpError(409, 'This player’s game is missing here', 'linkRomMissing', { slot: s.slot });
       let save = null;
       if (i === localIndex) { // our own save: from disk, never from the page
         const p = defaultSavePath(manifest, s.slot);
@@ -1643,7 +1826,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       } else if (typeof s.save === 'string' && s.save) save = Buffer.from(s.save, 'base64');
       // (a rejoin starts from the session's state – the saves are inside it; the local one is still checked)
       if (save && typeof s.saveSha1 === 'string' && s.saveSha1 && createHash('sha1').update(save).digest('hex') !== s.saveSha1.toLowerCase()) {
-        throw httpError(409, 'Spielstand beschädigt', 'linkSaveDiffers', { slot: s.slot });
+        throw httpError(409, 'The save file is damaged', 'linkSaveDiffers', { slot: s.slot });
       }
       // the player's running game (docs/MULTIPLAYER.md › "Seamless"): the fast player's save state, deflated – every
       // peer starts that seat from exactly these bytes (checked by SHA-1), not from the battery save
@@ -1652,9 +1835,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         try {
           st = inflateRawSync(Buffer.from(s.state, 'base64'), { maxOutputLength: MAX_STATE });
         } catch {
-          throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers', { slot: s.slot });
+          throw httpError(409, 'The save state is damaged', 'linkStateDiffers', { slot: s.slot });
         }
-        if (typeof s.stateSha1 !== 'string' || createHash('sha1').update(st).digest('hex') !== s.stateSha1.toLowerCase()) throw httpError(409, 'Zustand beschädigt', 'linkStateDiffers', { slot: s.slot });
+        if (typeof s.stateSha1 !== 'string' || createHash('sha1').update(st).digest('hex') !== s.stateSha1.toLowerCase()) throw httpError(409, 'The save state is damaged', 'linkStateDiffers', { slot: s.slot });
       }
       // a Game Boy seat's console, as its player announced it (every peer gets the same list – gbModel's values)
       const model = system === 'gb' ? (s.model === 'cgb' ? 'cgb' : 'dmg') : system === 'gbc' ? 'cgb' : null;
@@ -1663,7 +1846,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     let stateBytes = null;
     if (typeof state === 'string' && state) {
       stateBytes = Buffer.from(state, 'base64');
-      if (stateBytes.length > MAX_STATE) throw httpError(413, 'Zustand zu groß', 'saveTooLarge');
+      if (stateBytes.length > MAX_STATE) throw httpError(413, 'The save state is too large', 'saveTooLarge');
     }
     const savePath = defaultSavePath(manifest, local);
     const id = await native.startLink({
@@ -1680,9 +1863,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const { runId, id, slot } = await readBody(req);
     const manifest = linkManifest(runId);
     const p = slotsOf(manifest).includes(slot) ? defaultSavePath(manifest, slot) : null;
-    if (!p) throw httpError(400, 'Ungültiger Platz', 'linkSeats'); // (checked before the session is stopped)
+    if (!p) throw httpError(400, 'Invalid seat', 'linkSeats'); // (checked before the session is stopped)
     const sess = native.linkRestore(id);
-    if (!sess) throw httpError(404, 'Keine Link-Sitzung', 'noNativeSession');
+    if (!sess) throw httpError(404, 'No link session', 'noNativeSession');
     let backup = null;
     if (existsSync(p)) {
       backup = `${p.replace(/\.[^./\\]+$/, '')}.link-${new Date().toISOString().replace(/[:.]/g, '-')}.sav`;
@@ -1700,34 +1883,34 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   });
   route('POST', /^\/api\/live\/azahar\/enable$/, async (req) => {
     const body = await readBody(req);
-    if (body?.confirm !== true) throw httpError(400, 'Bestätigung fehlt', 'confirmMissing');
+    if (body?.confirm !== true) throw httpError(400, 'Please confirm first', 'confirmMissing');
     enableRpc({ emuPath: detectEmulator('azahar', loadConfig().emulatorPaths?.azahar).path || null });
     return azaharBridge().status();
   });
   // The mGBA script lives in a hidden folder on Windows (%APPDATA%) – show it instead of making people type the path.
   route('POST', /^\/api\/live\/reveal$/, () => {
-    if (!existsSync(live.luaScriptPath())) throw httpError(404, 'Skript fehlt', 'scriptMissing');
+    if (!existsSync(live.luaScriptPath())) throw httpError(404, 'The mGBA script is missing', 'scriptMissing');
     revealInFileManager(live.luaScriptPath());
     return { ok: true };
   });
 
   // ---- Discord webhook: local to this computer (config.discordWebhooks[runId]), never in the shared rules ----
   route('GET', /^\/api\/runs\/([a-f0-9]{8})\/discord$/, (req, m) => {
-    if (!readManifest(m[1])) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!readManifest(m[1])) throw httpError(404, 'Run not found', 'runNotFound');
     return { webhook: discordWebhookFor(m[1]) };
   });
   route('PUT', /^\/api\/runs\/([a-f0-9]{8})\/discord$/, async (req, m) => {
-    if (!readManifest(m[1])) throw httpError(404, 'Run nicht gefunden', 'runNotFound');
+    if (!readManifest(m[1])) throw httpError(404, 'Run not found', 'runNotFound');
     discordWebhookFor(m[1]); // finish a pending migration so it can't overwrite this later
     const { webhook } = await readBody(req);
     const hook = typeof webhook === 'string' ? webhook.trim() : '';
-    if (hook && !isDiscordWebhook(hook)) throw httpError(400, 'Ungültige Discord-Webhook-URL', 'badWebhook');
+    if (hook && !isDiscordWebhook(hook)) throw httpError(400, 'Invalid Discord webhook URL', 'badWebhook');
     saveConfig({ discordWebhooks: { ...(loadConfig().discordWebhooks || {}), [m[1]]: hook } });
     return { webhook: hook };
   });
   route('POST', /^\/api\/notify\/discord$/, async (req) => {
     const { runId, content } = await readBody(req);
-    if (typeof runId !== 'string' || !/^[a-f0-9]{8}$/.test(runId)) throw httpError(400, 'Ungültiger Run', 'badRun');
+    if (typeof runId !== 'string' || !/^[a-f0-9]{8}$/.test(runId)) throw httpError(400, 'Invalid run', 'badRun');
     const webhook = discordWebhookFor(runId);
     if (!webhook) return { ok: false, skipped: true };
     const r = await fetch(webhook, {
@@ -1738,8 +1921,15 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       // allowed_mentions: names come from the partner – no @everyone / role / user pings
       body: JSON.stringify({ content: String(content || '').slice(0, 2000), username: 'souldew', allowed_mentions: { parse: [] } }),
     });
-    if (!r.ok) throw new Error(`Discord antwortete ${r.status}`);
+    if (!r.ok) throw httpError(502, `Discord answered ${r.status}`, 'discordFailed', { status: r.status });
     return { ok: true };
+  });
+
+  // ---- "Playing now" (server/lib/presence.mjs): the page reports a running game every minute, the server sends the
+  // anonymous heartbeat (only with the setting on) – { system, mode } while playing, { playing: false } when it closed
+  route('POST', /^\/api\/presence$/, async (req) => {
+    const body = await readBody(req);
+    return body?.playing === false ? { sent: await playingNow.stop() } : playingNow.beat(body);
   });
 
   // ---- "Share to Discord" (Live runs, server/lib/liveruns.mjs): the token stays here, the page gets the outcome ----
@@ -1832,7 +2022,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       url = new URL(req.url, 'http://localhost');
       path = decodeURIComponent(url.pathname);
     } catch {
-      return send(res, 400, { error: 'Ungültige URL' });
+      return send(res, 400, { error: 'Invalid URL', code: 'badRequest' });
     }
     try {
       // the open stream API has its own rules (localhost pages or the token, CORS, read-only): server/lib/streamapi.mjs
@@ -1876,7 +2066,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         if (download && (req.method === 'GET' || req.method === 'HEAD')) {
           const name = url.searchParams.get('name') || '';
           const file = runPath(download[1], name);
-          if (!file) return send(res, 400, { error: 'bad name' });
+          if (!file) return send(res, 400, { error: 'bad name', code: 'badRequest' });
           return serveFile(res, file, url.searchParams.get('inline') ? {} : { 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` }, req.method === 'HEAD');
         }
         if (path === '/api/account/avatar') return accounts.avatar(req, res, url);
@@ -1901,7 +2091,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         }
         if (path === '/api/library/cover' && (req.method === 'GET' || req.method === 'HEAD')) {
           const f = coverFile(url.searchParams.get('id'));
-          if (!f) return send(res, 404, { error: 'Kein eigenes Bild', code: 'noCover' });
+          if (!f) return send(res, 404, { error: 'No picture of your own yet', code: 'noCover' });
           // the url carries the file's time (?v=…) – a new picture gets a new url, so this one may be cached
           return serveFile(res, f.path, { 'Content-Type': f.type, 'X-Content-Type-Options': 'nosniff',
             'Cache-Control': url.searchParams.get('v') ? 'private, max-age=31536000, immutable' : 'no-cache' });
@@ -1911,6 +2101,21 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         if (path === '/api/ctr/cmd' && req.method === 'POST') {
           ctr.send(url.searchParams.get('id'), await readRaw(req, 300 * 1024 * 1024));
           return send(res, 200, { ok: true });
+        }
+        // 3DS music from the ROM (web/lib/rommusic.mjs): the game's music streams (found once per ROM in the ROM data
+        // worker, cached), and bytes of its RomFS straight from the file – only for the game file of that session
+        if (path === '/api/ctr/music' && req.method === 'GET') {
+          const rom = ctr.romOf(url.searchParams.get('id'));
+          const r = rom ? await romDataFor({ file: rom }, { sharedDir: SHARED_DIR, cacheDir: CACHE_DIR }) : null;
+          return send(res, 200, { music: r?.music || null });
+        }
+        if (path === '/api/ctr/romfs' && req.method === 'GET') {
+          const rom = ctr.romOf(url.searchParams.get('id'));
+          const r = rom ? await romDataFor({ file: rom }, { sharedDir: SHARED_DIR, cacheDir: CACHE_DIR }) : null;
+          const off = Number(url.searchParams.get('off'));
+          const len = Number(url.searchParams.get('len'));
+          if (!r?.music || !Number.isSafeInteger(off) || off < 0 || !Number.isSafeInteger(len) || len <= 0 || len > 64 * 1024 * 1024) throw httpError(400, 'bad range', 'badRequest');
+          return send(res, 200, readRange(rom, r.music.base + off, len));
         }
         // DS / GBA / GB native host: the same two binary channels
         if (path === '/api/native/stream' && req.method === 'GET') return native.attach(url.searchParams.get('id'), res);
@@ -1929,9 +2134,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
           const result = await r.handler(req, m, url);
           return send(res, 200, result === undefined ? null : result);
         }
-        return send(res, 404, { error: 'Unbekannter API-Endpunkt' });
+        return send(res, 404, { error: 'Unknown API endpoint', code: 'badRequest' });
       }
-      const sprite = path.match(/^\/sprites\/([a-z0-9]+)\/(\d{1,4})\.(png|gif)$/);
+      const sprite = path.match(/^\/sprites\/([a-z0-9]+)\/(\d{1,5})\.(png|gif)$/); // (10001+: PokeAPI's forms)
       if (sprite) {
         const u = spriteUrl(sprite[1], Number(sprite[2]));
         return u ? serveCached(res, join(CACHE_DIR, 'sprites', sprite[1], `${sprite[2]}.${sprite[3]}`), u) : send(res, 404, 'unknown set');
@@ -1997,12 +2202,18 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         pokelinkApply().catch(() => {});
         live.start().catch((e) => console.warn('live bridge unavailable:', e.message));
         prefetchSprites().catch(() => {});
+        // what an interrupted copy / unpack / upload left in the library folder (souldew closed meanwhile)
+        setTimeout(() => removeStaleParts(), 2000).unref?.();
       }
       // goOffline: the desktop app awaits it (bounded) before it quits – friends see the player go offline at once
       resolvePromise({ server, port: actual, url: `http://localhost:${actual}`, goOffline: () => accounts.goOffline() });
     });
   });
 }
+
+/** What config.pads.map may bind (web/lib/controls.mjs): the game buttons (BUTTONS) and the controller shortcuts
+ *  (PAD_HOTKEY_IDS – fast-forward hold/toggle, turbo, pause). test/server-fixes.test.mjs keeps the two lists equal. */
+export const PAD_MAP_IDS = new Set(['up', 'down', 'left', 'right', 'a', 'b', 'x', 'y', 'l', 'r', 'start', 'select', 'sneak', 'ffHold', 'ffToggle', 'turbo', 'pause']);
 
 /**
  * The run's doc.json, or null when there is none. A damaged file is kept as doc.json.corrupt-<time> and reads as
@@ -2022,7 +2233,7 @@ export function readDoc(runId) {
   } catch {
     // fall through
   }
-  console.warn(`run ${runId}: doc.json unlesbar – als Kopie aufbewahrt`);
+  console.warn(`run ${runId}: doc.json unreadable – kept as a copy`);
   try {
     renameSync(p, `${p}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`);
   } catch {
@@ -2038,7 +2249,7 @@ export function readDoc(runId) {
  */
 export function defaultSavePath(manifest, slot) {
   const rom = manifest?.outputs?.[slot]?.rom;
-  if (typeof rom !== 'string' || !/\.(nds|gba|gbc|gb)$/i.test(rom)) return null;
-  return runPath(manifest.id, rom.replace(/\.(nds|gba|gbc|gb)$/i, '.sav'));
+  if (typeof rom !== 'string' || !/\.(nds|gba|gbc|gb|sgb)$/i.test(rom)) return null;
+  return runPath(manifest.id, rom.replace(/\.(nds|gba|gbc|gb|sgb)$/i, '.sav'));
 }
 

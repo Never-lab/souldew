@@ -143,6 +143,12 @@ Plus a new play view that gives the game the room it deserves.
   other; they slide round buttons and screens. Up to 12 saved designs, “Surprise me at start”, favourites, export /
   import as a small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy.
   Only you see your handheld. From the library's header tile, the souldew+ page or Settings › Play › Launch animation.
+- **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
+  link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
+  the board's Rules – and every change goes to the log; the others see them read-only.
+- **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
+  keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
+  2.8.2 in the souldew engine too.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
@@ -151,6 +157,344 @@ Good to know:
   can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the
   other Game Boy look load once you switch back to it.
 - Gen 2 and Gen 4 trades work, but don't appear in the run's log yet. Gen 5 (Black/White) links come later.
+
+## 2.8.3
+
+- **Nothing counts before your first Poké Balls** (thanks to players on Discord). Most Nuzlocke rules only start once
+  you can catch – and many attempts ended in the very first rival battle, before there was a single Poké Ball (in Omega
+  Ruby and Alpha Sapphire you only get them after the battle with May or Brendan). New runs now have the rule “Nothing
+  counts before your first Poké Balls” on (Nuzlocke and SoulLink, switchable in the wizard and in the rules; in a
+  SoulLink the host decides): until souldew sees Poké Balls in your bag – or your first catch, in games where it can't
+  read the bag – a Pokémon that is knocked out doesn't die, a blackout doesn't end the run, it costs no life and no area
+  is used up, so you can reset or just play on. The play screen says so in a small note, and once the balls are there
+  the log says “Rules start now – first Poké Balls”. In a SoulLink it goes by each player's own bag; when a partner whose
+  rules have started loses a Pokémon, the linked one still dies with it. A SoulLink with the rule needs souldew 2.8.3 for
+  every player – older versions are asked to update when they join. Runs you already have keep counting from the start.
+- **Deaths show when the game shows them** (thanks to a player on Discord). souldew used to know a Pokémon was gone the
+  moment its HP hit 0 in memory – while the game was still draining the HP bar – and showed the death, the sound and
+  “the run is over” before you had seen it happen. Now the death notice, the sounds, the end-of-run screen, your
+  partners' notice and log, the stream overlay and Discord all wait until the game has shown it: until your next Pokémon
+  is out or the battle is over, or until the time the game takes for its HP bar and message – shorter while
+  fast-forwarding, next to nothing at Max. Your team and the battle help keep showing the HP you last saw meanwhile.
+  The death still counts from the moment it happens: resetting, loading a state or closing the game doesn't undo it.
+
+- **A second cheat: Max Repels** (thanks to a player on Discord). The cheats menu in the play screen now has “Add 10
+  Max Repels” under “Add 99 Rare Candies” – ten Max Repels into the Items pocket of your bag, up to the game's own
+  limit per stack (99, or 999 from Diamond/Pearl on), in every game where the Rare Candies work. Like the Rare
+  Candies, it asks first, works only outside of battles once live tracking has found your team, only when the run's
+  rules allow cheats (in a SoulLink the host decides), and every use shows up in the log for everyone, for example
+  “used a cheat: 10 Max Repels”. Using it also counts against the “Honest Work” trophy.
+- **3DS: sneak and walk slowly with the keyboard** (thanks to a player on Discord). In Omega Ruby and Alpha Sapphire you
+  sneak up on hidden Pokémon by tilting the Circle Pad only a little – but a key always tilts it all the way, so there
+  was no way to sneak without a controller. Now there is “Circle Pad: half tilt” in Settings › Controls: hold it while
+  you walk and the Circle Pad goes only part of the way – slow enough to sneak, and to walk slowly in other 3DS games
+  too. It's on C (on L with the WASD keys), can be changed like any other key and is listed in Help › Controls &
+  shortcuts. On a controller just tilt the stick a little – or give the half tilt a controller button in
+  Settings › Controller, then the D-pad sneaks as well.
+- **Live tracking: no deaths for Pokémon that never fought, and “Got away?” asks about the right place** (#79, #80 –
+  thanks for the reports). Knocking out a wild Pokémon could mark a team member dead that never entered the battle –
+  for example when the wild Pokémon happened to share its hidden ID number with one of yours, its 0 HP was taken for
+  your Pokémon's. Now a Pokémon only dies in a battle once it has been out in it and two fresh readings in a row show it
+  at 0 HP; one the battle view missed is caught as soon as the battle ends. The log line still names the area the
+  Pokémon was caught in (that's why it said Ruins of Alph) and now also says where it was knocked out. “Got away?” goes
+  by the place of the battle itself, never by where you walked afterwards – 2.8.2 already did that for most games, now
+  it also holds when the battle view lags behind the game – and when souldew can't tell where the battle was, it asks
+  nothing instead of guessing.
+- **Natures, abilities, IVs and EVs on the board** (#74 – thanks for the report). Click a Pokémon in a live team on the
+  board to see its moves, held item and a small stats block: nature, ability, Hidden Power (type and power), IVs and
+  EVs – in the Game Boy games DVs and stat experience. “Copy for damage calc” puts the Pokémon on the clipboard in
+  Pokémon Showdown’s format (species, item, ability, level, EVs, nature, IVs, moves), ready to paste into a damage
+  calculator. In Gen 3 games the ability comes from the game itself, so a randomized game or a ROM hack shows the one
+  it really gives. Only what souldew reads from the game is shown – a line the game doesn't have is left out, and ROM
+  hacks on an expanded engine (Run & Bun, Unbound, Radical Red …) show no stats block for now. The stats stay between
+  you and your partners: the stream overlay, the stream API and the Pokelink bridge don't show them.
+- **Randomizer: TM compatibility can follow the new TM moves** (#81 – thanks to BigPhitty for the request). With random
+  TM moves, a TM kept the Pokémon list of the move it used to teach – the Seismic Toss TM that now teaches Muddy Water
+  still worked for the Seismic Toss users. The new switch “TM compatibility follows the new TM moves” (Advanced settings
+  › TMs & HMs, off by default) gives such a TM to the Pokémon that could learn its new move in the original game – by TM,
+  tutor or level-up, also as an earlier evolution. A move no Pokémon could learn goes to the Pokémon of its type; HMs and
+  TMs that kept their move stay as they are. Everyone in a SoulLink needs souldew 2.8.3 to join a run that uses it.
+- **3DS: game updates in souldew's player** (thanks to players on Discord). An update file for a 3DS game – the .cia
+  of Ultra Sun / Ultra Moon 1.2, for example – used to be ignored, and the game always started as version 1.0. Now add
+  the update to your library like a game (Add files or drag and drop): souldew recognises it, puts it with its game (the
+  game's details say “Update v2.2.0 (game version 1.2) – installed”, with a Remove button) and its player starts the
+  game with it. An update added before its game waits for it. An encrypted update can't be used – souldew says so
+  instead of starting the old version without a word. Randomized runs start without the update, because the randomizer
+  builds the game from version 1.0. Live tracking knows the team's place in version 1.0 and in the latest update of
+  every 3DS Pokémon game; with an older update the play view says so if the team doesn't show up.
+- **The randomizer says which file it got stuck on** (thanks to a player on Discord). When building a run stopped at a
+  file – the disk ran full, souldew wasn't allowed to use a folder, or the game file couldn't be read to the end – you
+  only saw “Randomizer error: RandomizerIOException” and a hint about ROM hacks. Now the message names the system's own
+  reason (“No space left on device”, “Permission denied”, “Input/output error” …), which file it was – the game file, the
+  new game in the run folder or the randomizer's working files – and what helps: free up space, allow souldew access to
+  the folder, or copy the game from an external drive, a network folder or iCloud Drive onto the computer. The
+  diagnostics (Help › Save diagnostics) now keep the cause behind the error, which file, and how much space was free.
+- **Run & Bun: catches sent to the PC are tracked** (#77 – thanks for the report). With a full team a new catch – like a
+  Pokémon fished in Littleroot Town's pond – goes straight to the PC, and in Run & Bun souldew only saw it once it joined
+  the team, so the place stayed “First encounter open”. souldew now reads Run & Bun's PC boxes live, as in Emerald: the
+  catch is filed under its place right away, souldew asks again after a wild Pokémon that got away while your team is
+  full, and the board shows how many Pokémon are in the box. Other ROM hacks on the same engine get it too wherever
+  their PC is where Emerald keeps it.
+- **Megas and other alternate forms are tracked when you catch them** (thanks to a player on Discord). In ROM hacks on
+  pokeemerald-expansion that leave out a generation of Pokémon, souldew lost track of every alternate form – a caught
+  Mega, Primal or regional form was never filed and had to be entered by hand. Now such a catch is filed on its route as
+  its species: a Mega Charizard Y counts as Charizard for the dupes clause, the evolution line, SoulLink pairs and the
+  Pokédex, and an Alolan form counts as its species' line too. Your team, the board and the battle help show the form:
+  “Charizard (Mega Y)” with its own picture, also in randomized 3DS games with wild alternate forms, and “Copy for damage
+  calc” names it the Showdown way (“Charizard-Mega-Y”). A Mega Evolution, Zen Mode, Ash-Greninja, Zygarde's Complete
+  Forme, a Wishiwashi School and the like during a battle never count as a new catch, a death or a missing Pokémon. The
+  randomizer spoilers name wild alternate forms correctly instead of as some other Pokémon, and the stream API gives each
+  Pokémon's form number.
+
+## 2.8.2
+
+- **Every shortcut can be changed – and any key can be a game button** (thanks to a player on Discord). Keys like R
+  (reset), P (pause), T (turbo), M, F, F5 / F8 / F12, + / – and 1–4 used to be locked to their shortcuts, so they could
+  never become a game button – a problem if R has been your B button for ten years. Now Settings › Controls lists every
+  shortcut you can use while playing under “Shortcuts while playing”: change its key like a game button's, give it a key
+  with Shift, Ctrl, Alt or ⌘, or switch it off with “No key”. Give a game button a key a shortcut has and it simply
+  takes it over – a short note says which shortcut lost its key, and you can swap the two keys or undo it. Keys the
+  system needs (⌘Q, Alt+F4 and so on) are refused with a note. Reset, pause and the save states always stay in the bar
+  under the game, also without a key. The controller works the same way: ZR (turbo) and ZL (pause) can be changed,
+  switched off or used for a game button, and the Home button always pauses. Your current keys stay as they are, and
+  Help › Controls & shortcuts and the Emulator menu show the keys you use.
+- **3DS: fast-forward sound without the wobble** (thanks to a player on Discord). With “Sped-up original” or “Plain”,
+  the sped-up sound went up and down in pitch, about a semitone every second or so, whenever the computer didn't hold
+  the turbo speed steadily (Pokémon X and Y at 4× running at 1.7× to 3.7×). The pitch now follows the speed the game
+  holds over a few seconds instead of every swing, so the sound stays steady.
+- **3DS: sound effects in step with the picture again** (thanks to a player on Discord). Every time you switched turbo
+  on or off, changed its speed, loaded a state, paused or changed the turbo sound setting, the 3DS player's sound fell a
+  little further behind the picture – after a few switches a quarter of a second, so sound effects came clearly late,
+  and it took minutes of play to catch up. Now the sound is back to about 60 ms behind the picture right after each of
+  these, and after a real hiccup of the computer within seconds. A computer whose sound stalls again and again (every
+  few seconds) keeps a slightly bigger buffer while that goes on, so the sound doesn't break up at every stall – back
+  down within a minute once it stops. The sped-up sound with “Sped-up original” or
+  “Plain” also comes sooner: about an eighth of a second behind the picture when the game holds its speed, instead of
+  almost half a second, and never more than about a third of a second – when the game gets faster, it catches up within
+  a moment instead of trailing the picture by seconds.
+- **3DS: no more short hole in the sound every two minutes.** While you play, souldew keeps a “where you left off”
+  state every two minutes – and for that the 3DS game stood still for almost half a second on some computers, so the
+  music and sound effects dropped out for a moment (and came a little later afterwards). The game now stands still only
+  for the part that can’t wait (copying its memory), and souldew takes the state when the game is quiet for a moment
+  (a scene change, a menu, a fade) whenever there is one – the sound stays in step with the picture afterwards.
+- **Fast-forward at Max sounds clean** (thanks to a player on Discord). With “Sped-up original” or “Plain” the sound at
+  Max turned into a harsh, garbled mush. It still sounds like fast-forward, but clean now – in the 3DS player and in
+  the fast player (DS and the other games there).
+- **3DS: “Music continues” plays what the game really plays** (thanks to a player on Discord). During fast-forward a
+  few seconds of the sound could start repeating on their own – in a trainer battle the same attack sound came round
+  every few seconds through the knock-out, the level-up and the prize money, and the battle's real sounds never came.
+  In the 3DS player the music and sounds of the game now go on as the game plays them, at their normal pitch and at
+  most a second behind. Music souldew heard at normal speed still takes over as before.
+- **3DS: the game's own music during fast-forward – at its normal speed, pitch and quality.** With “Music continues”,
+  souldew now plays the music track straight from the game: it sees which music file the game reads and where it is in
+  it, and while you fast-forward that track plays on at its normal speed – the real recording, its own loop, the next
+  track faded in when the game changes music (a new route, a battle), short fanfares left out. When fast-forward ends it
+  finds the exact spot the game is at and fades back into the game's sound without a seam. It works from the game's own
+  files, so other languages, updates, ROM hacks with new or renamed tracks and mods work the same way; where it finds
+  no music file, fast-forward sounds as before. A track that can't be read for a moment is tried again a little later
+  (meanwhile fast-forward sounds as before), and damaged or unusual game files can't slow down or freeze the player.
+- **3DS: the game's sounds during fast-forward – at their normal speed, right when they happen.** With “Music
+  continues” the music from the game used to replace everything, so menu clicks, cries and attack sounds were gone while
+  you fast-forwarded. Now souldew tells the game's music apart from its other sounds inside the emulator and plays those
+  sounds over the music: each one starts the moment it happens on screen and plays at its normal pitch – no chipmunk
+  sounds, and nothing piles up or comes late, however long you fast-forward (a sound that goes on and on is cut to what
+  fits, and a held key the game repeats many times a second plays as one click instead of a buzz). Where souldew can't tell the music apart for sure, fast-forward sounds as before. “Sped-up original”, “Plain”
+  and “Mute” are unchanged, and nothing changes at normal speed.
+- **DS and the other games in the fast player: steady fast-forward sound** (thanks to a player on Discord). With
+  “Sped-up original” or “Plain” the sound jumped in pitch four times a second and left out bits whenever the computer
+  didn't hold the turbo speed exactly, so it seemed to drift away from the game. It now uses the same steady method as
+  the 3DS player: the pitch follows the speed the game holds over a few seconds, no bits are dropped any more, and the
+  sound stays about an eighth of a second behind the picture – at most about a third of a second, also right after the
+  game gets faster. With “Music continues” a song souldew hadn't heard at normal
+  speed yet also no longer turns into a few seconds on repeat – the game's own music and sounds go on.
+- **Adding a 3DS game no longer freezes souldew, and an interrupted copy can't end up as a black screen** (thanks to a
+  player on Discord). A 3DS game is up to 4 GB, and souldew copied it into the library in one go – the window froze
+  until the copy was done, which on Windows can take a minute and looks like a crash. Closing souldew meanwhile left a
+  cut-off copy behind that was listed as ready and only played a black screen. Now the copy runs in the background, goes
+  into the library only once it is complete and checked against the original, and leftovers of an interrupted copy are
+  cleaned up on the next start. A game file that is already incomplete is recognised before it starts (from the game's
+  own checksums) and souldew says to add it again instead of showing a black screen.
+- **A 3DS game that only shows black says so** (thanks to a player on Discord). If the picture stays black, souldew now
+  tells you what helps – adding the game again, or the Software renderer for a graphics driver that can't draw it – and
+  “Save diagnostics” records the game file's size, header, whether it is encrypted, whether it is complete and which
+  renderer ran, without any file names.
+- **.7z and .rar archives** (thanks to a player on Discord). souldew can't unpack them, and adding one did nothing at all.
+  Now souldew says so and asks you to unpack the game first and add the .3ds, .cci or .cxi file.
+- **3DS place sign after reopening a game** (thanks to a player on Discord). If souldew couldn't read a 3DS game's file
+  for a moment – a virus scan or a backup holding the 3 GB file – it remembered that game as having no place names, and
+  the place sign stayed away in every later session. Now it reads the file again a little later, and the play view keeps
+  asking until it has the place names. If your team still isn't found, “Save diagnostics” now records what souldew sees
+  at the game's party addresses, so the next report shows why.
+- **Skip the intro: start new attempts from your intro save** (a community idea). Play the intro once, save in the game
+  before you pick your starter, then choose Files › “Use as my intro save” on the run's board. From then on, “Start
+  from my intro save” is ticked when you start a new attempt or a new run of that game – randomized or not, the
+  starter you then pick comes from the new game. It works for every game souldew plays (3DS games in souldew's own
+  3DS player) and only for that exact game and language – German Smaragd keeps its own, separate from Emerald. Each
+  player keeps their own: it stays on your computer and never goes into an invite. If your save already has Pokémon,
+  souldew tells you, and they come along without counting for the run. Untick it to play the intro, or remove the
+  intro save right there.
+- **“Got away?” after every wild Pokémon that got away** (thanks to a player on Discord). In a SoulLink or Nuzlocke,
+  souldew asks after a wild battle without a catch whether the area is spent – but only when no other battle began in
+  the next ten seconds, and the question disappeared as soon as the next battle started. On a route full of grass
+  (Platinum's Route 204) or with fast-forward on, the next Pokémon nearly always came first, so the question never
+  showed up and the next catch there was filed as the area's encounter. Now every wild battle that ends without a catch
+  gets its question, however soon the next battle comes, and the question waits (out of the way while you battle)
+  until you answer it – one per area, the first encounter first. When a wild Pokémon doesn't count because of the dupes
+  clause, souldew says so briefly instead of staying silent. In Diamond, Pearl, Platinum, HeartGold and SoulSilver one
+  odd reading no longer turns a wild battle into a trainer battle, and in the games' other languages souldew no longer
+  trusts a battle signal it hasn't seen working in that language, which could hide battles altogether.
+- **melonDS: your team updates after every in-game save in every DS game** (thanks to a player on Discord). When you
+  play with the melonDS app, souldew reads the save file it writes – but it only ever did that for HeartGold and
+  SoulSilver. In Diamond, Pearl, Platinum, Black, White, Black 2 and White 2 nothing changed after saving. souldew now
+  reads the saves of all of them, in every language, also when melonDS saves into its own save folder (set in melonDS's
+  settings) instead of next to the game. The melonDS page shows which save file souldew reads and when it last read it.
+- **SoulLink: the host sets all the rules.** Whoever creates a SoulLink now picks every rule right in the wizard – type
+  rule, dupes clause, missed encounters, shiny clause, gifts & eggs, level caps, cheats, lives, the type matchup help and
+  the automatic switches – instead of setting most of them later on the board. The rules come with the invite, and the
+  join page shows them before you join. Afterwards only the host can change them: the others see them on the board's
+  Rules tab (and in the rules drawer while playing) with “Set by the host”, and every change the host makes shows up in
+  the log for everyone. A change from anyone else doesn't count on the other players' computers – not even from an
+  older or modified souldew. A new attempt keeps the rules. In runs you already have, the player who created the run is
+  the host, and the rules stay as they are. Players on 2.8.1 can still join – they just don't see the rules as locked.
+
+## 2.8.1
+
+- **Fast-forward on a key, like in mGBA** (thanks to a player for the idea). Hold Tab to fast-forward while it is held,
+  press Shift+Tab to switch fast-forward on or off – both at the turbo speed you picked last. It works in every player
+  (the browser player, the fast player and the 3DS player), and Tab no longer moves the focus away from the game while
+  you play. Both keys can be changed under Settings › Controls, and under Settings › Controller you can put them on a
+  controller button too (none by default). Help › Controls & shortcuts shows the keys you use.
+- **“What hits …” in the battle help folds in** (thanks to a player for the feedback). Seeing the opponent's moves before
+  it uses them gave a bit too much away, so that part of the battle help is now folded in to its title line by default.
+  Click it (or use the keyboard) to unfold it – souldew remembers your choice. Your own moves, the type charts and the
+  team check stay as they were.
+- **.sgb files work like .gb files** (thanks to a player for the report). Some cartridge readers save Red, Blue and other
+  Game Boy games as .sgb (Super Game Boy) files. souldew now takes them everywhere: adding files, drag & drop, zips,
+  “Find ROMs on this computer”, recognising the game, ROM hacks, new runs and playing.
+- **Catching demos are no longer your encounter** (thanks to a player on Discord). In Emerald, Wally's catching lesson
+  in Petalburg City filed the Zigzagoon he catches his Ralts with as your Petalburg encounter, and your own team seemed
+  to vanish while it lasted. souldew now recognizes every game's catching demo – the old man in Viridian City (Red, Blue, Yellow,
+  FireRed, LeafGreen), Professor Oak's Pikachu in Yellow, the Dude on Route 29 (Gold, Silver, Crystal), Wally (Ruby,
+  Sapphire, Emerald), Dawn and Lucas (Diamond, Pearl, Platinum), Lyra and Ethan (HeartGold, SoulSilver), Professor
+  Juniper (Black, White) and Bianca (Black 2, White 2) – and the Poké Dude's battles on FireRed and LeafGreen's Teachy
+  TV. They never count as an encounter, a missed encounter or a dupe, show no catch chance and can't cost a Pokémon, and
+  your team stays on screen the whole time.
+- **Black and White: Rotom's forms in the battle helper** (thanks to a player on Discord). Heat, Wash, Frost, Fan and
+  Mow Rotom showed Rotom's normal types, so the matchups were wrong. souldew now reads a Pokémon's form in the DS games
+  and uses its types and sprite – Rotom, Wormadam, Shaymin's Sky Forme, Arceus with its plate, Castform and the other
+  forms – from your ROM where it has them, so randomized and hacked games show theirs. In Diamond, Pearl, Platinum,
+  HeartGold and SoulSilver Rotom's forms keep Electric/Ghost, as in those games.
+- **The trainer's next Pokémon is the one actually sent out** (thanks to a player on Discord). In Black, White, Black 2,
+  White 2, Diamond, Pearl and Platinum the battle helper jumped to the next Pokémon in the trainer's party as soon as one
+  went down – but trainers pick their next Pokémon themselves. souldew now follows the battle itself: the defeated
+  Pokémon stays until the trainer sends the next one, and the helper shows the one that really comes out.
+- **Black, White, Black 2 and White 2: catches sent to the PC are filed right away** (thanks to a player on Discord).
+  With a full team, a new catch only showed up once you took it out of the PC – and a wild Pokémon that got away was
+  never asked about, since souldew couldn't tell whether it had been caught. souldew now reads the PC live in these games
+  too, so both work like in the other games.
+- **HeartGold and SoulSilver: the level caps** (thanks to a player on Discord). Falkner's cap was 9 – his Pidgey – instead
+  of 13, his Pidgeotto, and the rival at Azalea Town's 20 instead of 18. Marking a gym leader as defeated on the board
+  now also moves the cap on to the next one, even before the badge has been read from the game – for every player of a
+  SoulLink.
+- **Any shiny rate** (thanks to players on Discord). Besides 1 in 4096, 1024, 512 and 256 there is now “Custom…”:
+  enter any rate from 1 in 8192 down to 1 in 2 – 1 in 100, 1 in 50, 1 in 10, whatever your run wants. Where a game
+  can't do a rate exactly, the wizard says what it does instead (1 in 100 becomes 1 in 99.9). Everyone in a run with a
+  custom rate needs 2.8.1 – 2.8.0 refuses its invite and says to update. As before it's for the original Gen 3–5 games,
+  and shinies from a raised rate fill the Pokédex but don't count for the shiny achievements.
+- **Fast-forward sound keeps up with the game** (thanks to a player on Discord). With “Music continues”, a song souldew
+  hadn't heard at normal speed yet played at its normal pace while the game raced ahead – so the game's own sounds, menu
+  sounds too, came later and later the longer fast-forward ran, up to half a minute. Now that music skips ahead in small,
+  smooth steps and stays at most a second behind the game, at every speed and however long you fast-forward.
+
+## 2.8.0
+
+- **Catch chance in wild battles** (a community idea). The battle help now shows your chance to catch the wild
+  Pokémon with a Poké Ball, Great Ball and Ultra Ball – plus a Net, Nest or Beast Ball where it helps. It is worked out
+  live with each generation's own formula, from the Pokémon's catch rate, HP, level and status, and uses the game's own
+  catch rates, so ROM hacks and randomized runs show the right numbers. The foe's status now shows in the battle help
+  too. Status is read in Gen 1–5; in the 3DS games the chance is shown without it, and the panel says so.
+- **New rule: Lives** (a community idea). Give a run a number of lives, for example 20. Every Pokémon that falls costs
+  one, and the death that takes the last one ends the run. In a SoulLink the lives are shared or per player; only the
+  Pokémon that fell costs a life, not the partners that go with it. Undoing a death gives the life back. Lives left show
+  on the board, next to the game and in the death notice, with a quiet warning when only a few are left. Off by default
+  – set it when you create a run or under Rules.
+- **Shiny rate** (a community idea). New runs of the original Gen 3–5 games can make shinies more common: 1 in 4096,
+  1024, 512 or 256 instead of 1 in 8192, and in Gen 3 and 4 trainers' Pokémon can be shiny too. It works with and
+  without the randomizer, and every player in a SoulLink gets the same rate – so everyone needs this version to join
+  such a run (older versions refuse its invite instead of building a game with the normal rate; the invite says so).
+  Shinies from a raised rate fill the Pokédex but don't count for the shiny achievements. Not for ROM hacks, Gen 1/2 or
+  the 3DS games.
+- **Missed encounters remember the Pokémon** (thanks to a player on Discord). When an encounter gets away, souldew now
+  fills in which Pokémon it was if it saw the battle. A new switch under the dupes clause, “Fled or knocked-out
+  encounters count as dupes”, makes such a Pokémon block its evolution line (off by default). And SoulLinks now ask
+  after a wild battle without a catch whether it got away, like solo Nuzlockes do – where the place sign shows the area
+  you're in – marking it as spent fails the pair and tells your partner. No more question when the area you're in
+  already has your encounter.
+- **Messages always in your language** (thanks to a player for the report). Error messages, the log while a run is
+  built, save-file problems, update errors and the menu before the app has loaded showed some German text with English,
+  French, Spanish or Italian selected. A partner's ping and “boss defeated” in the log now show in your language too.
+- **Black and White: the place sign works in every language** (thanks to a player on Discord). In versions other than
+  English it showed Black City in the intro and then no place at all. souldew now reads the game's own copy of the
+  zone data, and the title screen no longer shows Black City (Black/White, and Black 2/White 2 when switched on).
+- **The place sign in every game: the right place or none, never a wrong one.** In Red/Blue/Yellow, Gold/Silver/
+  Crystal, the Gen 3 games and Black 2/White 2, souldew now reads where you are from the game's own copy of the current
+  map's data and checks it against your ROM. In Diamond, Pearl, Platinum, HeartGold and SoulSilver it reads the place
+  from your save data, and only once it has made sure that data really is your game's. Where the game's memory sits
+  elsewhere than in the English versions, souldew finds it instead of guessing. No more Pallet Town on Red's title
+  screen or Black City when Black 2/White 2 start.
+- **Badges and level caps in every language of Diamond, Pearl, Platinum, HeartGold and SoulSilver** (thanks to a player
+  on Discord for the report). In versions other than English, souldew found the team but never the badges: the overlay
+  showed none and the level cap stayed at the first gym's, so a team at level 10 after Falkner was flagged as over the
+  cap. souldew now finds the save data next to the team, so badges, the level cap and the PC update live in German,
+  French, Spanish, Italian and every other language too.
+- **Eggs stay a surprise until they hatch.** An egg showed on the board and in the team as the Pokémon it will hatch
+  into – a spoiler in a randomized game. Eggs now stay out of the board, the team in the play view, savestates and the
+  stream API until they hatch, as they already did in the overlay. Once hatched, the Pokémon lands in the inbox as
+  “hatched from an egg” in every game; Crystal and Black/White through Ultra Sun/Ultra Moon used to file it as a catch
+  on the route where it hatched.
+- **A ROM hack started from its library page is the game you get** (#68 – thanks for the report). “New Nuzlocke” /
+  “New SoulLink” on a hack like Volt White could build the plain original game: the wizard only offered a patch when
+  your ROM's checksum matched the one the hack's notes name, while “Play” patched the same ROM fine. Hacks that come as
+  xdelta patches now work with your copy of their base game in new runs too (xdelta checks what it writes; IPS patches
+  can't, so they still need the copy their notes name), and if a hack really doesn't fit your ROM, the wizard says so
+  instead of switching to the original game.
+- **The randomizer says up front when it can't handle a game** (thanks to a player on Discord for the report). When you
+  pick a game for a new run, souldew now tries the randomizer on it first. If the game's data isn't laid out the way
+  the randomizer expects (some ROM hacks and releases), the randomizer is switched off with that reason, instead of the
+  build failing with an error like “Index 1286 out of bounds”. A build that fails anyway explains what happened in your
+  language, and two randomizer runs at the same time no longer get in each other's way. Renegade Platinum and Crystal
+  Legacy are now listed as not randomizable; Blaze Black 2 Redux is tested and works. When the randomizer stops on a
+  game, “Save diagnostics” now records where it stopped, so a report lets us fix that game.
+- **Clean sound in the 3DS player at normal speed.** On PCs where the sound arrives unevenly (seen on Windows), the 3DS
+  player cut it with clicks after every hiccup and then caught up by squeezing the sound, which made the highs grainy
+  and harsh. It now bridges a gap with a soft fade, keeps a slightly larger buffer on such PCs, and catches up with an
+  inaudible speed change of at most 0.5 %. In the fast player (Game Boy, GBA, DS) short drop-outs fade instead of
+  clicking, too. Save diagnostics now includes the 3DS player's sound drop-outs, to help with sound reports.
+- **“Music continues” in the 3DS player: clear music, and battle music that ends with the battle** (thanks to a player
+  on Discord for the report). While fast-forwarding, the music of a place souldew hadn't recorded yet came out
+  muffled – at 4× nothing above about 1.8 kHz was left. The 3DS player now hands souldew the game's own sound as well,
+  so the music keeps its full sound at its normal pitch (measured in Pokémon Sun: the same highs as at 1×). And in the
+  3DS games souldew didn't know which song was playing: once it had picked up a battle's music while fast-forwarding,
+  that music kept looping after the battle – and came back with the next fast-forward. souldew now follows the place
+  you're in and battles (with live tracking running), switches to the battle music when a battle starts and back to
+  the place's music when it ends, and no longer files the first moments of a battle under the place's music.
+- **A new controller layout works right away** (thanks to a player on Discord for the report). Changing the buttons in
+  Settings › Controller or Settings › Controls while a game was open in the corner didn't reach that game – it kept the
+  old layout until it was started again, although the settings already showed the new one. Changes now apply at once,
+  in every player.
+- **The SoulLink dupes rule explains itself.** The rule's hint on the board now says what “Per player” and “For both”
+  mean, and which catches count: one from a failed or dead pair does, an encounter that fled or was knocked out doesn't.
+
+## 2.7.4
+
+- **“Playing now” on the souldew Discord.** The server now shows how many people are playing in souldew right now – as
+  the locked channel “🎮 Playing now: N” and in the bot's status. It is counted anonymously: only while a game actually
+  runs (fast player, 3DS player or browser player), the app sends one small message a minute with the system (GB, GBA,
+  DS, 3DS), solo / Nuzlocke / SoulLink, the app version and a random id that is new for every game – no name, no
+  account, no game title, no run data, and the bot doesn't store the IP address. Closing the game or the app ends it;
+  offline nothing happens. Don't want to be counted? Settings › General › “Count me in ‘playing now’ (anonymous)”
+  switches it off at once. Exactly what is sent and kept: [docs/PRIVACY.md](docs/PRIVACY.md); Help › Questions explains
+  it too.
 
 ## 2.7.3
 

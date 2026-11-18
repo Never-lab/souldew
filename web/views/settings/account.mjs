@@ -11,7 +11,7 @@ import {
   unlinkMembership, listSessions, signOutSession,
 } from '../../lib/account.mjs';
 import { refreshPack, forgetPack } from '../../lib/cosmetics/index.mjs';
-import { askToJoinAllowed, setAskToJoin } from '../../lib/presence.mjs';
+import { askToJoinAllowed, setAskToJoin } from '../../lib/friendpresence.mjs';
 import { Avatar, Badges, CodeChip } from '../social.mjs';
 import { Item, Group, Check } from './parts.mjs';
 import { PlusShowcase } from './cosmetics.mjs';

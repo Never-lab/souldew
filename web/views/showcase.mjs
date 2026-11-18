@@ -17,7 +17,7 @@ import { useTrophies } from '../lib/trophies.mjs';
 import { achText, rarityLabel } from '../lib/trophytexts.mjs';
 import { fromCatalogId } from '../lib/achievementids.mjs';
 import { speciesInText, splitTrusted } from '../lib/trusted.mjs';
-import { shortTitle } from '../lib/presence.mjs';
+import { shortTitle } from '../lib/friendpresence.mjs';
 import { ACHIEVEMENTS } from '/shared/trophies.mjs';
 import { SHOWCASE_LAYOUTS } from '/shared/social.mjs';
 import { AchIcon } from './trophies.mjs';
