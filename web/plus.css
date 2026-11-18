@@ -33,7 +33,7 @@
 .plus-you { margin: 0; padding: 0; overflow: hidden; border-radius: var(--r-xl); background: var(--shell-2); border: 1px solid var(--sk-line, #0f0e12); box-shadow: inset 0 1px 0 #ffffff08, 0 10px 30px -12px #000a; }
 .plus-you-banner { position: relative; height: 140px; overflow: hidden; }
 .plus-you-banner > .cos-banner { height: 100%; }
-.plus-you-id { position: relative; display: flex; align-items: flex-start; gap: 14px; padding: 0 20px; }
+.plus-you-id { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: 14px; padding: 0 20px; }
 .plus-you-id > .av-wrap { margin-top: -36px; flex: none; }
 /* below the banner, like the profile's own masthead: readable on every skin, light ones included */
 .plus-you-names { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; padding-top: 12px; }

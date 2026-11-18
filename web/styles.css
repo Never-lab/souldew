@@ -1265,7 +1265,8 @@ html[data-theme='contrast'] .nav a::before { background: radial-gradient(150px c
 .rail-plus-mark svg { display: block; }
 .rail-plus-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .rail-plus-text b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.rail-plus-thanks { font-size: 11.5px; font-weight: 400; color: var(--warn-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* in the link's own colour: every skin keeps its rail text readable (a light skin's gold ink is made for paper) */
+.rail-plus-thanks { font-size: 11.5px; font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* folded rail: the souldew+ mark in the window's bottom left corner instead */
 .rail-plus-float { position: fixed; left: 12px; bottom: 12px; z-index: 58; display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border-radius: 10px;
   border: 1px solid var(--edge, #2c2b33); background: color-mix(in srgb, var(--sk-field, #1e1d24) 90%, transparent); box-shadow: var(--lt-pop-shadow, 0 4px 14px #0006); opacity: .85; }

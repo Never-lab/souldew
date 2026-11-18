@@ -177,6 +177,8 @@ function seed(fake) {
   const proof = fake.addUser({ handle: 'proof_dew', display_name: 'Proof', title: 'win-nuzlocke', accent: 'amber', status: 'grinding Victory Road', banner: 'lcd-grid', frame: 'plain',
     showcase: { trophies: ['win-nuzlocke', 'win-soul-link'], trusted: 'Breloom line – on 6 teams, fell once (Crystal, to Whitney)', favorite_game: 'Emerald' },
     privacy: { show_runs: true, profile: 'friends' }, createdAt: Date.parse('2025-03-12'),
+    // a Supporter: the sidebar's souldew+ entry says "thank you" – its contrast is checked in every skin too
+    entitlement: { tier: 'supporter', until: new Date(Date.now() + 30 * D).toISOString(), badges: ['supporter'] },
     stats: { totals: { runs_started: 23, runs_completed: 7, runs_failed: 14, soullink_runs: 13, nuzlocke_runs: 10, badges_earned: 61, pokemon_caught: 412, deaths: 168, playtime_minutes: 12840 },
       recent_runs: [
         { name: 'Proof – Nuzlocke #4', game: 'Emerald', mode: 'nuzlocke', result: 'active', badges: 3, deaths: 2 },

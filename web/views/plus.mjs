@@ -62,13 +62,15 @@ function PlateRow({ id, me, sub, loop }) {
 /** The hero's card: you, wearing souldew+ – on your profile and in a friend's list. */
 function YouCard({ me, look, signedIn }) {
   const shown = signedIn ? me : null;
-  return html`<figure class="plus-you" aria-label=${t('plus.youAria', 'How you look with souldew+')}>
+  // the banner moves (as on a profile); the frame and the nameplate play while the card is pointed at, like in a list
+  const [hot, on] = useHot();
+  return html`<figure class="plus-you" aria-label=${t('plus.youAria', 'How you look with souldew+')} ...${on}>
     <div class="plus-you-banner"><${BannerLook} id=${look.banner} loop=${!prefersReduced()} /></div>
-    <div class="plus-you-id"><${FramedAvatar} me=${shown} frame=${look.frame} size=${72} loop=${!prefersReduced()} />
+    <div class="plus-you-id"><${FramedAvatar} me=${shown} frame=${look.frame} size=${72} loop=${hot} />
       <div class="plus-you-names"><b class="plus-you-name">${shown?.name || t('plus.you', 'You')}</b>
         ${shown?.title ? html`<${TitlePlate} text=${achTitle(shown.title)} />` : html`<span class="small muted">${shown ? `@${shown.handle}` : t('plus.yourName', 'your name, your picture')}</span>`}</div></div>
     <figcaption class="plus-you-plate"><span class="plus-kicker">${t('plus.inLists', 'In your friends’ lists')}</span>
-      <${PlateRow} id=${look.nameplate} me=${shown} sub=${t('fr.online', 'Online')} loop=${!prefersReduced()} /></figcaption>
+      <${PlateRow} id=${look.nameplate} me=${shown} sub=${t('fr.online', 'Online')} loop=${hot} /></figcaption>
   </figure>`;
 }
 
