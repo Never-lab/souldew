@@ -8,7 +8,7 @@ import { t, ago } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
 import { gameById, gameTitle, speciesName, hackById, itemName, moveName } from '../lib/data.mjs';
-import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
+import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, logWagerPaid, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
 import { findEntry, readLiveParty, readLiveBattle, playerBattle, withBattleHp, confirmFaints, inBattleFlag, LiveTables, expandedEntry } from '/shared/live/parse.mjs';
 import { applyCheat, cheatsFor, cheatBlock, CHEATS, readBalls } from '/shared/live/cheats.mjs';
 import { DeathReveal, effectiveSpeed } from '../lib/reveal.mjs';
@@ -46,6 +46,9 @@ import { presenceLoop, presenceBody } from '../lib/presence.mjs';
 import { resolveHotkeys, hotkeyOf, keyMatches } from '../lib/controls.mjs';
 import { hotkeyHint, comboLabel } from './guide.mjs';
 
+import { WagerPay } from '../lib/wagerpay.mjs';
+import { gameOfEntry, readMoney, moneyText } from '/shared/linkbattle.mjs';
+import { worldTable, readCamera } from '/shared/world.mjs';
 /**
  * What each shortcut of Settings › Controls does (lib/controls.mjs HOTKEYS – one entry each, test/controls.test.mjs
  * checks that none is missing and that the play view acts on no key of its own): `a` = the session's actions.
@@ -293,7 +296,8 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
  * you open another section: `mode` "full" fills the Play page, "mini" floats in the corner.
  */
 export function GameSession({ session, mode }) {
-  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus } = useApp();
+  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus, wagerRef } = useApp();
+  const payRef = useRef(null); // link battle wagers into this game (web/lib/wagerpay.mjs) – only the player's own run game
   const target = session.target;
   // the module slides into the console while the game boots (Settings › animations; never with reduced motion)
   const [inserting, setInserting] = useState(() => mode === 'full' && status?.config?.bootAnimation !== false
@@ -598,6 +602,7 @@ export function GameSession({ session, mode }) {
       // answers nothing – loaded
       Promise.resolve(emu().loadState(p.bytes)).catch(() => false).then((ok) => {
         if (ok === false) return flash(t('play.stateLoadFailed', 'Couldn’t load this state – the game goes on where it was'));
+        payRef.current?.restarted(); // (a wager written since isn't in that state)
         revealNow(); // (a death the game was showing is recorded – loading a state doesn't take it back)
         pickSlot(p.slot);
         flash(MANUAL_SLOTS.includes(p.slot) ? t('play.stateLoaded', 'State {n} loaded', { n: p.slot }) : t('states.loaded', '“{name}” loaded', { name: slotName(p.slot) }));
@@ -861,6 +866,7 @@ export function GameSession({ session, mode }) {
           if (res.ok) {
             lastSave = h; // otherwise the next round tries again
             guard.saved(h);
+            payRef.current?.saved(); // (a wager written into the game is in its save now)
             // fresh in-game save: re-take "where you left off" so it matches the save on disk again
             if (!given) saveAuto(grabState());
           }
@@ -1041,6 +1047,17 @@ export function GameSession({ session, mode }) {
         }
         e.songKey(key);
       }, 100); // a few bytes: read often, so the turbo music follows a new song within a moment
+      // link battle wagers (web/lib/wagerpay.mjs): this player's own game of the run, alone – the money goes in there
+      const ownRun = isRun && !!doc && !!manifest && target.runId === manifest.id && target.saveUrl === `/api/runs/${manifest.id}/save/${me}`;
+      const pay = ownRun ? new WagerPay({ doc, me, onPaid: (o) => {
+        for (const p of o.pays) if (p.from === me) logWagerPaid(doc, manifest, o.sid, me, p.to, p.amount);
+        diag('wager', { sid: o.sid, delta: o.delta, before: o.before, after: o.after });
+        flash(o.delta > 0 ? t('wager.got', '+{amount} from the link battle', { amount: moneyText(o.delta) }) : t('wager.paid', '{amount} paid for the lost link battle', { amount: moneyText(-o.delta) }), 3500);
+      } }) : null;
+      payRef.current = pay;
+      const gameNow = () => gameOfEntry(liveRef.current?.entry);
+      if (ownRun && wagerRef) wagerRef.current.money = () => (target.link || !emu()?.read ? null : readMoney(gameNow(), (a, n) => emu()?.read(a, n)));
+      let world3 = null; // (Gen 3: the Shared World's reader says when the player stands in the overworld)
       // live loop
       let lastLocate = 0;
       let wramEntry = null;
@@ -1172,6 +1189,12 @@ export function GameSession({ session, mode }) {
               // read from the game go along once its data is known (web/lib/run.mjs files them for the run)
               const romCaps = romDataReady() ? (own?.caps ? { caps: own.caps.caps, leaders: own.caps.leaders, final: own.caps.final } : null) : undefined;
               if (isRun) snapRef.current?.({ source: 'live', party, boxes: res.boxes || null, game: entry.id, here: hereNow, ...(res.badges !== undefined ? { badges: res.badges } : {}), ...(romCaps !== undefined ? { romCaps } : {}) }, { battle: fight, held: shown.held });
+              const g = pay && gameNow();
+              if (g) {
+                if (ent.gen === 3 && world3?.from !== ent) world3 = { from: ent, t: worldTable(ent) };
+                pay.tick({ game: g, read: e.read, write: e.write, busyGame: !!fight || !!target.link, cam: ent.gen === 3 && world3?.t ? readCamera(world3.t, e.read) : undefined })
+                  .catch(() => {});
+              }
               // (an ended run takes no snapshots: what is held is still revealed as it comes due)
               if (isRun) revealRef.current?.(shown.held);
               // the first Poké Balls in the bag start the run's rules for this player (outside battles: the bag is
@@ -1193,6 +1216,8 @@ export function GameSession({ session, mode }) {
     })();
     return () => {
       stopped = true;
+      if (payRef.current) payRef.current = null;
+      if (wagerRef?.current) wagerRef.current.money = null;
       // the game closes: every death held for the game to show is shown now (recorded already)
       revealer.current.releaseAll();
       revealRef.current?.(null);
@@ -1639,7 +1664,7 @@ export function GameSession({ session, mode }) {
             ${asked && html`<${MissedPrompt} key=${asked.id} missed=${asked.foe} here=${asked.here} onDone=${(no) => { setQuestions((qs) => (no ? dropQuestion(qs, asked, { areaOf: (q) => areaRef.current(q) }) : qs.filter((q) => q !== asked))); focusGame(); }} />`}
             ${confirmReset && html`<div class="screen-confirm" role="alertdialog" aria-live="assertive">
               <span class="grow">${t('play.resetConfirm', 'Reset the game? Unsaved progress is lost.')}</span>
-              <button class="btn small primary" onClick=${() => { setConfirmReset(false); emu()?.restart(); revealNow(); focusGame(); }}>${t('play.resetYes', 'Reset')}</button>
+              <button class="btn small primary" onClick=${() => { setConfirmReset(false); emu()?.restart(); revealNow(); payRef.current?.restarted(); focusGame(); }}>${t('play.resetYes', 'Reset')}</button>
               <button class="btn small ghost" data-pad-back onClick=${() => { setConfirmReset(false); focusGame(); }}>${t('common.cancel', 'Cancel')}</button>
             </div>`}
             ${confirmCheat && !confirmReset && !pendingLoad && html`<div class="screen-confirm" role="alertdialog" aria-live="assertive">

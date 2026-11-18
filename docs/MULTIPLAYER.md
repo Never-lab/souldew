@@ -340,8 +340,91 @@ Since November 2026 (branch `feat/engine`, Settings › Emulators › **"souldew
 **Battles everywhere** use the same session as trades. The game's link battle runs on both consoles, so there is no extra work in the host. souldew adds:
 - a "Battle" invite;
 - optional battle rules (level cap = the run's cap, no items);
-- a result entry in the log ("Marius won 3–1").
-- For SoulLink, battle losses never count as deaths unless the run says so (§10).
+- a result entry in the log ("Marius won a link battle against Tim") and the head-to-head record (below);
+- an optional wager in in-game money (below).
+- For SoulLink, battle losses never count as deaths unless the run says so (§10). The wager is independent of it.
+
+### 8a. Battle results and wagers
+
+Built in November 2026 (branch `feat/30-wager`; `shared/linkbattle.mjs`, `web/lib/linkresult.mjs`, `web/lib/wager.mjs`,
+`web/lib/wagerpay.mjs`).
+
+**Who won – read from every seat on every peer.** Every peer's link host runs every console, so every peer reads every
+seat's game itself (the link host's `READ`, now allowed for a page in a link session – a few bytes, read-only, at most
+4 KB; the battery saves of every seat on `FLUSH`). The cartridge header (`READ` at 0x080000A0 / 0x0134 / 0x027FFE00)
+says which game a seat runs. The source per generation is the one the game itself decides with, checked against the
+recorded battles:
+
+| Gen | Source | Recorded battle | Read |
+|---|---|---|---|
+| 1 | `wBattleResult` (0 won, 1 lost, 2 draw) once `wIsInBattle` falls to 0 after a battle with `wLinkState` = 4 (battling); the cartridge keeps no record | Red ↔ Red Colosseum | seat 0 lost, seat 1 won (the result screen: “ASH lost to RED”) |
+| 2 | the cartridge's own link battle record `sLinkBattleStats` (wins, losses, draws – u16 big-endian, SRAM bank 1: save offset 0x31BA Gold/Silver, 0x3260 Crystal), before and after the session. The game writes it at the battle's end, independent of saving. (`wBattleResult` read in RAM was ambiguous during the battle in this recording.) | Crystal ↔ Silver | Crystal L+1 vs “BIG”, Silver W+1 vs “ACE” – Silver won (“YOU WIN”) |
+| 3 | `gBattleOutcome` (1 won, 2 lost, 3 drew; bit 7 = forfeit) at the end of a battle with `BATTLE_TYPE_LINK`; `BATTLE_TYPE_MULTI` marks 2 vs 2. Multi battles write no link battle record into the save, so the save is no source for them. Same EWRAM addresses for every revision and the German R/S, FR/LG | Emerald ↔ Sapphire single; E, S, E, S multi | single: Emerald 1, Sapphire 2; multi: seats 0+1 lose, 2+3 win |
+| 4 (Pt) | the game records `RECORD_LOCAL_LINK_BATTLE_WINS / _LOSSES` (ids 21, 22) in the save data in RAM (`*0x02101D40 + 0x61C4`), encrypted with an LCRNG keystream seeded by the block's byte sum and a modifier (pokeplatinum `src/game_records.c`), checked by that sum. Before and after. No draw record | Platinum ↔ Platinum Union Room | seat 0 W+1, seat 1 L+1 |
+
+Not supported (no wager offered; the log gets no result): Gen 1/2 in other languages (their RAM differs), Emerald DE,
+Diamond/Pearl/HeartGold/SoulSilver (records not checked), Gen 5, hacks whose RAM moved, four DS players (who fought whom
+can't be told from counters).
+
+**Agreement.** At the session's end (before each console goes on alone) every peer writes what it read into the run
+document under its own key: `lb:<sid>:<slot>` = `{ seats, per: { slot: { w, l, d } }, multi, wager, h }`, `h` = FNV-1a 64
+over the session id, the seats, every seat's counts and the wager. A result counts only when every seat's entry is
+there, none is void and all hashes are equal (`outcomeOf`). Void: the session fell out of step (`desync` – the saves go
+back anyway), a player dropped out and rejoined (`rejoin` – their page can't know what happened while it was away), a
+seat's game can't be read (`unread`), the counts don't fit together. A player who never writes their entry (crashed)
+leaves the session pending forever: nobody pays. Two seats: who won more of the session's battles wins (several
+battles in one session are fine, “won 2 : 1”); a tie is a draw. Four Game Boy Advances: two winners against two
+losers of a multi battle.
+
+**The log, the record, the stream.** `feed:lb-<sid>` (every computer writes the same entry, keyed by the session):
+“Marius won a link battle against Tim” / “… won 2 : 1 in link battles against Tim” / “Marius & Lena beat Tim & Robin
+in a multi battle”. The head-to-head record is computed from the agreed entries (`headToHead`) and shown on the
+partner's card on the board and in the result card. The stream API has a `link-battle` event and the log entry carries
+winners, losers and the wager (docs/STREAM_API.md).
+
+**Wagers.** The challenger's Battle opens a small challenge: the format (single/double where the game lets you pick;
+multi with four GBAs) and “Battle for money”: an amount up to what their game holds (read from the running game) and
+the run's limit. The invite carries `caps: ['wager1']`, `wager` and `format`; the accept carries the invitee's caps and
+the most they put in (their money, read when they join). The stake every peer works out at the start: the offer,
+lowered to every accept and the rule's cap – 0 unless every seat announced `wager1` (a partner on an older 3.0 build
+sees an invite without a wager and the bar says “no wager – Tim's souldew doesn't know wagers yet”) – then at the
+session's end lowered again to what every seat's game holds then (read by every peer from every console – at the start a
+game that boots for the link has no save loaded yet and reads ₽0; nothing can be spent in the Colosseum anyway). The stake is
+part of the hash.
+
+- **Currency: money only.** Game Corner coins were considered and left out: not every game has them in the same way
+  (the Coin Case first; some regional versions removed the slot machines), they buy Pokémon and TMs at the prize
+  counters directly – which a SoulLink's encounter rules don't expect – and a coin wager would double the per-game
+  tables for little gain. Money only buys items, so it is harmless in a Nuzlocke-type run.
+- **Settlement** (`WagerPay`, from the play view's live loop): once the player stands in the overworld of their own
+  game, alone (no link, no battle; Gen 1 `wIsInBattle`/`wLinkState` 0, Gen 2 `wBattleMode`/`wLinkMode`/`wScriptRunning`
+  0, Gen 3 the Shared World's camera reader: not locked, no fade, Gen 4 the battle flag's overworld value), the money
+  goes into RAM through the cheat path (the fast player's WRITE between two frames), is read back, and read again
+  1.5 s later: still the old sum (Emerald moved its save blocks just then) → it goes in again; anything else → done.
+  Gen 1 3-byte BCD, Gen 2 3-byte big-endian, Gen 3 u32 XORed with SaveBlock2's key (Emerald, FR/LG; R/S plain), Gen 4
+  u32 in the trainer block (save data +0x90, only when its records decode). Clamped to ₽0 … ₽999,999.
+- **Exactly once into a save.** `lbpay:<sid>:<slot>` = `written` (with the game's boot id) → `saved` when the game's next
+  battery save reached the run. A reset, a loaded save state or a new start before that is another boot: the money goes
+  in again. The payer's computer logs “Tim paid Marius ₽2,000 (link battle)” (`feed:lbp-<sid>-<slot>`).
+- **Multi battle:** each player stakes the wager; each loser pays one winner (the pot split per team).
+- **Exploits considered:** a client can only change its own game's money – a tampered page could add money without any
+  of this (cheats are a run rule of their own). A lie in the result voids it (the hashes differ). Writing nothing as a
+  loser is possible for a tampered client – the log shows the result and the missing payment.
+
+**Rules** (host-signed like every SoulLink rule, `shared/hostrules.mjs`): “Wagers in link battles” (`linkWagers`,
+default on, only with link battles allowed) and “Highest wager” (`linkWagerCap`: no limit, ₽1,000, ₽5,000, ₽10,000,
+₽50,000). “Losing a link battle counts as deaths” is independent.
+
+**Level fairness (research, not built).** linkcable.app offers “Scale Levels”. The games' own link rules don't: the Gen 1
+and 2 Colosseum have no level cap (Gen 2 only checks Pokémon that can't be traded), the Gen 3 Colosseum has none (the
+Battle Tower's level-50/open rules apply only there), the Gen 4 Union Room has none. Options: (a) a run rule that
+refuses the invite when either team is above the run's current level cap (the tracker knows both teams – cheap, no
+memory writes); (b) a souldew-side check before the battle that only warns; (c) writing scaled levels/stats into both
+consoles' battle copies at the start of each battle – deterministic on every peer, but per-game battle structs, stat
+recalculation and the risk of a desync make it the expensive option. (a) fits a SoulLink best.
+
+**Ideas not built:** a “Win 10 link battles” trophy (counted from the agreed entries – suggested, not added: trophies
+are counted from run digests, which would need the head-to-head in them); an overlay alert for the `link-battle` event.
 
 ## 9. Shared World
 
@@ -498,7 +581,7 @@ What is left for 3.0, with effort:
 | First green `native.yml` run (Linux + Windows link host; the RGBDS step is new) | ½ d |
 | Release packaging: `linkhost` + its licences in the app bundles (`npm run dist` checks it now), signing/notarising one more binary on macOS | ½–1 d |
 | A real two-computer test over the internet, once with TURN forced (relayed) | ½ d |
-| Trade log entry for Gen 2 and Gen 4 (the e2e saw the trade in the saves but no log entry – the live party's keys) and a battle result entry ("Marius won") | 1 d |
+| Trade log entry for Gen 2 and Gen 4 (the e2e saw the trade in the saves but no log entry – the live party's keys); the battle result entry is built (§8a) | ½ d |
 | FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e; their link rooms on the sign | 3–4 d |
 | Gen 1 ↔ 2 Time Capsule | 1 d |
 | DS rejoin during a wireless exchange (the state can't be taken while a console waits mid-frame): retry until the exchange pauses, or make the wait state serialisable | 2–3 d |

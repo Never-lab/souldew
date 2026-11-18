@@ -1,0 +1,306 @@
+// Link battle results and wagers (shared/linkbattle.mjs, web/lib/wager.mjs, web/lib/wagerpay.mjs): the money of every
+// generation's games (BCD, big-endian, XOR with the save key, the DS trainer block), the outcome as each game keeps it
+// (the readings below are the ones the recorded link battles of scripts/link-e2e.mjs showed), the result every player
+// must agree on, the payments and that a payment goes into a save exactly once.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+import * as L from '../shared/linkbattle.mjs';
+
+// web/lib/*.mjs import browser paths (/shared/…): map them onto the project folder.
+const ROOT = new URL('../', import.meta.url).href;
+registerHooks({
+  resolve: (spec, ctx, next) => next(/^\/(shared|vendor)\//.test(spec) ? new URL(`.${spec}`, ROOT).href : spec, ctx),
+});
+const W = await import('../web/lib/wager.mjs');
+const { WagerPay } = await import('../web/lib/wagerpay.mjs');
+
+/** A console's bus as a sparse map: read(addr, len) / write(addr, bytes) – what the fast player's mirror offers. */
+function bus(init = {}) {
+  const m = new Map();
+  const put = (addr, bytes) => bytes.forEach((b, i) => m.set(addr + i, b & 0xff));
+  for (const [a, b] of Object.entries(init)) put(Number(a), b);
+  return { m, put, read: (addr, len) => Uint8Array.from({ length: len }, (_, i) => m.get(addr + i) ?? 0), write: (addr, bytes) => (put(addr, [...bytes]), true) };
+}
+const le32 = (v) => [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, v >>> 24];
+
+/** A Platinum game records block (0x1BC bytes) with these link battle wins/losses, encrypted as the game does. */
+function records4(wins, losses, modifier = 0x1234) {
+  const b = new Uint8Array(0x1bc);
+  b.set(le32(485), 0); // (steps: not encrypted)
+  b.set(le32(63), 4);
+  b.set(le32(wins), 21 * 4);
+  b.set(le32(losses), 22 * 4);
+  let sum = 0;
+  for (let o = 4; o < 0x1b8; o++) sum += b[o];
+  sum &= 0xffff;
+  b[0x1b8] = sum & 0xff; b[0x1b9] = sum >> 8; b[0x1ba] = modifier & 0xff; b[0x1bb] = modifier >> 8;
+  let x = (sum + (modifier << 16)) >>> 0;
+  for (let o = 4; o < 0x1b8; o += 2) {
+    x = (Math.imul(x, 0x41c64e6d) + 0x6073) >>> 0;
+    const v = (b[o] | (b[o + 1] << 8)) ^ (x >>> 16);
+    b[o] = v & 0xff; b[o + 1] = v >> 8;
+  }
+  return b;
+}
+
+test('money: Gen 1 BCD, Gen 2 big-endian, Gen 3 XOR with the save key – both ways', () => {
+  assert.equal(L.bcdDecode([0x00, 0x31, 0x75]), 3175); // (Red's ₽3,175 in the recorded battle)
+  assert.deepEqual(L.bcdEncode(3175), [0x00, 0x31, 0x75]);
+  assert.deepEqual(L.bcdEncode(999999), [0x99, 0x99, 0x99]);
+  assert.deepEqual(L.bcdEncode(1234567), [0x99, 0x99, 0x99], 'capped');
+  assert.equal(L.bcdDecode([0x0a, 0, 0]), null, 'not BCD');
+  assert.equal(L.be24Decode([0x00, 0x0b, 0xb8]), 3000); // (Crystal's ₽3,000)
+  assert.deepEqual(L.be24Encode(5000), [0x00, 0x13, 0x88]);
+  // Emerald as read live in the recorded battle: money 7edf8138 with the key c6d48138 is ₽3,000
+  const key = 0x3881d4c6;
+  assert.equal(L.xorDecode(Uint8Array.from([0x7e, 0xdf, 0x81, 0x38]), key), 3000);
+  assert.deepEqual(L.xorEncode(3000, key), [0x7e, 0xdf, 0x81, 0x38]);
+  assert.equal(L.xorDecode(Uint8Array.from(L.xorEncode(5000, 0)), 0), 5000, 'Ruby/Sapphire: no key');
+  assert.equal(L.moneyText(2000, 'en'), '₽2,000');
+  assert.equal(L.moneyText(2000, 'de'), '₽2.000');
+});
+
+test('money: found, changed and read back in every generation; refused where the memory doesn\'t look right', async () => {
+  // Gen 1 Red
+  const red = bus({ 0xd347: [0x00, 0x31, 0x75] });
+  assert.equal(await L.readMoney('redblue', red.read), 3175);
+  assert.deepEqual(await L.addMoney('redblue', red.read, red.write, 2000), { ok: true, before: 3175, after: 5175 });
+  assert.deepEqual([...red.read(0xd347, 3)], [0x00, 0x51, 0x75]);
+  assert.equal((await L.addMoney('redblue', red.read, red.write, -9000)).after, 0, 'never below 0');
+  // Gen 2 Crystal
+  const cr = bus({ 0xd84e: [0x00, 0x0b, 0xb8] });
+  assert.equal((await L.addMoney('crystal', cr.read, cr.write, -1000)).after, 2000);
+  assert.deepEqual([...cr.read(0xd84e, 3)], [0x00, 0x07, 0xd0]);
+  // Gen 3 Emerald: through the save block pointers, XORed with SaveBlock2's key
+  const sb1 = 0x02025a00, sb2 = 0x02024a00, key = 0x3881d4c6;
+  const em = bus({ 0x03005d8c: le32(sb1), 0x03005d90: le32(sb2), [sb2 + 0xac]: le32(key), [sb1 + 0x490]: L.xorEncode(3000, key) });
+  assert.equal(await L.readMoney('emerald', em.read), 3000);
+  assert.equal((await L.addMoney('emerald', em.read, em.write, 2000)).after, 5000);
+  assert.equal(L.xorDecode(em.read(sb1 + 0x490, 4), key), 5000);
+  const lost = bus({ 0x03005d8c: le32(0x08000000), 0x03005d90: le32(sb2) });
+  assert.deepEqual(await L.addMoney('emerald', lost.read, lost.write, 100), { error: 'notFound' }, 'a pointer outside EWRAM: nothing written');
+  // Ruby/Sapphire: a fixed SaveBlock1, plain
+  const rs = bus({ [0x02025734 + 0x490]: le32(3000) });
+  assert.equal((await L.addMoney('rs', rs.read, rs.write, 500)).after, 3500);
+  // Gen 4 Platinum: the save data's trainer block, only when its game records decode (the pointer is right)
+  const save = 0x0227e148;
+  const pt = bus({ 0x02101d40: le32(save), [save + 0x90]: le32(3500), [save + 0x61c4]: records4(0, 0) });
+  assert.equal(await L.readMoney('platinum', pt.read), 3500);
+  assert.equal((await L.addMoney('platinum', pt.read, pt.write, -2000)).after, 1500);
+  const ptBad = bus({ 0x02101d40: le32(save), [save + 0x90]: le32(3500) });
+  assert.equal(await L.readMoney('platinum', ptBad.read), null);
+  // a write that doesn't stick is not a payment
+  const stuck = bus({ 0xd347: [0x00, 0x31, 0x75] });
+  assert.deepEqual(await L.addMoney('redblue', stuck.read, () => true, 100), { error: 'write' });
+});
+
+test('games: the seat\'s game from its cartridge header (and the live tracker\'s entry); unknown languages and hacks: none', () => {
+  const gba = (code) => { const b = new Uint8Array(0x20); b.set([...'POKEMON EMER'].map((c) => c.charCodeAt(0)), 0); b.set([...code].map((c) => c.charCodeAt(0)), 0x0c); return b; };
+  assert.equal(L.gameOf('gba', gba('BPEE')), 'emerald');
+  assert.equal(L.gameOf('gba', gba('AXPE')), 'rs');
+  assert.equal(L.gameOf('gba', gba('AXVD')), 'rs');
+  assert.equal(L.gameOf('gba', gba('BPRD')), 'frlgEu');
+  assert.equal(L.gameOf('gba', gba('BPED')), null, 'German Emerald keeps its memory elsewhere');
+  const gb = (title, maker = '') => { const b = new Uint8Array(0x1c); b.set([...title].map((c) => c.charCodeAt(0)), 0); b.set([...maker].map((c) => c.charCodeAt(0)), 0x0b); return b; };
+  assert.equal(L.gameOf('gb', gb('POKEMON RED')), 'redblue');
+  assert.equal(L.gameOf('gbc', gb('PM_CRYSTAL', 'BYTE')), 'crystal');
+  assert.equal(L.gameOf('gbc', gb('POKEMON_SLV', 'AAXE')), 'goldsilver');
+  assert.equal(L.gameOf('gbc', gb('POKEMON_SLV', 'AAXD')), null);
+  const nds = new Uint8Array(0x10); nds.set([...'CPUE'].map((c) => c.charCodeAt(0)), 0x0c);
+  assert.equal(L.gameOf('nds', nds), 'platinum');
+  assert.equal(L.gameOfEntry({ id: 'emerald_us' }), 'emerald');
+  assert.equal(L.gameOfEntry({ id: 'crystal_us', wram: { delta: 11 } }), null, 'a hack whose RAM moved');
+  assert.equal(L.gameOfEntry({ id: 'heartgold_us~IPKD', scanOnly: true }), null);
+  assert.ok(L.wagerGame('pokemon-emerald') && L.wagerGame('pokemon-firered-de') && !L.wagerGame('pokemon-emerald-de') && !L.wagerGame('pokemon-heartgold'));
+  assert.deepEqual(L.battleFormats('gba', 2), ['single', 'double']);
+  assert.deepEqual(L.battleFormats('gb', 2), ['single']);
+  assert.deepEqual(L.battleFormats('gba', 4), ['multi']);
+  assert.deepEqual(L.battleFormats('nds', 4), []);
+});
+
+test('outcome, Gen 1: wBattleResult once the link battle is over (the recorded Red battle: seat 1 wins)', () => {
+  // readings as the recorded battle showed them: before, in the Colosseum battle (wIsInBattle 2, LINK_STATE_BATTLING),
+  // the battle's end screen, back in the Colosseum
+  const seq = [[0, 0, 0], [0, 0, 4], [0, 2, 4], [1, 2, 4], [1, 0, 4], [1, 0, 1]]; // [result, inBattle, link]
+  const w0 = new L.BattleWatch('redblue');
+  const w1 = new L.BattleWatch('redblue');
+  const s1 = [[0, 0, 0], [0, 0, 4], [0, 2, 4], [0, 2, 4], [0, 0, 4], [0, 0, 1]];
+  seq.forEach(([result, inBattle, link]) => w0.step({ result, inBattle, link }));
+  s1.forEach(([result, inBattle, link]) => w1.step({ result, inBattle, link }));
+  assert.deepEqual(w0.counts, { w: 0, l: 1, d: 0 });
+  assert.deepEqual(w1.counts, { w: 1, l: 0, d: 0 });
+  // a wild battle (no link) is never counted
+  const wild = new L.BattleWatch('redblue');
+  [[0, 1, 0], [0, 0, 0]].forEach(([result, inBattle, link]) => wild.step({ result, inBattle, link }));
+  assert.deepEqual(wild.counts, { w: 0, l: 0, d: 0 });
+  assert.deepEqual(new L.BattleWatch('yellow').ranges().map((r) => r.addr), [0xcf0b, 0xd056, 0xd12a]);
+});
+
+test('outcome, Gen 3: gBattleOutcome of a link battle – single (Emerald wins) and multi (2 vs 2), a forfeit, stale outcomes', () => {
+  const run = (game, seq) => { const w = new L.BattleWatch(game); seq.forEach(([outcome, flags]) => w.step({ outcome, flags })); return w; };
+  // the recorded single battle: Emerald (seat 0) 1, Sapphire (seat 1) 2; the outcome of an earlier wild battle before
+  const e = run('emerald', [[1, 0x04], [1, 0x00], [0, 0x0a], [0, 0x2e], [1, 0x2e], [1, 0x0e]]);
+  const s = run('rs', [[0, 0x00], [0, 0x0a], [0, 0x2a], [2, 0x2a], [2, 0x0a]]);
+  assert.deepEqual([e.counts, s.counts], [{ w: 1, l: 0, d: 0 }, { w: 0, l: 1, d: 0 }]);
+  assert.equal(e.multi, false);
+  // the recorded multi battle: flags 0x4b/0x6f (MULTI), seats 0+1 lose, 2+3 win
+  const m = [[2, 0x6f], [2, 0x6b], [1, 0x6b], [1, 0x6b]].map(([o, f]) => run('emerald', [[0, 0x4b], [0, f], [o, f], [o, f & ~0x20]]));
+  assert.deepEqual(m.map((w) => w.counts.w), [0, 0, 1, 1]);
+  assert.ok(m.every((w) => w.multi));
+  // a forfeit (bit 7): the outcome stands; a draw
+  assert.deepEqual(run('frlg', [[0, 0x0a], [0x82, 0x0a]]).counts, { w: 0, l: 1, d: 0 });
+  assert.deepEqual(run('frlg', [[0, 0x0a], [3, 0x0a]]).counts, { w: 0, l: 0, d: 1 });
+  // two battles in one session
+  assert.deepEqual(run('emerald', [[0, 0x2e], [1, 0x2e], [0, 0x2e], [2, 0x2e]]).counts, { w: 1, l: 1, d: 0 });
+  // feed(): the bytes as read
+  const w = new L.BattleWatch('emerald');
+  w.feed([Uint8Array.of(0), Uint8Array.from(le32(0x2e))]);
+  assert.equal(w.feed([Uint8Array.of(1), Uint8Array.from(le32(0x2e))]), 'win');
+  assert.equal(w.feed([null, null]), null, 'a failed read changes nothing');
+});
+
+test('outcome, Gen 2 and 4: the games\' own counts before and after (Crystal loses to Silver; Platinum seat 0 wins)', async () => {
+  // Crystal's sLinkBattleStats after the recorded battle (save offset 0x3260): 0 wins, 1 loss, 0 draws; Silver's (0x31BA)
+  const crystal = new Uint8Array(0x8000); crystal.set([0, 0, 0, 1, 0, 0], 0x3260);
+  const silver = new Uint8Array(0x8000); silver.set([0, 1, 0, 0, 0, 0], 0x31ba);
+  const before = new Uint8Array(0x8000);
+  assert.deepEqual(L.countsBetween(L.sramTotals('crystal', before), L.sramTotals('crystal', crystal)), { w: 0, l: 1, d: 0 });
+  assert.deepEqual(L.countsBetween(L.sramTotals('goldsilver', before), L.sramTotals('goldsilver', silver)), { w: 1, l: 0, d: 0 });
+  assert.equal(L.sramTotals('crystal', new Uint8Array(16)), null);
+  // Platinum's encrypted game records (decoded as the game does; a broken block isn't read)
+  assert.deepEqual(L.decodeRecords4(records4(3, 1)), { wins: 3, losses: 1 });
+  const broken = records4(3, 1); broken[0x60] ^= 1;
+  assert.equal(L.decodeRecords4(broken), null);
+  const save = 0x0227e148;
+  const pt = bus({ 0x02101d40: le32(save), [save + 0x61c4]: records4(0, 0) });
+  assert.equal(await L.totals('platinum', { read: pt.read }), null, 'no trainer yet: the save isn\'t loaded');
+  pt.put(save + 0x7c, [0x2b, 0x01]);
+  const a = await L.totals('platinum', { read: pt.read });
+  pt.put(save + 0x61c4, records4(1, 0, 0x4321)); // (the game encrypts again with a new seed)
+  assert.deepEqual(L.countsBetween(a, await L.totals('platinum', { read: pt.read })), { w: 1, l: 0, d: 0 });
+  assert.equal(L.countsBetween({ w: 5, l: 0, d: 0 }, { w: 1, l: 0, d: 0 }), null, 'fewer than before: a reset, not a result');
+});
+
+test('result: two seats, a multi battle, several battles, a draw – and counts that don\'t fit are no result', () => {
+  assert.deepEqual(L.summarize(['p1', 'p2'], { p1: { w: 1, l: 0, d: 0 }, p2: { w: 0, l: 1, d: 0 } }),
+    { valid: true, battles: 1, winners: ['p1'], losers: ['p2'], draw: false, score: [1, 0] });
+  assert.deepEqual(L.summarize(['p1', 'p2'], { p1: { w: 1, l: 2, d: 0 }, p2: { w: 2, l: 1, d: 0 } }).winners, ['p2']);
+  assert.equal(L.summarize(['p1', 'p2'], { p1: { w: 1, l: 1, d: 0 }, p2: { w: 1, l: 1, d: 0 } }).draw, true);
+  assert.equal(L.summarize(['p1', 'p2'], { p1: { w: 1, l: 0, d: 0 }, p2: { w: 1, l: 0, d: 0 } }).valid, false, 'both won: a misread');
+  assert.equal(L.summarize(['p1', 'p2'], { p1: { w: 0, l: 0, d: 0 }, p2: { w: 0, l: 0, d: 0 } }).battles, 0);
+  const multi = { p1: { w: 0, l: 1, d: 0 }, p2: { w: 0, l: 1, d: 0 }, p3: { w: 1, l: 0, d: 0 }, p4: { w: 1, l: 0, d: 0 } };
+  const m = L.summarize(['p1', 'p2', 'p3', 'p4'], multi, { multi: true });
+  assert.deepEqual([m.winners, m.losers, m.multi], [['p3', 'p4'], ['p1', 'p2'], true]);
+  assert.equal(L.summarize(['p1', 'p2', 'p3', 'p4'], multi).valid, false, 'four seats without a multi battle: who fought whom isn\'t known');
+  assert.equal(L.summarize(['p1', 'p2', 'p3', 'p4'], { ...multi, p4: { w: 0, l: 1, d: 0 } }, { multi: true }).valid, false);
+  // the hash: the same for the same result, another for anything else
+  const r = { sid: 'abc123', seats: ['p1', 'p2'], per: { p1: { w: 1, l: 0, d: 0 }, p2: { w: 0, l: 1, d: 0 } }, wager: 2000 };
+  assert.equal(L.resultHash(r), L.resultHash({ ...r, per: { p2: { d: 0, l: 1, w: 0 }, p1: { w: 1, d: 0, l: 0 } } }));
+  assert.notEqual(L.resultHash(r), L.resultHash({ ...r, wager: 1000 }));
+  assert.notEqual(L.resultHash(r), L.resultHash({ ...r, sid: 'abc124' }));
+  // payments: the loser to the winner; per team in a multi battle; nothing for a draw or no wager
+  assert.deepEqual(L.payments(L.summarize(r.seats, r.per), 2000), [{ from: 'p2', to: 'p1', amount: 2000 }]);
+  const pm = L.payments(m, 1000);
+  assert.deepEqual(pm, [{ from: 'p1', to: 'p3', amount: 1000 }, { from: 'p2', to: 'p4', amount: 1000 }]);
+  assert.deepEqual([L.deltaOf(pm, 'p1'), L.deltaOf(pm, 'p4')], [-1000, 1000]);
+  assert.deepEqual(L.payments({ valid: true, draw: true, winners: [], losers: [] }, 1000), []);
+  assert.deepEqual(L.payments(L.summarize(r.seats, r.per), 0), []);
+});
+
+/** A run document as web/lib/doc.mjs offers it (get / set / scan). */
+function memDoc() {
+  const m = new Map();
+  return {
+    m, get: (k, d = undefined) => (m.has(k) ? m.get(k) : d), set: (k, v) => (v === null ? m.delete(k) : m.set(k, structuredClone(v))),
+    scan: (p) => Object.fromEntries([...m].filter(([k]) => k.startsWith(p)).map(([k, v]) => [k.slice(p.length), v])), // (as RunDoc: without the prefix)
+  };
+}
+const won = { per: { p1: { w: 1, l: 0, d: 0 }, p2: { w: 0, l: 1, d: 0 } }, multi: false };
+const entry = (o) => W.resultEntry({ sid: 'abc123', seats: ['p1', 'p2'], host: 'p1', kind: 'battle', found: won, wager: 2000, money: { p1: 3000, p2: 5000 }, ...o });
+
+test('wager: only when every seat\'s souldew knows wagers (capability), lowered to every accept, the rule\'s cap and the money', () => {
+  const base = { offer: 5000, seats: ['p1', 'p2'], host: 'p1', accepts: { p2: 5000 }, caps: { p1: true, p2: true } };
+  assert.equal(W.agreedWager(base), 5000);
+  assert.equal(W.agreedWager({ ...base, caps: { p1: true } }), 0, 'a partner on an older 3.0 build: no wager');
+  assert.equal(W.agreedWager({ ...base, accepts: { p2: 1200 } }), 1200, 'the partner has less');
+  assert.equal(W.agreedWager({ ...base, cap: 1000 }), 1000, 'the run\'s limit');
+  assert.equal(W.agreedWager({ ...base, offer: 0 }), 0);
+  // the stake: never more than any seat had when the session started
+  assert.equal(entry({}).wager, 2000);
+  assert.equal(entry({ money: { p1: 1500, p2: 5000 } }).wager, 1500);
+  assert.equal(entry({ money: { p1: null, p2: 5000 } }).wager, 0, 'a seat\'s money unknown: no wager');
+  assert.deepEqual(W.wagerRules({}), { on: true, cap: 0 });
+  assert.deepEqual(W.wagerRules({ linkWagers: 'off' }).on, false);
+  assert.deepEqual(W.wagerRules({ linkBattles: 'off' }).on, false, 'no link battles, no wagers');
+  assert.deepEqual(W.wagerRules({ linkWagerCap: 5000 }).cap, 5000);
+});
+
+test('wager: a result counts once every seat read the same; a desync, a dropout or different results void it', () => {
+  const doc = memDoc();
+  doc.set('lb:abc123:p1', entry({}));
+  assert.equal(W.outcomeOf(W.sessionsIn(doc).abc123).state, 'pending', 'only one side yet');
+  doc.set('lb:abc123:p2', entry({}));
+  const o = W.outcomeOf(W.sessionsIn(doc).abc123);
+  assert.equal(o.state, 'agreed');
+  assert.deepEqual(o.pays, [{ from: 'p2', to: 'p1', amount: 2000 }]);
+  assert.deepEqual(W.headToHead(doc, 'p1', 'p2'), { a: 1, b: 0, draws: 0 });
+  assert.deepEqual(W.headToHead(doc, 'p2', 'p1'), { a: 0, b: 1, draws: 0 });
+  // the other computer read something else
+  doc.set('lb:abc123:p2', entry({ found: { per: { p1: { w: 0, l: 1, d: 0 }, p2: { w: 1, l: 0, d: 0 } } } }));
+  assert.deepEqual([W.outcomeOf(W.sessionsIn(doc).abc123).state, W.outcomeOf(W.sessionsIn(doc).abc123).why], ['void', 'differs']);
+  // out of step: void, whatever the other side read
+  doc.set('lb:abc123:p2', entry({ reason: 'desync' }));
+  assert.equal(W.outcomeOf(W.sessionsIn(doc).abc123).state, 'void');
+  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1' }), [], 'nothing to pay');
+  assert.deepEqual(W.headToHead(doc, 'p1', 'p2'), { a: 0, b: 0, draws: 0 }, 'and nothing on the record');
+  doc.set('lb:abc123:p2', entry({ reason: 'rejoin' }));
+  assert.equal(W.outcomeOf(W.sessionsIn(doc).abc123).why, 'rejoin');
+});
+
+test('wager: the money goes into each game once – again only into a game started anew before it saved', async () => {
+  const doc = memDoc();
+  doc.set('lb:abc123:p1', entry({}));
+  doc.set('lb:abc123:p2', entry({}));
+  const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [0] }); // Red, ₽5,000, in the overworld
+  const paid = [];
+  const pay = new WagerPay({ doc, me: 'p2', onPaid: (o) => paid.push(o) });
+  const tick = (o = {}) => pay.tick({ game: 'redblue', read: tim.read, write: tim.write, ...o });
+  await tick({ busyGame: true });
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 5000, 'not during a battle or a link');
+  tim.put(0xd057, [2]);
+  await tick();
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 5000, 'not while the game says it is in a battle');
+  tim.put(0xd057, [0]);
+  await tick();
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000);
+  assert.equal(doc.get('lbpay:abc123:p2').status, 'written');
+  assert.equal(paid.length, 1);
+  pay.check.at = 0;
+  await tick(); // (read back once the mirror caught up)
+  assert.equal(doc.get('lbpay:abc123:p2').checked, true);
+  await tick();
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000, 'never twice in the same game');
+  // reset before saving: the save it boots from never had it – it goes in again, once
+  tim.put(0xd347, [0x00, 0x50, 0x00]);
+  pay.restarted();
+  await tick();
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000);
+  pay.check.at = 0;
+  await tick();
+  pay.saved(); // the game saved: done for good
+  assert.equal(doc.get('lbpay:abc123:p2').status, 'saved');
+  pay.restarted();
+  await tick();
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000);
+  // the winner's game: +₽2,000; a write that didn't land (the money still the old sum) goes in again
+  const marius = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0] });
+  const pay1 = new WagerPay({ doc, me: 'p1' });
+  await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write });
+  assert.equal(L.bcdDecode(marius.read(0xd347, 3)), 5000);
+  marius.put(0xd347, [0x00, 0x30, 0x00]); // (as if the write had gone to where the money was a frame earlier)
+  pay1.check.at = 0;
+  assert.deepEqual(await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write }), { retry: true });
+  await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write });
+  assert.equal(L.bcdDecode(marius.read(0xd347, 3)), 5000);
+});

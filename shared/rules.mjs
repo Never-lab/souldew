@@ -32,6 +32,10 @@ export const DEFAULT_RULES = {
   linkTrades: 'on',
   linkBattles: 'on',
   linkBattleDeaths: false,
+  // a link battle may be for in-game money (docs/MULTIPLAYER.md › "Battle results and wagers"): 'on' | 'off', and the
+  // most a wager may be (₽, 0: no limit – nobody can put in more than their game holds anyway)
+  linkWagers: 'on',
+  linkWagerCap: 0,
   // (the Discord webhook is not a rule: it stays on this computer – GET/PUT /api/runs/:id/discord)
 };
 

@@ -4,7 +4,8 @@
 // presets – every rule shown), SoulLinkAuto, LinkRules (the games that link), and the shared TypeHelpRule, LivesRule and BallsRule; the host sets them all
 // (shared/hostrules.mjs), the others see them read-only (`disabled`).
 import { html, useState } from '/vendor/htm-preact.mjs';
-import { t } from '../lib/i18n.mjs';
+import { t, currentLang } from '../lib/i18n.mjs';
+import { moneyText } from '/shared/linkbattle.mjs';
 import { RULE_PRESETS, presetOf } from '../lib/run.mjs';
 import { LIVES_DEFAULT, LIVES_MIN, LIVES_MAX, clampLives } from '/shared/lives.mjs';
 
@@ -317,6 +318,11 @@ export function LinkRules({ value: r, onChange, disabled = false }) {
       label=${t('rules.linkBattles', 'Battles between us (link)')} hint=${t('rules.linkBattlesHint2', 'A link battle in the Colosseum or the Union Room.')} />
     ${r.linkBattles !== 'off' && html`<${RuleCheck} checked=${!!r.linkBattleDeaths} onChange=${(v) => set({ linkBattleDeaths: v })} disabled=${disabled}
       label=${t('rules.linkBattleDeaths', 'Losing a link battle counts as deaths')} hint=${t('rules.linkBattleDeathsHint', 'Off: a link battle is just for fun – Pokémon that go down there are fine afterwards.')} />`}
+    ${r.linkBattles !== 'off' && html`<${RuleCheck} checked=${r.linkWagers !== 'off'} onChange=${(v) => set({ linkWagers: v ? 'on' : 'off' })} disabled=${disabled}
+      label=${t('rules.linkWagers', 'Wagers in link battles')} hint=${t('rules.linkWagersHint', 'The challenger may put in-game money on a battle – the loser’s game pays the winner’s. Money only, never Pokémon or items.')} />`}
+    ${r.linkBattles !== 'off' && r.linkWagers !== 'off' && html`<div class="stack-s"><b class="small">${t('rules.linkWagerCap', 'Highest wager')}</b>
+      <${Choice} label=${t('rules.linkWagerCap', 'Highest wager')} value=${String(Number(r.linkWagerCap) || 0)} onChange=${(v) => set({ linkWagerCap: Number(v) })} disabled=${disabled}
+        options=${[['0', t('rules.linkWagerNoCap', 'No limit')], ...[1000, 5000, 10000, 50000].map((v) => [String(v), moneyText(v, currentLang())])]} /></div>`}
   </div>`;
 }
 

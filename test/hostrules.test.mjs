@@ -44,7 +44,7 @@ const build = (o = {}) => buildRun({ romId: ROM, randomize: false, config: {}, p
 const MINE = {
   typeClause: 'party', dupes: 'both', missedDupes: true, failKillsPair: false, shinyClause: false, gifts: 'free', levelCaps: false,
   cheats: true, lives: 3, livesPool: 'player', typeHelp: false, autoAssign: false, autoDeath: false, startAtBalls: false,
-  linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true,
+  linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true, linkWagers: 'off', linkWagerCap: 5000,
 };
 
 function mkDoc(by, runId = 't') {
