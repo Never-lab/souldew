@@ -78,3 +78,27 @@ export function plusCounts(cat) {
   const n = (list) => (list || []).filter((x) => x.plus && !x.drop).length;
   return { skins: n(cat?.skins), banners: n(cat?.banners), frames: n(cat?.frames), launch: n(cat?.launch) };
 }
+
+/** Every souldew+ colour theme, the dark ones first – the page's swatch strip (colours only, never an edition). */
+export const plusSkins = (cat) => [...(cat?.skins || []).filter((s) => s.plus && !s.drop)].sort((a, b) => (a.group === 'light') - (b.group === 'light'));
+
+/**
+ * The look the theme preview wears: the souldew+ banner (also as the nameplate) and frame made to go with that theme
+ * (the catalog's pairsWith), else the hero's look – real pack items, so the preview shows what souldew+ is.
+ */
+export function themeLook(cat, skinId) {
+  // the item made most for this theme: the one paired with the fewest others
+  const paired = (list) => (list || []).filter((x) => x.plus && !x.drop && x.pairsWith?.includes(skinId)).sort((a, b) => a.pairsWith.length - b.pairsWith.length)[0]?.id;
+  const banner = paired(cat?.banners) || HERO_LOOK.banner;
+  return { banner, frame: paired(cat?.frames) || HERO_LOOK.frame, nameplate: banner };
+}
+
+/**
+ * A theme's swatches (catalog `sw`: page, panel, ink, ok, bad, warn, accent) → the CSS custom properties the small live
+ * preview reads, so it shows the theme's own colours on any skin the page itself is in.
+ */
+export function themeVars(sw) {
+  const [bg, panel, ink, ok, bad, warn, acc] = sw || [];
+  if (!bg || !ink) return '';
+  return `--tp-bg:${bg};--tp-panel:${panel || bg};--tp-ink:${ink};--tp-ok:${ok || ink};--tp-bad:${bad || ink};--tp-warn:${warn || ink};--tp-acc:${acc || ink}`;
+}

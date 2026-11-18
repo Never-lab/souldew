@@ -1,7 +1,8 @@
 // The souldew+ page (#/plus – owner's choice "A – Showroom", made calmer): first the viewer themselves wearing souldew+
 // (their real Discord picture and name when signed in, through the local avatar proxy; a neutral placeholder when
-// not), then a handful of the strongest themes, banners, frames, nameplates and launch animations – live from the pack
-// for members, the signed preview media (lib/cosmetics/previews.mjs) for everyone else – then the three tiers, what
+// not), then a handful of the strongest banners, frames, nameplates and launch animations and, kept small, the colour
+// themes – live from the pack for members, the signed preview media (lib/cosmetics/previews.mjs) for everyone else –
+// then the three tiers, what
 // stays free, where the money goes, what happens when you stop, and a few questions. Members get the thank-you
 // version. Every "Get souldew+" in the app leads here (lib/cosmetics/plus.mjs) – never a pop-up. Motion: the preview
 // loops play while hovered or focused (the hero card always), never with reduced motion.
@@ -16,7 +17,7 @@ import { catalog, has, packState, previewSkin, startPackPreview, previewLaunch }
 import { Banner, Nameplate, Frame, useCosmetics } from '../lib/cosmetics/components.mjs';
 import { PreviewPicture, previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
-import { TIERS, plusState, hasPlusLooks, isMember, heroLook, tierAction, curatedFrom, plusCounts } from '../lib/pluspage.mjs';
+import { TIERS, CURATED, plusState, hasPlusLooks, isMember, heroLook, tierAction, curatedFrom, plusCounts, plusSkins, themeLook, themeVars } from '../lib/pluspage.mjs';
 import { TitlePlate, achTitle, Badges } from './social.mjs';
 
 const RARITY = () => ({ common: t('cos.rarity.common', 'Common'), rare: t('cos.rarity.rare', 'Rare'), epic: t('cos.rarity.epic', 'Epic'), legendary: t('cos.rarity.legendary', 'Legendary') });
@@ -102,32 +103,49 @@ function previewError(e) {
   return t('skin.previewFailed', 'The preview couldn’t be loaded. Check your connection and try again.');
 }
 
-/** The colour themes: one big picture of the app in the chosen theme, the curated few beside it. */
-function Themes({ skins, state, count, navigate }) {
-  const [cur, setCur] = useState(skins[0]?.id);
+/**
+ * The colour themes, kept small (they matter least of the looks): every theme as a swatch in one strip, and a small live
+ * preview – a profile dressed in souldew+ (the banner, frame and nameplate made for that theme, real pack items) in the
+ * theme's own colours. Trying one on the whole app is a button away.
+ */
+function Themes({ skins, state, me, count, navigate }) {
+  const [cur, setCur] = useState(() => (skins.find((x) => x.id === CURATED.skins[0]) || skins[0])?.id);
   const [trying, tryTheme] = useTryTheme(navigate);
+  const [hot, on] = useHot();
   const k = skins.find((x) => x.id === cur) || skins[0];
   if (!k) return null;
-  const src = previewSrc('skins', k.id);
+  const look = themeLook(catalog(), k.id);
+  const who = state.kind === 'signedOut' ? null : me;
   const action = hasPlusLooks(state)
     ? html`<button type="button" class="btn small go" onClick=${() => navigate('settings', settingsLink('skin'))}>${t('plus.useTheme', 'Use {name}', { name: k.name })}</button>`
     : state.kind === 'signedOut' ? html`<button type="button" class="btn small" onClick=${() => navigate('settings', settingsLink('account'))}>${t('plus.signInTry', 'Sign in to try it for 15 minutes')}</button>`
       : html`<button type="button" class="btn small" disabled=${trying === 'busy'} onClick=${() => tryTheme(k.id)}>${t('plus.tryTheme', 'Try {name} for 15 minutes', { name: k.name })}</button>`;
+  const sw = (x) => `--a:${x.sw[0]};--b:${x.sw[1] || x.sw[0]};--c:${x.sw[6] || x.sw[2]}`;
   return html`<section class="plus-sec plus-themes">
     <${Head} k=${t('plus.kThemes', 'Colour themes')} title=${t('plus.themesT', 'The whole app in your colours')}>${t('plus.themesHint', 'Colours only – every layout and every word stays where you know it. {count} themes in all.', { count })}<//>
-    <div class="plus-showroom">
-      <figure class="plus-shot">
-        ${src ? html`<img src=${src} alt=${t('skin.shotAlt', 'souldew in {name}', { name: k.name })} loading="lazy" decoding="async" />`
-          : html`<span class="plus-shot-sw" aria-hidden="true">${k.sw.map((c) => html`<i style=${`background:${c}`}></i>`)}</span>`}
-        <figcaption><span class="plus-shot-name"><b>${k.name}</b><span class="small muted">${k.hint}</span></span>${action}</figcaption>
-        ${trying && trying !== 'busy' && html`<p class="small warning info plus-shot-err" role="status">${previewError(trying)}</p>`}
-      </figure>
-      <div class="plus-swatches" role="radiogroup" aria-label=${t('plus.kThemes', 'Colour themes')}>
-        ${skins.map((x) => html`<button type="button" role="radio" aria-checked=${x.id === k.id} class=${`plus-theme ${x.id === k.id ? 'on' : ''}`}
-          onClick=${() => setCur(x.id)} onFocus=${() => setCur(x.id)}>
-          <span class="plus-theme-sw" aria-hidden="true">${x.sw.slice(0, 5).map((c) => html`<i style=${`background:${c}`}></i>`)}</span>
-          <span class="plus-theme-text"><b>${x.name}</b><span class="small muted">${x.group === 'light' ? t('skin.lightShort', 'light') : t('skin.darkShort', 'dark')}</span></span></button>`)}
+    <div class="plus-tbox">
+      <div class="plus-tside">
+        <div class="plus-tstrip" role="radiogroup" aria-label=${t('plus.kThemes', 'Colour themes')}>
+          ${skins.map((x) => html`<button type="button" role="radio" aria-checked=${x.id === k.id} aria-label=${x.name} title=${x.name} class=${`plus-tchip ${x.id === k.id ? 'on' : ''}`} style=${sw(x)}
+            onClick=${() => setCur(x.id)} onFocus=${() => setCur(x.id)}><i aria-hidden="true"></i></button>`)}
+        </div>
+        <div class="plus-tname"><b>${k.name}</b><span class="small muted">${k.hint} · ${k.group === 'light' ? t('skin.lightShort', 'light') : t('skin.darkShort', 'dark')}</span></div>
+        <div class="row">${action}</div>
+        ${trying && trying !== 'busy' && html`<p class="small warning info" role="status">${previewError(trying)}</p>`}
       </div>
+      <figure class="plus-tp" style=${themeVars(k.sw)} aria-label=${t('skin.shotAlt', 'souldew in {name}', { name: k.name })} ...${on}>
+        <span class="plus-tp-rail" aria-hidden="true"><i></i><i class="on"></i><i></i><i></i><i></i></span>
+        <div class="plus-tp-main">
+          <div class="plus-tp-banner"><${BannerLook} id=${look.banner} loop=${hot} /></div>
+          <div class="plus-tp-id"><${FramedAvatar} me=${who} frame=${look.frame} size=${48} loop=${hot} />
+            <div class="plus-tp-names"><b>${who?.name || t('plus.you', 'You')}</b>${who?.title ? html`<span class="plus-tp-title"><${Icon} name="star" size=${9} />${achTitle(who.title)}</span>` : null}</div></div>
+          <div class="plus-tp-runs" aria-hidden="true">
+            <span class="plus-tp-run"><span class="plus-tp-pips"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="plus-tp-won">${t('pf.rWon', 'Won')}</span></span>
+            <span class="plus-tp-run"><span class="plus-tp-pips"><i class="on"></i><i class="on"></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="plus-tp-lost">${t('pf.rLost', 'Wiped')}</span></span>
+          </div>
+          <${PlateRow} id=${look.nameplate} me=${who} sub=${t('fr.online', 'Online')} loop=${hot} />
+        </div>
+      </figure>
     </div>
   </section>`;
 }
@@ -177,7 +195,6 @@ function Gallery({ state, me, navigate }) {
   const yours = hasPlusLooks(state);
   const who = state.kind === 'signedOut' ? null : me;
   return html`
-    <${Themes} skins=${c.skins} state=${state} count=${n.skins} navigate=${navigate} />
     <section class="plus-sec">
       <${Head} k=${t('plus.kBanners', 'Profile banners')} title=${t('plus.bannersT', 'Pixel scenes that move')}>${t('plus.bannersHint', 'Hand-made, animated, behind your name on your profile. {count} banners in all, new ones every month.', { count: n.banners })}<//>
       <div class="plus-banners">${c.banners.map((b, i) => html`<${BannerCard} key=${b.id} b=${b} yours=${yours} big=${i === 0} />`)}</div>
@@ -195,7 +212,8 @@ function Gallery({ state, me, navigate }) {
     ${c.launch.some((l) => previewSrc('launch', l.id) || has('launch', l.id)) && html`<section class="plus-sec">
       <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT', 'A short moment while your game boots')}>${t('plus.launchHint', 'It never makes the game wait – a click or any key skips it. {count} animations in all.', { count: n.launch })}<//>
       <div class="plus-launches">${c.launch.map((l) => html`<${LaunchItem} key=${l.id} l=${l} yours=${yours} />`)}</div>
-    </section>`}`;
+    </section>`}
+    <${Themes} skins=${plusSkins(cat)} state=${state} me=${me} count=${n.skins} navigate=${navigate} />`;
 }
 
 function Tiers({ state }) {
@@ -272,7 +290,7 @@ function HeroText({ state, me, navigate }) {
       <div class="plus-member">
         <div class="row tight"><${Badges} badges=${me?.badges || []} />${state.until && html`<span class="small muted">${t('plus.until', 'until {date} · renews on Buy Me a Coffee', { date: dateOf(state.until) })}</span>`}</div>
         <div class="row"><button type="button" class="btn" onClick=${membership}><${Icon} name="external" size=${14} />${t('plus.manage', 'Manage on Buy Me a Coffee')}</button>
-          <button type="button" class="btn ghost" onClick=${() => navigate('profile')}>${t('plus.dressUp', 'Dress up your profile')}</button></div>
+          <button type="button" class="btn ghost" onClick=${() => navigate('profile', { edit: '1' })}>${t('plus.dressUp', 'Dress up your profile')}</button></div>
       </div>`;
   }
   const join = html`<button type="button" class="btn go big" onClick=${membership}><${Icon} name="plus" size=${14} />${t('plus.join', 'Join souldew+ · {price} € a month', { price: TIERS.find((x) => x.id === 'plus').price })}</button>`;

@@ -75,4 +75,39 @@ test('the page: one hero per state, the viewer\'s real picture through the local
   assert.match(src, /prefersReduced\(\)/, 'loops stay still with reduced motion');
   assert.doesNotMatch(src, /Modal|alert\(|confirm\(/, 'no pop-ups');
   assert.match(src, /openExternal\(LINKS\.membership\)/, 'joining and managing happen on Buy Me a Coffee');
+  // the owner's order: banners, frames and nameplates, launch animations first – the colour themes after them, small
+  const at = (re) => src.search(re);
+  const g = src.slice(src.indexOf('function Gallery('));
+  assert.ok(g.search(/plus\.kBanners/) < g.search(/plus\.kFrames/) && g.search(/plus\.kFrames/) < g.search(/plus\.kLaunch/) && g.search(/plus\.kLaunch/) < g.search(/<\$\{Themes\}/), 'themes come last');
+  assert.ok(at(/function Themes/) > 0 && !/previewSrc\('skins'/.test(src), 'no big screenshot of the app – a small live preview');
+});
+
+test('colour themes: every souldew+ theme in the strip (dark first, no editions), each wearing a matching banner, frame and nameplate', () => {
+  const cat = { skins: CATALOG.skins, banners: CATALOG.banners, frames: CATALOG.frames };
+  const skins = P.plusSkins(cat);
+  assert.equal(skins.length, 16);
+  assert.ok(skins.every((s) => s.plus), 'souldew+ only – the free look isn’t offered as a theme');
+  assert.equal(skins.findIndex((s) => s.group === 'light'), skins.filter((s) => s.group === 'dark').length, 'dark ones first');
+  assert.ok(!skins.some((s) => /edition/i.test(`${s.id} ${s.name} ${s.hint}`)), 'themes are colour skins only');
+  for (const s of skins) {
+    const look = P.themeLook(cat, s.id);
+    const b = CATALOG.banners.find((x) => x.id === look.banner);
+    const f = CATALOG.frames.find((x) => x.id === look.frame);
+    assert.ok(b?.plus && f?.plus, `${s.id}: real souldew+ items (${look.banner}, ${look.frame})`);
+    assert.equal(look.nameplate, look.banner);
+  }
+  assert.equal(P.themeLook(cat, 'moss').banner, 'forest-floor', 'the banner made for the theme');
+  assert.deepEqual(P.themeLook({}, 'moss'), P.HERO_LOOK, 'no catalog: the hero look');
+  // the preview reads the theme's own colours
+  const v = P.themeVars(CATALOG.skins.find((s) => s.id === 'soft-light').sw);
+  assert.match(v, /--tp-bg:#f5f4f1;--tp-panel:#fcfbf9;--tp-ink:#1d1e22;/);
+  assert.equal(P.themeVars(null), '');
+});
+
+test('“Get souldew+” without the page wired up yet opens the Buy Me a Coffee membership page, never the tip jar', () => {
+  const src = readFileSync(new URL('../web/lib/cosmetics/plus.mjs', import.meta.url), 'utf8');
+  assert.match(src, /openExternal\(LINKS\.membership\)/);
+  assert.doesNotMatch(src, /LINKS\.coffee/);
+  const links = readFileSync(new URL('../shared/links.mjs', import.meta.url), 'utf8');
+  assert.match(links, /membership: 'https:\/\/buymeacoffee\.com\/souldew\/membership'/);
 });
