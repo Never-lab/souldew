@@ -46,7 +46,7 @@ export const launchLook = (id) => LAUNCH_LOOKS.find((l) => l.id === id) || LAUNC
 // supporter (tier 1): the 3D launch in "Your colours", Full / Quick / Off; "Your handheld" with the free skin (Plain Dusk),
 //   the 8 free stickers, the earned ones once their trophy is there, and ONE saved design. No souldew+ skins, stickers,
 //   finishes or shells (Gold / Clear / Holo), no Rare start, no Surprise me.
-// member (souldew+, and the Patron – the same plus a badge): everything. souldew+ ITEMS still need the pack on this
+// member (souldew+, and the Legend – the same plus a badge): everything. souldew+ ITEMS still need the pack on this
 //   computer (its art is in it): `plus` is the pack's word, `tier` the account's.
 // A membership that ends or drops keeps every setting: the launch plays what the tier allows now, the rest waits.
 

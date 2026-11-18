@@ -129,7 +129,7 @@ Plus a new play view that gives the game the room it deserves.
   profile, appear offline, where you are in the game), and you can export or delete your data any time. Without an
   account everything works exactly as before.
 - **souldew+ with your account.** Support souldew on Buy Me a Coffee and link it in Settings › Account › souldew+ (or
-  with /supporter claim in the souldew Discord): the souldew+ and Patron memberships unlock every theme, banner,
+  with /supporter claim in the souldew Discord): the souldew+ and Legend memberships unlock every theme, banner,
   avatar frame, nameplate and everything for the launch animation; the small one adds a Supporter badge and the 3D
   launch with your own handheld – friends see your badge, banner and frame. Signed in without souldew+, you can try any theme on the whole app for 15 minutes (“Try for 15 minutes”,
   a Preview badge counts down, then your own look comes back). The looks arrive as one signed pack, encrypted for
@@ -168,7 +168,7 @@ Plus a new play view that gives the game the room it deserves.
   cartridge drops in and latches, the screens power on with the game's own picture and the camera pushes into them –
   ending exactly on the game. It runs next to the game's start and never makes it wait; a click or any key skips it; it
   is silent. Settings › Play › Launch animation: with Supporter “Your colours” (in your theme's colours) with Full /
-  Quick / Off; with souldew+ (and Patron) also Gold, Clear shell (four colours), Holo label, and now and then – one
+  Quick / Off; with souldew+ (and Legend) also Gold, Clear shell (four colours), Holo label, and now and then – one
   start in 64 – a Rare start. With reduced motion it is a short fade.
 - **Without a membership your games start as before:** the cartridge slides into the console and clicks in – On or Off
   in Settings › Play › Launch animation, with a quiet line about the 3D one. The 13 older 2D souldew+ launch

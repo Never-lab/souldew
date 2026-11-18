@@ -226,7 +226,7 @@ function Tiers({ state }) {
   const text = {
     supporter: { name: t('acct.supporter', 'Supporter'), what: [t('plus.tSup1', 'The Supporter badge on your profile'), t('plus.tSup3', 'The 3D launch: your own handheld, in your colours'), t('plus.tSup2', 'You help keep the servers running')], cta: t('plus.tSupCta', 'Become a Supporter') },
     plus: { name: t('rail.plus', 'souldew+'), what: [t('plus.tPlus1b', 'Every theme, banner, frame and nameplate – and every launch look, skin and sticker for your handheld'), t('plus.tPlus2', 'New ones every month'), t('plus.tPlus3', 'The souldew+ badge')], cta: t('plus.tPlusCta', 'Join souldew+') },
-    patron: { name: t('acct.patron', 'Patron'), what: [t('plus.tPat1', 'Everything in souldew+'), t('plus.tPat2', 'The Patron badge'), t('plus.tPat3', 'For when you want to give more')], cta: t('plus.tPatCta', 'Become a Patron') },
+    patron: { name: t('acct.patron', 'Legend'), what: [t('plus.tPat1', 'Everything in souldew+'), t('plus.tPat2', 'The Legend badge'), t('plus.tPat3', 'For when you want to give more')], cta: t('plus.tPatCta', 'Become a Legend') },
   };
   return html`<section class="plus-sec" id="plus-tiers">
     <${Head} k=${t('plus.kTiers', 'Pick what fits')} title=${t('plus.tiersT', 'Three ways to chip in')}>${t('plus.tiersHint', 'Monthly, through Buy Me a Coffee – cancel there any time.')}<//>

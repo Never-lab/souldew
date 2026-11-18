@@ -1,7 +1,7 @@
 // The launch animation per membership (owner's decision 18.11.26, shared/handheld.mjs launchTier / launchRights):
 // free – the 2D module (On / Off), no 3D, no handheld tile in the library; Supporter – the 3D launch in "Your colours",
 // the free skin and stickers, the earned ones, one saved design, no souldew+ items, no Surprise me, no Rare start;
-// souldew+ and Patron – everything. A membership that ends or drops keeps the settings and plays what the tier allows.
+// souldew+ and Legend – everything. A membership that ends or drops keeps the settings and plays what the tier allows.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -19,7 +19,7 @@ const SUP = rights({ signedIn: true, tier: 'supporter' });
 const MEMBER = rights({ signedIn: true, tier: 'plus', entitled: true });
 const PATRON = rights({ signedIn: true, tier: 'patron', entitled: true });
 
-test('the tier: signed out and no paid tier are free, tier 1 is Supporter, souldew+ and Patron are members', () => {
+test('the tier: signed out and no paid tier are free, tier 1 is Supporter, souldew+ and Legend are members', () => {
   assert.equal(launchTier({}), 'free');
   assert.equal(launchTier({ signedIn: false, tier: 'plus' }), 'free', 'signed out: nothing counts');
   assert.equal(launchTier({ signedIn: true, tier: 'none' }), 'free');

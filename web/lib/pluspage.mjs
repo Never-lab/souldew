@@ -1,9 +1,9 @@
 // The souldew+ page's data (web/views/plus.mjs): who is looking (signed out, free, a Supporter, a souldew+ member, a
-// Patron), the three tiers with the owner's prices, and the handful of items the page shows – the strongest of each
+// Legend), the three tiers with the owner's prices, and the handful of items the page shows – the strongest of each
 // kind, never the whole catalog. Pure, so test/pluspage.test.mjs checks it without a page.
 //
 // The prices are what the owner set on Buy Me a Coffee (PLUS_SPEC.md: tier 1 Supporter, tier 2 souldew+ 5 €, tier 3
-// Patron 10 €). Which BMC level gives which tier is the accounts service's config – the app never decides a tier from
+// Legend 10 €). Which BMC level gives which tier is the accounts service's config – the app never decides a tier from
 // these numbers, it only shows them.
 
 /** API.md §8.0: plus and patron are souldew+; supporter is the badge only. */

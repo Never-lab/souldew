@@ -16,7 +16,7 @@ import { Avatar, Badges, CodeChip } from '../social.mjs';
 import { Item, Group, Check } from './parts.mjs';
 import { PlusShowcase } from './cosmetics.mjs';
 
-const tierName = (tier) => ({ plus: 'souldew+', patron: t('acct.patronTier', 'souldew+ · Patron'), supporter: t('acct.supporter', 'Supporter') }[tier] || t('acct.tierNone', 'No membership'));
+const tierName = (tier) => ({ plus: 'souldew+', patron: t('acct.patronTier', 'souldew+ · Legend'), supporter: t('acct.supporter', 'Supporter') }[tier] || t('acct.tierNone', 'No membership'));
 const dateOf = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { year: 'numeric', month: 'long', day: 'numeric' }) : '');
 
 function SignedOut({ acct, toast }) {

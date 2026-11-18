@@ -1,5 +1,5 @@
 // The souldew+ page (web/views/plus.mjs, data in web/lib/pluspage.mjs): one version per viewer – signed out, free,
-// Supporter, souldew+ member, Patron – the owner's three tiers and prices, a curated handful of each kind (never the
+// Supporter, souldew+ member, Legend – the owner's three tiers and prices, a curated handful of each kind (never the
 // whole catalog), the viewer's own look on the hero card, and the tier buttons per state.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,7 +17,7 @@ const CATALOG = (await import('../web/lib/cosmetics/content/catalog.mjs')).defau
 
 const acct = (tier, extra = {}) => ({ session: { signedIn: true }, me: { name: 'Robin', handle: 'robin', entitlement: { tier, until: tier === 'none' ? null : 1797559246000 }, ...extra } });
 
-test('states: signed out, free, Supporter, souldew+, Patron', () => {
+test('states: signed out, free, Supporter, souldew+, Legend', () => {
   assert.deepEqual(P.plusState({ session: { signedIn: false }, me: null }), { kind: 'signedOut', tier: 'none', name: '', until: null });
   assert.equal(P.plusState(null).kind, 'signedOut');
   assert.equal(P.plusState({ session: { signedIn: false }, me: { name: 'stale' } }).kind, 'signedOut', 'a kept profile without a session counts as signed out');
@@ -32,7 +32,7 @@ test('states: signed out, free, Supporter, souldew+, Patron', () => {
   assert.equal(P.isMember(P.plusState(null)), false);
 });
 
-test('tiers: Supporter 3 €, souldew+ 5 € (the featured one), Patron 10 € – and each card\'s button per viewer', () => {
+test('tiers: Supporter 3 €, souldew+ 5 € (the featured one), Legend 10 € – and each card\'s button per viewer', () => {
   assert.deepEqual(P.TIERS.map((x) => [x.id, x.price]), [['supporter', 3], ['plus', 5], ['patron', 10]]);
   assert.deepEqual(P.TIERS.filter((x) => x.main).map((x) => x.id), ['plus']);
   const act = (t) => P.TIERS.map((x) => P.tierAction(t === null ? P.plusState(null) : P.plusState(acct(t)), x.id));
