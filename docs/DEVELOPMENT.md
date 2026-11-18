@@ -102,13 +102,31 @@ node scripts/build-ctr.mjs --host-only                # only the host (after cha
 node scripts/build-ctr.mjs --src ../azahar            # reuse an Azahar checkout (with submodules)
 ```
 
-The core build takes a while (Azahar from source, `--target citra_libretro`). `native/azahar-patch/souldew-memory.patch`
+The core build takes a while (Azahar from source, `--target citra_libretro`). The patches in `native/azahar-patch/` are
+applied in name order. `native/azahar-patch/souldew-romfs.patch` logs every RomFS read the game makes (offset, length,
+which RomFS – a lock-free ring in `IVFCFile::Read`) and adds `souldew_romfs_reads`, `souldew_romfs_read` and
+`souldew_romfs_size`: ctrhost sends the reads to the page (message 9) and reads RomFS bytes for it (ROMREAD/ROMDATA), so
+"music from the ROM" (`shared/ctr/rommusic.mjs`, `web/lib/rommusic.mjs`, `web/lib/romvoice.mjs`) knows which stream the
+game plays and where. `native/azahar-patch/souldew-sfx.patch` (`src/common/souldew_music.h`) recognises the DSP voices
+that play the game's streamed music – the page names the stream files (MUSIC), the core fingerprints the game's reads
+of them and matches the bytes a voice starts playing (DSP-ADPCM; X/Y's AAC through the DSP's AAC decoder's output) – and,
+while the page asks (SFX) and the game fast-forwards, leaves them out of the frames it hands to the audio callback (the
+game's own DSP state and final mix stay as they are). `souldew_audio_frame_flags` says per DSP frame whether a new sound
+began (key-on) and whether the music was left out; ctrhost sends that sound as message 11 and the turbo mixer plays each
+sound at 1× over the ROM track (`web/lib/sfxplayer.mjs`). An unknown voice streaming queued buffers for half a second
+makes the core leave everything in (the page then plays no sound effects). `native/azahar-patch/souldew-state.patch`
+adds `souldew_state_begin`, `souldew_state_poll` and `souldew_state_take`: a save state stops the game only while its
+memory (~300 MB) is copied into one buffer, zstd and the header run on a thread, and ctrhost answers SAVE a few frames
+later (Azahar's own `retro_serialize_size` packs it between two frames: 0.4 s without sound on a Windows PC – every
+2 minutes, when the play view took its resume state). The play view also takes that state at a quiet moment of the
+game's sound (`quietMoment` in `web/lib/ctrplayer.mjs`). `native/azahar-patch/souldew-memory.patch`
 adds `souldew_read_memory`, `souldew_write_memory` and `souldew_title_id` to the core: the libretro memory map only has
 what exists when the game loads, not the heaps where the Pokémon games keep their party, so without the patch the game
 runs but has no live data (the status says `liveMemory: false`). `souldew_write_memory` is the Rare Candy cheat's
 write – through the core's own page table, only into the game's heaps (a core without it falls back to ctrhost's page
 scan). MoltenVK comes from Azahar's macOS release. `npm run dist` checks the
-folder (`build-ctr.mjs --check`) and stops when it's incomplete; `SLS_NO_3DS=1 npm run dist` builds without it – 3DS
+folder (`build-ctr.mjs --check`) and stops when it's incomplete or its core is out of date (`SOULDEW_CORE` names and
+hashes the patches it was built with – a patch added or changed since means `npm run ctr` again); `SLS_NO_3DS=1 npm run dist` builds without it – 3DS
 games then open in the Azahar app.
 
 Windows and Linux: `.github/workflows/ctr.yml` builds host and core (Linux with gcc 12 on Ubuntu 22.04, Windows
@@ -120,6 +138,25 @@ cross-builds with Ubuntu's MinGW-w64 (`g++-mingw-w64-x86-64-posix`, a CMake tool
 holds the few OS calls. Vulkan there is the system's loader (`vulkan-1.dll` / `libvulkan.so.1`); without it
 `server/lib/ctr.mjs` reports the part as missing and 3DS games open in the Azahar app.
 
+**Checking a Gen 1–5 game for the randomizer:** the new-run wizard's check (`POST /api/rom/inspect` →
+`inspectRom` in `server/lib/toolchain.mjs`) runs `SoulLinkBridge info <rom> <settings> <seed>`: UPR's info plus a trial
+run of the recommended preset – the whole randomization in memory, nothing written (under a second for a DS game). A game
+UPR loads but can't randomize (a ROM hack or release whose data isn't where UPR expects it) comes back as
+`reason: 'randoCrash'` and the wizard turns the randomizer off with that reason; a build that fails anyway answers
+`randoFailed` with only the Java exception's class name (`randomizerError`), the bridge's output stays in the server log.
+
+**TM compatibility follows the TM moves** (`@tmsFollowMoves`, #81 – souldew's own option, not UPR's): UPR keeps a random
+TM's compatibility tied to its slot. With the option on, `SoulLinkBridge` loads the game through its handler subclass
+(Gen 1–3 and 6–7 `FollowGenN`, Gen 4/5 the `SafeGen4/5RomHandler`; without it the load is unchanged), `TmFollow.snapshot`
+reads every Pokémon's original TM/HM, tutor and level-up moves (with those of its pre-evolutions) before UPR runs, and
+right after UPR's `randomizeTMMoves` every TM whose move changed goes to the Pokémon that could learn the new move – a
+move nobody could learn to the Pokémon of its type, and with none of those the slot keeps its list. HMs and unchanged TMs
+stay; UPR's own compatibility options run afterwards (the switch is only offered with "Unchanged"). The spoiler log gets
+a "TM Compatibility Follows The TM Moves" section. A run with it travels as run pack `@4` (2.8.2 would build without it);
+`SoulLinkBridge tmcompat <case.json>` runs the computation on test data (`test/tmfollow.test.mjs`). Gen 4's alternate
+forms (Rotom, Giratina, Shaymin, Deoxys, Wormadam) are a UPR limit for every compatibility change: its Gen 4 handler
+writes their compatibility to the personal-data file of their number, not their own file.
+
 **Randomizing 3DS games** uses the same bundled UPR ZX 4.6.1 jar and `SoulLinkBridge` as Gen 1–5 – UPR's own
 Gen6/Gen7RomHandler (`server/lib/ctrrando.mjs`, the 3DS branch of `server/lib/build.mjs`). Input: a decrypted `.3ds`/
 `.cci`/`.cxi`/`.cia` (UPR reads the game's NCCH; an encrypted one ends with `@@CODE "encrypted"` → `ctrEncrypted` –
@@ -127,13 +164,32 @@ souldew has no keys and decrypts nothing). Output: one rebuilt, self-contained `
 LayeredFS mod folder), hashed with a stream and compared on a join like any ROM; a shared seed builds once and hard-links
 the others. The bridge runs with `-Xmx4608m` (UPR ZX's launcher value; Sun runs out below ~2 GB) and
 `-Dsouldew.upr.root=<cache>/upr-3ds/<id>`: the patched `SysConstants` ahead of the jar moves UPR's `tmp_<game>` folder
-out of the app (without the property – every Gen 1–5 build – nothing changes). UPR writes the `.cxi` with
+out of the app (Gen 1–5 runs get `<cache>/upr-work/<id>` the same way – two runs on one game, the wizard's check during a
+build, no longer take each other's unpacked files). UPR writes the `.cxi` with
 `RandomAccessFile("rw")`, which doesn't truncate, so the build always deletes the target first (it may be a hard link
 to the library's game). Rebuild the bridge after changing it:
-`javac --release 8 -cp tools/upr/PokeRandoZX.jar:tools/upr-bridge -d tools/upr-bridge tools/upr-bridge/SoulLinkBridge.java tools/upr-bridge/com/dabomstew/pkrandom/SysConstants.java`.
+`javac --release 8 -cp tools/upr/PokeRandoZX.jar:tools/upr-bridge -d tools/upr-bridge tools/upr-bridge/SoulLinkBridge.java tools/upr-bridge/TmFollow.java tools/upr-bridge/com/dabomstew/pkrandom/SysConstants.java`.
 Determinism: Sun built byte-identical with Temurin 17, OpenJDK 21 and 27 ("Nuzlocke hard mode" and "Chaos"); the Gen 6/7
 handlers' only enum-keyed map iteration is the weakness-berry table behind `Effectiveness.against`, already fixed.
-Game updates aren't loaded (UPR could only write them as LayeredFS).
+Game updates aren't loaded (UPR could only write them as LayeredFS – it refuses one .cxi with an update loaded), and a
+randomized game never gets its update in the player either (Azahar runs an installed update's code, which would undo
+the randomization).
+
+**3DS game updates** (title ID 0004000E + the game's low half, usually a `.cia`; a bare NCCH `.cxi`/`.3ds` works too):
+the library lists them in `ctrUpdates`, never as games, and puts the newest one souldew can install on its game
+(`rom.update`; `shared/ctr/update.mjs` `pickUpdate`) – an update added before its game waits for it. "Remove" in the
+game's details deletes souldew's copy in the library folder or marks a file in an included folder
+(`config.ctrUpdatesDetached`). The core finds an installed update on the emulated SD card of the save folder ctrhost
+points it at (`<save>/Azahar/sdmc/Nintendo 3DS/<id0>/<id1>/title/0004000e/<low>/content/` – the smallest `.tmd` there and
+the `.app` its first content record names), so `POST /api/ctr/start` installs it there before the host starts
+(`server/lib/ctrupdate.mjs`): the update file is unpacked once into `<data>/ctr/updates/<stamp>/` (the CIA's TMD and
+each content as it is – what Azahar's own "Install CIA" writes for a decrypted CIA; a bare NCCH gets a TMD souldew
+writes) and hard-linked (copied where links fail) into the save folder, with `souldew-update.json` saying which update
+it is; a save folder whose game has no update in the library any more loses the one souldew put there. Encrypted
+updates (title-key content or NCCH crypto) are refused – souldew has no keys. The start's answer carries `update`
+(`versionText`, `gameVersion`, `tracking` – `older` for an update before the latest, whose addresses the live data
+doesn't know) for the play view. The external Azahar app is unchanged: there the player installs the update with
+File › Install CIA.
 
 Notes: New 3DS mode is on (the core's default; a savestate from Old 3DS mode would crash the core, so the play view
 stores states as core `azahar-n3ds` and refuses others). The host exits with `_exit` – the core's unload crashes.

@@ -43,7 +43,7 @@ function TurboAudioSetting() {
         <option value="original">${t('play.turboAudioOriginal', 'Sped-up original')}</option>
         <option value="plain">${t('play.turboAudioPlain', 'Plain (no extra processing)')}</option>
       </select></label></div>
-    <span class="small faint">${t('play.turboAudioHint', 'What you hear while fast-forwarding. “Music continues” loops the music recorded at normal speed – sound effects stay silent.')}
+    <span class="small faint">${t('play.turboAudioHint', 'What you hear while fast-forwarding. “Music continues” keeps the music at its normal speed and pitch – sound effects stay silent. “Sped-up original” plays the game’s own sound, faster and higher.')}
       ${mode === 'plain' ? ` ${t('play.turboAudioPlainHint', 'The emulator’s sound only – no recording, no mixer. Try it if the sound crackles.')}` : ''}</span>
   </div>`;
 }

@@ -1,11 +1,12 @@
-// Cheats: Rare Candies written into the bag in RAM (shared/live/cheats.mjs) – synthetic RAM per bag layout, the
-// checks that keep it from writing anywhere else, and the run side (rule, log).
+// Cheats: Rare Candies and Max Repels written into the bag in RAM (shared/live/cheats.mjs) – synthetic RAM per bag
+// layout, the checks that keep it from writing anywhere else, when the play screen offers them, and the run side
+// (rule, log, Honest Work).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { findEntry } from '../shared/live/parse.mjs';
-import { addRareCandies, addItem, cheatSupported, cheatRegions, RARE_CANDY, POKE_BALL } from '../shared/live/cheats.mjs';
+import { addRareCandies, addMaxRepels, applyCheat, addItem, cheatSupported, cheatsFor, cheatBlock, cheatRegions, RARE_CANDY, MAX_REPEL, POKE_BALL, CHEATS } from '../shared/live/cheats.mjs';
 
 // web/lib/run.mjs imports browser paths (/shared/…): map them onto the project folder.
 const ROOT = new URL('../', import.meta.url).href;
@@ -51,6 +52,11 @@ const u16 = (m, a) => { const b = m.read(a, 2); return b[0] | (b[1] << 8); };
 
 test('item ids per generation (pret constants, PokeAPI game_indices)', () => {
   assert.deepEqual(RARE_CANDY, { 1: 0x28, 2: 0x20, 3: 68, 4: 50, 5: 50, 6: 50, 7: 50 });
+  // pokered MAX_REPEL $39, pokecrystal $2B, pokeemerald ITEM_MAX_REPEL 84, pokeheartgold 77 (unchanged up to Gen 7)
+  assert.deepEqual(MAX_REPEL, { 1: 0x39, 2: 0x2b, 3: 84, 4: 77, 5: 77, 6: 77, 7: 77 });
+  // the play screen's menu: Rare Candies first, ten Max Repels a use, into the Items pocket
+  assert.deepEqual(Object.keys(CHEATS), ['rareCandy', 'maxRepel']);
+  assert.deepEqual([CHEATS.rareCandy.count, CHEATS.maxRepel.count, CHEATS.maxRepel.pocket], [99, 10, 'items']);
 });
 
 test('which games can get Rare Candies', () => {
@@ -64,6 +70,37 @@ test('which games can get Rare Candies', () => {
   assert.equal(cheatSupported(entry({ platform: 'gba', code: 'BPED' })), false);
   assert.equal(cheatSupported(null), false);
   assert.deepEqual(addRareCandies(null, memory(), {}), { error: 'unsupported' });
+});
+
+test('Max Repels: offered in every game that gets Rare Candies, and nowhere else', () => {
+  const headers = [{ platform: 'gb', title: 'POKEMON RED' }, { platform: 'gb', title: 'POKEMON BLUE' }, { platform: 'gb', title: 'POKEMON YELLOW' },
+    { platform: 'gbc', title: 'PM_CRYSTAL', code: 'BYTE' }, { platform: 'gbc', title: 'POKEMON_GLD', code: 'AAUE' }, { platform: 'gbc', title: 'POKEMON_SLV', code: 'AAXE' },
+    { platform: 'gba', code: 'AXVE' }, { platform: 'gba', code: 'AXPD' }, { platform: 'gba', code: 'BPEE' }, { platform: 'gba', code: 'BPRE' }, { platform: 'gba', code: 'BPGD' },
+    { platform: 'gba', code: 'BPED' }, { platform: 'nds', code: 'IPKE' }, { platform: 'nds', code: 'IPGD' }, { platform: 'nds', code: 'CPUE' }, { platform: 'nds', code: 'ADAE' },
+    { platform: 'nds', code: 'IRBO' }, { platform: 'nds', code: 'IREO' }, { platform: '3ds', titleId: '0004000000055D00' }, { platform: '3ds', titleId: '0004000000164800' },
+    { platform: '3ds', titleId: '00040000001B5100' }];
+  for (const h of headers) {
+    const e = entry(h);
+    assert.equal(cheatSupported(e, 'maxRepel'), cheatSupported(e), JSON.stringify(h));
+    assert.deepEqual(cheatsFor(e), cheatSupported(e) ? ['rareCandy', 'maxRepel'] : [], JSON.stringify(h));
+  }
+  assert.deepEqual(cheatsFor(null), []);
+  assert.equal(cheatSupported(entry({ platform: 'gb', title: 'POKEMON RED' }), 'infiniteMoney'), false);
+  assert.deepEqual(addMaxRepels(null, memory(), {}), { error: 'unsupported' });
+  assert.deepEqual(applyCheat('infiniteMoney', entry({ platform: 'gb', title: 'POKEMON RED' }), memory(), {}), { error: 'unsupported' });
+});
+
+test('when the play screen lets a cheat be used: a known bag, the run’s rules, live tracking, no battle', () => {
+  const ok = { supported: true, allowed: true, live: true, inBattle: false };
+  assert.equal(cheatBlock(ok), null);
+  assert.equal(cheatBlock({ ...ok, supported: false }), 'unsupported');
+  assert.equal(cheatBlock({ ...ok, allowed: false }), 'off', 'the rules (in a SoulLink the host’s) don’t allow cheats');
+  assert.equal(cheatBlock({ ...ok, live: false }), 'waiting', 'live tracking hasn’t found the team yet');
+  assert.equal(cheatBlock({ ...ok, inBattle: true }), 'inBattle');
+  // the first thing the player can't change is named: an unknown bag before the rules, the rules before the wait
+  assert.equal(cheatBlock({ supported: false, allowed: false, live: false, inBattle: true }), 'unsupported');
+  assert.equal(cheatBlock({ supported: true, allowed: false, live: false, inBattle: true }), 'off');
+  assert.equal(cheatBlock({ supported: true, allowed: true, live: false, inBattle: true }), 'waiting');
 });
 
 test('Gen 1 (Red/Yellow): new pair before the terminator, count + 1; an existing stack tops up to 99', () => {
@@ -407,6 +444,169 @@ test('X/Y and ORAS: { u16 id, u16 count } slots, the update the party was found 
   assert.equal(m3.writes, 0);
 });
 
+// ---- Max Repels: the Items pocket in every generation ------------------------------------------------------
+
+test('Max Repels, Gen 1 (Red/Yellow): ten as a new pair, then up to 99; a full bag is left alone', () => {
+  const e = entry({ platform: 'gb', title: 'POKEMON RED' });
+  const m = memory();
+  m.poke(0xd31d, [2, 0x14, 5, 0x28, 99, 0xff]); // Potion ×5, Rare Candy ×99
+  m.poke(0xd347, [0x00, 0x30, 0x00]);
+  assert.deepEqual(addMaxRepels(e, m, {}), { ok: true, before: 0, after: 10, added: 10 });
+  assert.deepEqual([...m.read(0xd31d, 8)], [3, 0x14, 5, 0x28, 99, 0x39, 10, 0xff]);
+  // the same through the play screen's id
+  assert.deepEqual(applyCheat('maxRepel', e, m, {}), { ok: true, before: 10, after: 20, added: 10 });
+  assert.equal(m.read(0xd31d + 6, 1)[0], 20);
+  const y = entry({ platform: 'gb', title: 'POKEMON YELLOW' });
+  const n = memory();
+  n.poke(0xd31c, [1, 0x39, 95, 0xff]);
+  n.poke(0xd346, [0x00, 0x05, 0x00]);
+  assert.deepEqual(addMaxRepels(y, n, {}), { ok: true, before: 95, after: 99, added: 4 }, 'capped at the stack size');
+  assert.deepEqual(addMaxRepels(y, n, {}), { error: 'max', before: 99 });
+  const full = memory();
+  full.poke(0xd31d, [20, ...Array.from({ length: 20 }, (_, i) => [i + 1, 1]).flat(), 0xff]);
+  full.poke(0xd347, [0, 0, 0]);
+  assert.deepEqual(addMaxRepels(e, full, {}), { error: 'full' });
+  assert.equal(full.writes, 0);
+});
+
+test('Max Repels, Gen 2 (Crystal, Gold): the items pocket, not the balls behind the key items', () => {
+  const c = entry({ platform: 'gbc', title: 'PM_CRYSTAL', code: 'BYTE' });
+  const m = memory();
+  m.poke(0xd892, [1, 0x12, 3, 0xff]);
+  m.poke(0xd8bc, [1, 0x07, 0xff]);
+  assert.equal(addMaxRepels(c, m, {}).added, 10);
+  assert.deepEqual([...m.read(0xd892, 6)], [2, 0x12, 3, 0x2b, 10, 0xff]);
+  assert.deepEqual([...m.read(0xd8bc, 3)], [1, 0x07, 0xff], 'the key items untouched');
+  const g = entry({ platform: 'gbc', title: 'POKEMON_GLD', code: 'AAUE' });
+  const n = memory();
+  n.poke(0xd5b7, [0, 0xff]);
+  n.poke(0xd5e1, [0, 0xff]);
+  assert.equal(addMaxRepels(g, n, {}).added, 10);
+  assert.deepEqual([...n.read(0xd5b7, 4)], [1, 0x2b, 10, 0xff]);
+});
+
+test('Max Repels, Gen 3: Ruby/Sapphire plain, Emerald/FireRed encrypted – the Items pocket, 99 a stack', () => {
+  for (const code of ['AXVE', 'AXPD']) {
+    const e = entry({ platform: 'gba', code });
+    const sb1 = 0x02025734;
+    const m = memory();
+    m.poke(sb1 + 0x490, le32(3000));
+    m.poke(sb1 + 0x560, [...slot(13, 5)]);
+    m.poke(sb1 + 0x600, [...slot(4, 10)]);
+    assert.deepEqual(addMaxRepels(e, m, {}), { ok: true, before: 0, after: 10, added: 10 }, code);
+    assert.deepEqual([u16(m, sb1 + 0x564), u16(m, sb1 + 0x566)], [84, 10]);
+    assert.deepEqual([u16(m, sb1 + 0x600), u16(m, sb1 + 0x602)], [4, 10], 'the Poké Balls untouched');
+  }
+  const layouts = {
+    BPEE: { sb1Ptr: 0x03005d8c, sb2Ptr: 0x03005d90, keyOff: 0xac, money: 0x490, items: 0x560, balls: 0x650 },
+    BPRE: { sb1Ptr: 0x03005008, sb2Ptr: 0x0300500c, keyOff: 0xf20, money: 0x290, items: 0x310, balls: 0x430 },
+    BPGD: { sb1Ptr: 0x03004f58, sb2Ptr: 0x03004f5c, keyOff: 0xf20, money: 0x290, items: 0x310, balls: 0x430 },
+  };
+  for (const [code, L] of Object.entries(layouts)) {
+    const e = entry({ platform: 'gba', code });
+    const { m, sb1, k } = gen3Encrypted(L); // Potion ×5, Rare Candy ×10, then an empty slot
+    assert.deepEqual(addMaxRepels(e, m, {}), { ok: true, before: 0, after: 10, added: 10 }, code);
+    assert.deepEqual([u16(m, sb1 + L.items + 8), u16(m, sb1 + L.items + 10)], [84, 10 ^ k], `${code}: into the free slot, encrypted`);
+    assert.equal(u16(m, sb1 + L.items + 6), 10 ^ k, 'the Rare Candies untouched');
+    m.poke(sb1 + L.items + 10, le16(95 ^ k));
+    assert.deepEqual(addMaxRepels(e, m, {}), { ok: true, before: 95, after: 99, added: 4 });
+    const wrong = gen3Encrypted(L);
+    wrong.m.poke(0x02024a00 + L.keyOff, le32(0x0badf00d));
+    assert.deepEqual(addMaxRepels(e, wrong.m, {}), { error: 'notFound' }, `${code} key`);
+    assert.equal(wrong.m.writes, 0);
+  }
+});
+
+test('Max Repels, Gen 4/5: the Items pocket at the bag’s start, 999 a stack; Medicine untouched', () => {
+  const cases = [
+    [{ platform: 'nds', code: 'IPKE' }, 0x0227c2c8 + 0x10 + 0x644, { key: 0x294, tm: 0x35c, medicine: 0x520 }, { saveBase: 0x0227c2c8 }],
+    [{ platform: 'nds', code: 'CPUE' }, 0x02270000 + 0x14 + 0x630, { key: 0x294, tm: 0x35c, medicine: 0x51c }, { saveBase: 0x02270000 }],
+    [{ platform: 'nds', code: 'ADAE' }, 0x02270000 + 0x214 + 0x624, { key: 0x294, tm: 0x35c, medicine: 0x51c }, { partyAddr: 0x02270000 + 0x2ac - 8 }],
+    [{ platform: 'nds', code: 'IRBO' }, 0x022349ac - 0xa00, { key: 0x4d8, tm: 0x624, medicine: 0x7d8 }, { partyAddr: 0x022349ac }, { tmItem: 618 }],
+    [{ platform: 'nds', code: 'IREO' }, 0x022349ac - 0xa00, { key: 0x4d8, tm: 0x624, medicine: 0x7d8 }, { partyAddr: 0x022349ac }, { tmItem: 618 }],
+  ];
+  for (const [h, bag, P, state, opts] of cases) {
+    const m = memory();
+    dsBag(m, bag, P, opts);
+    m.poke(bag, slot(4, 5)); // Poké Balls in the Items pocket's first slot (Gen 5 keeps them there; Gen 4 doesn't care)
+    assert.deepEqual(addMaxRepels(entry(h), m, state), { ok: true, before: 0, after: 10, added: 10 }, h.code);
+    assert.deepEqual([u16(m, bag + 4), u16(m, bag + 6)], [77, 10], h.code);
+    assert.deepEqual([u16(m, bag + P.medicine), u16(m, bag + P.medicine + 2), u16(m, bag + P.medicine + 4)], [17, 2, 0], `${h.code}: Medicine untouched`);
+    m.poke(bag + 6, le16(995));
+    assert.deepEqual(addMaxRepels(entry(h), m, state), { ok: true, before: 995, after: 999, added: 4 }, h.code);
+    assert.deepEqual(addMaxRepels(entry(h), m, state), { error: 'max', before: 999 }, h.code);
+  }
+  // a full Items pocket (165 slots in HeartGold) is refused, and so is a bag that isn't one
+  const bag = 0x0227c2c8 + 0x10 + 0x644;
+  const full = memory();
+  dsBag(full, bag, { key: 0x294, tm: 0x35c, medicine: 0x520 });
+  full.poke(bag, Array.from({ length: 165 }, (_, i) => slot(80 + (i % 100), 1)).flat());
+  assert.deepEqual(addMaxRepels(entry({ platform: 'nds', code: 'IPKE' }), full, { saveBase: 0x0227c2c8 }), { error: 'full' });
+  const notTm = memory();
+  dsBag(notTm, bag, { key: 0x294, tm: 0x35c, medicine: 0x520 }, { tmItem: 17 });
+  assert.deepEqual(addMaxRepels(entry({ platform: 'nds', code: 'IPKE' }), notTm, { saveBase: 0x0227c2c8 }), { error: 'notFound' });
+  assert.equal(full.writes + notTm.writes, 0);
+});
+
+test('Max Repels, 3DS: the Items pocket (NEW, not in Free Space), the update the party was found at first', () => {
+  // Sun/Moon: Items at the block's start
+  const sm = ctr(SM);
+  const m = sunBag();
+  const base = 0x330d5934;
+  assert.deepEqual(addMaxRepels(sm, m, { g67: 0 }), { ok: true, before: 0, after: 10, added: 10 });
+  assert.equal(u32(m, base), (77 | (10 << 10) | 0x40000000) >>> 0);
+  assert.equal(u32(m, base + 0xb48), 0, 'Medicine untouched');
+  // the stack: only the count, its Free Space place and NEW mark stay
+  m.poke(base, g7(77, 995, 4, true));
+  assert.deepEqual(addMaxRepels(sm, m, {}), { ok: true, before: 995, after: 999, added: 4 });
+  assert.equal(u32(m, base), (77 | (999 << 10) | (4 << 20) | 0x40000000) >>> 0);
+  assert.deepEqual(addMaxRepels(sm, m, {}), { error: 'max', before: 999 });
+  // Ultra Sun/Ultra Moon: same place in its own block
+  const ub = 0x33011934;
+  const um = memory();
+  um.poke(ub + 0x6ac, g7(845, 1));
+  um.poke(ub + 0xe28, [0xb74, 0x000, 0x9c4, 0xc64, 0x6ac, 0xd70, 0xdfc].flatMap((o) => le32(ub + o)));
+  assert.equal(addMaxRepels(ctr(USUM), um, {}).ok, true);
+  assert.equal(u32(um, ub), (77 | (10 << 10) | 0x40000000) >>> 0);
+  // X/Y 1.0 ({ u16 id, u16 count }): behind the Poké Balls in the Items pocket
+  const b10 = 0x08c67554;
+  const xy = memory();
+  xy.poke(b10, slot(4, 10));
+  xy.poke(b10 + 0x968, slot(17, 2));
+  assert.deepEqual(addMaxRepels(ctr(XY), xy, { g67: 1 }), { ok: true, before: 0, after: 10, added: 10 });
+  assert.deepEqual([u16(xy, b10 + 4), u16(xy, b10 + 6)], [77, 10]);
+  // ORAS 1.4
+  const b14 = 0x08c6ec70;
+  const oras = memory();
+  oras.poke(b14 + 0x640, slot(457, 1));
+  assert.equal(addMaxRepels(ctr(ORAS), oras, {}).ok, true);
+  assert.deepEqual([u16(oras, b14), u16(oras, b14 + 2)], [77, 10]);
+  // a full Items pocket, a broken bag: nothing written
+  const full = sunBag();
+  for (let i = 0; i < 430; i++) full.poke(base + i * 4, g7(80 + (i % 100), 1));
+  assert.deepEqual(addMaxRepels(sm, full, {}), { error: 'full' });
+  const broken = sunBag();
+  broken.poke(base + 0xb48, g7(4, 5)); // a Poké Ball in Medicine
+  assert.deepEqual(addMaxRepels(sm, broken, {}), { error: 'notFound' });
+  assert.equal(full.writes + broken.writes, 0);
+  // the Items pocket takes no Medicine or TM item: those stay where they belong
+  assert.deepEqual(addItem(sm, sunBag(), {}, 50, 1, { pocket: 'items' }), { error: 'unsupported' });
+  assert.deepEqual(addItem(sm, sunBag(), {}, 328, 1, { pocket: 'items' }), { error: 'unsupported' });
+});
+
+test('Max Repels: the 3DS player answers later, a refused write is no success', async () => {
+  const m = sunBag();
+  const later = { read: m.read, write: (a, b) => new Promise((r) => setTimeout(() => r(m.write(a, b)), 5)) };
+  const p = applyCheat('maxRepel', ctr(SM), later, {});
+  assert.equal(typeof p.then, 'function');
+  assert.deepEqual(await p, { ok: true, before: 0, after: 10, added: 10 });
+  assert.deepEqual(await applyCheat('maxRepel', ctr(SM), { read: m.read, write: () => Promise.resolve({ ok: false, why: 'changed' }) }, {}), { error: 'changed' });
+  const r = memory();
+  r.poke(0xd31d, [0, 0xff]);
+  r.poke(0xd347, [0, 0, 0]);
+  assert.deepEqual(addMaxRepels(entry({ platform: 'gb', title: 'POKEMON RED' }), { read: r.read, write: () => false }, {}), { error: 'write' });
+});
+
 // ---- run side -----------------------------------------------------------------------------------------------
 
 const HG = { id: 'run1', game: { code: 'IPKE', system: 'nds' } };
@@ -437,6 +637,23 @@ test('cheats are off by default; allowed, every use lands in the shared log', ()
   const s = mkDoc({ cheats: true });
   R.logCheat(s, SOLO, 'p1', { added: 1 });
   assert.equal(R.feedList(s)[0].text, 'Cheat used: 1 Rare Candy');
+});
+
+test('Max Repels in the log: named for everyone, refused while the rules don’t allow cheats', () => {
+  const off = mkDoc();
+  assert.equal(R.logCheat(off, PAIR, 'p1', { added: 10, cheat: 'maxRepel' }), false);
+  assert.equal(R.feedList(off).length, 0);
+  const d = mkDoc({ cheats: true });
+  assert.equal(R.logCheat(d, PAIR, 'p2', { added: 10, cheat: 'maxRepel' }), true);
+  const [f] = R.feedList(d);
+  assert.deepEqual([f.type, f.slot, f.cheat, f.count, f.text], ['cheat', 'p2', 'maxRepel', 10, 'used a cheat: 10 Max Repels']);
+  assert.equal(R.feedText(d, PAIR, f), 'used a cheat: 10 Max Repels');
+  const s = mkDoc({ cheats: true });
+  R.logCheat(s, SOLO, 'p1', { added: 1, cheat: 'maxRepel' });
+  assert.equal(R.feedList(s)[0].text, 'Cheat used: 1 Max Repel');
+  // a cheat the log doesn't know isn't written as something it isn't
+  assert.equal(R.logCheat(s, SOLO, 'p1', { added: 5, cheat: 'money' }), false);
+  assert.equal(R.feedList(s).length, 1);
 });
 
 test('switching the cheat rule is logged too', () => {

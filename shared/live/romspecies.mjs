@@ -9,6 +9,8 @@
 // their RAM layout isn't the vanilla one either, so the live reader finds the party by searching for it and the map
 // through SaveBlock1 (shared/live/parse.mjs, location.mjs, web/views/play.mjs) – or says the hack isn't supported.
 
+import { hasMega, megaXY } from '../forms.mjs';
+
 /** Gen 3 text → string (null when a byte isn't a character of the table). */
 function decode(rom, o, n, table) {
   let s = '';
@@ -74,7 +76,13 @@ export function gen3SpeciesNames(rom, charset) {
  * (SPECIES_NONE) starts the field, the stride is where Bulbasaur's name follows. Species the build left out are
  * zeroed – an empty name (no Pokémon) – and the table ends at the first entry that is neither, or where a second
  * array of the same struct starts again with the first species. → { offset, stride, names } or null.
+ *
+ * A build can leave out whole generations (P_GEN_9_POKEMON off: 120 zeroed entries after Pecharunt's place) or its
+ * Megas – while every alternate form (the Megas, Primal Kyogre, the regional forms …) is numbered after the National
+ * Dex. A run of blanks therefore doesn't end the table as long as names follow it (MAX_GAP); it used to end after 16,
+ * and every form behind such a gap had no species: a caught Mega or Alolan form was no Pokémon to the live reader.
  */
+const MAX_GAP = 640; // (the Gen 6–9 Pokémon, 380 of them, and a few left-out forms)
 function speciesInfoNames(rom, o, table) {
   const field = (p) => {
     if (p + 13 > rom.length) return null;
@@ -93,7 +101,7 @@ function speciesInfoNames(rom, o, table) {
       if (s === null) break;
       if (i > 2 && s && s === names[1] && field(o + (i + 1) * stride) === names[2]) break; // a second array
       blanks = s ? 0 : blanks + 1;
-      if (blanks > 16) break;
+      if (blanks > MAX_GAP) break;
       names.push(s);
     }
     while (names.length > 1 && !names[names.length - 1]) names.pop();
@@ -111,7 +119,7 @@ export const nameKey = (s) => String(s || '').toUpperCase().replace(/♀/g, 'F')
  * the same lists in the other languages the games came out in (German, French, Spanish, Italian: a German ROM calls
  * Charmander "GLUMANDA"). A slot whose name is the vanilla Pokémon's – in any of these languages – keeps the vanilla
  * number; any other name is looked up by name (English first); a name no Pokémon has (a fakémon) is listed in
- * `unknown`, never mapped to a real one. → { map, unknown, changed }
+ * `unknown`, never mapped to a real one. → { map, unknown, changed, forms? } (`forms`: a named form – see formWord)
  */
 export function gen3SpeciesMap(names, vanilla, dexNames, otherNames = []) {
   const byKey = new Map();
@@ -138,8 +146,35 @@ export function gen3SpeciesMap(names, vanilla, dexNames, otherNames = []) {
   // Complete FireRed Upgrade names Unown's forms ("Unown B", Radical Red "UNOWNB"): they are Unown
   const unown = byKey.get('UNOWN');
   const form = (key) => (unown && /^UNOWN[A-Z]$/.test(key) ? unown : 0);
+  // The engines name an alternate form like its species ("Charizard" for both Megas – mapped above). A hack that names
+  // it with the form in front or behind ("Mega Lucario", "MegaChariz", "Alolan Vulpix"; "Vulpix-A" isn't one) is
+  // that species too, the form kept: { id, form } (Mega X 1 / Y 2 – which one the base stats tell when the name doesn’t –, every other Mega, Primal and Alolan form 1 –
+  // shared/forms.mjs; Galar, Hisui and Paldea forms are only their species)
+  const FORM_WORD = /^(MEGA|PRIMAL|ALOLAN?|GALAR(?:IAN)?|HISUI(?:AN)?|PALDEAN?)(.+)$|^(.+?)(MEGA[XY]?|PRIMAL|ALOLAN?|GALAR(?:IAN)?|HISUI(?:AN)?|PALDEAN?)$/;
+  const formWord = (key) => {
+    const m = FORM_WORD.exec(key);
+    const word = m && (m[1] || m[4]);
+    let rest = m && (m[2] || m[3]);
+    if (!rest) return null;
+    let xy = 0;
+    if (m[1] === 'MEGA' && /^.{4,}[XY]$/.test(rest) && !byKey.has(rest)) {
+      xy = rest.endsWith('X') ? 1 : 2;
+      rest = rest.slice(0, -1);
+    }
+    if (m[4]?.length === 5) xy = m[4].endsWith('X') ? 1 : 2; // ("…MEGAX")
+    if (rest.length < 4) return null;
+    // (a name that fills the game's field may be shortened, as above: "MegaChariz")
+    const hits = byKey.has(rest) ? new Set([byKey.get(rest)]) : key.length >= 10 && rest.length >= 5
+      ? new Set([...byKey.entries()].filter(([k]) => k[0] === rest[0] && k.length > rest.length && inOrder(rest, k)).map(([, v]) => v)) : new Set();
+    if (hits.size !== 1) return null;
+    const id = [...hits][0];
+    const w = word.replace(/[XY]$/, '').replace(/(IAN|AN)$/, '');
+    const f = w === 'MEGA' ? (megaXY(id) ? xy : hasMega(id) ? 1 : 0) : w === 'PRIMAL' ? (hasMega(id) ? 1 : 0) : w === 'ALOL' || w === 'ALOLA' ? 1 : 0;
+    return { id, form: f };
+  };
   const map = [0];
   const unknown = {};
+  const forms = {};
   let changed = 0;
   for (let i = 1; i < names.length; i++) {
     const v = vanilla[i] || 0;
@@ -153,12 +188,19 @@ export function gen3SpeciesMap(names, vanilla, dexNames, otherNames = []) {
       map[i] = 0;
       continue;
     }
-    const id = byKey.get(key) || abbreviated(key) || form(key) || 0;
+    let id = byKey.get(key) || abbreviated(key) || form(key) || 0;
+    if (!id) {
+      const f = formWord(key);
+      if (f) {
+        id = f.id;
+        if (f.form) forms[i] = f.form;
+      }
+    }
     map[i] = id;
     if (!id) unknown[i] = names[i];
     if (id !== v) changed++;
   }
-  return { map, unknown, changed };
+  return { map, unknown, changed, ...(Object.keys(forms).length ? { forms } : {}) };
 }
 
 /**
@@ -180,6 +222,7 @@ export function romSpecies(rom, opts = {}) {
     const m = gen3SpeciesMap(t.names, engine === 'expanded' ? [] : opts.gen3Index || [], opts.dexNames || [], opts.dexNamesOther || []);
     const out = { gen: 3, engine, count: t.names.length - 1, changed: m.changed, source };
     if (m.changed) Object.assign(out, { map: m.map, unknown: m.unknown });
+    if (m.forms) out.forms = m.forms;
     return out;
   } catch {
     return null;
@@ -196,6 +239,58 @@ export function speciesCeiling(species) {
   let max = 0;
   for (const id of species.map) if (id > max) max = id;
   return max || null;
+}
+
+// The official base stats of the two Megas of Charizard and Mewtwo (HP, Atk, Def, Speed, Sp. Atk, Sp. Def – the order of
+// the GBA games' base stats): which one a form of theirs is
+const XY_STATS = {
+  6: [[78, 130, 111, 100, 130, 85], [78, 104, 78, 100, 159, 115]],
+  150: [[106, 190, 100, 130, 154, 100], [106, 150, 70, 140, 194, 120]],
+};
+
+/**
+ * The Megas and Primal forms of an expanded GBA engine (romSpecies() result with `map`): they are species of their own
+ * there, numbered after the National Dex (pokeemerald-expansion) or after the retail ones (Complete FireRed Upgrade) and
+ * named like their species ("Charizard" – romSpecies maps them to it). Which entry is which form comes from the ROM's
+ * base stats (`base` = { offset, stride }: shared/live/romtypes.mjs gbaBaseStats, romTypes().source): a further entry of
+ * a species that Mega Evolves whose stats add up to clearly more than the species' own (a Mega's are 100 more – a hack
+ * that rebalanced it moves a few: Radical Red's Mega Houndoom +120, Mega Sceptile +90) is its Mega; Charizard's and
+ * Mewtwo's two are told apart by the official stats. The first entry of a name is the species itself, an entry of the
+ * same stats or a smaller gain another form (Gigantamax, a regional form, a hack's own). → { [index]: form } (the form
+ * numbers of shared/forms.mjs) merged with `species.forms` (named forms), or null when there are none. Never throws.
+ */
+export function gen3Forms(rom, species, base) {
+  try {
+    if (!rom || species?.engine !== 'expanded' || !Array.isArray(species.map) || !Number.isInteger(base?.offset) || !(base.stride >= 8)) return species?.forms || null;
+    const stats = (i) => {
+      const o = base.offset + i * base.stride;
+      return o >= 0 && o + 6 <= rom.length ? Array.from(rom.subarray(o, o + 6)) : null;
+    };
+    const sum = (a) => a.reduce((x, y) => x + y, 0);
+    const first = new Map();
+    const out = { ...(species.forms || {}) };
+    for (let i = 1; i < species.map.length; i++) {
+      const id = species.map[i];
+      if (!id) continue;
+      if (!first.has(id)) {
+        first.set(id, i);
+        continue;
+      }
+      if (out[i] || !hasMega(id)) continue;
+      const s = stats(i);
+      const s0 = stats(first.get(id));
+      if (!s || !s0 || s.every((x) => !x)) continue;
+      const gain = sum(s) - sum(s0);
+      if (gain < 60 || gain > 200) continue;
+      if (megaXY(id)) {
+        const d = XY_STATS[id].map((x) => x.reduce((a, v, k) => a + Math.abs(v - s[k]), 0));
+        out[i] = d[1] < d[0] ? 2 : 1;
+      } else out[i] = 1;
+    }
+    return Object.keys(out).length ? out : null;
+  } catch {
+    return species?.forms || null;
+  }
 }
 
 // ---------------------------------------------------------------- items and moves of an expanded engine

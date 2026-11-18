@@ -69,8 +69,9 @@ function guessSlot(m) {
 }
 
 // Bump when digestRun (shared/trophies.mjs) or the generation lookup here reads a run differently: every run is
-// digested again (2: a hack's base game's generation, evolutions once per step, the partner's deaths, bonus deaths).
-const DIGEST_VERSION = 2;
+// digested again (2: a hack's base game's generation, evolutions once per step, the partner's deaths, bonus deaths;
+// 3: every cheat counts against Honest Work, not only Rare Candies – cheatUses).
+const DIGEST_VERSION = 3;
 
 /** The generation of a run's game – or a hack's base game (a hack run's game id can be the hack's). */
 function genOf(m, games) {

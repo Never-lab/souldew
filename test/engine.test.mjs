@@ -53,9 +53,9 @@ test('engine sessions: started with --solo; a link joins the running game in pla
   assert.deepEqual(args.slice(0, 3), ['--solo', '--rom', '/r/em.gba']);
   assert.ok(args.includes('--sram') && args.includes('--ram'));
   assert.deepEqual(engineArgs({ system: 'gb', rom: 'r', model: 'dmg' }).slice(3, 5), ['--model', 'dmg']);
-  assert.throws(() => engineArgs({ system: '3ds', rom: 'r' }), /nativer Kern/);
+  assert.throws(() => engineArgs({ system: '3ds', rom: 'r' }), { code: 'nativeSystem' });
   // a page may never send the engine's own commands
-  assert.throws(() => s.send(id, command(ENGINE_CMD.LINK, Buffer.from('--rom\0x\0'))), /Befehl/);
+  assert.throws(() => s.send(id, command(ENGINE_CMD.LINK, Buffer.from('--rom\0x\0'))), { code: 'badCommand' });
 
   // a link session for the game that runs: the same process (CMD_LINK with the session's words), the same id
   const seats = [{ rom: '/r/em.gba', save: null, state: Buffer.from('A') }, { rom: '/r/sa.gba', save: Buffer.from([3]), state: Buffer.from('B') }];
@@ -71,7 +71,7 @@ test('engine sessions: started with --solo; a link joins the running game in pla
   assert.equal(calls.length, 1, 'no new process');
   assert.ok(s.current.link);
   s.send(id, command(21, Buffer.concat([u32(1, 0), u32(0)]))); // (link commands are allowed now: a peer's buttons)
-  assert.throws(() => s.send(id, command(NCMD.WRITE, Buffer.concat([u32(0x2000000), Buffer.from([1])]))), /Befehl/);
+  assert.throws(() => s.send(id, command(NCMD.WRITE, Buffer.concat([u32(0x2000000), Buffer.from([1])]))), { code: 'badCommand' });
 
   // out of step: the game only stands still – it goes on from the snapshot right after (not stopped)
   assert.ok(s.linkRestore(id));
@@ -93,7 +93,7 @@ test('engine sessions: started with --solo; a link joins the running game in pla
   const refused = s.startLink({ host: '/t/linkhost', system: 'gba', seats, local: 0, delay: 5, rtc: 1, key: 'run:me' });
   await new Promise((r) => setImmediate(r));
   child.stdout.write(event({ event: 'linkRefused', message: 'x' }));
-  await assert.rejects(refused, /verbinden/);
+  await assert.rejects(refused, { code: 'linkRefused' });
   assert.equal(s.current.id, id);
   s.stop();
 });

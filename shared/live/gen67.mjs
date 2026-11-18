@@ -10,6 +10,9 @@
 // again, over the party stats; the four 56-byte blocks are shuffled by ((EC >> 13) & 31) % 24 like in Gen 4/5; the
 // checksum (0x06) is the 16-bit sum of 0x08–0xE7.
 
+import { summaryPk67 } from '../monstats.mjs';
+import { formSpriteId, formKind } from '../forms.mjs';
+
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 const w16 = (b, o, v) => {
@@ -122,6 +125,8 @@ export function pk6Mon(raw, gen) {
     gender: ['M', 'F', '-'][(formByte >> 1) & 3] || '-',
     shiny: ((tid ^ sid ^ (pid >>> 16) ^ (pid & 0xffff)) >>> 0) < 16,
     status: statusCode(status), level, hp, maxHp,
+    // nature, ability, IVs, EVs (shared/monstats.mjs)
+    summary: summaryPk67(d, gen),
   };
 }
 
@@ -220,6 +225,10 @@ export function readGen67(entry, read, state = {}) {
 // per battle kind (wild / trainer) and clears it after the battle; Gen 7 uses one base for both and leaves the last
 // battle in memory, so two flags say whether a battle runs and whether it is a trainer's.
 const BATTLE_BLOCKS = 12;
+// The battler's form right now (a Mega Evolution, Primal Reversion, a form the battle changes – Pokémon Stream Tool,
+// Readek: Raw Pokemon Battle.mjs formIndex, 1/2 for Mega X/Y): one byte at +0x14B (Gen 6) / +0x231 (Gen 7). Taken only
+// when it names a form shared/forms.mjs knows of that species – shown, never counted.
+const BATTLE_FORM = { 6: 0x14b, 7: 0x231 };
 
 export function battleRegions(entry) {
   const b = entry?.battle;
@@ -243,7 +252,9 @@ function battleMons(bytes, stride, gen, blocks = BATTLE_BLOCKS) {
     const level = bytes[o + 0x10];
     const slot = bytes[o + 0x11];
     if (!species || species > (gen >= 7 ? 807 : 721) || !maxHp || maxHp > 999 || hp > maxHp || level < 1 || level > 100) continue;
-    out.push({ species, maxHp, hp, level, slot, block: i });
+    const f = BATTLE_FORM[gen] && BATTLE_FORM[gen] < stride ? bytes[o + BATTLE_FORM[gen]] : 0;
+    const form = f > 0 && f < 32 && (formSpriteId(species, f) !== species || formKind(species, f, gen)) ? f : 0;
+    out.push({ species, maxHp, hp, level, slot, block: i, ...(form ? { form } : {}) });
   }
   return out;
 }
@@ -288,8 +299,27 @@ export function readGen67Battle(entry, read, party = null) {
   const index = party ? party.findIndex((p) => p.species === me.species && p.level === me.level && p.maxHp === me.maxHp) : -1;
   return {
     kind,
-    enemy: { species: foe.species, level: foe.level, hp: foe.hp, maxHp: foe.maxHp },
+    enemy: { species: foe.species, level: foe.level, hp: foe.hp, maxHp: foe.maxHp, ...(foe.form ? { form: foe.form } : {}) },
     active: index >= 0 ? { index, hp: me.hp, maxHp: me.maxHp } : null,
   };
 }
 
+
+/**
+ * Why no team is read (diagnostics – ticket #21: a team that wasn't found after reopening a game): per known update
+ * address whether its memory arrived and what slot 0 holds there ('empty' – zeros, 'ok' – a Pokémon, 'checksum' – data
+ * that fails its checksum, 'invalid' – passes it but isn't a party Pokémon, 'unread' – no memory there), and the zone.
+ * Nothing about the Pokémon itself.
+ */
+export function probeGen67(entry, read) {
+  const addrs = (entry?.partyAddrs || []).map((a) => {
+    const region = read(hex(a.addr ?? a), PARTY_BYTES);
+    if (!region || region.length < PARTY_BYTES) return { version: a.version || null, slot0: 'unread' };
+    const raw = slotBytes(region, 0);
+    if (raw.every((b) => b === 0)) return { version: a.version || null, slot0: 'empty' };
+    if (!decryptPK6(raw).checksumOk) return { version: a.version || null, slot0: 'checksum' };
+    return { version: a.version || null, slot0: pk6Mon(raw, entry.gen) ? 'ok' : 'invalid' };
+  });
+  const z = entry?.zoneAddr ? read(hex(entry.zoneAddr), 2) : null;
+  return { addrs, zone: z && z.length >= 2 ? u16(z, 0) : null };
+}
