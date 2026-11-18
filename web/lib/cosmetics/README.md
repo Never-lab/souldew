@@ -95,7 +95,7 @@ envelope       one per file, made by the service per account at download time:
 - *Previews.* A preview pack is just another signed manifest (stylesheets + images ≤ 512 px, no `contents.json`) with
   a key for that preview only – no second container format.
 
-**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `skins/<id>.css` (colour only today; the format still allows `url('pack:fonts/…')` / `pack:assets/…` with `fonts/*.woff2`, `assets/*.svg`), `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css` (the service would also take `fonts/*.woff2` and `assets/*.png` ≤ 512 px, but the colour skins need neither).
+**Files:** `contents.json`, `banners.json` (recipes as data, nameplate windows included), `handheld/*` ("Your handheld", see Free vs. pack), `skins/<id>.css` (colour only today; the format still allows `url('pack:fonts/…')` / `pack:assets/…` with `fonts/*.woff2`, `assets/*.svg`), `frames.mjs` and `launch.mjs` (the two parts that must stay code: per-pixel recipe functions and animation `setup`/`draw`). Preview pack: `skins/<id>.css` (the service would also take `fonts/*.woff2` and `assets/*.png` ≤ 512 px, but the colour skins need neither).
 
 **Verification order (`openPack`):**
 1. Ed25519 over the manifest bytes against a pinned key (`pack/keys.mjs`: the owner's production key – the local server checks it too before it downloads anything; a dev key only when the local server offers one – `SLS_PLUS_DEV_PACK`, or `SLS_PLUS_DEV_KEY` with a service on this computer, never in a packaged build).
@@ -130,16 +130,22 @@ Skin CSS is injected as a `<style>` (allowed by `style-src 'unsafe-inline'`). Fo
 - 133 banners (125 at launch plus 8 monthly drops) with their nameplate windows;
 - 71 frames;
 - 13 launch animations (2D – no longer offered in Settings since 3.0's handheld launch; the engine stays);
-- "Your handheld": `handheld/wraps.json` (the six souldew+ wraps' compositions – their art is the pack's banner recipes)
-  and the souldew+ stickers' pre-built atlas `handheld/stickers.png` + `stickers-cut.png` + `stickers.json`
-  (`contents.json` › `handheld`; built by `scripts/plus-dev-pack.mjs --handheld <design/plus/handheld>`). Gold, Clear
-  shell and Holo label are material settings in the public scene – the membership unlocks them, there is no art.
+- "Your handheld": `handheld/wraps.json` (the six souldew+ wraps' compositions – their art is the pack's banner recipes),
+  the souldew+ stickers' pre-built atlas `handheld/stickers.png` + `stickers-cut.png` + `stickers.json`, and
+  `handheld/looks.json` – the souldew+ looks of the 3.0 launch: Gold, Clear shell (its plastic and the board inside),
+  Holo label, the Rare start's light and the holo / glitter sticker finishes, as material values, a board recipe, a
+  foil pattern and a few lines of fragment code (`contents.json` › `handheld`; built by `scripts/plus-dev-pack.mjs
+  --handheld <design/plus/handheld>`, checked by `web/lib/handheld/looks.mjs cleanLooks`). The public scene draws only
+  "Your colours" and vinyl: without this data a souldew+ look, finish or Rare start isn't drawn, whatever a client
+  switches on. The fragment code runs on the GPU inside the scene's own shader (no JavaScript, no page access): only
+  statements over the variables the shader offers – no `#` lines, no declarations, no texture reads, no loops.
 
 ## Preview media (`previews.mjs`) – what everyone sees before buying
 
 Nobody buys what they can't see. Every premium banner, nameplate, frame and launch animation has a still (PNG, display
-size ×2) and a short loop (animated WebP, native size, ≤ 150 KB), every colour skin a still of the app in it – rendered
-offline from the design sources (`scripts/plus-previews.mjs`, `scripts/plus-skin-shots.mjs`; `plus-dev-pack.mjs
+size ×2) and a short loop (animated WebP, native size, ≤ 150 KB), every colour skin a still of the app in it, every
+souldew+ sticker and wrap a product shot (turned a few degrees, resampled, a light sheen – `scripts/handheld/preview-shot.mjs`:
+a sticker IS its pixel art, so a clean ×6 copy would be the sticker itself) – rendered offline from the design sources (`scripts/plus-previews.mjs`, `scripts/plus-skin-shots.mjs`; `plus-dev-pack.mjs
 --previews-source`). Pictures only: no recipe, code or stylesheet, so the accounts service hands them to anyone (API.md
 §10.6, a pack of kind `previews`). The local server (`server/lib/pluspreviews.mjs`) fetches the manifest (no account
 needed), checks its signature against the pinned pack key and every picture's SHA-256, and serves them at

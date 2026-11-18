@@ -36,7 +36,9 @@ export const MAX_FILES = 2000;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 const MAX_HEADER_BYTES = 2048;
 const WM_RE = /^wm_[A-Za-z0-9_-]{1,40}$/;
-const KID_RE = /^(\d{1,9}|pv_[A-Za-z0-9_-]{22})$/;
+// a member's key id: the account's key epoch and, since the key is bound to the signed-in session, that session's tag
+// (<epoch>_<16 chars>; the plain epoch of an older service is still read); a live preview's: its grant id
+export const KID_RE = /^(\d{1,9}(_[A-Za-z0-9_-]{16})?|pv_[A-Za-z0-9_-]{22})$/;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder('utf-8', { fatal: true });

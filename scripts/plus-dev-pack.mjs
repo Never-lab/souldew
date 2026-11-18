@@ -18,8 +18,10 @@
 //        server with SLS_PLUS_DEV_PACK=<dir>; the app trusts that key only then.
 //   node scripts/plus-dev-pack.mjs --design <design/plus> --catalog        + the public catalog and the free content
 //   --handheld <dir>   "Your handheld"'s souldew+ sources (default <design>/handheld: stickers.mjs PLUS_DESIGNS, wraps.mjs
-//                      PLUS_WRAPS) → handheld/stickers.png + stickers-cut.png + stickers.json (the atlas, pre-built) and
-//                      handheld/wraps.json in the pack, and a picture of every souldew+ sticker and wrap in the previews
+//                      PLUS_WRAPS, looks.mjs LOOKS) → handheld/stickers.png + stickers-cut.png + stickers.json (the atlas,
+//                      pre-built), handheld/wraps.json and handheld/looks.json (Gold, Clear shell, Holo label, the Rare
+//                      start, the holo / glitter finishes – web/lib/handheld/looks.mjs) in the pack, and a picture of
+//                      every souldew+ sticker and wrap in the previews (a tilted, glossy product shot – never the art 1:1)
 //
 // --catalog rewrites web/lib/cosmetics/content/{catalog,banners-free,frames-free}.mjs: the PUBLIC part (names,
 // collections, rarities, swatches, pairings – what a locked card shows) and the free banners and frames.
@@ -34,6 +36,8 @@ import { renderItemPreviews, renderSkinPreviews } from './plus-previews.mjs';
 import { buildAtlas, stickerPicture } from '../web/lib/handheld/atlas.mjs';
 import { STICKERS as HH_STICKERS, WRAPS as HH_WRAPS } from '../shared/handheld.mjs';
 import { atlasFiles, encodePng } from './handheld/png.mjs';
+import { cleanLooks } from '../web/lib/handheld/looks.mjs';
+import { productShot } from './handheld/preview-shot.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -121,6 +125,7 @@ const plusAnims = L.SET;
 const HH = existsSync(join(HANDHELD, 'stickers.mjs')) ? {
   stickers: (await import(pathToFileURL(join(HANDHELD, 'stickers.mjs')).href)).PLUS_DESIGNS,
   wraps: (await import(pathToFileURL(join(HANDHELD, 'wraps.mjs')).href)).PLUS_WRAPS,
+  looks: existsSync(join(HANDHELD, 'looks.mjs')) ? (await import(pathToFileURL(join(HANDHELD, 'looks.mjs')).href)).LOOKS : null,
 } : null;
 if (HH) {
   const want = (list) => list.filter((x) => x.tier === 'plus').map((x) => x.id).sort().join(',');
@@ -130,6 +135,12 @@ if (HH) {
     assertData(w, `wrap ${w.id}`);
     if (!B.BANNERS.some((b) => b.id === w.banner && b.set !== 'basics')) throw new Error(`wrap ${w.id}: its banner ${w.banner} is not a souldew+ banner`);
   }
+  if (HH.looks) {
+    // the app takes a look only whole: refuse a source the app would drop (looks.mjs cleanLooks)
+    const ok = cleanLooks(JSON.parse(JSON.stringify(HH.looks)));
+    for (const k of ['gold', 'clear', 'holo', 'rare']) if (HH.looks[k] && !ok?.[k]) throw new Error(`handheld/looks.mjs: ${k} does not pass the app's check`);
+    for (const k of ['holo', 'glitter']) if (HH.looks.finishes?.[k] && !ok?.finishes?.[k]) throw new Error(`handheld/looks.mjs: the ${k} finish does not pass the app's check`);
+  } else console.warn(`no handheld/looks.mjs at ${HANDHELD} – the pack goes without Gold, Clear shell, Holo label, the Rare start and the holo / glitter finishes`);
   HH.atlas = buildAtlas(HH.stickers);
   HH.files = await atlasFiles(HH.atlas);
 } else console.warn(`no handheld sources at ${HANDHELD} – the pack goes without the souldew+ stickers and wraps`);
@@ -239,7 +250,7 @@ function packFiles() {
     skins: SKINS.filter((k) => k.kind !== 'classic').map((s) => ({ id: s.id, css: `skins/${s.id}.css` })),
     banners: 'banners.json', frames: { module: 'frames.mjs', ids: plusFrames.map((f) => f.id) },
     launch: { module: 'launch.mjs', ids: plusAnims.map((a) => a.id) },
-    ...(HH ? { handheld: { wraps: 'handheld/wraps.json', stickers: 'handheld/stickers.json', art: 'handheld/stickers.png', cut: 'handheld/stickers-cut.png' } } : {}),
+    ...(HH ? { handheld: { wraps: 'handheld/wraps.json', stickers: 'handheld/stickers.json', art: 'handheld/stickers.png', cut: 'handheld/stickers-cut.png', ...(HH.looks ? { looks: 'handheld/looks.json' } : {}) } } : {}),
   };
   const files = [
     { path: 'contents.json', bytes: enc.encode(JSON.stringify(contents)) },
@@ -252,6 +263,7 @@ function packFiles() {
       { path: 'handheld/stickers.json', bytes: new Uint8Array(HH.files.layout) },
       { path: 'handheld/stickers.png', bytes: new Uint8Array(HH.files.art) },
       { path: 'handheld/stickers-cut.png', bytes: new Uint8Array(HH.files.cut) },
+      ...(HH.looks ? [{ path: 'handheld/looks.json', bytes: enc.encode(JSON.stringify(HH.looks)) }] : []),
     ] : []),
   ];
   return { files, contents };
@@ -337,8 +349,11 @@ async function previewsMedia(dir) {
 }
 
 /**
- * "Your handheld"'s preview pictures: every souldew+ sticker on its die-cut border (6 px per art pixel) and a window onto
- * every souldew+ wrap at 2× (the skin card's picture) – what a non-member's sheet shows. Pictures only.
+ * "Your handheld"'s preview pictures: every souldew+ sticker on its die-cut border and a window onto every souldew+ wrap
+ * (the skin card's picture) – what a non-member's sheet shows. Pictures only, and never the art pixel for pixel: the
+ * previews are public (anyone may fetch them, no account), and a sticker IS its pixel art – an exact ×6 copy would be the
+ * sticker itself, ready for a patched client's atlas. So each is a product shot (scripts/handheld/preview-shot.mjs):
+ * turned a few degrees, resampled smoothly, with a light sheen – the real look, not a copy of the file.
  */
 async function handheldPreviews(dir) {
   if (!HH) return [];
@@ -352,7 +367,7 @@ async function handheldPreviews(dir) {
     out.push({ path, bytes: new Uint8Array(bytes) });
   };
   for (const d of HH.stickers) {
-    const p = stickerPicture(HH.atlas, d.id, 6);
+    const p = productShot(stickerPicture(HH.atlas, d.id, 6), { angle: -6, seed: d.id });
     put(`stickers/${d.id}.png`, p.w, p.h, p.rgba);
   }
   for (const w of HH.wraps) {
@@ -365,7 +380,8 @@ async function handheldPreviews(dir) {
       const s = ((r.y + Math.floor(y / k)) * art.w + r.x + Math.floor(x / k)) * 4, o = (y * r.w * k + x) * 4;
       rgba[o] = src[s]; rgba[o + 1] = src[s + 1]; rgba[o + 2] = src[s + 2]; rgba[o + 3] = 255;
     }
-    put(`wraps/${w.id}.png`, r.w * k, r.h * k, rgba);
+    const shot = productShot({ w: r.w * k, h: r.h * k, rgba }, { angle: 4, seed: w.id, opaque: true });
+    put(`wraps/${w.id}.png`, shot.w, shot.h, shot.rgba);
   }
   return out;
 }

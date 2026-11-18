@@ -11,6 +11,7 @@ import { earnedTrophies } from '../trophies.mjs';
 import { favourites } from '../favourites.mjs';
 import { loadAtlas } from './stickers.mjs';
 import { wrapComp, recipeOf } from './wrap.mjs';
+import { hasLook } from './looks.mjs';
 import { placeLayout } from './geometry.mjs';
 
 let doc = emptyHandheld();
@@ -67,8 +68,12 @@ export function launchConfig(cfg) {
   return { look, pace, clear: cleanClearTint(cfg?.launchClear), off: pace === 'off' || cfg?.bootAnimation === false };
 }
 export const member = () => !!packState().entitled;
+/** The souldew+ looks from the verified pack (looks.mjs cleanLooks) – null without the pack, or in an older one. */
+export const paidLooks = () => content.handheld?.looks || null;
+/** Can this souldew+ launch look be played here? It needs the membership AND its data from the pack. */
+export const lookOwned = (id) => launchLook(id).tier !== 'plus' || (member() && hasLook(id, paidLooks()));
 /** The launch look this account can play: a souldew+ look without souldew+ plays "Your colours" (the choice is kept). */
-export const playableLook = (id) => (launchLook(id).tier === 'plus' && !member() ? 'your-colours' : launchLook(id).id);
+export const playableLook = (id) => (lookOwned(id) ? launchLook(id).id : 'your-colours');
 
 /** What the launch plays from the handheld right now: owned items only, Surprise me picks a design (shared/handheld.mjs). */
 export function lookNow(rnd = Math.random) {
@@ -146,7 +151,7 @@ export async function poseScene(canvas, o) {
   const w = o.w, h = o.h;
   const scene = await S.createScene(canvas, {
     sys: o.sys, lk: layoutKey(o.sys, 'tb', 'tb'), w, h, final: { x: w * 0.3, y: h * 0.2, w: w * 0.4, h: h * 0.6 }, dark: true,
-    look: o.look || 'theme', shell: shellColor(o.el), clearTint: CLEAR[o.clear] || CLEAR.ice, cartLook: o.look === 'gold' ? 'gold' : undefined,
+    look: o.look || 'theme', looks: paidLooks(), shell: shellColor(o.el), clearTint: CLEAR[o.clear] || CLEAR.ice, cartLook: o.look === 'gold' ? 'gold' : undefined,
     cartColor: o.cartColor, cover: o.cover, title: '', pulse: '#fff4e0', glow: '#dfe8ff', picture: 'placeholder', keep: !!o.keep, atlas,
     plan: () => ({ ...o.plan(), cart: fold ? 999 : 0, power: [-2000, -2000], led: 1, shadow: 1, clean: 0, canvasO: 1, glassOff: 0.35 }),
     hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, reduced: !!o.reduced },
@@ -160,7 +165,7 @@ const stills = new Map();
  * o = { sys, look, skin, stickers, w, h, el, view }
  */
 export async function handheldStill(o) {
-  const key = JSON.stringify([o.sys, o.look, o.skin, o.stickers, o.w, o.h, o.view, content.banners.size, packState().entitled, shellColor(o.el)]);
+  const key = JSON.stringify([o.sys, o.look, o.skin, o.stickers, o.w, o.h, o.view, content.banners.size, packState().entitled, !!paidLooks(), shellColor(o.el)]);
   if (stills.has(key)) return stills.get(key);
   const p = (async () => {
     const cv = document.createElement('canvas');

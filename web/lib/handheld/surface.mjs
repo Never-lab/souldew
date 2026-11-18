@@ -7,6 +7,10 @@
 // In that flat space the wrap is a shape: "reaches this far over the edges" minus cut-outs (screen, pad, buttons, LED,
 // speaker holes, slot, hinge) as rounded boxes – a signed distance, so its edge is crisp at any zoom and catches the
 // light like a 0.1 mm film edge. Stickers are a distance field too (the die-cut line round the pixel art).
+//
+// Vinyl is the free finish and the only one drawn here. The souldew+ finishes (holo film, glitter) are a few lines of
+// fragment code and two numbers that come with the souldew+ pack (handheld/looks.json › finishes, checked by looks.mjs);
+// without them a holo or glitter sticker is drawn as vinyl (scene.mjs sets its finish index from the same data).
 
 export const NCUT = 28;
 export const NSTK = 9; // 8 stickers per device + the one being dragged
@@ -19,7 +23,7 @@ uniform vec4 uRegT; uniform vec4 uRegB;
 uniform vec4 uArtT; uniform vec4 uArtB;
 uniform vec4 uCut[NCUT]; uniform vec4 uCutP[NCUT]; uniform int uNCut;
 uniform sampler2D uArt; uniform vec2 uArtSz; uniform float uPx; uniform float uWrap;
-uniform vec4 uFin; uniform vec3 uBorderC; uniform vec3 uKeyV;
+uniform vec4 uFin; uniform vec3 uBorderC; uniform vec3 uKeyV; uniform vec2 uHoloRM;
 uniform vec4 uStk[NSTK]; uniform vec4 uStkR[NSTK]; uniform vec4 uStkF[NSTK]; uniform int uNStk;
 uniform sampler2D uStkArt; uniform sampler2D uStkSdf; uniform vec2 uStkSz; uniform float uStkRange;
 varying vec3 vLP;
@@ -115,11 +119,11 @@ const MAIN = /* glsl */ `
 
 const ROUGH = /* glsl */ `
   roughnessFactor = mix(roughnessFactor, uFin.x, hh_cov);
-  roughnessFactor = mix(roughnessFactor, mix(0.26, 0.17, hh_holo), hh_scov);
+  roughnessFactor = mix(roughnessFactor, mix(0.26, uHoloRM.x, hh_holo), hh_scov);
 `;
 const METAL = /* glsl */ `
   metalnessFactor = mix(metalnessFactor, 0.0, max(hh_cov, hh_scov));
-  metalnessFactor = mix(metalnessFactor, 0.5, hh_holo * hh_holoW * hh_scov);
+  metalnessFactor = mix(metalnessFactor, uHoloRM.y, hh_holo * hh_holoW * hh_scov);
 `;
 const NORMAL = /* glsl */ `
   normal = normalize(mix(normal, nonPerturbedNormal, max(hh_cov, hh_scov))); // vinyl is smooth: the moulded grain goes
@@ -146,7 +150,7 @@ const LIGHTS = /* glsl */ `
   material.sheenColor *= 1.0 - max(hh_cov, hh_scov);
   #endif
 `;
-const OPAQUE = /* glsl */ `
+const OPAQUE_BASE = /* glsl */ `
   outgoingLight *= 1.0 - hh_ao * 0.75; // the contact shadows hold back reflections too, not only the colour
   {
     vec3 V = normalize(vViewPosition);
@@ -156,30 +160,24 @@ const OPAQUE = /* glsl */ `
     float fs = dot(hh_gsv, Hk), fw = dot(hh_gwv, Hk);
     outgoingLight += vec3(0.42) * hh_sedge * pow(max(fs, 0.0), 1.2) + vec3(0.12) * hh_edge * (1.0 - hh_scov) * pow(max(fw, 0.0), 1.5);
     outgoingLight *= 1.0 - 0.32 * hh_sedge * max(-fs, 0.0) - 0.2 * hh_edge * (1.0 - hh_scov) * max(-fw, 0.0);
-    if (hh_holo > 0.001) { // holographic film: a rainbow that slides with the angle, through fine diffraction lines
-      float ph = ndv * 1.7 + dot(hh_U, vec2(0.05, 0.031)) + 0.12 * sin(dot(hh_U, vec2(0.8, 2.1)) * 7.0);
-      vec3 rb = 0.5 + 0.5 * cos(6.2832 * (vec3(0.0, 0.33, 0.67) + ph));
-      float lines = 0.8 + 0.2 * sin(dot(hh_U, vec2(0.6, 0.8)) * 60.0);
-      float spec = pow(max(dot(normal, normalize(uKeyV + V)), 0.0), 18.0);
-      outgoingLight = mix(outgoingLight, outgoingLight * 0.62 + rb * (0.22 + 0.55 * pow(1.0 - ndv, 1.5) + 0.9 * spec) * lines, hh_holo * hh_holoW * hh_scov);
-    }
-    if (hh_glit > 0.001) { // glitter: flakes, each tilted its own way, flash when they mirror the key light
-      vec2 cell = floor(hh_U / 0.16);
-      vec3 r = hh_hash3(cell) - 0.5;
-      vec3 nf = normalize(normal + r * 1.1);
-      float sp = pow(max(dot(nf, normalize(uKeyV + V)), 0.0), 260.0) * step(0.45, hh_hash3(cell + 7.0).x);
-      float env = pow(max(dot(nf, V), 0.0), 40.0) * 0.25;
-      outgoingLight += (sp * 7.0 + env) * hh_glit * hh_scov * mix(vec3(1.0), hh_glitC, 0.45);
-    }
+    __FINISHES__
   }
 `;
+
+/** The finishes' fragment code (from the pack) in its place; nothing without them. */
+export function opaqueChunk(finishes = null) {
+  const holo = finishes?.holo?.glsl ? `if (hh_holo > 0.001) { // holographic film (souldew+ pack)\n${finishes.holo.glsl}\n    }` : '';
+  const glit = finishes?.glitter?.glsl ? `if (hh_glit > 0.001) { // glitter (souldew+ pack)\n${finishes.glitter.glsl}\n    }` : '';
+  return OPAQUE_BASE.replace('__FINISHES__', `${holo}\n    ${glit}`);
+}
 
 /**
  * Adds the wrap + stickers to a shell material. spec = { slab: {w, d, h, b, r, rBR}, top: region|null, bottom: region|null }
  * region = { L (mm the wrap reaches past the flat face), Ls (stickers), art: [sx, sy, cx, cy], border: 0|1, cuts: [cut] }
  * cut = { c: [x, y], he: [hx, hy], r, a } in the region's unfolded mm. `shared` = uniforms shared by every surface.
+ * finishes = the pack's checked sticker finishes (looks.mjs cleanLooks › finishes) or null (vinyl only).
  */
-export function withSurface(THREE, mat, spec, shared) {
+export function withSurface(THREE, mat, spec, shared, finishes = null) {
   const V4 = (a = 0, b = 0, c = 0, d = 0) => new THREE.Vector4(a, b, c, d);
   const reg = (r) => (r ? V4(1, r.L, r.Ls, r.border ? 1 : 0) : V4(0, 0, 0, 0));
   const cuts = [], cutsP = [];
@@ -199,8 +197,10 @@ export function withSurface(THREE, mat, spec, shared) {
     uCut: { value: cuts }, uCutP: { value: cutsP }, uNCut: { value: Math.min(NCUT, (spec.top?.cuts?.length || 0) + (spec.bottom?.cuts?.length || 0)) },
     uStk: { value: Array.from({ length: NSTK }, () => V4()) }, uStkR: { value: Array.from({ length: NSTK }, () => V4()) },
     uStkF: { value: Array.from({ length: NSTK }, () => V4(9)) }, uNStk: { value: 0 },
+    uHoloRM: { value: new THREE.Vector2(finishes?.holo?.roughness ?? 0.26, finishes?.holo?.metalness ?? 0) },
     ...shared,
   };
+  const opaque = opaqueChunk(finishes);
   const prev = mat.onBeforeCompile;
   mat.onBeforeCompile = (sh, r) => {
     prev?.call(mat, sh, r);
@@ -213,10 +213,11 @@ export function withSurface(THREE, mat, spec, shared) {
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>\n${NORMAL}`)
       .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>\n${LIGHTS}`)
       .replace('#include <transmission_fragment>', THREE.ShaderChunk.transmission_fragment.replace('material.transmission = transmission;', 'material.transmission = transmission * (1.0 - hh_scov);'))
-      .replace('#include <opaque_fragment>', `${OPAQUE}\n#include <opaque_fragment>`);
+      .replace('#include <opaque_fragment>', `${opaque}\n#include <opaque_fragment>`);
   };
   const key = mat.customProgramCacheKey?.() || '';
-  mat.customProgramCacheKey = () => `${key}+hh`;
+  const fin = `${finishes?.holo?.glsl?.length || 0}.${finishes?.glitter?.glsl?.length || 0}`;
+  mat.customProgramCacheKey = () => `${key}+hh${fin}`;
   mat.userData.hh = { U, spec };
   return mat;
 }

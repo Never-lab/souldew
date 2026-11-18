@@ -173,6 +173,12 @@ Plus a new play view that gives the game the room it deserves.
   other; they slide round buttons and screens. Up to 12 saved designs, “Surprise me at start”, favourites, export /
   import as a small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy.
   Only you see your handheld. From the library's header tile, the souldew+ page or Settings › Play › Launch animation.
+- **souldew+ looks stay souldew+'s.** Gold, Clear shell, Holo label, the Rare start and the holo and glitter sticker
+  finishes now come in the souldew+ pack like the banners and stickers, instead of being built into the app – a
+  changed copy of the open-source app can't just switch them on. The pack's key belongs to the device you signed in
+  on: copying souldew's data folder to another computer opens nothing, and signing a device out ends its key. The
+  pictures of souldew+ stickers and skins you see before joining are shots of the real thing, not the files
+  themselves.
 - **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
   link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
   the board's Rules – and every change goes to the log; the others see them read-only.
