@@ -140,9 +140,14 @@ before(async () => {
 });
 
 after(async () => {
-  for (const a of apps) a.child.kill();
+  // the apps write their data folders until they have really exited – wait for that, then remove them
+  await Promise.all(apps.map((a) => new Promise((res) => {
+    if (a.child.exitCode !== null || a.child.signalCode !== null) return res();
+    a.child.once('exit', res);
+    a.child.kill();
+  })));
   await fake?.close();
-  for (const d of dirs) rmSync(d, { recursive: true, force: true });
+  for (const d of dirs) rmSync(d, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 });
 
 const kimCard = () => ({ id: kim.id, name: 'Kim', handle: 'kimchi' });
