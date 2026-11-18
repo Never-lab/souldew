@@ -7,6 +7,7 @@ import { t, currentLang } from './i18n.mjs';
 import { ALL_SLOTS, slotsOf, runMode, isNuzlocke, othersOf } from '/shared/slots.mjs';
 import { DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, rulesWithDefaults } from '/shared/rules.mjs';
 import { placeName } from '/shared/live/location.mjs';
+import { moneyText } from '/shared/linkbattle.mjs';
 import { livesLeft, livesOf, deathsIn, poolOf } from '/shared/lives.mjs';
 import { hostSlotOf, canEditRules, SOULLINK_RULE_KEYS } from '/shared/hostrules.mjs';
 import { cleanSummary } from '/shared/monstats.mjs';
@@ -250,7 +251,8 @@ function renderMsg(doc, manifest, m) {
   const vars = {};
   for (const [k, v] of Object.entries(m.vars || {})) {
     vars[k] = v && typeof v === 'object'
-      ? v.area !== undefined ? areaName(doc, manifest, v.area) : v.species !== undefined ? speciesName(v.species) : v.key ? renderMsg(doc, manifest, v) : ''
+      ? v.area !== undefined ? areaName(doc, manifest, v.area) : v.species !== undefined ? speciesName(v.species) : v.money !== undefined ? moneyText(v.money, currentLang())
+        : v.key ? renderMsg(doc, manifest, v) : ''
       : v;
   }
   return t(m.key, m.def, vars);
@@ -447,6 +449,45 @@ export function logLinkTrade(doc, manifest, slot, partner, before, after) {
   const name = players(doc, manifest)[partner]?.name || partner;
   feedMsg(doc, manifest, { type: 'trade', slot, partner, gave: gave.map((m) => m.species), got: got.map((m) => m.species),
     msg: msg('feed.linkTrade', 'traded {gave} for {got} with {partner}', { gave: { species: gave[0].species }, got: { species: got[0].species }, partner: name }) });
+  return true;
+}
+
+/**
+ * A link battle every player of the session agreed on (web/lib/wager.mjs outcomeOf) into the log: "Marius won a link
+ * battle against Tim", "… won 2 : 1 in link battles against Tim", "… drew a link battle with Tim", "Marius & Lena beat
+ * Tim & Robin in a multi battle". Keyed by the session, so every player's computer writes the same entry once.
+ */
+export function logLinkBattle(doc, manifest, sid, o) {
+  const key = `feed:lb-${sid}`;
+  if (!o || o.state !== 'agreed' || !o.summary?.battles || doc.get(key)) return false;
+  const names = players(doc, manifest);
+  const name = (s) => names[s]?.name || s;
+  const s = o.summary;
+  const base = { at: o.at || Date.now(), type: 'linkBattle', sid, winners: s.winners, losers: s.losers, draw: !!s.draw, battles: s.battles, wager: o.wager || 0 };
+  let entry;
+  if (s.multi) {
+    entry = { ...base, slot: null, msg: msg('feed.linkMulti', '{winners} beat {losers} in a multi battle', { winners: joinNames(s.winners.map(name)), losers: joinNames(s.losers.map(name)) }) };
+  } else if (s.draw) {
+    const [a, b] = o.seats;
+    entry = { ...base, slot: a, msg: s.battles > 1 ? msg('feed.linkDrawMany', 'drew {score} with {name} in link battles', { score: `${s.score[0]} : ${s.score[1]}`, name: name(b) })
+      : msg('feed.linkDraw', 'drew a link battle with {name}', { name: name(b) }) };
+  } else {
+    const [w] = s.winners;
+    const [l] = s.losers;
+    entry = { ...base, slot: w, msg: s.battles > 1 ? msg('feed.linkWonMany', 'won {score} in link battles against {name}', { score: `${s.score[0]} : ${s.score[1]}`, name: name(l) })
+      : msg('feed.linkWon', 'won a link battle against {name}', { name: name(l) }) };
+  }
+  doc.set(key, { ...entry, text: feedText(doc, manifest, entry) });
+  return true;
+}
+
+/** `slot`'s game paid a lost wager: "Tim paid Marius ₽2,000 (link battle)" – once per session and payer. */
+export function logWagerPaid(doc, manifest, sid, slot, to, amount) {
+  const key = `feed:lbp-${sid}-${slot}`;
+  if (doc.get(key)) return false;
+  const entry = { at: Date.now(), type: 'wager', slot, to, amount, sid,
+    msg: msg('feed.wagerPaid', 'paid {name} {amount} (link battle)', { name: players(doc, manifest)[to]?.name || to, amount: { money: amount } }) };
+  doc.set(key, { ...entry, text: feedText(doc, manifest, entry) });
   return true;
 }
 

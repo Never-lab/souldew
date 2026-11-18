@@ -25,8 +25,8 @@ const SYSTEM = q.get('system') || 'nds';
 // ?link=1&session=<id>: a session the play view opened for a game that wasn't running here (it starts from the save).
 let LINK_SESSION = q.get('link') === '1' ? q.get('session') : null;
 // (retrohost's messages – the link host speaks the same ones plus its own, shared/link.mjs)
-const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE, WATCHED: 16 };
-const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, SEATSTATE: LINK_CMD.SEATSTATE };
+const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, MEM: LINK_MSG.MEM, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE, WATCHED: 16 };
+const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, SEATSTATE: LINK_CMD.SEATSTATE, READ: LINK_CMD.READ };
 const post = (m) => window.parent?.postMessage(m, location.origin);
 // ?debug=1 (the ROM matrix): what arrives from the host – events, picture sizes, saves – on the console
 const DEBUG = q.get('debug') === '1';
@@ -57,6 +57,9 @@ const st = {
   engine: false, // the souldew engine plays (its loaded event says so): link sessions switch in its own process
 };
 const waiters = { state: [], loaded: [], stepped: [], seatState: [], seatSram: [] };
+// a link session's READs (any seat's bytes – the link battle's result, shared/linkbattle.mjs) and FLUSH's every-seat saves
+const memWaiters = []; // { seat, addr, res }
+const seatSaves = { want: 0, got: null, res: null };
 
 // ---- commands -----------------------------------------------------------------------------------------------------
 // One request at a time, and what comes meanwhile goes along with the next one (the server takes several framed
@@ -519,7 +522,8 @@ async function pump() {
       else if (type === MSG.WATCHED) nextWatched = p.slice();
       else if (type === MSG.STATE) waiters.state.shift()?.(p.slice());
       else if (type === MSG.SEATSTATE) waiters.seatState.shift()?.(p.length > 4 ? p.slice(4) : null);
-      else if (type === MSG.SEATSRAM && p.length >= 4 && new DataView(p.buffer, p.byteOffset, 4).getUint32(0, true) === st.localSeat) waiters.seatSram.shift()?.(p.slice(4));
+      else if (type === MSG.SEATSRAM && p.length >= 4) onSeatSram(new DataView(p.buffer, p.byteOffset, 4).getUint32(0, true), p.slice(4));
+      else if (type === MSG.MEM && p.length >= 8) onMem(p);
       else if (type === MSG.LOG) {
         st.log.push(new TextDecoder().decode(p));
         if (st.log.length > 200) st.log.splice(0, st.log.length - 200);
@@ -544,8 +548,25 @@ function startPump() {
     fail(t('native.failed', 'The game can’t run in the fast player: {why}', { why: e.message }));
   });
 }
+/** A seat's battery save from FLUSH: ours for resumeSolo, every seat's for linkSeatSaves. */
+function onSeatSram(seat, bytes) {
+  if (seat === st.localSeat) waiters.seatSram.shift()?.(bytes);
+  if (seatSaves.got && seat < seatSaves.want) {
+    seatSaves.got[seat] = bytes;
+    if (Object.keys(seatSaves.got).length === seatSaves.want) seatSaves.res?.(seatSaves.got);
+  }
+}
+function onMem(p) {
+  const v = new DataView(p.buffer, p.byteOffset, 8);
+  const seat = v.getUint32(0, true);
+  const addr = v.getUint32(4, true);
+  const i = memWaiters.findIndex((w) => w.seat === seat && w.addr === addr);
+  if (i >= 0) memWaiters.splice(i, 1)[0].res(p.slice(8));
+}
 function ended() {
   st.ended = true;
+  memWaiters.splice(0).forEach((w) => w.res(null));
+  seatSaves.res?.(null);
   for (const k of ['state', 'stepped', 'seatState', 'seatSram']) waiters[k].splice(0).forEach((f) => f(null));
   waiters.loaded.splice(0).forEach((f) => f(false));
 }
@@ -807,6 +828,45 @@ window.__emu = {
     if (!inPlace) startPump();
     sendInput();
     return true;
+  },
+  /**
+   * A link session: `len` bytes at bus address `addr` of seat `seat`'s console (READ – it changes nothing), or null. How
+   * every peer reads every seat's link battle (shared/linkbattle.mjs).
+   */
+  linkRead(seat, addr, len) {
+    if (!LINK_SESSION || st.ended) return Promise.resolve(null);
+    return new Promise((res) => {
+      const w = { seat, addr: addr >>> 0, res };
+      memWaiters.push(w);
+      const b = new Uint8Array(12);
+      const v = new DataView(b.buffer);
+      v.setUint32(0, seat, true);
+      v.setUint32(4, addr >>> 0, true);
+      v.setUint32(8, len, true);
+      const drop = () => {
+        const i = memWaiters.indexOf(w);
+        if (i >= 0) memWaiters.splice(i, 1);
+        res(null);
+      };
+      cmd(CMD.READ, b).then((ok) => !ok && drop());
+      setTimeout(drop, 4000);
+    });
+  },
+  /** A link session: every seat's battery save as its console holds it now ({ seat: bytes }), or null. */
+  linkSeatSaves(n) {
+    if (!LINK_SESSION || st.ended || !(n > 0)) return Promise.resolve(null);
+    return new Promise((res) => {
+      const finish = (x) => {
+        if (seatSaves.res !== finish) return;
+        seatSaves.got = null;
+        seatSaves.res = null;
+        res(x);
+      };
+      seatSaves.res?.(null); // (one at a time)
+      Object.assign(seatSaves, { want: n, got: {}, res: finish });
+      cmd(CMD.FLUSH);
+      setTimeout(() => finish(null), 4000);
+    });
   },
   /**
    * The link session is over: this console goes on alone from the state the link host left it in (with the session's

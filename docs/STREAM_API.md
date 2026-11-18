@@ -145,7 +145,7 @@ Field notes:
   With the rule "a missed encounter costs the whole pair/group" off (`run.rules.failKillsPair: false`), the
   others' catches of a `failed` area stay usable – `results` shows whose they are.
 - `graveyard[]`: dead links, newest first, with the killer when souldew saw the battle.
-- `feed[]`: the 20 newest log entries (`catch`, `death`, `badge`, `evolve`, …).
+- `feed[]`: the 20 newest log entries (`catch`, `death`, `badge`, `evolve`, …). A `linkBattle` entry also has `winners`, `losers`, `draw`, `battles` and `wager` (as the `link-battle` event).
 - Times are milliseconds since 1970 (`Date.now()`).
 
 ## Live events (Server-Sent Events)
@@ -179,6 +179,7 @@ needed; `hello` with `run: null` means there is no run any more. Every event's d
 | `battle-end` | `slot, kind, species, name` |
 | `legendary` | Same as `encounter`, for a wild legendary or mythical |
 | `coffee` | The coffee pop-up (below) |
+| `link-battle` | `winners: [slots], losers: [slots], draw, battles, wager` – a link battle between the players (3.0) once every player's souldew read the same result; `wager`: the in-game money (₽) the losers paid, 0 for none |
 
 `mon` is `{ slot, key, species, name, nickname, level, shiny, sprites }`.
 

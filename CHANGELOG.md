@@ -24,6 +24,16 @@ Plus a new play view that gives the game the room it deserves.
   last save is kept next to it. In the Game Boy and GBA games a player whose game dropped out can rejoin while the
   others wait. Nothing a link session shows counts for the run – a battle there never files a death. The run's rules
   decide whether trades and link battles are allowed.
+- **Battle for money, and keep score.** A challenge can be for in-game money: pick single or double battle (two
+  against two with four Game Boy Advances), set a wager up to what you have, and your partner sees it in the invite –
+  joining for less if they have less. When the battle is over, every player's souldew reads the result from the games
+  themselves, the results are compared, and only one everybody agrees on counts: the log says “Marius won a link
+  battle against Tim”, the loser's game pays the winner's as soon as both stand in the overworld again (saved with
+  your next in-game save – once, even after a reset), and the board keeps the record between you: “Marius 3 : 1 Tim”.
+  Games out of step, a game that dropped out of the link or a result that isn't clear: nobody pays. The host decides
+  whether wagers are allowed and the highest wager. Works in Red, Blue, Yellow, Gold, Silver, Crystal, Ruby,
+  Sapphire, Emerald, FireRed, LeafGreen and Platinum (English, and the German Gen 3 games except Emerald); stream
+  tools get a `link-battle` event.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into

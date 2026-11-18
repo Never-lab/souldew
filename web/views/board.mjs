@@ -20,7 +20,7 @@ import { useStreamer } from '../lib/streamer.mjs';
 import { NuzlockeRules, Choice, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, HostRulesNote, BallsRule, LinkRules } from './nuzrules.mjs';
 import { ShareButton, HallOfFame } from './liveshare.mjs';
 import { deathEvent } from '../lib/liveshare.mjs';
-import { LinkButtons, LinkGroupButton, LINK_SYSTEMS } from './linkplay.mjs';
+import { LinkButtons, LinkGroupButton, HeadToHead, LINK_SYSTEMS } from './linkplay.mjs';
 import { RpsStart } from './rps.mjs';
 
 
@@ -101,6 +101,7 @@ function PlayerTag({ slot, right }) {
         : playingHere ? t('board.playingNoTeam', 'playing – no team yet')
           : slot === me ? t('board.startPlaying', 'Start the game to go live')
             : online ? t('board.partnerOnline', 'online – no team yet') : linkStatus ? t('board.notPlaying', 'not playing yet') : t('rail.offline', 'Not connected')}</span>
+      ${slot !== me && html`<${HeadToHead} slot=${slot} />`}
       ${slot !== me ? html`<${LinkButtons} slot=${slot} />` : html`<${LinkGroupButton} />`}
     </div>
   </div>`;

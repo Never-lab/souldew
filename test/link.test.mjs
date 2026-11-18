@@ -153,12 +153,12 @@ test('native: link host arguments – every system incl. the DS, a rejoin\'s sta
   assert.throws(() => linkArgs({ system: 'gba', roms: ['a'], saves: [], local: 0 }), { code: 'linkSeats' });
 });
 
-test('native: a page may send a link session buttons, a peer\'s request, a session state request – never LOAD, POKE, READ', () => {
+test('native: a page may send a link session buttons, a peer\'s request, a session state request, a small READ – never LOAD, POKE', () => {
   const u32 = (...v) => Buffer.from(new Uint32Array(v).buffer);
   const ok = Buffer.concat([command(LCMD.INPUT, Buffer.alloc(17)), command(LCMD.RINPUT, u32(1, 10, 5)), command(LCMD.NEED, u32(1, 10)), command(LCMD.SAVE), command(LCMD.UNTIL, u32(99)),
-    command(LCMD.SEATSTATE, u32(300))]);
+    command(LCMD.SEATSTATE, u32(300)), command(LCMD.READ, u32(1, 0x0202433a, 1)), command(LCMD.READ, u32(0, 0x02000000, 4096))]);
   assert.equal(checkLinkCommands(ok), ok);
-  for (const bad of [command(4, Buffer.alloc(8)), command(23, u32(0, 0, 1)), command(22, u32(0, 0, 4)), command(LCMD.NEED, u32(1)), command(LCMD.RINPUT, Buffer.alloc(9)), command(LCMD.SEATSTATE, Buffer.alloc(0))]) {
+  for (const bad of [command(4, Buffer.alloc(8)), command(23, u32(0, 0, 1)), command(22, u32(0, 0, 4097)), command(22, u32(0, 0)), command(LCMD.NEED, u32(1)), command(LCMD.RINPUT, Buffer.alloc(9)), command(LCMD.SEATSTATE, Buffer.alloc(0))]) {
     assert.throws(() => checkLinkCommands(bad), { code: 'badCommand' });
   }
 });
@@ -216,7 +216,7 @@ function browserGlobals() {
 }
 
 /** Two pages of one run (p1 = Marius, p2 = Tim): their channel, their servers (fetch), what reached the link hosts. */
-async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200 } = {}) {
+async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200, consoles = null, oldB = false, rules = {} } = {}) {
   const g = browserGlobals();
   const { LinkSessions } = await import('../web/lib/linksession.mjs');
   const roms = { p1: 'a'.repeat(40), p2: 'b'.repeat(40) };
@@ -225,8 +225,11 @@ async function pair({ missingOnB = false, seamless = false, binary = false, save
   const sync = (slot) => ({
     onLink: (fn) => ((peers[slot] = fn), () => delete peers[slot]),
     sendLink: (msg, to) => {
+      // (oldB: B's souldew is an older 3.0 build – it knows no caps and no wager)
+      const old = (m) => Object.fromEntries(Object.entries(m).filter(([k]) => !['caps', 'wager', 'format'].includes(k)));
       for (const t of to) {
         if (net.drop && msg.t === 'in') continue;
+        if (oldB && (slot === 'p2' || t === 'p2')) msg = old(msg);
         net.log.push({ from: slot, to: t, t: msg.t });
         queueMicrotask(() => peers[t]?.({ ...msg, from: slot }));
       }
@@ -259,8 +262,10 @@ async function pair({ missingOnB = false, seamless = false, binary = false, save
   const emuState = { p1: null, p2: null };
   // seamless: each player's game runs in the fast player – what the page asked of it is logged
   const emuLog = { p1: [], p2: [] };
+  // consoles: every seat's memory (seat → { read(addr, len) }) – every peer's link host runs the same consoles
   const emuFor = (slot) => ({
     linkState: async () => emuState[slot],
+    ...(consoles ? { linkRead: async (seat, addr, len) => consoles[seat].read(addr, len), linkSeatSaves: async () => null } : {}),
     ...(seamless ? {
       linkSnapshot: async () => (emuLog[slot].push(['snapshot']), { state: new TextEncoder().encode(`running game of ${slot} `.repeat(500)), frame: 1234, model: slot === 'p1' ? 'dmg' : 'cgb' }),
       linkSnapshotCancel: async (st) => (emuLog[slot].push(['cancel', !!st]), true),
@@ -268,12 +273,13 @@ async function pair({ missingOnB = false, seamless = false, binary = false, save
       resumeSolo: async (from) => (emuLog[slot].push(['resume', from ? new TextDecoder().decode(from.state).slice(0, 22) : null]), true),
     } : {}),
   });
+  const results = { p1: [], p2: [] };
   const mk = (slot) => new LinkSessions({ sync: sync(slot), runId: 'run1', me: slot, onChange: () => {}, openSession: () => {}, closeSession: () => closed[slot]++,
-    emu: () => emuFor(slot), ownGame: () => seamless, fetchImpl: fetchFor(slot) });
+    emu: () => emuFor(slot), ownGame: () => seamless, fetchImpl: fetchFor(slot), rules: () => rules, onResult: (e) => results[slot].push(e) });
   const A = mk('p1'), B = mk('p2');
   const settle = async (ms = 1700) => { for (let i = 0; i < ms / 50; i++) await new Promise((r) => setTimeout(r, 50)); };
   const as = (slot, fn) => fn; // (each page has its own server now)
-  return { A, B, g, server, net, as, settle, closed, emuState, emuLog, roms, fetchFor, sync };
+  return { A, B, g, server, net, as, settle, closed, emuState, emuLog, roms, fetchFor, sync, results };
 }
 
 test('linksession: invite → join → every game here → saves → go: both link hosts start with the same seats', async () => {
@@ -456,4 +462,78 @@ test('linksession: a page that went away offers to rejoin; the one who stayed se
   assert.ok(start.seats.every((s) => !s.save), 'no saves: the state has them');
   assert.equal(A.stats.donated, 1);
   A.stop(), B2.stop();
+});
+
+// ---- link battles: the result read on every peer, the wager ------------------------------------------------------
+/** Two GBAs as the link host runs them on every peer: Emerald (seat 0) and Sapphire (seat 1), ₽3,000 each. */
+function twoGbas() {
+  const mem = () => {
+    const m = new Map();
+    const put = (a, bytes) => bytes.forEach((b, i) => m.set(a + i, b));
+    return { m, put, read: (a, n) => Uint8Array.from({ length: n }, (_, i) => m.get(a + i) ?? 0) };
+  };
+  const le = (v) => [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, v >>> 24];
+  const e = mem(), sa = mem();
+  e.put(0x080000ac, [...'BPEE'].map((c) => c.charCodeAt(0)));
+  sa.put(0x080000ac, [...'AXPE'].map((c) => c.charCodeAt(0)));
+  e.put(0x03005d8c, le(0x02025a00)); e.put(0x03005d90, le(0x02024a00)); e.put(0x02024a00 + 0xac, le(0)); e.put(0x02025a00 + 0x490, le(3000));
+  sa.put(0x02025734 + 0x490, le(3000));
+  // the battle: gBattleOutcome cleared with a link battle's flags, later each side's outcome
+  const fight = () => { e.put(0x02022fec, le(0x2e)); e.put(0x0202433a, [0]); sa.put(0x020239f8, le(0x2a)); sa.put(0x02024d26, [0]); };
+  const end = (eo, so) => { e.put(0x0202433a, [eo]); sa.put(0x02024d26, [so]); };
+  return { consoles: [e, sa], fight, end };
+}
+
+test('linksession, wager: the challenge carries the wager; the partner joins for less; both work out the same stake', async () => {
+  const gbas = twoGbas();
+  const { A, B, settle, results } = await pair({ consoles: gbas.consoles });
+  await A.invite('battle', ['p2'], { wager: 2500, format: 'single' });
+  await settle(100);
+  assert.equal(B.state.phase, 'invited');
+  assert.deepEqual([B.state.wager.offer, B.state.format], [2500, 'single']);
+  await B.accept({ wager: 2000 }); // (Tim has ₽2,000)
+  await settle(3500);
+  assert.equal(A.state.phase, 'running');
+  assert.deepEqual([A.state.stake, B.state.stake], [2000, 2000]);
+  gbas.fight();
+  await settle(1200);
+  gbas.end(1, 2); // Emerald (Marius) wins
+  await settle(1200);
+  A.leave('left');
+  await settle(800);
+  const [ra, rb] = [results.p1[0], results.p2[0]];
+  assert.ok(ra && rb, 'both computers wrote what they read');
+  assert.deepEqual(ra.per, { p1: { w: 1, l: 0, d: 0 }, p2: { w: 0, l: 1, d: 0 } });
+  assert.equal(ra.h, rb.h, 'the same result on both: the same hash');
+  assert.equal(ra.wager, 2000);
+  A.stop(), B.stop();
+});
+
+test('linksession, wager: a partner on an older build (no caps) – the battle is for nothing; out of step – void', async () => {
+  const gbas = twoGbas();
+  const { A, B, settle, results } = await pair({ consoles: gbas.consoles, oldB: true });
+  await A.invite('battle', ['p2'], { wager: 1000 });
+  await settle(100);
+  assert.equal(B.state.wager.offer, 0, 'the old build saw no wager');
+  await B.accept();
+  await settle(3500);
+  assert.equal(A.state.stake, 0, 'no caps from Tim: no wager');
+  A._hash('p1', 240, 'aaaa');
+  A._hash('p2', 240, 'bbbb');
+  await settle(800);
+  assert.equal(results.p1[0].void, 'desync');
+  assert.equal(results.p2[0].void, 'desync');
+  A.stop(), B.stop();
+});
+
+test('linksession, wager: the run\'s rule – off: no wager; a cap lowers the offer', async () => {
+  const off = await pair({ rules: { linkWagers: 'off' } });
+  await off.A.invite('battle', ['p2'], { wager: 1000 });
+  assert.equal(off.A.state.wager.offer, 0);
+  off.A.leave('left'); off.A.stop(); off.B.stop();
+  const cap = await pair({ rules: { linkWagerCap: 500 } });
+  await cap.A.invite('battle', ['p2'], { wager: 1000 });
+  assert.equal(cap.A.state.wager.offer, 500);
+  await cap.A.invite('trade', ['p2'], { wager: 1000 }).catch(() => {});
+  cap.A.leave('left'); cap.A.stop(); cap.B.stop();
 });

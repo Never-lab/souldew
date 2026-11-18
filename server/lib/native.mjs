@@ -37,11 +37,15 @@ export const NMSG = { ...MSG, RAM: LINK_MSG.RAM, SRAM: LINK_MSG.SRAM, LINPUT: LI
 // (WATCH: a few RAM bytes with every picture – the Shared World overlay's camera, web/lib/worldoverlay.mjs)
 export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14 };
 
-/** Commands a page may send a link session (native/link-host/linkhost.c): no states, cheats, steps or memory access.
- *  SEATSTATE: the player's own console for the fast player once the session is over (it goes on alone from there). */
+/** Commands a page may send a link session (native/link-host/linkhost.c): no states, cheats, steps or memory writes.
+ *  SEATSTATE: the player's own console for the fast player once the session is over (it goes on alone from there).
+ *  READ: a few bytes of any seat's console – how the link battle's result is read on every peer (shared/linkbattle.mjs);
+ *  it changes nothing in any console. */
 /** UNTIL: pause at a session frame (the e2e stops every peer where its recording ends). */
-const { INPUT, SPEED, SAVE, QUIT, FLUSH, RESYNC, RINPUT, UNTIL, NEED, SEATSTATE } = LINK_CMD;
-export const LCMD = { INPUT, SPEED, SAVE, QUIT, FLUSH, RESYNC, RINPUT, UNTIL, NEED, SEATSTATE };
+const { INPUT, SPEED, SAVE, QUIT, FLUSH, RESYNC, RINPUT, UNTIL, NEED, SEATSTATE, READ } = LINK_CMD;
+export const LCMD = { INPUT, SPEED, SAVE, QUIT, FLUSH, RESYNC, RINPUT, UNTIL, NEED, SEATSTATE, READ };
+/** The most a page may READ at once (the Gen 4 game records are 0x1BC bytes). */
+export const LINK_READ_MAX = 4096;
 export { LINK_SYSTEMS, MAX_LINK_SEATS };
 
 export const MAX_SAVE = 4 * 1024 * 1024; // the biggest battery save of a DS game is 8 Mbit; GBA / GB far less
@@ -181,11 +185,12 @@ export function checkLinkCommands(body) {
   if (rest.length || !messages.length) throw httpError(400, 'Invalid command', 'badCommand');
   const limits = {
     [LCMD.INPUT]: [17, 32], [LCMD.SPEED]: [4, 4], [LCMD.QUIT]: [0, 0], [LCMD.FLUSH]: [0, 0], [LCMD.RESYNC]: [0, 0],
-    [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4], [LCMD.SAVE]: [0, 0], [LCMD.NEED]: [8, 8], [LCMD.SEATSTATE]: [4, 4],
+    [LCMD.RINPUT]: [12, 8 + 4 * 4096], [LCMD.UNTIL]: [4, 4], [LCMD.SAVE]: [0, 0], [LCMD.NEED]: [8, 8], [LCMD.SEATSTATE]: [4, 4], [LCMD.READ]: [12, 12],
   };
   for (const m of messages) {
     const l = limits[m.type];
     if (!l || m.payload.length < l[0] || m.payload.length > l[1] || (m.type === LCMD.RINPUT && (m.payload.length - 8) % 4)) throw httpError(400, 'Invalid command', 'badCommand');
+    if (m.type === LCMD.READ && m.payload.readUInt32LE(8) > LINK_READ_MAX) throw httpError(400, 'Invalid command', 'badCommand');
   }
   return body;
 }
