@@ -152,7 +152,7 @@ export async function startFakeAccounts({ port = 0 } = {}) {
   const me = (u) => {
     const locked = ['banner', 'frame', 'nameplate'].filter((k) => u[k] && premium(k, u[k]) && !plusOk(u));
     return { id: u.id, handle: u.handle, display_name: u.display_name, display_name_is_custom: u.display_name_is_custom, avatar_url: avatarUrl(u), discord: u.discord, friend_code: u.friend_code,
-      banner: u.banner, frame: u.frame, nameplate: u.nameplate, title: u.title, accent: u.accent, status: u.status, showcase: showcaseView(u, true), showcase_layout: u.showcase_layout, privacy: u.privacy,
+      banner: u.banner, frame: u.frame, nameplate: u.nameplate, title: u.title, accent: u.accent, status: u.status, showcase: showcaseView(u, true), ...(f.noLayouts ? {} : { showcase_layout: u.showcase_layout }), privacy: u.privacy,
       stats: u.privacy.show_runs ? u.stats : null, entitlement: u.entitlement, created_at: u.created_at, ...(locked.length ? { locked } : {}) };
   };
   const relationship = (viewer, u) => (viewer === u.id ? 'self' : areFriends(viewer, u.id) ? 'friend'
@@ -314,7 +314,7 @@ export async function startFakeAccounts({ port = 0 } = {}) {
 
     if (path === '/v1/me' && req.method === 'GET') return json(res, 200, me(u));
     if (path === '/v1/me' && req.method === 'PATCH') {
-      const bad = unknown(body, ME_FIELDS);
+      const bad = unknown(body, f.noLayouts ? ME_FIELDS.filter((k) => k !== 'showcase_layout') : ME_FIELDS); // noLayouts: a service before migration 0004
       if (bad) return err(res, 400, 'unknown_field', { field: bad });
       for (const k of ['banner', 'frame', 'nameplate', 'title']) {
         if (!(k in body)) continue;

@@ -204,6 +204,19 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     return ownLoading;
   }
 
+  /**
+   * Me from the service – with the showcase layout kept on this computer when the service doesn't store layouts yet
+   * (API.md §2.2 showcase_layout came with migration 0004; a service without it neither sends nor takes the field).
+   */
+  function meOf(raw) {
+    const m = cleanMe(raw, service);
+    if (m && raw && typeof raw === 'object' && raw.showcase_layout === undefined) {
+      const kept = session.extra('showcaseLayout');
+      if (SHOWCASE_LAYOUTS.includes(kept)) m.showcaseLayout = kept;
+    }
+    return m;
+  }
+
   /** An authorized call; any failure becomes the page's error. */
   async function call(path, opts = {}) {
     const r = await session.request(path, opts);
@@ -218,7 +231,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     const r = await session.request(API.me);
     if (r.status === 200 && gen !== meGen) return me; // an edit (PATCH, handle) landed meanwhile – it is newer
     if (r.status === 200) {
-      me = cleanMe(r.body, service);
+      me = meOf(r.body);
       meAt = now();
       keepPrivacy(me);
       await freshOwn();
@@ -344,7 +357,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     if (!n || (n.teams === sc.trusted.teams && n.top_level === sc.trusted.topLevel && n.fell === sc.trusted.fell)) return;
     const r = await session.request(API.me, { method: 'PATCH', json: { showcase: showcaseBody(sc, n) } });
     if (r.status === 200) {
-      me = cleanMe(r.body, service);
+      me = meOf(r.body);
       meAt = now();
       meGen++;
     }
@@ -418,7 +431,18 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     // a most trusted line goes with its numbers from this computer's runs – only when the runs are shared
     const share = typeof b.privacy?.showRuns === 'boolean' ? b.privacy.showRuns : !!me?.privacy?.showRuns;
     const patch = mePatch(b, { numbers: share ? (line) => numbers(line) : null });
-    const body = cleanMe(await call(API.me, { method: 'PATCH', json: patch }), service);
+    let body;
+    try {
+      body = meOf(await call(API.me, { method: 'PATCH', json: patch }));
+    } catch (e) {
+      // a service that doesn't store showcase layouts yet refuses the field: the layout stays on this computer (and
+      // shows on your own profile), everything else is saved as usual
+      if (!('showcase_layout' in patch) || e.status !== 400 || e.vars?.field !== 'showcase_layout' || !['unknown_field', 'invalid_field'].includes(e.vars?.code)) throw e;
+      session.setExtra('showcaseLayout', patch.showcase_layout);
+      delete patch.showcase_layout;
+      body = Object.keys(patch).length ? meOf(await call(API.me, { method: 'PATCH', json: patch })) : me && { ...me, showcaseLayout: session.extra('showcaseLayout') };
+      if (!body) body = await loadMe(true);
+    }
     me = body;
     meAt = now();
     meGen++;
@@ -432,7 +456,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     signedIn();
     const handle = normalizeHandle((await readJson(req)).handle);
     if (!handle) throw httpError(400, 'Invalid handle', 'acct', { code: 'invalid_field', field: 'handle' });
-    me = cleanMe(await call(API.handle, { method: 'PUT', json: { handle } }), service);
+    me = meOf(await call(API.handle, { method: 'PUT', json: { handle } }));
     meAt = now();
     meGen++;
     session.rememberAccount(brief(me));

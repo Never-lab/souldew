@@ -441,6 +441,34 @@ test('showcase: the layout is saved on the service and friends see it; a most tr
   await a.patch('/api/account/me', { showcaseLayout: 'case' });
 });
 
+test('showcase layout: a service that doesn’t store layouts yet (before migration 0004) – the layout stays on this computer, the rest saves', async () => {
+  const a = await app();
+  await a.signIn(robin);
+  fake.noLayouts = true;
+  try {
+    // the field is refused by the old service: saved without it, kept locally, shown on the own profile
+    const r = await a.patch('/api/account/me', { showcaseLayout: 'lcd', status: 'layout test' });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.showcaseLayout, 'lcd');
+    assert.equal(r.body.status, 'layout test');
+    const sent = fake.log.filter((l) => l.method === 'PATCH' && l.path === '/v1/me');
+    assert.equal(sent.at(-1).body.showcase_layout, undefined, 'the retry leaves the field out');
+    assert.equal(sent.at(-1).body.status, 'layout test');
+    // only the layout: nothing goes to the service again, the profile keeps it
+    const only = await a.patch('/api/account/me', { showcaseLayout: 'shelf' });
+    assert.equal(only.status, 200, JSON.stringify(only.body));
+    assert.equal(only.body.showcaseLayout, 'shelf');
+    assert.equal((await a.get('/api/account')).body.me.showcaseLayout, 'shelf', 'a fresh read keeps the local layout');
+    // other refusals still come through as errors
+    const bad = await quiet(() => a.patch('/api/account/me', { showcaseLayout: 'lcd', status: '<b>no</b>' }));
+    assert.equal(bad.status, 400);
+  } finally {
+    fake.noLayouts = false;
+  }
+  // a service that stores layouts wins again
+  assert.equal((await a.patch('/api/account/me', { showcaseLayout: 'case', status: null })).body.showcaseLayout, 'case');
+});
+
 test('showcase: the most trusted line goes out with its numbers only when the runs are shared', () => {
   const numbers = (line) => (line === 258 ? { teams: 5, top_level: 58, fell: 1 } : null);
   const body = { showcase: { trophies: ['badges16'], trusted: { species: 260, line: 258, note: 'carried me' }, favoriteGame: 'Emerald' } };
