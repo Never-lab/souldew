@@ -114,6 +114,10 @@ Plus a new play view that gives the game the room it deserves.
 - **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
   link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
   the board's Rules – and every change goes to the log; the others see them read-only.
+- **No DS save missed with the melonDS app.** A save melonDS wrote just as souldew began watching for it – right after
+  souldew started or the emulator launched, on a busy computer – could go unnoticed until your next in-game save,
+  most often a first save into melonDS's own save folder. souldew now notes every save file the moment it starts
+  watching, so that save is read like any other.
 - **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
   keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
   2.8.2 in the souldew engine too.
