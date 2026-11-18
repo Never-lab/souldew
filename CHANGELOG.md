@@ -127,6 +127,11 @@ Plus a new play view that gives the game the room it deserves.
   with “Back to saved” for a single part. Leaving with unsaved changes asks first. Without souldew+ you can try on any
   banner, frame or nameplate as long as you like – Save keeps your free one and saves the rest. Works with keyboard
   and controller (L / R steps through the parts, B goes back).
+- **Favourites for your looks.** Every banner, frame, nameplate, colour theme and launch animation has a ☆ in its
+  corner – in the profile editor, in Settings and on the souldew+ page. Click it (or press F, or Y / △ on a
+  controller) and “★ Favourites” above the list shows just those, in their usual order – no more scrolling through
+  everything to find the ones you like. souldew+ items can be starred too, as a wish list. Favourites are kept on
+  this computer.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

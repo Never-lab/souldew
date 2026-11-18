@@ -110,6 +110,8 @@
 .plus-banner.big { grid-row: span 2; }
 .plus-banner:focus-visible, .plus-frame:focus-visible, .plus-plate-item:focus-visible, .plus-launch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .plus-banner-art, .plus-banner-art > .cos-banner { position: absolute; inset: 0; height: 100%; }
+/* its own layer: a preview picture's z-index stays inside it, under the caption */
+.plus-banner-art { z-index: 0; }
 .plus-banner figcaption { position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 10px; padding: 30px 14px 10px; font-size: 13px;
   background: linear-gradient(transparent, #0b0a0ed9 48%, #0b0a0ef2); }
 .plus-banner figcaption b { font-weight: 600; color: #f1ece2; }
@@ -196,3 +198,11 @@
   .plus-frames { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .plus-cancel { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* favourites (lib/favourites.mjs): the star sits on each look's picture */
+.plus-banners > .plus-fav.big { grid-row: span 2; }
+.plus-banners > .plus-fav > .plus-banner { height: 100%; }
+.plus-fav .fav-star { top: 10px; left: 10px; }
+.plus-frames > .plus-fav .fav-star { top: 8px; left: 8px; }
+.plus-fav-plate .fav-star { top: 50%; left: auto; right: 10px; margin-top: -11px; }
+.plus-tfav { display: block; }

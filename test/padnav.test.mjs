@@ -96,6 +96,10 @@ test('the controller is read with the console buttons of Settings › Controller
   // shoulders, Start and X (the previous option of a select)
   const s = readPad(pad([4, 5, 9, 3]));
   assert.deepEqual([s.prev, s.next, s.menu, s.alt], [true, true, true, true]);
+  // Y (the favourite star of a focused look): left face button on the Nintendo layout, top on Xbox
+  assert.equal(readPad(pad([2])).extra, true);
+  assert.equal(readPad(pad([3])).extra, false);
+  assert.equal(readPad(pad([3]), { preset: 'xbox' }).extra, true);
 });
 
 test('directions come from the D-pad, else the left stick; the right stick scrolls', () => {

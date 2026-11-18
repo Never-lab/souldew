@@ -5,7 +5,9 @@
 // then the three tiers, what
 // stays free, where the money goes, what happens when you stop, and a few questions. Members get the thank-you
 // version. Every "Get souldew+" in the app leads here (lib/cosmetics/plus.mjs) – never a pop-up. Motion: the preview
-// loops play while hovered or focused (the hero card always), never with reduced motion.
+// loops play while hovered or focused (the hero card always), never with reduced motion. Every look listed here has
+// its favourite star (lib/favourites.mjs) – a wish list for later; the filters live in the pickers, where the full
+// lists are.
 import { html, useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { t } from '../lib/i18n.mjs';
 import { Icon } from '../lib/icons.mjs';
@@ -19,6 +21,7 @@ import { PreviewPicture, previewSrc, usePreviews } from '../lib/cosmetics/previe
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { TIERS, CURATED, plusState, hasPlusLooks, isMember, heroLook, tierAction, curatedFrom, plusCounts, plusSkins, themeLook, themeVars } from '../lib/pluspage.mjs';
 import { TitlePlate, achTitle, Badges } from './social.mjs';
+import { FavScope } from '../lib/favourites.mjs';
 
 const RARITY = () => ({ common: t('cos.rarity.common', 'Common'), rare: t('cos.rarity.rare', 'Rare'), epic: t('cos.rarity.epic', 'Epic'), legendary: t('cos.rarity.legendary', 'Legendary') });
 const dateOf = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '');
@@ -115,6 +118,7 @@ function Themes({ skins, state, me, count, navigate }) {
   const k = skins.find((x) => x.id === cur) || skins[0];
   if (!k) return null;
   const look = themeLook(catalog(), k.id);
+  const known = catalog().skins.map((x) => x.id);
   const who = state.kind === 'signedOut' ? null : me;
   const action = hasPlusLooks(state)
     ? html`<button type="button" class="btn small go" onClick=${() => navigate('settings', settingsLink('skin'))}>${t('plus.useTheme', 'Use {name}', { name: k.name })}</button>`
@@ -126,8 +130,8 @@ function Themes({ skins, state, me, count, navigate }) {
     <div class="plus-tbox">
       <div class="plus-tside">
         <div class="plus-tstrip" role="radiogroup" aria-label=${t('plus.kThemes', 'Colour themes')}>
-          ${skins.map((x) => html`<button type="button" role="radio" aria-checked=${x.id === k.id} aria-label=${x.name} title=${x.name} class=${`plus-tchip ${x.id === k.id ? 'on' : ''}`} style=${sw(x)}
-            onClick=${() => setCur(x.id)} onFocus=${() => setCur(x.id)}><i aria-hidden="true"></i></button>`)}
+          ${skins.map((x) => html`<${FavScope} key=${x.id} kind="theme" id=${x.id} name=${x.name} known=${known} class="plus-tfav" starClass="mini"><button type="button" role="radio" aria-checked=${x.id === k.id}
+            aria-label=${x.name} title=${x.name} class=${`plus-tchip ${x.id === k.id ? 'on' : ''}`} style=${sw(x)} onClick=${() => setCur(x.id)} onFocus=${() => setCur(x.id)}><i aria-hidden="true"></i></button><//>`)}
         </div>
         <div class="plus-tname"><b>${k.name}</b><span class="small muted">${k.hint} · ${k.group === 'light' ? t('skin.lightShort', 'light') : t('skin.darkShort', 'dark')}</span></div>
         <div class="row">${action}</div>
@@ -194,24 +198,27 @@ function Gallery({ state, me, navigate }) {
   const n = plusCounts(cat);
   const yours = hasPlusLooks(state);
   const who = state.kind === 'signedOut' ? null : me;
+  // every id of a kind, for the stars (an id the catalog no longer knows is pruned when that kind is written)
+  const ids = (list) => (list || []).map((x) => x.id);
+  const star = (kind, list, it, cls, body) => html`<${FavScope} key=${it.id} kind=${kind} id=${it.id} name=${it.name} known=${ids(list)} class=${cls}>${body}<//>`;
   return html`
     <section class="plus-sec">
       <${Head} k=${t('plus.kBanners', 'Profile banners')} title=${t('plus.bannersT', 'Pixel scenes that move')}>${t('plus.bannersHint', 'Hand-made, animated, behind your name on your profile. {count} banners in all, new ones every month.', { count: n.banners })}<//>
-      <div class="plus-banners">${c.banners.map((b, i) => html`<${BannerCard} key=${b.id} b=${b} yours=${yours} big=${i === 0} />`)}</div>
+      <div class="plus-banners">${c.banners.map((b, i) => star('banner', cat.banners, b, `plus-fav ${i === 0 ? 'big' : ''}`, html`<${BannerCard} b=${b} yours=${yours} big=${i === 0} />`))}</div>
     </section>
     <div class="plus-pair">
       <section class="plus-sec">
         <${Head} k=${t('plus.kFrames', 'Avatar frames')} title=${t('plus.framesT', 'Around your picture')}>${t('plus.framesHint', '{count} frames in all.', { count: n.frames })}<//>
-        <div class="plus-frames">${c.frames.map((f) => html`<${FrameItem} key=${f.id} f=${f} me=${who} yours=${yours} />`)}</div>
+        <div class="plus-frames">${c.frames.map((f) => star('frame', cat.frames, f, 'plus-fav', html`<${FrameItem} f=${f} me=${who} yours=${yours} />`))}</div>
       </section>
       <section class="plus-sec">
         <${Head} k=${t('plus.kPlates', 'Nameplates')} title=${t('plus.platesT', 'Behind your name in friends’ lists')}>${t('plus.platesHint', 'Still in the list, moving when a friend points at you.')}<//>
-        <div class="plus-plates">${c.nameplates.map((p) => html`<${PlateItem} key=${p.id} p=${p} me=${who} sub=${p.name} />`)}</div>
+        <div class="plus-plates">${c.nameplates.map((p) => star('nameplate', cat.nameplates, p, 'plus-fav plus-fav-plate', html`<${PlateItem} p=${p} me=${who} sub=${p.name} />`))}</div>
       </section>
     </div>
     ${c.launch.some((l) => previewSrc('launch', l.id) || has('launch', l.id)) && html`<section class="plus-sec">
       <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT', 'A short moment while your game boots')}>${t('plus.launchHint', 'It never makes the game wait – a click or any key skips it. {count} animations in all.', { count: n.launch })}<//>
-      <div class="plus-launches">${c.launch.map((l) => html`<${LaunchItem} key=${l.id} l=${l} yours=${yours} />`)}</div>
+      <div class="plus-launches">${c.launch.filter((l) => previewSrc('launch', l.id) || has('launch', l.id)).map((l) => star('launch', cat.launch, l, 'plus-fav', html`<${LaunchItem} l=${l} yours=${yours} />`))}</div>
     </section>`}
     <${Themes} skins=${plusSkins(cat)} state=${state} me=${me} count=${n.skins} navigate=${navigate} />`;
 }

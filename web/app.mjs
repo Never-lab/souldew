@@ -6,6 +6,7 @@ import { SyncLink, PARTNER_TTL } from './lib/sync.mjs';
 import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
 import { applySkin, refreshPack } from './lib/cosmetics/index.mjs';
+import { initFavourites } from './lib/favourites.mjs';
 import { detectLayout } from './lib/controls.mjs';
 import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules } from './lib/run.mjs';
 import { play } from './lib/sound.mjs';
@@ -383,6 +384,7 @@ function App() {
       applyTheme(s.config?.theme);
       // souldew+: the chosen skin is remembered now and shows as soon as the pack is loaded and verified (in the background)
       applySkin(s.config?.skin);
+      initFavourites(s.config?.favourites); // the starred looks in the cosmetics pickers
       refreshPack().catch((e) => console.warn('souldew+ pack', e));
       const lang = await setLang(s.config?.lang || guessLang());
       sendMenuLabels();

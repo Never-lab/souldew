@@ -3368,5 +3368,15 @@
   "pe.whereTitle": "Junto a tu nombre – un trofeo que has ganado",
   "pe.whereTrophies": "Los tres puestos de tu vitrina",
   "pe.whereTrusted": "El Pokémon de tu vitrina",
-  "pe.whoNumbers": "Quién ve tus números"
+  "pe.whoNumbers": "Quién ve tus números",
+  "fav.add": "Añadir a favoritos ({key})",
+  "fav.all": "Todos",
+  "fav.earned": "Conseguidos",
+  "fav.empty": "Marca algo con ☆ para encontrarlo aquí.",
+  "fav.favs": "Favoritos",
+  "fav.owned": "Tuyos",
+  "fav.plus": "souldew+",
+  "fav.remove": "Quitar de favoritos ({key})",
+  "fav.show": "Mostrar",
+  "fav.star": "Favorito: {name}"
 }

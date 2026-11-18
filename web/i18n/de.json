@@ -3368,5 +3368,15 @@
   "pe.whereTitle": "Neben deinem Namen – eine Trophäe, die du verdient hast",
   "pe.whereTrophies": "Die drei Plätze in deiner Vitrine",
   "pe.whereTrusted": "Das Pokémon in deiner Vitrine",
-  "pe.whoNumbers": "Wer deine Zahlen sieht"
+  "pe.whoNumbers": "Wer deine Zahlen sieht",
+  "fav.add": "Zu den Favoriten hinzufügen ({key})",
+  "fav.all": "Alle",
+  "fav.earned": "Verdient",
+  "fav.empty": "Markier etwas mit ☆, dann findest du es hier.",
+  "fav.favs": "Favoriten",
+  "fav.owned": "Deine",
+  "fav.plus": "souldew+",
+  "fav.remove": "Aus den Favoriten nehmen ({key})",
+  "fav.show": "Anzeigen",
+  "fav.star": "Favorit: {name}"
 }

@@ -1,6 +1,7 @@
 // souldew+ in Settings: the Theme row (General › Appearance, under the colour schemes) and the Launch animation row
 // (Play). A theme is tried on the whole app with one click and reverts when you leave Settings or press "Back to …";
 // it changes the look only, never the layout or a text. The machinery is web/lib/cosmetics (skins.mjs, launch/).
+// Every theme and launch animation has its favourite star and the lists their favourites row (lib/favourites.mjs).
 import { html, useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { t } from '../../lib/i18n.mjs';
 import { listSkins, previewSkin, endPreview, applySkin, skinState, onSkinChange, packState, previewLaunch, launchAvailable, catalog, startPackPreview } from '../../lib/cosmetics/index.mjs';
@@ -10,6 +11,7 @@ import { openPlus } from '../../lib/cosmetics/plus.mjs';
 import { CartInsert } from '../cartinsert.mjs';
 import { PreviewPicture, previewSrc, usePreviews } from '../../lib/cosmetics/previews.mjs';
 import { Icon } from '../../lib/icons.mjs';
+import { FavScope, FavEmpty, useFavList, FAV_KIND_OF } from '../../lib/favourites.mjs';
 
 function useSkinState() {
   const [s, setS] = useState(skinState);
@@ -65,6 +67,9 @@ export function SkinSetting({ cfg, save }) {
   }, [pack.preview]);
   const skins = listSkins();
   const byId = Object.fromEntries(skins.map((k) => [k.id, k]));
+  const known = skins.map((k) => k.id);
+  // the favourites row (lib/favourites.mjs): the themes keep their order and their two groups
+  const fav = useFavList('settings-theme', skins, { kind: 'theme' });
   // leaving Settings puts your theme back – a preview is never saved
   useEffect(() => () => endPreview(), []);
   const committed = s.committed;
@@ -85,11 +90,11 @@ export function SkinSetting({ cfg, save }) {
   };
   const previewName = s.previewing ? byId[s.previewing]?.name : null;
   const backName = byId[committed]?.name || 'souldew';
-  const group = (label, list, compact) => html`<div class="skin-group">
+  const group = (label, list, compact) => list.length > 0 && html`<div class="skin-group">
     <span class="skin-group-label small faint">${label}</span>
     <div class=${`theme-picker skin-picker${compact ? ' compact' : ''}`} role="radiogroup" aria-label=${label}>
-      ${list.map((k) => html`<${SkinCard} key=${k.id} skin=${k} compact=${compact} on=${k.id === (locked || shown)} previewing=${!!s.previewing && k.id === s.previewing}
-        onClick=${() => pick(k)} />`)}
+      ${list.map((k) => html`<${FavScope} key=${k.id} kind="theme" id=${k.id} name=${k.name} known=${known} class="skin-fav"><${SkinCard} skin=${k} compact=${compact} on=${k.id === (locked || shown)}
+        previewing=${!!s.previewing && k.id === s.previewing} onClick=${() => pick(k)} /><//>`)}
     </div></div>`;
   const lockedName = locked ? byId[locked]?.name : null;
   const tryIt = async (id) => {
@@ -133,8 +138,10 @@ export function SkinSetting({ cfg, save }) {
       <${PreviewPicture} kind="skins" id=${locked} alt=${t('skin.shotAlt', 'souldew in {name}', { name: lockedName })} />
       <figcaption class="small faint">${t('skin.shotCaption', 'How souldew looks in {name}.', { name: lockedName })}</figcaption></figure>`}
     ${ended && !previewName && !lockedName && html`<p class="small faint" role="status">${t('skin.previewEnded', 'The preview has ended – your own theme is back.')}</p>`}
-    ${group(t('skin.dark', 'Colours · dark'), skins.filter((k) => k.group === 'dark'), true)}
-    ${group(t('skin.light', 'Colours · light'), skins.filter((k) => k.group === 'light'), true)}
+    ${fav.row && html`<div class="skin-filter">${fav.row}</div>`}
+    ${group(t('skin.dark', 'Colours · dark'), fav.shown.filter((k) => k.group === 'dark'), true)}
+    ${group(t('skin.light', 'Colours · light'), fav.shown.filter((k) => k.group === 'light'), true)}
+    ${fav.filter === 'favs' && !fav.counts.favs && html`<${FavEmpty} />`}
     ${cfg.skin && s.pending && !pack.loading && !pack.entitled && html`<p class="small faint">${t('skin.pending', 'Your theme {name} is back as soon as souldew+ is active on this computer again.', { name: byId[s.pending]?.name || s.pending })}</p>`}
   </div>`;
 }
@@ -170,14 +177,18 @@ export function LaunchSetting({ cfg, save }) {
     if (id !== value) await save({ launchAnimation: id });
   };
   const name = (a) => (a.id === 'cartridge' ? t('launch.cartridge', 'Cartridge') : a.name);
+  const fav = useFavList('settings-launch', choices, { kind: 'launch' });
+  const known = all.map((a) => a.id);
   return html`<div class="stack-s">
     <span class="launch-title">${t('launch.title', 'Launch animation')}</span>
+    ${fav.row}
     <div class="launch-picker">
       <div class="launch-cards" role="radiogroup" aria-label=${t('launch.title', 'Launch animation')}>
-        ${choices.map((a) => html`<button key=${a.id} type="button" role="radio" aria-checked=${a.id === value}
+        ${fav.shown.map((a) => html`<${FavScope} key=${a.id} kind="launch" id=${a.id} name=${name(a)} known=${known} class="launch-fav"><button type="button" role="radio" aria-checked=${a.id === value}
           class=${`launch-card${a.id === value ? ' on' : ''}`} onClick=${() => pick(a.id)}>
           <b>${name(a)}</b><span class="hint">${a.id === 'cartridge' ? t('launch.cartridgeHint', 'The module drops into the slot – free') : a.collection}</span>
-        </button>`)}
+        </button><//>`)}
+        ${fav.filter === 'favs' && !fav.counts.favs && html`<${FavEmpty} />`}
       </div>
       <div class="launch-stage">
         <div class="launch-screen" ref=${screen} aria-hidden="true">
@@ -197,13 +208,14 @@ const SHOW_KINDS = () => [
   ['nameplates', t('cos.nameplates', 'Nameplates')], ['launch', t('launch.title', 'Launch animation')],
 ];
 
-/** One item of the showcase: its picture (the loop while hovered / focused), its name. */
-function ShowItem({ kind, item }) {
+/** One item of the showcase: its picture (the loop while hovered / focused), its name, its favourite star. */
+function ShowItem({ kind, item, known }) {
   const [hot, setHot] = useState(false);
-  return html`<li class=${`plus-show-item plus-show-item--${kind}`} tabIndex="0" onPointerEnter=${() => setHot(true)} onPointerLeave=${() => setHot(false)}
+  return html`<li class="plus-show-li"><${FavScope} kind=${FAV_KIND_OF[kind]} id=${item.id} name=${item.name} known=${known} class="plus-show-fav">
+    <div class=${`plus-show-item plus-show-item--${kind}`} tabIndex="0" onPointerEnter=${() => setHot(true)} onPointerLeave=${() => setHot(false)}
     onFocus=${() => setHot(true)} onBlur=${() => setHot(false)}>
     <span class="plus-show-art">${kind === 'frames' && html`<span class="cos-pick-av" aria-hidden="true"></span>`}<${PreviewPicture} kind=${kind} id=${item.id} loop=${hot} /></span>
-    <span class="plus-show-name small">${item.name}</span></li>`;
+    <span class="plus-show-name small">${item.name}</span></div><//></li>`;
 }
 
 /**
@@ -224,6 +236,7 @@ export function PlusShowcase() {
   if (!kinds.length) return null;
   const k = kinds.some(([x]) => x === kind) ? kind : kinds[0][0];
   const items = lists[k].filter((x) => previewSrc(k, x.id));
+  const known = (cat[k] || []).map((x) => x.id);
   return html`<section class="plus-show stack-s" aria-label=${t('plusShow.title', 'What souldew+ holds')}>
     <div class="row plus-show-head"><h3>${t('plusShow.title', 'What souldew+ holds')}</h3>
       <span class="small muted">${t('plusShow.count', '{count} item|{count} items', { count: Object.entries(lists).reduce((n, [x, l]) => n + l.filter((i) => previewSrc(x, i.id)).length, 0) })}</span></div>
@@ -231,6 +244,14 @@ export function PlusShowcase() {
       ${kinds.map(([x, label]) => html`<button type="button" role="tab" aria-selected=${x === k} class=${x === k ? 'on' : ''} onClick=${() => setKind(x)}>${label}</button>`)}
     </div>
     <p class="small faint">${k === 'skins' ? t('plusShow.themesHint', 'Every theme recolours the whole app – never a box or a word.') : t('plusShow.hint', 'Hover or focus one to see it move.')}</p>
-    <ul class=${`plus-show-grid plus-show-grid--${k}`} role="list">${items.map((it) => html`<${ShowItem} key=${it.id} kind=${k} item=${it} />`)}</ul>
+    <${ShowGrid} key=${k} k=${k} items=${items} known=${known} />
   </section>`;
+}
+
+/** One kind's items, with the favourites row (a wish list: everything here is souldew+). */
+function ShowGrid({ k, items, known }) {
+  const fav = useFavList(`showcase-${k}`, items, { kind: FAV_KIND_OF[k] });
+  return html`${fav.row}
+    ${fav.filter === 'favs' && !fav.counts.favs ? html`<${FavEmpty} />`
+      : html`<ul class=${`plus-show-grid plus-show-grid--${k}`} role="list">${fav.shown.map((it) => html`<${ShowItem} key=${it.id} kind=${k} item=${it} known=${known} />`)}</ul>`}`;
 }

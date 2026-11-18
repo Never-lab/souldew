@@ -226,6 +226,8 @@ html.platform-win32 .app-native.rail-folded .pe-bar, html.platform-linux .app-na
 .pe-pick > * { flex: none; }
 .pe-tools { display: flex; align-items: center; gap: 10px; }
 .pe-tools .seg { flex: none; }
+.pe-tools .fav-filter { flex: 0 1 auto; }
+.pe-tools .pe-search { min-width: 150px; }
 .pe-search { flex: 1; position: relative; display: flex; align-items: center; min-width: 0; }
 .pe-search svg { position: absolute; left: 10px; color: var(--ink-3); pointer-events: none; display: block; }
 .pe-search input { width: 100%; padding-left: 32px; }

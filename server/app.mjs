@@ -26,6 +26,7 @@ import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypte
 import { pickRenderer, validRenderer, gpuKey, remember, validScale, scaleFor } from './lib/ctrrenderer.mjs';
 import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS } from './lib/native.mjs';
 import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem } from '../shared/link.mjs';
+import { cleanFavourites } from '../shared/favourites.mjs';
 import { ownSeat, resolveSeat, pickSeat, extractTarget, partnerBuildRequest } from './lib/linkroms.mjs';
 import { linkIceServers } from './lib/linkice.mjs';
 import { needsIdenticalRom, baseRomsFor } from '../shared/restart.mjs';
@@ -915,6 +916,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         wholePixels: config.wholePixels === true,
         skin: validSkinId(config.skin),
         launchAnimation: validSkinId(config.launchAnimation) || 'cartridge',
+        favourites: cleanFavourites(config.favourites),
       },
       plusDev: plusPack.dev,
     };
@@ -925,7 +927,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'favourites']) {
       if (k in body) allowed[k] = body[k];
     }
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
@@ -942,6 +944,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     // (the pack is only there when it does); the config just must not hold anything but an id
     if ('skin' in allowed) allowed.skin = validSkinId(allowed.skin);
     if ('launchAnimation' in allowed) allowed.launchAnimation = validSkinId(allowed.launchAnimation) || 'cartridge';
+    // the starred cosmetics (shared/favourites.mjs): ids per kind only – what they are is the catalog's business
+    if ('favourites' in allowed) allowed.favourites = cleanFavourites(allowed.favourites);
     if ('nag' in allowed) {
       const n = allowed.nag;
       if (!n || typeof n !== 'object' || Array.isArray(n)) delete allowed.nag;

@@ -28,6 +28,7 @@ import { cabinetList, searchSpecies } from '../lib/showcasepick.mjs';
 import { catalog as cosCatalog, has } from '../lib/cosmetics/index.mjs';
 import { Banner, Nameplate, PlusMark, useCosmetics } from '../lib/cosmetics/components.mjs';
 import { PreviewPicture, previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
+import { FavScope, FavEmpty, useFavList, FAV_KIND_OF } from '../lib/favourites.mjs';
 import { ACCENTS, STATUS_MAX, NAME_MAX, FAVORITE_MAX, SHOWCASE_LAYOUTS } from '/shared/social.mjs';
 import { ACHIEVEMENTS, CATEGORIES, RARITIES } from '/shared/trophies.mjs';
 import { lineRoot, TRUSTED_NOTE_MAX, REGULARS } from '/shared/trustedlines.mjs';
@@ -238,31 +239,35 @@ function CosCard({ kind, it, on, locked, onPick, prof, accent }) {
   </button>`;
 }
 
-/** Banners, frames or nameplates: search, All / Yours (Free for non-members), grouped by collection, the real art. */
+/**
+ * Banners, frames or nameplates: search, the favourites row (All · ★ Favourites · Owned · souldew+ – lib/favourites.mjs),
+ * grouped by collection, the real art. Every card has its star; a favourite stays where it is in its collection.
+ */
 function CosPick({ kind, value, onPick, member, prof, accent }) {
   useCosmetics();
   const cat = cosCatalog();
   const all = (cat[kind] || []).filter((it) => !it.drop || it.owned);
+  const known = (cat[kind] || []).map((it) => it.id);
   const cols = kind === 'frames' ? cat.collections.frames : cat.collections.banners;
+  const fk = FAV_KIND_OF[kind];
   const [q, setQ] = useState('');
-  const [mine, setMine] = useState(false);
+  const fav = useFavList(`pe-${kind}`, all, { kind: fk });
   const isLocked = (it) => !member && it.plus;
   const words = q.trim().toLowerCase();
-  const list = all.filter((it) => (!mine || (member ? it.owned : !it.plus)) && (!words || it.name.toLowerCase().includes(words)));
+  const list = fav.shown.filter((it) => !words || it.name.toLowerCase().includes(words));
   const groups = cols.map((c) => ({ ...c, items: list.filter((it) => it.collection === c.id) })).filter((g) => g.items.length)
     .sort((a, b) => (a.id === 'basics' ? -1 : b.id === 'basics' ? 1 : 0) || (b.items.some((i) => !i.plus) ? 1 : 0) - (a.items.some((i) => !i.plus) ? 1 : 0));
   const noun = { banners: t('pe.searchBanners', 'Search {n} banners', { n: all.length }), frames: t('pe.searchFrames', 'Search {n} frames', { n: all.length }), nameplates: t('pe.searchPlates', 'Search {n} nameplates', { n: all.length }) }[kind];
+  const emptyFavs = fav.filter === 'favs' && !fav.counts.favs;
   return html`<div class="pe-pick pe-cos">
-    <div class="pe-tools"><${Search} value=${q} onInput=${setQ} placeholder=${noun} />
-      <div class="seg small" role="radiogroup" aria-label=${t('cos.show', 'Show')}>
-        <button type="button" role="radio" aria-checked=${!mine} class=${!mine ? 'on' : ''} onClick=${() => setMine(false)}>${t('cos.all', 'All')}</button>
-        <button type="button" role="radio" aria-checked=${mine} class=${mine ? 'on' : ''} onClick=${() => setMine(true)}>${member ? t('cos.owned', 'Yours') : t('cos.rarity.free', 'Free')}</button></div></div>
+    <div class="pe-tools"><${Search} value=${q} onInput=${setQ} placeholder=${noun} />${fav.row}</div>
     <div class="pe-groups">
       ${groups.map((g, gi) => html`<div class="pe-group" key=${g.id}><span class="pe-glabel">${g.name}<span class="faint">${g.items.length}</span>${!member && g.items.every((i) => i.plus) && html`<span class="pe-gplus"><${PlusMark} />${t('cos.plus', 'souldew+')}</span>`}</span>
         <div class=${`pe-grid k-${kind}`} role="radiogroup" aria-label=${g.name}>
-          ${gi === 0 && !words && html`<${CosCard} kind=${kind} it=${null} on=${!value} onPick=${onPick} prof=${prof} accent=${accent} />`}
-          ${g.items.map((it) => html`<${CosCard} key=${it.id} kind=${kind} it=${it} on=${it.id === value} locked=${isLocked(it)} onPick=${onPick} prof=${prof} accent=${accent} />`)}</div></div>`)}
-      ${!groups.length && html`<p class="small muted">${t('cos.noneOwned', 'Nothing here yet.')}</p>`}
+          ${gi === 0 && !words && fav.filter === 'all' && html`<${CosCard} kind=${kind} it=${null} on=${!value} onPick=${onPick} prof=${prof} accent=${accent} />`}
+          ${g.items.map((it) => html`<${FavScope} key=${it.id} kind=${fk} id=${it.id} name=${it.name} known=${known} class=${`pe-fav k-${kind}`}>
+            <${CosCard} kind=${kind} it=${it} on=${it.id === value} locked=${isLocked(it)} onPick=${onPick} prof=${prof} accent=${accent} /><//>`)}</div></div>`)}
+      ${emptyFavs ? html`<${FavEmpty} />` : !groups.length && html`<p class="small muted">${t('cos.noneOwned', 'Nothing here yet.')}</p>`}
     </div>
   </div>`;
 }
