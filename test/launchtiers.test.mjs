@@ -131,5 +131,6 @@ test('the play view: 2D without a membership, 3D with one; the library tile and 
   const settings = src('web/views/settings/launch.mjs');
   assert.match(settings, /if \(!R\.three\) return html`<\$\{LaunchSetting2D\}/);
   assert.doesNotMatch(settings, /launchRare|rareStart/i, 'the Rare start has no switch – automatic for members');
-  assert.match(src('web/views/launchstage.mjs'), /const rare = !reduced && rights\.rare && Math\.random\(\) < 1 \/ RARE_ODDS;/);
+  // the tier (rights.rare) and the Rare start's data from the pack (test/handheld-looks.test.mjs)
+  assert.match(src('web/views/launchstage.mjs'), /const rare = !reduced && rights\.rare && !!LK\?\.rare && Math\.random\(\) < 1 \/ RARE_ODDS;/);
 });
