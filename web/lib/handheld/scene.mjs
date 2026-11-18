@@ -22,6 +22,7 @@ import { LAYOUTS } from './layouts.mjs';
 import { withSurface, NSTK } from './surface.mjs';
 import { DEVICES, PX, partsOf, surfacesOf, unfold } from './geometry.mjs';
 import { wrapArt } from './wrap.mjs';
+import { effectiveLook, effectiveCart, finishIndex } from './looks.mjs';
 
 export { DEVICES };
 
@@ -162,36 +163,42 @@ function wordTex(text, px = 120) {
     g.fillText(text, w / 2, h / 2 + 6);
   }, false);
 }
-/** the board under a clear shell: copper traces, chips, a coin cell (our own drawing). Returns [map, traceMask]. */
-function boardTex(w, h, seed = 3) {
-  const rnd = (i) => { const x = Math.sin(i * 127.1 + seed * 311.7) * 43758.5453; return x - Math.floor(x); };
-  const S = 6; // px per mm
+/**
+ * the board under a clear shell, drawn from the souldew+ pack's recipe (handheld/looks.json › clear.board, checked by
+ * looks.mjs): copper traces fanning out, chips, a coin cell, the connector. Returns [map, traceMask].
+ */
+function boardTex(w, h, B) {
+  const rnd = (i) => { const x = Math.sin(i * 127.1 + B.seed * 311.7) * 43758.5453; return x - Math.floor(x); };
+  const S = B.scale; // px per mm
+  const T = B.traces;
+  const at = ([f, mm], size) => f * size + mm; // [fraction of the board, mm]
   const draw = (mask) => (g) => {
-    g.fillStyle = mask ? '#000' : '#14352a';
+    g.fillStyle = mask ? '#000' : B.bg;
     g.fillRect(0, 0, w * S, h * S);
     g.lineCap = 'round';
-    g.strokeStyle = mask ? '#fff' : '#b5874a';
-    g.lineWidth = mask ? 5 : 3.2;
-    for (let i = 0; i < 26; i++) { // Manhattan traces fanning out from the centre
-      const x0 = w * S / 2 + (rnd(i) - 0.5) * 60, y0 = h * S * 0.18;
-      const x1 = (0.06 + rnd(i + 40) * 0.88) * w * S, y1 = (0.3 + rnd(i + 80) * 0.62) * h * S;
+    g.strokeStyle = mask ? '#fff' : T.color;
+    g.lineWidth = mask ? T.maskWidth : T.width;
+    for (let i = 0; i < T.n; i++) { // Manhattan traces fanning out from the centre
+      const x0 = w * S / 2 + (rnd(i) - 0.5) * T.spread, y0 = h * S * T.y0;
+      const x1 = (T.x[0] + rnd(i + 40) * T.x[1]) * w * S, y1 = (T.y[0] + rnd(i + 80) * T.y[1]) * h * S;
       g.beginPath(); g.moveTo(x0, y0); g.lineTo(x0, (y0 + y1) / 2); g.lineTo(x1, (y0 + y1) / 2); g.lineTo(x1, y1); g.stroke();
-      if (!mask) { g.fillStyle = '#d6a560'; g.beginPath(); g.arc(x1, y1, 5, 0, 7); g.fill(); }
+      if (!mask) { g.fillStyle = T.pad; g.beginPath(); g.arc(x1, y1, T.padR, 0, 7); g.fill(); }
     }
     if (mask) return;
-    const chip = (x, y, cw, ch, label) => {
-      g.fillStyle = '#9aa0a3';
-      for (let k = 0; k < cw / 2.2; k++) { g.fillRect((x + 1 + k * 2.2) * S, (y - 1) * S, 1.1 * S, ch * S + 2 * S); }
-      g.fillStyle = '#16171a'; g.fillRect(x * S, y * S, cw * S, ch * S);
-      g.fillStyle = '#2b2d31'; g.fillRect(x * S + 3, y * S + 3, cw * S - 6, 3);
-      if (label) { g.fillStyle = '#c9ccd1'; g.font = `600 ${2.6 * S}px Arial`; g.textAlign = 'center'; g.fillText(label, (x + cw / 2) * S, (y + ch / 2 + 1) * S); }
-    };
-    chip(w * 0.22, h * 0.55, 15, 15, 'SDW');
-    chip(w * 0.22 + 19, h * 0.6, 10, 7);
-    chip(w * 0.62, h * 0.58, 12, 8);
-    g.fillStyle = '#c7cbcf'; g.beginPath(); g.arc(w * 0.78 * S, h * 0.32 * S, 9 * S, 0, 7); g.fill();
-    g.fillStyle = '#8f9397'; g.beginPath(); g.arc(w * 0.78 * S, h * 0.32 * S, 7 * S, 0, 7); g.fill();
-    g.fillStyle = '#d7b46a'; g.fillRect(w * 0.5 * S - 20 * S, 2 * S, 40 * S, 4 * S); // the cartridge connector
+    const C = B.chip;
+    for (const c of B.chips) {
+      const x = at(c.x, w), y = at(c.y, h);
+      g.fillStyle = C.pins;
+      for (let k = 0; k < c.w / 2.2; k++) { g.fillRect((x + 1 + k * 2.2) * S, (y - 1) * S, 1.1 * S, c.h * S + 2 * S); }
+      g.fillStyle = C.body; g.fillRect(x * S, y * S, c.w * S, c.h * S);
+      g.fillStyle = C.top; g.fillRect(x * S + 3, y * S + 3, c.w * S - 6, 3);
+      if (c.label) { g.fillStyle = C.label; g.font = `600 ${2.6 * S}px Arial`; g.textAlign = 'center'; g.fillText(c.label, (x + c.w / 2) * S, (y + c.h / 2 + 1) * S); }
+    }
+    const K = B.coin;
+    g.fillStyle = K.ring; g.beginPath(); g.arc(w * K.x * S, h * K.y * S, K.r * S, 0, 7); g.fill();
+    g.fillStyle = K.face; g.beginPath(); g.arc(w * K.x * S, h * K.y * S, K.r2 * S, 0, 7); g.fill();
+    const N = B.connector;
+    g.fillStyle = N.color; g.fillRect(w * 0.5 * S - (N.w / 2) * S, N.y * S, N.w * S, N.h * S); // the cartridge connector
   };
   return [canvasTex(w * S, h * S, draw(false)), canvasTex(w * S, h * S, draw(true), false)];
 }
@@ -211,15 +218,16 @@ function labelTex(img, title, aspect, color) {
     }
   });
 }
-/** a fine foil pattern for the holo label (thickness map for iridescence) */
-function foilTex() {
-  return canvasTex(256, 256, (g, w, h) => {
+/** the holo label's foil (a thickness map for iridescence), from the pack's recipe: a sum of waves */
+function foilTex(F) {
+  return canvasTex(F.size, F.size, (g, w, h) => {
     const im = g.createImageData(w, h);
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
-        const v = 0.5 + 0.25 * Math.sin((x + y) * 0.35) + 0.25 * Math.sin((x - y * 0.6) * 0.12 + Math.sin(y * 0.05) * 2);
+        let v = F.base;
+        for (const t of F.terms) v += t.a * Math.sin(t.kx * x + t.ky * y + Math.sin(y * t.wy) * t.wa);
         const i = (y * w + x) * 4;
-        im.data[i] = im.data[i + 1] = im.data[i + 2] = Math.round(v * 255);
+        im.data[i] = im.data[i + 1] = im.data[i + 2] = Math.round(Math.max(0, Math.min(1, v)) * 255);
         im.data[i + 3] = 255;
       }
     }
@@ -296,8 +304,8 @@ void main() {
   #include <colorspace_fragment>
 }`;
 
-function screenMat(tex, rect, res, sys, warm) {
-  const pal = warm ? ['#0a0807', '#2a2219', '#fff1d6', '#ffe6a3'] : sys === 'gb' ? ['#3c4535', '#5f6b4c', '#c2cc9c', '#e9f0cf'] : sys === 'gbc' ? ['#2e312a', '#4f5446', '#ced1be', '#f3f4ea'] : ['#07090b', '#1a2229', '#e9eeec', '#ffffff'];
+function screenMat(tex, rect, res, sys, warm) { // warm: the Rare start's screen palette (souldew+ pack) or null
+  const pal = warm || (sys === 'gb' ? ['#3c4535', '#5f6b4c', '#c2cc9c', '#e9f0cf'] : sys === 'gbc' ? ['#2e312a', '#4f5446', '#ced1be', '#f3f4ea'] : ['#07090b', '#1a2229', '#e9eeec', '#ffffff']);
   const col = (h) => new THREE.Color(h);
   return new THREE.ShaderMaterial({
     vertexShader: SCREEN_VS, fragmentShader: SCREEN_FS, toneMapped: false, transparent: true,
@@ -349,6 +357,7 @@ const EMPTY_ATLAS = { w: 1, h: 1, rgba: new Uint8Array(4), sw: 1, sh: 1, sdf: ne
 /**
  * The scene. o = { sys, lk (LAYOUTS key), w, h (canvas css px), final ({ x, y, w, h }: the play view's screen rectangle in
  * the canvas), dark, look ('theme' | 'clear' | 'gold'), shell (#rrggbb), clearTint, cartLook ('gold' | 'holo'), cartColor,
+ * looks (the souldew+ pack's looks, looks.mjs cleanLooks – without them a souldew+ look draws "Your colours"),
  * cover (url), title, pulse, glow, warm (Rare start), plan (t → state), picture ('placeholder' | a live canvas | null),
  * keep (preserveDrawingBuffer, for a still), atlas (web/lib/handheld/stickers.mjs), hh: { skin (wrap composition +
  * finish) | null, recipe, reduced, stickers } }.
@@ -384,26 +393,41 @@ export async function createScene(canvas, o) {
   const P = { uPR: { value: 0 }, uPW: { value: 9 }, uPA: { value: 0 }, uPC: { value: new THREE.Color(o.pulse || '#fff4e0') }, uPO: { value: new THREE.Vector3() },
     uGA: { value: 0 }, uGR: { value: 60 }, uGC: { value: new THREE.Color(o.glow || '#dfe8ff') }, uGO: { value: new THREE.Vector3() } };
   const shellColor = new THREE.Color(o.shell);
-  const look = o.look; // theme | clear | gold
+  // theme | clear | gold – a souldew+ shell, cartridge, finish or Rare start only with its data from the verified pack
+  const LK = o.looks || null;
+  const look = effectiveLook(o.look, LK);
+  const cartLook = effectiveCart(o.cartLook, LK);
+  const warm = o.warm && LK?.rare ? LK.rare.screen : null;
+  const NOT_MATERIAL = ['tone', 'whiten', 'shade', 'opacity', 'color', 'emissive']; // looks.mjs's own words, colours below
+  const physical = (m, extra = {}) => { // a material from the pack's checked values (looks.mjs)
+    const rest = Object.fromEntries(Object.entries(m).filter(([k]) => !NOT_MATERIAL.includes(k)));
+    return new THREE.MeshPhysicalMaterial({ ...rest, ...(m.color ? { color: new THREE.Color(m.color) } : {}), ...(m.emissive ? { emissive: new THREE.Color(m.emissive) } : {}), ...extra });
+  };
   const fadeMats = [];
   const fadeable = (m) => { m.transparent = true; m.userData.o = m.opacity; if (m.depthWrite === false) m.userData.dw = false; fadeMats.push(m); return m; };
   const mkShell = (tone = 0, colour = shellColor) => {
     let m;
-    if (look === 'gold') m = new THREE.MeshPhysicalMaterial({ color: new THREE.Color('#d6a640').offsetHSL(0, 0, tone * 0.05), metalness: 1, roughness: 0.2, anisotropy: 0.55, clearcoat: 0.5, clearcoatRoughness: 0.08, envMapIntensity: 2.3 });
-    else if (look === 'clear') {
+    if (look === 'gold') {
+      const G = LK.gold.shell;
+      m = physical(G, { color: new THREE.Color(G.color).offsetHSL(0, 0, tone * (G.tone || 0)) });
+    } else if (look === 'clear') {
+      const C = LK.clear.shell;
       const tint = new THREE.Color(o.clearTint);
-      m = new THREE.MeshPhysicalMaterial({ color: tint.clone().lerp(new THREE.Color('#ffffff'), 0.3), metalness: 0, roughness: 0.04, transmission: 0.93, thickness: 2.2, ior: 1.46,
-        attenuationColor: tint, attenuationDistance: 34, clearcoat: 1, clearcoatRoughness: 0.05, specularIntensity: 1 });
+      m = physical(C, { color: tint.clone().lerp(new THREE.Color('#ffffff'), C.whiten || 0), attenuationColor: tint });
     } else m = new THREE.MeshPhysicalMaterial({ color: colour.clone().offsetHSL(0, 0, tone * 0.05), metalness: 0, roughness: 0.46, normalMap: grainTex(), normalScale: new THREE.Vector2(0.07, 0.07), clearcoat: 0.55, clearcoatRoughness: 0.32, sheen: 0.25, sheenRoughness: 0.6, sheenColor: colour.clone().lerp(new THREE.Color('#fff'), 0.5) });
     return fadeable(withPulse(m, P));
   };
   const shellM = mkShell(0);
   const shellM2 = mkShell(-1); // a second, darker plastic (base, hinge)
-  const darkM = fadeable(withPulse(new THREE.MeshPhysicalMaterial({ color: look === 'gold' ? '#3a2c10' : shellColor.clone().multiplyScalar(0.32), roughness: 0.55, clearcoat: 0.3 }), P));
-  const keyM = fadeable(withPulse(new THREE.MeshPhysicalMaterial({ color: look === 'gold' ? '#f0cf7d' : shellColor.clone().lerp(new THREE.Color('#1b1b20'), 0.62), roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2, metalness: look === 'gold' ? 1 : 0 }), P));
+  const gold = look === 'gold' ? LK.gold : null;
+  const darkM = fadeable(withPulse(gold ? physical({ roughness: 0.55, clearcoat: 0.3, ...gold.dark })
+    : new THREE.MeshPhysicalMaterial({ color: shellColor.clone().multiplyScalar(0.32), roughness: 0.55, clearcoat: 0.3 }), P));
+  const keyM = fadeable(withPulse(gold ? physical({ roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2, ...gold.keys })
+    : new THREE.MeshPhysicalMaterial({ color: shellColor.clone().lerp(new THREE.Color('#1b1b20'), 0.62), roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2, metalness: 0 }), P));
   const glassM = fadeable(new THREE.MeshPhysicalMaterial({ color: '#060708', roughness: 0.22, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.1, envMapIntensity: 0.6 }));
   const slotM = fadeable(new THREE.MeshStandardMaterial({ color: '#050506', roughness: 0.9 }));
-  const wordM = fadeable(new THREE.MeshPhysicalMaterial({ color: look === 'gold' ? '#8a6418' : shellColor.clone().multiplyScalar(look === 'clear' ? 1 : 0.55), roughness: 0.22, clearcoat: 1, alphaMap: wordTex('souldew'), transparent: true, depthWrite: false, opacity: look === 'clear' ? 0.55 : 0.9 }));
+  const clearWord = look === 'clear' ? LK.clear.word : null;
+  const wordM = fadeable(new THREE.MeshPhysicalMaterial({ color: gold ? new THREE.Color(gold.word.color) : shellColor.clone().multiplyScalar(clearWord?.shade ?? 0.55), roughness: 0.22, clearcoat: 1, alphaMap: wordTex('souldew'), transparent: true, depthWrite: false, opacity: clearWord?.opacity ?? 0.9 }));
   const ledM = fadeable(new THREE.MeshBasicMaterial({ color: new THREE.Color(dev.led).multiplyScalar(0.12), toneMapped: false }));
   const glareM = new THREE.MeshBasicMaterial({ color: dev.led, map: blobTex(), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0, toneMapped: false });
   const backM = new THREE.MeshBasicMaterial({ color: '#000', transparent: true, opacity: 0, depthWrite: false, depthTest: false, toneMapped: false });
@@ -439,8 +463,8 @@ export async function createScene(canvas, o) {
     ptex.minFilter = THREE.LinearMipmapLinearFilter;
     ptex.generateMipmaps = true;
   }
-  const scrMats = L.screens.map((r) => screenMat(ptex, [r.x / L.W, 1 - (r.y + r.h) / L.H, r.w / L.W, r.h / L.H], [r.w, r.h], o.sys, o.warm));
-  if (fold && scrMats.length < 2) scrMats.push(screenMat(ptex, [0, 0, 0.0001, 0.0001], [1, 1], o.sys, o.warm)); // a screen the layout hides
+  const scrMats = L.screens.map((r) => screenMat(ptex, [r.x / L.W, 1 - (r.y + r.h) / L.H, r.w / L.W, r.h / L.H], [r.w, r.h], o.sys, warm));
+  if (fold && scrMats.length < 2) scrMats.push(screenMat(ptex, [0, 0, 0.0001, 0.0001], [1, 1], o.sys, warm)); // a screen the layout hides
 
   await pause('materials');
   // ---- build ----
@@ -646,14 +670,15 @@ export async function createScene(canvas, o) {
     screenFrame = { center: new THREE.Vector3(0, h + 0.72, dev.scrZ), normal: new THREE.Vector3(0, 1, 0), up: new THREE.Vector3(0, 0, -1), size: [sw, sh], gap: 0, close: [] };
   }
 
-  // the clear shell shows our board inside
+  // the clear shell shows the board inside (its recipe comes with the souldew+ pack)
   if (look === 'clear') {
-    const [map, mask] = boardTex(fold ? dev.W - 14 : dev.W - 16, fold ? dev.D - 14 : dev.D - 16);
-    const bm = withPulse(new THREE.MeshPhysicalMaterial({ map, roughness: 0.5, metalness: 0.2, emissive: new THREE.Color(o.pulse || '#ffe2a8'), emissiveMap: mask, emissiveIntensity: 0 }), P);
+    const B = LK.clear.board;
+    const [map, mask] = boardTex(fold ? dev.W - 14 : dev.W - 16, fold ? dev.D - 14 : dev.D - 16, B);
+    const bm = withPulse(physical(B.material, { map, emissive: new THREE.Color(o.pulse || B.material.emissive || '#ffffff'), emissiveMap: mask, emissiveIntensity: 0 }), P);
     parts.boardM = bm; // opaque (the transmission pass only sees opaque things); hidden as the shell fades
     parts.inner = [];
     const bg = new THREE.BoxGeometry(fold ? dev.W - 14 : dev.W - 16, 1.4, fold ? dev.D - 14 : dev.D - 16);
-    const edgeM = new THREE.MeshStandardMaterial({ color: '#0d2a20', roughness: 0.6 });
+    const edgeM = new THREE.MeshStandardMaterial({ color: B.edge, roughness: 0.6 });
     const board = new THREE.Mesh(bg, [edgeM, edgeM, bm, bm, edgeM, edgeM]);
     board.position.y = fold ? dev.hb * 0.45 : dev.h * 0.42;
     (fold ? parts.base : body).add(board);
@@ -720,7 +745,7 @@ export async function createScene(canvas, o) {
       let m;
       if (k === 'cover' && !skin) m = fadeable(withPulse(new THREE.MeshPhysicalMaterial({ color: darkM.color.clone(), roughness: 0.55, clearcoat: 0.3 }), P));
       else m = mkShell(tone, skin ? new THREE.Color(skin.plastic) : shellColor);
-      withSurface(THREE, m, spec, HH.shared);
+      withSurface(THREE, m, spec, HH.shared, LK?.finishes || null);
       R.mesh.material = m;
       HH.surf[k] = { mesh: R.mesh, slab: R.slab, spec, U: m.userData.hh.U };
     }
@@ -742,7 +767,7 @@ export async function createScene(canvas, o) {
         if (!rc) continue;
         S.U.uStk.value[n].set(st.U[0], st.U[1], Math.cos(st.rot || 0), Math.sin(st.rot || 0));
         S.U.uStkR.value[n].set(rc.x, rc.y, rc.w, rc.h);
-        S.U.uStkF.value[n].set(face === 'top' ? 0 : 1, { vinyl: 0, holo: 1, glitter: 2 }[st.finish] || 0, PX * (st.scale || 1), st.state);
+        S.U.uStkF.value[n].set(face === 'top' ? 0 : 1, finishIndex(st.finish, LK), PX * (st.scale || 1), st.state);
         n++;
       }
       S.U.uNStk.value = n;
@@ -754,8 +779,8 @@ export async function createScene(canvas, o) {
   // ---- the cartridge ----
   const cartDims = fold ? dev.card : dev.cart;
   const [cw, cl, ct] = cartDims;
-  const cartM = (look === 'clear' ? (m) => m : fadeable)(withPulse(o.cartLook === 'gold'
-    ? new THREE.MeshPhysicalMaterial({ color: '#e0b552', metalness: 1, roughness: 0.25, clearcoat: 0.4 })
+  const cartM = (look === 'clear' ? (m) => m : fadeable)(withPulse(cartLook === 'gold'
+    ? physical(LK.gold.cart)
     : new THREE.MeshPhysicalMaterial({ color: new THREE.Color(o.cartColor || '#4a4954'), roughness: 0.5, clearcoat: 0.4, clearcoatRoughness: 0.3 }), P));
   const cart = new THREE.Group(); // the moving cart (rotates about its insertion end)
   cartHome.add(cart);
@@ -770,10 +795,10 @@ export async function createScene(canvas, o) {
   // the label: towards the screen side for the card (−y in lid space = towards the camera), the back for the cart (−y)
   const labelW = cw - (fold ? 5 : 9), labelH = fold ? cl - 9 : cl * 0.62;
   const FOIL = { uFoil: { value: 0 }, uFoilA: { value: 0 } };
-  const labelM = o.cartLook === 'holo'
-    ? new THREE.MeshPhysicalMaterial({ roughness: 0.2, metalness: 0.2, iridescence: 1, iridescenceIOR: 1.8, iridescenceThicknessRange: [180, 900], iridescenceThicknessMap: foilTex(), clearcoat: 1, clearcoatRoughness: 0.05 })
+  const labelM = cartLook === 'holo'
+    ? physical(LK.holo.label, { iridescenceThicknessMap: foilTex(LK.holo.foil) })
     : new THREE.MeshPhysicalMaterial({ roughness: 0.42, clearcoat: 0.6, clearcoatRoughness: 0.25 });
-  if (o.cartLook === 'holo') {
+  if (cartLook === 'holo') {
     labelM.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, FOIL);
       sh.fragmentShader = `uniform float uFoil, uFoilA;\n${sh.fragmentShader.replace('#include <opaque_fragment>', `
@@ -782,14 +807,10 @@ export async function createScene(canvas, o) {
   #else
   vec2 fu = vec2(0.0);
   #endif
-  float lines = 0.55 + 0.45 * sin((fu.x * 1.0 + fu.y * 0.55) * 180.0);
-  float ph = fu.x * 0.9 + fu.y * 0.5 + uFoil;
-  vec3 rb = 0.5 + 0.5 * cos(6.2832 * (vec3(0.0, 0.33, 0.67) + ph));
-  float sweep = exp(-pow2((fract(ph * 0.5) - 0.5) * 7.0));
-  outgoingLight = mix(outgoingLight, outgoingLight * 0.55 + rb * (0.35 + 0.6 * sweep), uFoilA * (0.35 + 0.4 * lines));
+${LK.holo.glsl}
   #include <opaque_fragment>`)}`;
     };
-    labelM.customProgramCacheKey = () => 'foil';
+    labelM.customProgramCacheKey = () => `foil:${LK.holo.glsl.length}:${LK.holo.glsl.slice(0, 40)}`;
   }
   if (look !== 'clear') fadeable(labelM);
   const label = mesh(plane(labelW, labelH, 'down'), labelM, cart, false);

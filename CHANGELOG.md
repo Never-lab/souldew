@@ -183,6 +183,12 @@ Plus a new play view that gives the game the room it deserves.
 - **When a membership ends, nothing you set is lost.** Your launch settings, your handheld and its designs stay as they
   are and come back with the membership; meanwhile the launch plays what your tier has now – from souldew+ to
   Supporter the free parts, without a membership the cartridge.
+- **souldew+ looks stay souldew+'s.** Gold, Clear shell, Holo label, the Rare start and the holo and glitter sticker
+  finishes now come in the souldew+ pack like the banners and stickers, instead of being built into the app – a
+  changed copy of the open-source app can't just switch them on. The pack's key belongs to the device you signed in
+  on: copying souldew's data folder to another computer opens nothing, and signing a device out ends its key. The
+  pictures of souldew+ stickers and skins you see before joining are shots of the real thing, not the files
+  themselves.
 - **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
   link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
   the board's Rules – and every change goes to the log; the others see them read-only.

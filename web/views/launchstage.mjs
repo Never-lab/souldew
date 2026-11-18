@@ -13,7 +13,7 @@ import { layoutKey, LAYOUTS } from '../lib/handheld/layouts.mjs';
 import { placeholderCanvas } from '../lib/handheld/placeholder.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { launchLook, devKey, RARE_ODDS } from '/shared/handheld.mjs';
-import { loadScene, lookNow, sceneWrap, shellColor, CLEAR, playableLook, launchRightsNow } from '../lib/handheld/look.mjs';
+import { loadScene, lookNow, sceneWrap, shellColor, CLEAR, playableLook, launchRightsNow, paidLooks } from '../lib/handheld/look.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { coverOf } from './library.mjs';
 
@@ -106,7 +106,9 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       const rights = launchRightsNow();
       const lookId = playableLook(cfg.look, rights);
       const V = launchLook(lookId);
-      const rare = !reduced && rights.rare && Math.random() < 1 / RARE_ODDS;
+      // the souldew+ looks' data (Gold's light, the Rare start's) comes with the verified pack – without it there is none
+      const LK = paidLooks();
+      const rare = !reduced && rights.rare && !!LK?.rare && Math.random() < 1 / RARE_ODDS;
       const look = lookNow(Math.random, rights);
       const wrap = V.look === 'theme' ? sceneWrap(look.skin) : null;
       // The set-up (≈ 100 ms of script and the GPU's shader work) waits for the game's first frame, at most BUILD_WAIT ms:
@@ -128,10 +130,10 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       const fold = dev.kind === 'fold';
       const pace = S.PACES.r6;
       const plan = reduced ? S.stillPlan(dev, fold) : fold ? S.foldPlan(quick, dev, pace) : S.turnPlan(quick, dev, pace);
-      const pulse = rare ? '#ffd27a' : V.look === 'gold' ? '#fff0c8' : wrap ? mix(wrap.skin.pulse, '#fff6e6', 0.55) : mix(shell, '#fff6e6', 0.72);
+      const pulse = rare ? LK.rare.pulse : V.look === 'gold' && LK?.gold ? LK.gold.pulse : wrap ? mix(wrap.skin.pulse, '#fff6e6', 0.55) : mix(shell, '#fff6e6', 0.72);
       scene = await S.createScene(el.querySelector('canvas'), {
-        sys, lk, w, h, final, dark, look: V.look, shell, cartLook: V.cart, cartColor, cover, title,
-        clearTint: CLEAR[cfg.clear] || CLEAR.atomic, pulse, glow: rare ? '#ffe2a6' : '#dfe8ff', warm: rare, plan: plan.plan,
+        sys, lk, w, h, final, dark, look: V.look, looks: LK, shell, cartLook: V.cart, cartColor, cover, title,
+        clearTint: CLEAR[cfg.clear] || CLEAR.atomic, pulse, glow: rare ? LK.rare.glow : '#dfe8ff', warm: rare, plan: plan.plan,
         picture: picture || (() => liveCanvas(frame?.current, L)), atlas,
         hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, reduced },
         yieldTo: () => new Promise((r) => setTimeout(r, 0)), mark: (what) => marks.push([what, Math.round(performance.now() - mounted)]),
@@ -176,7 +178,7 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
           [plan.H0, { opacity: 0.35, transform: pos(plan.H0) }, 'cubic-bezier(.4,0,.6,1)'], [T, { opacity: 0, transform: pos(T) }]]);
         // souldew+: glints round the device on the latch (Rare start), one on the label (Holo), and light dust (Rare start)
         el.querySelectorAll('.l3d-glint').forEach((g, i) => {
-          if (!(rare || (V.cart === 'holo' && i === 0))) return;
+          if (!(rare || (V.cart === 'holo' && LK?.holo && i === 0))) return;
           const d = i === 0 ? 20 : 30 + i * 42;
           const [gx, gy] = scene.anchors(plan.L + d + 60)[i] || [sx, sy];
           const sz = (i === 0 ? 36 : 16 + rnd(i, 5) * 14) * Math.max(0.6, ppm / 2.4);

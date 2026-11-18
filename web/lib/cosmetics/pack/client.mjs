@@ -14,6 +14,7 @@
 import { openPack, packError, text } from './format.mjs';
 import { trustedKeys } from './keys.mjs';
 import { state, update, setContent } from '../state.mjs';
+import { cleanLooks } from '../../handheld/looks.mjs';
 
 export const GRACE_MS = 7 * 24 * 3600 * 1000;
 const RECHECK_MS = 6 * 3600 * 1000;
@@ -99,8 +100,10 @@ export function contentFrom(files, { skinsByPath = false } = {}) {
 
 /**
  * "Your handheld"'s souldew+ part (web/lib/handheld): the wraps' compositions (data, run by the public banner engine
- * with the pack's banner recipes) and the souldew+ stickers' pre-built atlas – its layout and two PNGs (bytes, decoded
- * by the page when the handheld is first drawn). A pack without it (an older one) simply has none.
+ * with the pack's banner recipes), the souldew+ stickers' pre-built atlas – its layout and two PNGs (bytes, decoded
+ * by the page when the handheld is first drawn) – and the souldew+ looks (Gold, Clear shell, Holo label, the Rare start,
+ * the holo / glitter finishes: handheld/looks.json, checked by looks.mjs cleanLooks). A pack without them (an older
+ * one) simply has none.
  */
 function handheldFrom(h, files, json) {
   if (!h || typeof h !== 'object') return null;
@@ -110,6 +113,7 @@ function handheldFrom(h, files, json) {
   return {
     wraps: Array.isArray(wraps) ? wraps : [],
     stickers: layout && bytes(h.art) && bytes(h.cut) ? { layout, art: bytes(h.art), cut: bytes(h.cut) } : null,
+    looks: h.looks ? cleanLooks(json(h.looks)) : null,
   };
 }
 

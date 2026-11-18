@@ -163,7 +163,8 @@ export function createPlusPack({ dir, devDir = process.env.SLS_PLUS_DEV_PACK || 
     const b = body && typeof body === 'object' ? body : {};
     const packId = typeof b.packId === 'string' && /^[a-z0-9][a-z0-9-]{1,47}$/.test(b.packId) ? b.packId : null;
     const version = typeof b.version === 'string' && /^\d{1,4}\.\d{1,4}\.\d{1,4}$/.test(b.version) ? b.version : null;
-    const keyId = typeof b.keyId === 'string' && /^\d{1,9}$/.test(b.keyId) ? b.keyId : null;
+    // the account's key epoch, and the session's tag since the key is bound to the session (<epoch>_<16 chars>)
+    const keyId = typeof b.keyId === 'string' && /^\d{1,9}(_[A-Za-z0-9_-]{16})?$/.test(b.keyId) ? b.keyId : null;
     const watermark = typeof b.watermark === 'string' && /^wm_[A-Za-z0-9_-]{1,40}$/.test(b.watermark) ? b.watermark : null;
     if (!packId || !version || !keyId || !B64URL(b.manifest, 2 * 1024 * 1024) || !B64URL(b.signature, 200)) throw httpError(400, 'Bad pack answer', 'plusAnswer');
     // nothing is downloaded or stored for a manifest the pinned key didn't sign

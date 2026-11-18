@@ -3,7 +3,7 @@
 // scene and three.js are imported only here and only when something draws a device – never at the app's start.
 import { useState, useEffect } from '/vendor/htm-preact.mjs';
 import { api } from '../api.mjs';
-import { cleanHandheld, emptyHandheld, lookToPlay, wrapById, cleanLaunchLook, cleanLaunchPace, cleanClearTint, CLEAR_TINTS, devKey, launchTier, launchRights, playableLookFor } from '/shared/handheld.mjs';
+import { cleanHandheld, emptyHandheld, lookToPlay, wrapById, cleanLaunchLook, cleanLaunchPace, cleanClearTint, CLEAR_TINTS, devKey, launchTier, launchRights, playableLookFor, LAUNCH_DEFAULT } from '/shared/handheld.mjs';
 import { layoutKey } from './layouts.mjs';
 import { packState, onChange as onCosmetics } from '../cosmetics/index.mjs';
 import { accountState, onAccount } from '../account.mjs';
@@ -12,6 +12,7 @@ import { earnedTrophies } from '../trophies.mjs';
 import { favourites } from '../favourites.mjs';
 import { loadAtlas } from './stickers.mjs';
 import { wrapComp, recipeOf } from './wrap.mjs';
+import { hasLook } from './looks.mjs';
 import { placeLayout } from './geometry.mjs';
 
 let doc = emptyHandheld();
@@ -89,8 +90,16 @@ export function useLaunchRights() {
 }
 /** souldew+ items usable (the pack is here) */
 export const member = () => launchRightsNow().plus;
-/** The launch look this account can play: a souldew+ look without souldew+ plays "Your colours" (the choice is kept). */
-export const playableLook = (id, rights = launchRightsNow()) => playableLookFor(id, rights);
+/** The souldew+ looks from the verified pack (looks.mjs cleanLooks) – null without the pack, or in an older one. */
+export const paidLooks = () => content.handheld?.looks || null;
+/**
+ * The launch look this account can play: a souldew+ look needs the tier (launchRights: souldew+ with the pack loaded)
+ * AND its data from the pack (Gold, Clear shell, Holo label aren't in the app) – else "Your colours" (the choice is kept).
+ */
+export const playableLook = (id, rights = launchRightsNow()) => {
+  const p = playableLookFor(id, rights);
+  return hasLook(p, paidLooks()) ? p : LAUNCH_DEFAULT;
+};
 
 /** What the launch plays from the handheld right now: owned items only, Surprise me picks a design (shared/handheld.mjs). */
 export function lookNow(rnd = Math.random, rights = launchRightsNow()) {
@@ -168,7 +177,7 @@ export async function poseScene(canvas, o) {
   const w = o.w, h = o.h;
   const scene = await S.createScene(canvas, {
     sys: o.sys, lk: layoutKey(o.sys, 'tb', 'tb'), w, h, final: { x: w * 0.3, y: h * 0.2, w: w * 0.4, h: h * 0.6 }, dark: true,
-    look: o.look || 'theme', shell: shellColor(o.el), clearTint: CLEAR[o.clear] || CLEAR.ice, cartLook: o.look === 'gold' ? 'gold' : undefined,
+    look: o.look || 'theme', looks: paidLooks(), shell: shellColor(o.el), clearTint: CLEAR[o.clear] || CLEAR.ice, cartLook: o.look === 'gold' ? 'gold' : undefined,
     cartColor: o.cartColor, cover: o.cover, title: '', pulse: '#fff4e0', glow: '#dfe8ff', picture: 'placeholder', keep: !!o.keep, atlas,
     plan: () => ({ ...o.plan(), cart: fold ? 999 : 0, power: [-2000, -2000], led: 1, shadow: 1, clean: 0, canvasO: 1, glassOff: 0.35 }),
     hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, reduced: !!o.reduced },
@@ -182,7 +191,7 @@ const stills = new Map();
  * o = { sys, look, skin, stickers, w, h, el, view }
  */
 export async function handheldStill(o) {
-  const key = JSON.stringify([o.sys, o.look, o.skin, o.stickers, o.w, o.h, o.view, content.banners.size, packState().entitled, shellColor(o.el)]);
+  const key = JSON.stringify([o.sys, o.look, o.skin, o.stickers, o.w, o.h, o.view, content.banners.size, packState().entitled, !!paidLooks(), shellColor(o.el)]);
   if (stills.has(key)) return stills.get(key);
   const p = (async () => {
     const cv = document.createElement('canvas');
