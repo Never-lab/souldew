@@ -31,7 +31,9 @@ import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
 import { MissedTracker, openQuestions, queueQuestions, dropQuestion } from '../lib/missed.mjs';
 import { gpuBackends } from '/shared/gpu.mjs';
 import { CTR_LAYOUTS, ctrLayoutAspect } from '/shared/ctrlayout.mjs';
-import { SharedWorld, WorldToggle, WORLD_SYSTEMS, worldEnabled, setWorldEnabled } from '../lib/sharedworld.mjs';
+import { SharedWorld, WorldToggle, WORLD_SYSTEMS, worldEnabled, setWorldEnabled, followEnabled, setFollowEnabled } from '../lib/sharedworld.mjs';
+import { rpsFor } from '../lib/worldrps.mjs';
+import { leadOf } from '/shared/worldicons.mjs';
 import { linkAllowed, reasonText as linkReason, LINK_SYSTEMS, LinkBar, LINK_ASKS } from './linkplay.mjs';
 import { claimPad } from '../lib/padnav.mjs';
 import { dockSide, dockHeight, pictureFor, rightDockWidth, BAR_H, DOCK_W } from '../lib/playlayout.mjs';
@@ -1497,6 +1499,16 @@ export function GameSession({ session, mode }) {
     setWorldEnabled(target.runId, on);
     focusGame();
   };
+  // the Pokémon following you: the first one of your team that can fight (live tracking), shown here when the
+  // switch is on and to the partners either way (lib/sharedworld.mjs packs it into the world message)
+  const [followOn, setFollowOnState] = useState(followEnabled);
+  const setFollowOn = (on) => {
+    setFollowOnState(on);
+    setFollowEnabled(on);
+    focusGame();
+  };
+  const worldLead = worldOk ? leadOf(myParty) : null;
+  const leadKey = JSON.stringify(worldLead);
   const linkIdle = !linkPlay || linkPlay.phase === 'idle' || linkPlay.phase === 'ended';
   const worldPlayers = {};
   const worldActions = {};
@@ -1516,8 +1528,10 @@ export function GameSession({ session, mode }) {
   useEffect(() => {
     if (!worldOk) return undefined;
     const w = new SharedWorld({
-      sync: link, me, frame: () => frame.current, onNear: setWorldNear, onSupported: setWorldSupported,
+      sync: link, me, frame: () => frame.current, onNear: setWorldNear, onSupported: setWorldSupported, rps: rpsFor(link), lead: worldLead, follow: followOn,
       onAction: async (kind, slot) => {
+        if (kind === 'rps-limit') return void toast({ kind: 'soul', title: t('world.rps', 'Rock-paper-scissors'), text: t('rps.limit', 'Not so fast – try again in a few seconds.') });
+        if (kind.startsWith('rps-')) return;
         try {
           await linkSessions?.invite(kind, [slot]);
         } catch (e) {
@@ -1533,8 +1547,8 @@ export function GameSession({ session, mode }) {
     };
   }, [worldOk, link, me]);
   useEffect(() => {
-    worldRef.current?.update({ players: worldPlayers, actions: worldActions, enabled: worldOn });
-  }, [worldKey, worldOk]);
+    worldRef.current?.update({ players: worldPlayers, actions: worldActions, enabled: worldOn, lead: worldLead, follow: followOn });
+  }, [worldKey, worldOk, leadKey, followOn]);
   const btn = (name, title, onClick, extra = {}) => html`<button class="btn icon" title=${title} aria-label=${title} onClick=${onClick} ...${extra}><${Icon} name=${name} size=${14} /></button>`;
 
   // Cheats (Rare Candies, Max Repels): written straight into the bag in RAM. In a run only while its rules allow them
@@ -1784,7 +1798,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
   const groups = isRun && names && !solo;
   const teamEl = html`
     <${LiveStatus} status=${liveState.status} phase=${phase} names=${names} me=${me} others=${others}
-      extra=${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} />`} />
+      extra=${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} follow=${followOn} onFollow=${setFollowOn} />`} />
     ${liveState.status === 'unsupported' && html`<span class="small muted">${isRun
       ? t('play.liveUnsupportedRun', 'This ROM isn’t in the memory table (other language or a hack with a changed layout). The run still works – enter catches by hand.')
       : t('play.liveNoneSolo', 'Live tracking reads Pokémon games – this one plays without it.')}</span>`}

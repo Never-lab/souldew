@@ -22,6 +22,8 @@ import {
   runLayout, winState, updateRun,
 } from '../lib/pslayout.mjs';
 import { tileColumns } from '../lib/playlayout.mjs';
+import { rpsFor } from '../lib/worldrps.mjs';
+import { artUrl } from '../lib/worldart.mjs';
 
 const PREF = 'sl-partnerscreen'; // per computer – see lib/pslayout.mjs (runLayout)
 const STALE_MS = 20000; // a still picture older than this means the partner stopped sending
@@ -194,6 +196,7 @@ export function PartnerTiles({ link, system, side, pl, box = null }) {
   const docked = pl.others.filter((s) => !pl.popped(s));
   const away = pl.others.filter((s) => pl.popped(s));
   const { views, measured, measure, watchers } = useViews(link, docked);
+  const rps = rpsFor(link); // (rock-paper-scissors from a partner's tile: lib/worldrps.mjs)
   const now = Date.now();
   if (!pl.others.length) return null;
   const infos = Object.fromEntries(docked.map((s) => [s, viewInfo(views[s], system, measured[s], now)]));
@@ -208,6 +211,8 @@ export function PartnerTiles({ link, system, side, pl, box = null }) {
       const info = infos[slot];
       return html`<section class="pt" key=${slot} style=${`--ar:${info.ar}`} aria-label=${t('ps.title', '{name}’s game', { name })} onMouseDown=${keepFocus}>
         <header class="pt-head"><${Label} slot=${slot} name=${name} info=${info} /><span class="spacer"></span>
+          ${rps && html`<button class="ps-btn" onMouseDown=${keepFocus} onClick=${() => rps.hub.challenge(slot)} title=${t('rps.challenge', 'Rock-paper-scissors with {name}', { name })}
+            aria-label=${t('rps.challenge', 'Rock-paper-scissors with {name}', { name })}><img src=${artUrl('scissors', '#ebe6da', 2)} alt="" style="image-rendering:pixelated;width:12px;height:12px" /></button>`}
           <button class="ps-btn" onMouseDown=${keepFocus} onClick=${() => pl.pop(slot)} title=${popLabel} aria-label=${`${popLabel}: ${name}`}><${Icon} name="external" size=${12} /></button></header>
         <div class="pt-screen"><${Picture} info=${info} name=${name} onMeasure=${measure(slot)} /></div>
       </section>`;

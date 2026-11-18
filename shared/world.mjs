@@ -34,12 +34,14 @@ export const GBA_KEY = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, U
 /**
  * The Shared World table of a running game, or null where souldew doesn't know its memory (another language, a hack
  * with a moved layout): no overlay then, the board keeps saying where the partner is.
- * `entry`: the addresses.json game (findEntry); `rev`: the ROM's software version (header 0xBC).
+ * `entry`: the addresses.json game (findEntry); `rev`: the ROM's software version (header 0xBC); `code`: its game code
+ * (header 0xAC) – one entry can cover several languages that share the RAM but not the ROM (FireRed DE/FR/IT/ES): the
+ * ROM addresses are then kept per code and revision ("BPRD:0"), and a language without its own is learned/searched.
  */
-export function worldTable(entry, rev = 0) {
+export function worldTable(entry, rev = 0, code = '') {
   const w = entry?.world;
   if (!w || entry.gen !== 3) return null;
-  const rom = w.rom?.[String(rev)] || null;
+  const rom = (code && w.rom?.[`${code}:${rev}`]) || w.rom?.[String(rev)] || null;
   const inBattle = entry.inBattle ? { addr: hex(entry.inBattle.addr), mask: hex(entry.inBattle.mask || '0xff') } : null;
   return {
     gen: 3,
@@ -61,6 +63,9 @@ export function worldTable(entry, rev = 0) {
     backupMap: w.backupMapLayout ? hex(w.backupMapLayout) : 0,
     tasks: w.tasks ? hex(w.tasks) : 0,
     help: w.inHelpSystem ? hex(w.inHelpSystem) : 0,
+    // FR/LG's "Previously on your quest…" replays your last steps with the overworld callback, unlocked: gQuestLogState
+    // 2/3 (QL_STATE_PLAYBACK*) – 1 is the recording that runs all the time
+    questLog: w.questLogState ? hex(w.questLogState) : 0,
     popup: w.mapNamePopup && w.tasks && rom?.mapNamePopupTask
       ? { task: (hex(rom.mapNamePopupTask) | 1) >>> 0, rect: w.mapNamePopup.rect, data: w.mapNamePopup.offsetData ?? null, base: w.mapNamePopup.offsetBase ?? 0 }
       : null,
@@ -101,6 +106,7 @@ export function watchRanges(t, sb1, spriteId = null) {
   if (t.saveBlock1Ptr) r.push([t.saveBlock1Ptr, 4]);
   if (sb1) r.push([sb1, 8]); // pos (x, y), location (mapGroup, mapNum)
   if (t.inBattle) r.push([t.inBattle.addr, 1]);
+  if (t.questLog) r.push([t.questLog, 1]);
   r.push([t.playerAvatar + 4, 2]); // the player's sprite and object event ids
   if (t.sprites && Number.isInteger(spriteId) && spriteId < 64) r.push([t.sprites + spriteId * 0x44, 0x44]);
   return r;
@@ -177,6 +183,7 @@ export function readCamera(t, read) {
   const lock = read(t.lock, 1);
   const battle = t.inBattle ? read(t.inBattle.addr, 1) : null;
   const help = t.help ? read(t.help, 1) : null;
+  const ql = t.questLog ? read(t.questLog, 1) : null;
   const fadeActive = ok(fade, 4) && !!(fade[3] & 0x80);
   return {
     sb1,
@@ -192,6 +199,7 @@ export function readCamera(t, read) {
     battle: !!(battle && battle[0] & t.inBattle.mask),
     // FR/LG's help screen (L/R) runs over the overworld without locking it or changing the callback
     help: !!(help && help[0]),
+    replay: !!(ql && (ql[0] === 2 || ql[0] === 3)),
   };
 }
 
@@ -296,7 +304,7 @@ export function popupRect(t, read, prev = null) {
  * learned while the player walked: `learned`), no battle, no menu or script holding the player, no full fade.
  */
 export function drawable(t, cam, learned = 0) {
-  if (!t || !cam || cam.battle || cam.locked || cam.help || cam.fade >= 16) return false;
+  if (!t || !cam || cam.battle || cam.locked || cam.help || cam.replay || cam.fade >= 16) return false;
   const cb2 = t.overworldCb2 || learned;
   return cb2 ? cam.cb2 === cb2 : true;
 }
@@ -325,16 +333,42 @@ export class OverworldLearner {
 
 // ---- the message -------------------------------------------------------------------------------------------------
 /**
- * A player's state on the wire (~40 bytes of JSON): [v, seq, t, fam, map, x, y, flags]. flags: facing (bits 0–2),
+ * A player's state on the wire (~40 bytes of JSON): [v, seq, t, fam, map, x, y, flags, ext?]. flags: facing (bits 0–2),
  * kind (3–6), gender (7), run (8), hidden (9: not on the overworld – nothing to draw), elevation (10–13: 0 from older
  * versions, which counts as the ground). `t`: the sender's clock (ms).
+ * `ext` (optional, 3.0 builds before the followers stop reading at index 7 and never see it): what changes seldom –
+ * sent when it changed and with the heartbeat (packExt), so ~0 bytes while walking:
+ *   f: [species (National Dex), flags (bit 0 shiny, bits 1–5 the form: Unown's letter)] – the Pokémon following them,
+ *      0 = none (no lead that can walk, or an egg-only team);
+ *   z: [w, h] – the size of their map in tiles (a partner on a connected map north or west of yours is placed by it).
  */
 export const WIRE_V = 1;
-export function packState(st, seq, t) {
-  if (!st || st.hidden) return [WIRE_V, seq >>> 0, Math.round(t), st?.fam || 0, 0, 0, 0, 1 << 9];
-  const k = Math.max(0, KINDS.indexOf(st.kind));
-  const flags = (st.facing & 7) | (k << 3) | ((st.gender & 1) << 7) | (st.run ? 1 << 8 : 0) | ((st.elev & 15) << 10);
-  return [WIRE_V, seq >>> 0, Math.round(t), st.fam | 0, st.map | 0, Math.round(st.x), Math.round(st.y), flags];
+export function packState(st, seq, t, ext = null) {
+  const base = !st || st.hidden
+    ? [WIRE_V, seq >>> 0, Math.round(t), st?.fam || 0, 0, 0, 0, 1 << 9]
+    : [WIRE_V, seq >>> 0, Math.round(t), st.fam | 0, st.map | 0, Math.round(st.x), Math.round(st.y),
+      (st.facing & 7) | (Math.max(0, KINDS.indexOf(st.kind)) << 3) | ((st.gender & 1) << 7) | (st.run ? 1 << 8 : 0) | ((st.elev & 15) << 10)];
+  if (ext && (ext.f !== undefined || ext.z)) base.push(ext);
+  return base;
+}
+
+/** The ext object for packState from a follower { species, shiny, form } (or null: none) and a map size [w, h]. */
+export function packExt({ follower, size } = {}) {
+  const ext = {};
+  if (follower !== undefined) ext.f = follower && follower.species > 0 ? [follower.species | 0, (follower.shiny ? 1 : 0) | ((follower.form & 31) << 1)] : 0;
+  if (size && size[0] > 0 && size[1] > 0) ext.z = [size[0] | 0, size[1] | 0];
+  return ext;
+}
+
+const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+/** The ext of a wire message: { follower?: { species, shiny, form } | null, size?: [w, h] } – malformed parts left out. */
+export function unpackExt(e) {
+  if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+  const out = {};
+  if (e.f === 0 || e.f === null) out.follower = null;
+  else if (Array.isArray(e.f) && int(e.f[0], 1, 2047) && int(e.f[1], 0, 63)) out.follower = { species: e.f[0], shiny: !!(e.f[1] & 1), form: e.f[1] >> 1 };
+  if (Array.isArray(e.z) && int(e.z[0], 1, 1024) && int(e.z[1], 1, 1024)) out.size = [e.z[0], e.z[1]];
+  return Object.keys(out).length ? out : null;
 }
 
 /** The other way – null for anything malformed (it comes from the network). */
@@ -342,9 +376,10 @@ export function unpackState(a) {
   if (!Array.isArray(a) || a.length < 8 || a[0] !== WIRE_V || !a.slice(1, 8).every(Number.isFinite)) return null;
   const [, seq, t, fam, map, x, y, flags] = a;
   if (Math.abs(x) > 0x8000 || Math.abs(y) > 0x8000 || map < 0 || map > 0xffff) return null;
-  if (flags & (1 << 9)) return { seq, t, fam, hidden: true };
+  const ext = a.length > 8 ? unpackExt(a[8]) : null;
+  if (flags & (1 << 9)) return { seq, t, fam, hidden: true, ...(ext ? { ext } : {}) };
   const facing = flags & 7;
-  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), elev: (flags >> 10) & 15, hidden: false };
+  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), elev: (flags >> 10) & 15, hidden: false, ...(ext ? { ext } : {}) };
 }
 
 /** How often the sender sends: while something changes up to 15 a second, else a heartbeat once a second. */
@@ -401,18 +436,29 @@ export class Track {
     return Math.min(600, Math.max(60, g * 1.5 + 16));
   }
 
-  /** The state at `now` (our clock): { map, x, y, facing, kind, gender, run, fam, moving, hidden } or null. */
-  sample(now) {
+  /**
+   * The state at `now` (our clock): { map, x, y, facing, kind, gender, run, fam, moving, hidden } or null.
+   * `conv(state)` (optional): the state's position in the local player's frame – { x, y } or null (another map that
+   * isn't connected to yours). With it, x/y come back in that frame (`local: true`, or `away: true` when it has none)
+   * and the partner slides across a map connection instead of stopping at the edge.
+   */
+  sample(now, conv = null) {
     const b = this.buf;
     if (!b.length || this.offset === null) return null;
+    const at = (st) => {
+      if (!conv) return st;
+      const p = st.hidden ? null : conv(st);
+      return p ? { ...st, x: p.x, y: p.y, local: true } : { ...st, away: true };
+    };
+    const same = (p, q) => p.fam === q.fam && (conv ? !!p.local && !!q.local : p.map === q.map);
     const rt = now - this.offset - this.delay; // render time on the sender's clock
     let i = b.length - 1;
     while (i > 0 && b[i].t > rt) i--;
-    const a = b[i];
-    const n = b[i + 1];
+    const a = at(b[i]);
+    const n = b[i + 1] ? at(b[i + 1]) : null;
     if (a.t > rt) return { ...a, moving: false }; // older than anything we have: the oldest
     if (a.hidden) return { ...a, moving: false };
-    if (n && !n.hidden && n.map === a.map && n.fam === a.fam && n.t > a.t) {
+    if (n && !n.hidden && same(a, n) && n.t > a.t) {
       const d = Math.abs(n.x - a.x) + Math.abs(n.y - a.y);
       if (d > this.snapPx) return { ...a, moving: false };
       const k = (rt - a.t) / (n.t - a.t);
@@ -421,8 +467,8 @@ export class Track {
     }
     if (n) return { ...a, moving: false }; // the next one is on another map / hidden: hold until it's due
     // past the newest: keep going the way it went, for a moment (a held direction keeps walking in the game too)
-    const p = b[i - 1];
-    if (p && !p.hidden && p.map === a.map && a.t > p.t && rt - a.t < this.maxExtrapolate) {
+    const p = b[i - 1] ? at(b[i - 1]) : null;
+    if (p && !p.hidden && same(p, a) && a.t > p.t && rt - a.t < this.maxExtrapolate) {
       const vx = (a.x - p.x) / (a.t - p.t);
       const vy = (a.y - p.y) / (a.t - p.t);
       if (Math.abs(vx) + Math.abs(vy) > 0 && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) <= this.snapPx) {
@@ -444,10 +490,11 @@ export class Track {
 /**
  * Where a partner appears on the picture: their world pixels relative to the camera, from the local player's spot.
  * Returns { x, y } of the partner's tile (top-left, picture pixels) or null when they are not on the same map of the
- * same game family, or off the picture (with a margin for the sprite and the name).
+ * same game family (or a connected one: a state Track.sample put into the local frame, `local`), or off the picture
+ * (with a margin for the sprite and the name).
  */
 export function screenPos(t, cam, p) {
-  if (!t || !cam || !p || p.hidden || p.fam !== t.fam || p.map !== cam.map) return null;
+  if (!t || !cam || !p || p.hidden || p.away || p.fam !== t.fam || (!p.local && p.map !== cam.map)) return null;
   const x = t.anchor.x + (p.x - cam.cx);
   const y = t.anchor.y + (p.y - cam.cy);
   if (x < -48 || y < -48 || x > t.screen.w + 32 || y > t.screen.h + 48) return null;
@@ -465,7 +512,7 @@ export function facedPartner(t, local, partners) {
   if (!local) return null;
   const [fx, fy] = frontTile(local.tx, local.ty, local.facing);
   for (const { slot, state } of partners) {
-    if (!state || state.hidden || state.fam !== t.fam || state.map !== local.map) continue;
+    if (!state || state.hidden || state.away || state.fam !== t.fam || (!state.local && state.map !== local.map)) continue;
     if (Math.round(state.x / TILE) === fx && Math.round(state.y / TILE) === fy) return slot;
   }
   return null;
@@ -499,3 +546,168 @@ export function animFor(st, speed) {
   if (speed > 1.5) return 8 + d;
   return 4 + d;
 }
+
+// ---- connected maps ------------------------------------------------------------------------------------------------
+/** Map connection directions (Gen 3 CONNECTION_*); dive/emerge (5, 6) lead to another layer, never side by side. */
+export const CONN = { S: 1, N: 2, W: 3, E: 4 };
+
+/**
+ * The local map's size and its connections, from gMapHeader (RAM: its layout and connections pointers) and the ROM:
+ * { map, w, h, list: [{ dir, offset, map }] } or null. Cached per connections pointer (`cache`: a Map).
+ */
+export function readConnections(t, read, rom, map, cache = null) {
+  if (!t?.mapHeader || !rom) return null;
+  const h = read(t.mapHeader, 0x10);
+  if (!ok(h, 0x10)) return null;
+  const layout = u32(h, 0);
+  const conns = u32(h, 0x0c);
+  const key = `${map}:${layout}:${conns}`;
+  if (cache?.has(key)) return cache.get(key);
+  const R = (p, n) => (p >= 0x08000000 && p - 0x08000000 + n <= rom.length ? p - 0x08000000 : -1);
+  let out = null;
+  const lo = R(layout, 8);
+  if (lo >= 0) {
+    const w = s32(rom, lo);
+    const hh = s32(rom, lo + 4);
+    if (w > 0 && hh > 0 && w <= 0x400 && hh <= 0x400) {
+      const list = [];
+      const co = conns ? R(conns, 8) : -1;
+      const count = co >= 0 ? s32(rom, co) : 0;
+      const at = co >= 0 ? R(u32(rom, co + 4), 12 * Math.max(1, count)) : -1;
+      if (count > 0 && count <= 8 && at >= 0) {
+        for (let i = 0; i < count; i++) {
+          const c = at + i * 12;
+          const dir = rom[c];
+          if (dir >= CONN.S && dir <= CONN.E) list.push({ dir, offset: s32(rom, c + 4), map: rom[c + 8] * 256 + rom[c + 9] });
+        }
+      }
+      out = { map, w, h: hh, list };
+    }
+  }
+  if (cache) {
+    if (cache.size > 64) cache.clear();
+    cache.set(key, out);
+  }
+  return out;
+}
+
+/**
+ * A partner's position in the local map's frame (world pixels): on the same map as it is, on a map connected to it
+ * shifted by the connection (pokeemerald fieldmap.c Fill*Connection: south at your height, east at your width, north
+ * and west at minus *their* size – `size` [w, h], which the partner sends) – or null.
+ */
+export function inLocalFrame(conns, st, size = null) {
+  if (!conns || !st || st.hidden) return null;
+  if (st.map === conns.map) return { x: st.x, y: st.y };
+  const c = conns.list.find((x) => x.map === st.map);
+  if (!c) return null;
+  const o = c.offset * TILE;
+  if (c.dir === CONN.S) return { x: st.x + o, y: st.y + conns.h * TILE };
+  if (c.dir === CONN.E) return { x: st.x + conns.w * TILE, y: st.y + o };
+  if (!size) return null;
+  if (c.dir === CONN.N) return { x: st.x + o, y: st.y - size[1] * TILE };
+  return { x: st.x - size[0] * TILE, y: st.y + o };
+}
+
+// ---- the Pokémon following a player ---------------------------------------------------------------------------------
+/**
+ * The follower of one player: it walks the player's path one tile (`gap` px) behind – the trail of where the player
+ * has been, not a straight line, so it goes round corners and through doors after them. Fed with the player's
+ * position every picture (a partner's interpolated one, or your own); a warp, Fly or another map puts it back onto
+ * the player (it steps out of the door after them), the first sight of a player one tile behind their back.
+ * Nothing in the game knows about it: it overlaps people and walls like the partners do.
+ */
+export class Follower {
+  constructor({ gap = TILE, snapPx = 3 * TILE } = {}) {
+    this.gap = gap;
+    this.snapPx = snapPx;
+    this.trail = [];
+    this.key = null;
+    this.pos = null;
+    this.dist = 0;
+    this.flip = false;
+  }
+
+  _reset(x, y, behind) {
+    const [dx, dy] = STEP[behind] || [0, 0];
+    this.trail = behind ? [{ x: x - dx * this.gap, y: y - dy * this.gap }, { x, y }] : [{ x, y }];
+    if (behind === DIR.E) this.flip = true;
+    else if (behind === DIR.W) this.flip = false;
+    this.pos = null;
+  }
+
+  /**
+   * The leader at world pixels (x, y) in frame `key` (the map – or the local map for partners shown across a
+   * connection), facing 1–4. Returns { x, y (the follower's tile, world px), moving, flip (faces right), frame (0/1),
+   * hidden (still on the leader after a warp) }.
+   */
+  update(key, x, y, facing = DIR.S) {
+    const last = this.trail[this.trail.length - 1];
+    if (!last) this._reset(x, y, facing);
+    else if (key !== this.key || Math.abs(x - last.x) + Math.abs(y - last.y) > this.snapPx) this._reset(x, y, 0);
+    else if (x !== last.x || y !== last.y) this.trail.push({ x, y });
+    this.key = key;
+    // keep just enough path behind the leader
+    const len = (from) => {
+      let n = 0;
+      for (let i = from + 1; i < this.trail.length; i++) n += Math.abs(this.trail[i].x - this.trail[i - 1].x) + Math.abs(this.trail[i].y - this.trail[i - 1].y);
+      return n;
+    };
+    while (this.trail.length > 2 && len(1) >= this.gap) this.trail.shift();
+    // one gap back along the path from the leader (or the start of a shorter path)
+    let left = this.gap;
+    let px = this.trail[0].x;
+    let py = this.trail[0].y;
+    for (let i = this.trail.length - 1; i > 0; i--) {
+      const b = this.trail[i];
+      const a = this.trail[i - 1];
+      const d = Math.abs(b.x - a.x) + Math.abs(b.y - a.y);
+      if (d >= left) {
+        const k = d ? left / d : 0;
+        px = b.x + (a.x - b.x) * k;
+        py = b.y + (a.y - b.y) * k;
+        left = 0;
+        break;
+      }
+      left -= d;
+    }
+    const prev = this.pos;
+    const dx = prev ? px - prev.x : 0;
+    const dy = prev ? py - prev.y : 0;
+    const moved = Math.abs(dx) + Math.abs(dy);
+    this.dist += moved;
+    if (dx > 0.01) this.flip = true;
+    else if (dx < -0.01) this.flip = false;
+    this.pos = { x: px, y: py };
+    return { x: px, y: py, moving: moved > 0.01, flip: this.flip, frame: Math.floor(this.dist / 8) & 1, hidden: Math.abs(px - x) + Math.abs(py - y) < 6 };
+  }
+}
+
+/** Kinds a follower doesn't walk along with: on the water, under it (it would stand on the sea). */
+export const followerHidden = (st) => !st || st.hidden || st.kind === 'surf' || st.kind === 'dive' || st.kind === 'water';
+
+// ---- emotes -----------------------------------------------------------------------------------------------------------
+/** The emote bubbles (pixel art in web/lib/worldoverlay.mjs), the names on the wire. 'wave' goes as { t: 'wave' }. */
+export const EMOTES = ['wave', 'heart', 'excl', 'quest', 'gg'];
+
+/**
+ * A token bucket: `burst` at once, then one every `everyMs`. Emotes use it on both ends – the sender's buttons and
+ * every partner's receiver (a modified client can't flood your picture with bubbles).
+ */
+export class RateLimit {
+  constructor({ burst = 4, everyMs = 2500 } = {}) {
+    this.burst = burst;
+    this.everyMs = everyMs;
+    this.tokens = burst;
+    this.at = null;
+  }
+  take(now) {
+    if (this.at === null) this.at = now;
+    this.tokens = Math.min(this.burst, this.tokens + (now - this.at) / this.everyMs);
+    this.at = now;
+    if (this.tokens < 1) return false;
+    this.tokens -= 1;
+    return true;
+  }
+}
+export const EMOTE_LIMIT = { burst: 4, everyMs: 2500 };
