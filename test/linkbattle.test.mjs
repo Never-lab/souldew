@@ -101,7 +101,7 @@ test('games: the seat\'s game from its cartridge header (and the live tracker\'s
   assert.equal(L.gameOf('gba', gba('AXPE')), 'rs');
   assert.equal(L.gameOf('gba', gba('AXVD')), 'rs');
   assert.equal(L.gameOf('gba', gba('BPRD')), 'frlgEu');
-  assert.equal(L.gameOf('gba', gba('BPED')), null, 'German Emerald keeps its memory elsewhere');
+  assert.equal(L.gameOf('gba', gba('BPED')), null, 'German Emerald: tracked live (its RAM is the English game\'s), but its link battles were never recorded – no wagers yet');
   const gb = (title, maker = '') => { const b = new Uint8Array(0x1c); b.set([...title].map((c) => c.charCodeAt(0)), 0); b.set([...maker].map((c) => c.charCodeAt(0)), 0x0b); return b; };
   assert.equal(L.gameOf('gb', gb('POKEMON RED')), 'redblue');
   assert.equal(L.gameOf('gbc', gb('PM_CRYSTAL', 'BYTE')), 'crystal');

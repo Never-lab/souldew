@@ -36,7 +36,7 @@
 //   state  {i, n, data, frame} | state-busy                  … and gets the session as the others have it
 //   bye    {reason}                                           a player left: the session ends for everybody
 import { serverErrorText } from './errors.mjs';
-import { LINK_CMD, linkDelay } from '/shared/link.mjs';
+import { LINK_CMD, linkDelay, sameLinkSystem } from '/shared/link.mjs';
 import { b64, unb64, deflate, inflate, sha1 } from './bytes.mjs';
 import { LinkResult } from './linkresult.mjs';
 import { WAGER_CAP, wagerRules, agreedWager, resultEntry } from './wager.mjs';
@@ -207,7 +207,8 @@ export class LinkSessions {
     if (st.phase !== 'invited') return;
     const c = await this.check().catch(() => null);
     const own = c?.slots?.[this.me];
-    const bad = !c?.tool ? 'linkMissing' : !c.supported || c.system !== st.system ? 'linkSystem' : !own?.rom ? 'linkOwnMissing' : null;
+    // (Game Boy and Game Boy Color games share the cable: Blue ↔ Yellow, Gold ↔ Crystal …)
+    const bad = !c?.tool ? 'linkMissing' : !c.supported || !sameLinkSystem(c.system, st.system) ? 'linkSystem' : !own?.rom ? 'linkOwnMissing' : null;
     if (bad) {
       this._send({ t: 'refuse', reason: bad }, { relayToo: true });
       return this._set({ phase: 'ended', error: bad, ended: { reason: bad, mine: true, at: Date.now() } });

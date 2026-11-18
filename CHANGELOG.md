@@ -44,6 +44,9 @@ Plus a new play view that gives the game the room it deserves.
 - **Trades in Gold, Silver and Crystal go into the log** too – two of your own Pokémon with the same trainer ID and
   stats no longer hide the trade. The “You are here” sign knows the Union Room and the Colosseums of Diamond, Pearl,
   Platinum, HeartGold and SoulSilver.
+- **Blue or Red with Yellow:** a Game Boy game and a Game Boy Color game of the same generation link again – Yellow's
+  player refused every invite from Red or Blue (“isn't available for this game”), and each seat now runs on its own
+  player's console on every computer.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into

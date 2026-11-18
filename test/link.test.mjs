@@ -141,8 +141,15 @@ test('native: link host arguments – every system incl. the DS, a rejoin\'s sta
   // Game Boy seats: each on its player's console (the same list on every peer); a GBC game always on a GBC
   const gb = linkArgs({ system: 'gb', roms: ['/a.gb', '/b.gb'], saves: [], models: ['dmg', 'cgb'], local: 0, delay: 4, rtc: 1 });
   assert.deepEqual(gb.filter((x, i, l) => l[i - 1] === '--model'), ['dmg', 'cgb']);
-  const gbc = linkArgs({ system: 'gbc', roms: ['/a.gbc', '/b.gbc'], saves: [], models: ['dmg', null], local: 0, delay: 4, rtc: 1 });
+  const gbc = linkArgs({ system: 'gbc', roms: ['/a.gbc', '/b.gbc'], saves: [], models: ['cgb', null], local: 0, delay: 4, rtc: 1 });
   assert.deepEqual(gbc.filter((x, i, l) => l[i - 1] === '--model'), ['cgb', 'cgb']);
+  // Blue (gb, the original Game Boy) ↔ Yellow (gbc): the Blue player's computer has system 'gb', the Yellow player's
+  // 'gbc' – both must form the same consoles from the announced list (the e2e found the invite refused before)
+  const blue = linkArgs({ system: 'gb', roms: ['/blue.gb', '/yellow.gb'], saves: [], models: ['dmg', 'cgb'], local: 0, delay: 4, rtc: 1 });
+  const yellow = linkArgs({ system: 'gbc', roms: ['/blue.gb', '/yellow.gb'], saves: [], models: ['dmg', 'cgb'], local: 1, delay: 4, rtc: 1 });
+  const models = (a) => a.filter((x, i, l) => l[i - 1] === '--model');
+  assert.deepEqual(models(blue), ['dmg', 'cgb']);
+  assert.deepEqual(models(yellow), models(blue), 'the same consoles on both computers');
   // the e2e's recording and fixed clock: only with SLS_E2E=1 – a stray variable never changes a real session
   const env = { SLS_LINK_TEST_SCRIPT: '/rec', SLS_LINK_TEST_RTC: '42' };
   const plain = linkArgs({ system: 'gba', roms: ['/a', '/b'], saves: [], local: 0, rtc: 7, env });

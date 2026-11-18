@@ -165,7 +165,9 @@ export function linkArgs({ system, roms, saves, local, delay, rtc, state = null,
   const args = [];
   roms.forEach((r, i) => {
     args.push('--rom', r, '--sram', saves[i] || '-', '--state', states[i] || '-');
-    if (system === 'gb' || system === 'gbc') args.push('--model', models[i] === 'dmg' && system === 'gb' ? 'dmg' : 'cgb'); // (each seat as its player's console)
+    // (each seat as its player's console, as that player announced it – never this computer's game: Blue (gb) and Yellow
+    // (gbc) link too, and every peer must form the same consoles; a GBC game's player always announces 'cgb')
+    if (system === 'gb' || system === 'gbc') args.push('--model', models[i] === 'dmg' ? 'dmg' : 'cgb');
   });
   const e2e = e2eLink(env);
   const clock = e2e.rtc || Math.round(Number(rtc) || Date.now());

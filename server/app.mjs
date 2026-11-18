@@ -1840,7 +1840,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         if (typeof s.stateSha1 !== 'string' || createHash('sha1').update(st).digest('hex') !== s.stateSha1.toLowerCase()) throw httpError(409, 'The save state is damaged', 'linkStateDiffers', { slot: s.slot });
       }
       // a Game Boy seat's console, as its player announced it (every peer gets the same list – gbModel's values)
-      const model = system === 'gb' ? (s.model === 'cgb' ? 'cgb' : 'dmg') : system === 'gbc' ? 'cgb' : null;
+      // (the seat's own announcement first: in a Blue ↔ Yellow session the peers' own games differ, the list must not)
+      const model = system === 'gb' || system === 'gbc' ? (s.model === 'cgb' || s.model === 'dmg' ? s.model : system === 'gbc' ? 'cgb' : 'dmg') : null;
       return { rom: r.path, save, state: st, model };
     });
     let stateBytes = null;
