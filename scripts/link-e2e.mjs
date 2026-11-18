@@ -31,6 +31,13 @@
 //        [--engine]          (Settings › "souldew engine (beta)": every fast player is the souldew engine – with
 //                            --seamless the partners join each player's running game in its own process and leave it
 //                            the same way: checks linkedInPlace / aloneInPlace)
+//        [--winner p1|p2|p3,p4]   (a battle: the seat(s) the recording's battle is known to end with as the winners –
+//                            every computer must have read that result, the same, and logged it; docs/MULTIPLAYER.md
+//                            › "Battle results and wagers")
+//        [--wager <₽> [--format single|double|multi]]   (A's challenge is for that much money: after the session each
+//                            player's game pays / gets it in the overworld – checked in RAM; with --save-after each
+//                            player then saves in the game (Gen 3: START, SAVE, YES, YES) and the money is checked in the
+//                            run's save file)
 //        [--show]
 //
 // Never commit ROMs, saves or the screenshots.
@@ -199,6 +206,89 @@ async function main() {
       return true;
     }, 300000);
     const everyone = async (fn) => { for (const i of all) if (!(await fn(i))) return false; return true; };
+    /** A page's run document (the doc the page holds – what it synced from the others too). */
+    const docOf = async (i) => JSON.parse(await ev(i, `(() => { const L = window.__slLink?.sync?.doc; if (!L) return null; return JSON.stringify(L.scan(''), (k, v) => v); })()`) || 'null');
+    /** Gen 3 money in a battery save: SaveBlock1 (sections 1–4) +0x490 – Emerald XORs it with SaveBlock2's key (+0xAC). */
+    const saveMoney3 = (b) => {
+      const slot = (o) => ({ o, idx: b.readUInt32LE(o + 0xffc) });
+      const newest = [slot(0), slot(0xe000)].sort((x, y) => y.idx - x.idx)[0].o;
+      const sec = {};
+      for (let k = 0; k < 14; k++) sec[b.readUInt16LE(newest + k * 0x1000 + 0xff4)] = newest + k * 0x1000;
+      const sb1 = Buffer.concat([1, 2, 3, 4].map((id) => b.subarray(sec[id], sec[id] + 0xf80)));
+      return { money: sb1.readUInt32LE(0x490), key: b.readUInt32LE(sec[0] + 0xac) };
+    };
+    async function battleChecks() {
+      const want = String(opt('winner')).split(',').sort();
+      const docs = [];
+      await until('every computer has every result', async () => {
+        docs.length = 0;
+        for (const i of all) docs.push(await docOf(i));
+        return docs.every((d) => SLOTS.every((s) => Object.keys(d || {}).some((k) => k.startsWith('lb:') && k.endsWith(`:${s}`))));
+      }, 60000).catch(() => null);
+      const outcomes = docs.map((d) => {
+        const lb = Object.entries(d || {}).filter(([k]) => k.startsWith('lb:')).map(([k, v]) => [k, v?.v ?? v]);
+        return { entries: lb, feed: Object.entries(d || {}).filter(([k]) => k.startsWith('feed:lb-')).map(([, v]) => v?.v ?? v) };
+      });
+      result.battle = outcomes.map((o) => ({ entries: o.entries.map(([k, v]) => ({ k, per: v.per, h: v.h, wager: v.wager, void: v.void || null })), log: o.feed.map((f) => f.text) }));
+      const hashes = new Set(outcomes.flatMap((o) => o.entries.map(([, v]) => v.h)));
+      result.checks.battleReadOnEveryComputer = outcomes.every((o) => o.entries.length === N && o.entries.every(([, v]) => v.per && !v.void));
+      result.checks.battleSameResult = hashes.size === 1 && !hashes.has(undefined);
+      const per = outcomes[0].entries[0]?.[1]?.per || {};
+      const winners = SLOTS.filter((s) => per[s]?.w > per[s]?.l).sort();
+      result.winners = winners;
+      result.checks.knownWinner = JSON.stringify(winners) === JSON.stringify(want);
+      result.checks.battleLogged = outcomes.every((o) => o.feed.length === 1);
+      if (!opt('wager')) return;
+      // the wager: each player's own game pays or gets it once it stands in the overworld (RAM), then saves it
+      const stake = outcomes[0].entries[0]?.[1]?.wager || 0;
+      result.stake = stake;
+      const moneyNow = (i) => emu(i, `(() => { const r = (a, n) => e.read(a, n); const u = (b) => (b[0] | b[1] << 8 | b[2] << 16 | b[3] << 24) >>> 0;
+        if (${JSON.stringify(rom1)}.includes('Emerald') && ${i} % 2 === 0) { const s1 = u(r(0x03005d8c, 4)), s2 = u(r(0x03005d90, 4)); return (u(r(s1 + 0x490, 4)) ^ u(r(s2 + 0xac, 4))) >>> 0; }
+        return u(r(0x02025734 + 0x490, 4)); })()`);
+      const before = result.moneyBefore = [];
+      for (const i of all) before.push(Number(await moneyNow(i)));
+      await until('every wager paid', async () => {
+        const d = await docOf(0);
+        return SLOTS.every((s) => !!(d?.[`lbpay:${Object.keys(d).find((k) => k.startsWith('lb:'))?.split(':')[1]}:${s}`]));
+      }, 120000).catch(() => null);
+      await sleep(2500);
+      const after = result.moneyAfter = [];
+      for (const i of all) after.push(Number(await moneyNow(i)));
+      const exp = all.map((i) => (want.includes(SLOTS[i]) ? stake : -stake));
+      const docEnd = await docOf(0);
+      result.payments = Object.entries(docEnd || {}).filter(([k]) => k.startsWith('lbpay:') || k.startsWith('feed:lbp-')).map(([k, v]) => [k, v?.v ?? v]);
+      // (the money may already be in when this looks first: each game's own record of before → after, and the RAM now)
+      const paid = (s) => result.payments.find(([k]) => k.startsWith('lbpay:') && k.endsWith(`:${s}`))?.[1];
+      result.checks.wagerPaidInGame = stake > 0 && all.every((i) => paid(SLOTS[i])?.after - paid(SLOTS[i])?.before === exp[i] && after[i] === paid(SLOTS[i])?.after);
+      result.checks.paymentLogged = result.payments.some(([k]) => k.startsWith('feed:lbp-'));
+      await shot(`${String(n++).padStart(2, '0')}-paid`);
+      for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/soullink?run=${runId}`)}; true`);
+      await sleep(2500);
+      await shot(`${String(n++).padStart(2, '0')}-board-record`);
+      result.checks.recordOnBoard = await everyone(async (i) => /1 : 0|0 : 1/.test(String(await ev(i, `document.querySelector('.h2h')?.textContent || ''`))));
+      for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/play?run=${runId}`)}; true`);
+      await sleep(3000);
+      if (!flag('save-after')) return;
+      // an in-game save: START, (the menu remembers SAVE), A, YES, YES – then the save file holds the money
+      for (const i of all) {
+        for (const [keys, ms] of [[['start'], 120], [[], 900], [['a'], 120], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 6000], [['a'], 120], [[], 1200], [['b'], 120], [[], 600]]) {
+          await emu(i, `e.hold(${JSON.stringify(keys)})`);
+          await sleep(ms);
+        }
+      }
+      await sleep(8000); // (the battery save settles, then the play view writes it into the run)
+      const savedMoney = [];
+      for (const [i, pr] of profiles.entries()) {
+        const b = Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer()));
+        const m = saveMoney3(b);
+        savedMoney.push(i % 2 === 0 && /Emerald/.test(rom1) ? (m.money ^ m.key) >>> 0 : m.money);
+      }
+      result.moneyInSaves = savedMoney;
+      result.checks.wagerInSaves = all.every((i) => savedMoney[i] === after[i]);
+      const docSaved = await docOf(0);
+      result.checks.paymentMarkedSaved = SLOTS.every((s) => Object.entries(docSaved || {}).some(([k, v]) => k.startsWith('lbpay:') && k.endsWith(`:${s}`) && (v?.v ?? v)?.status === 'saved'));
+      await shot(`${String(n++).padStart(2, '0')}-saved`);
+    }
     await linked();
     log('peer link up');
     await shot('01-board');
@@ -234,7 +324,16 @@ async function main() {
 
     // ---- invite, join (and the partner's game, when it's another file) -------------------------------------------------
     const stripIn = seamless ? strip(0, 'in', 6000) : null;
-    await ev(0, `window.__slLink.sessions.invite(${JSON.stringify(kind)}, ${JSON.stringify(SLOTS.slice(1))})`);
+    const wagerOpts = opt('wager') ? { wager: Number(opt('wager')), format: opt('format', null) } : {};
+    if (opt('wager') && !seamless) { // the challenge on the board: format and wager (a picture of it – the invite is sent below)
+      await ev(0, `(() => { const b = [...document.querySelectorAll('.link-buttons button')].find((x) => /Battle/.test(x.textContent)); b?.click(); return !!b; })()`);
+      await sleep(700);
+      await ev(0, `(() => { const c = document.querySelector('.battle-setup input[type=checkbox]'); c?.click(); return !!c; })()`);
+      await sleep(500);
+      await shot('01c-challenge');
+      await ev(0, `(() => { const b = [...document.querySelectorAll('.battle-setup button')].find((x) => /Cancel/.test(x.textContent)); b?.click(); return !!b; })()`);
+    }
+    await ev(0, `window.__slLink.sessions.invite(${JSON.stringify(kind)}, ${JSON.stringify(SLOTS.slice(1))}, ${JSON.stringify(wagerOpts)})`);
     await until('invite arrives', () => everyone(async (i) => !i || (await phase(i)) === 'invited'));
     await shot('02-invited');
     if (seamless && flag('desync') && opt('desync-state')) {
@@ -427,6 +526,7 @@ async function main() {
     }
     // the run's log on both computers: the trade entry (web/lib/run.mjs logLinkTrade)
     await sleep(3000);
+    if (opt('winner')) await battleChecks();
     if (kind === 'trade' && !dropAt) { // (a session cut off before the trade has none to log)
       const trades = [];
       for (const pr of profiles) {

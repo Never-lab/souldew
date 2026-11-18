@@ -1517,3 +1517,19 @@ html.pad-nav .cart:focus .cart-title { color: var(--focus); }
 .link-bar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 60; max-width: min(760px, calc(100vw - 32px)); gap: 10px; align-items: center; box-shadow: 0 8px 28px rgb(0 0 0 / 0.35); }
 .link-buttons { gap: 6px; margin-top: 4px; }
 .link-buttons .btn { padding: 2px 8px; }
+.battle-setup { margin-top: 6px; padding: 10px 12px; border-radius: 10px; background: var(--shell-2); border: 1px solid var(--edge); width: min(360px, 100%); text-align: left; align-self: flex-end; }
+.battle-setup .check { align-items: flex-start; }
+.battle-setup .row { flex-wrap: wrap; gap: 6px; }
+.battle-setup .seg { flex-wrap: wrap; }
+.wager-row { gap: 6px; flex-wrap: wrap; align-items: center; }
+.wager-input { display: inline-flex; align-items: center; gap: 4px; }
+.wager-input input { width: 88px; }
+.h2h { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.battle-invite .chip { margin-left: 6px; }
+.battle-invite .chip.wager, .link-stake { color: var(--warn-ink); }
+.link-result { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; background: var(--shell-2); border: 1px solid var(--edge); }
+.link-result b { font-size: 15px; }
+.link-result.won { border-color: var(--ok-ink); }
+.link-result.won svg { color: var(--ok-ink); }
+.link-result.lost svg, .link-result.void svg { color: var(--ink-3); }
+.link-result .num { font-variant-numeric: tabular-nums; }

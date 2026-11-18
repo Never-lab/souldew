@@ -8,9 +8,9 @@ import { t, ago } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
 import { gameById, gameTitle, speciesName, hackById, itemName, moveName } from '../lib/data.mjs';
-import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
+import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, logWagerPaid, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
 import { findEntry, readLiveParty, readLiveBattle, playerBattle, withBattleHp, confirmFaints, inBattleFlag, LiveTables, expandedEntry } from '/shared/live/parse.mjs';
-import { applyCheat, cheatsFor, cheatBlock, CHEATS, readBalls } from '/shared/live/cheats.mjs';
+import { applyCheat, cheatsFor, cheatBlock, CHEATS, readBalls, locateCtrBag } from '/shared/live/cheats.mjs';
 import { DeathReveal, effectiveSpeed } from '../lib/reveal.mjs';
 import { MusicKeyTracker } from '/shared/live/location.mjs';
 import { probeGen67 } from '/shared/live/gen67.mjs';
@@ -32,7 +32,9 @@ import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
 import { MissedTracker, openQuestions, queueQuestions, dropQuestion } from '../lib/missed.mjs';
 import { gpuBackends } from '/shared/gpu.mjs';
 import { CTR_LAYOUTS, ctrLayoutAspect } from '/shared/ctrlayout.mjs';
-import { SharedWorld, WorldToggle, WORLD_SYSTEMS, worldEnabled, setWorldEnabled } from '../lib/sharedworld.mjs';
+import { SharedWorld, WorldToggle, WORLD_SYSTEMS, worldEnabled, setWorldEnabled, followEnabled, setFollowEnabled } from '../lib/sharedworld.mjs';
+import { rpsFor } from '../lib/worldrps.mjs';
+import { leadOf } from '/shared/worldicons.mjs';
 import { linkAllowed, reasonText as linkReason, LINK_SYSTEMS, LinkBar, LINK_ASKS } from './linkplay.mjs';
 import { claimPad } from '../lib/padnav.mjs';
 import { dockSide, dockHeight, pictureFor, rightDockWidth, BAR_H, DOCK_W } from '../lib/playlayout.mjs';
@@ -45,6 +47,9 @@ import { presenceLoop, presenceBody } from '../lib/presence.mjs';
 import { resolveHotkeys, hotkeyOf, keyMatches } from '../lib/controls.mjs';
 import { hotkeyHint, comboLabel } from './guide.mjs';
 
+import { WagerPay } from '../lib/wagerpay.mjs';
+import { gameOfEntry, readMoney, moneyText } from '/shared/linkbattle.mjs';
+import { worldTable, readCamera } from '/shared/world.mjs';
 /**
  * What each shortcut of Settings › Controls does (lib/controls.mjs HOTKEYS – one entry each, test/controls.test.mjs
  * checks that none is missing and that the play view acts on no key of its own): `a` = the session's actions.
@@ -292,7 +297,8 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
  * you open another section: `mode` "full" fills the Play page, "mini" floats in the corner.
  */
 export function GameSession({ session, mode }) {
-  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus, library } = useApp();
+  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus, library, wagerRef } = useApp();
+  const payRef = useRef(null); // link battle wagers into this game (web/lib/wagerpay.mjs) – only the player's own run game
   const target = session.target;
   // the launch animation (views/launchstage.mjs: your handheld in 3D, Settings › Play › Launch animation) plays over the
   // screen area while the game boots underneath – it never makes the game wait, and it is silent. Off (or the general
@@ -600,6 +606,7 @@ export function GameSession({ session, mode }) {
       // answers nothing – loaded
       Promise.resolve(emu().loadState(p.bytes)).catch(() => false).then((ok) => {
         if (ok === false) return flash(t('play.stateLoadFailed', 'Couldn’t load this state – the game goes on where it was'));
+        payRef.current?.restarted(); // (a wager written since isn't in that state)
         revealNow(); // (a death the game was showing is recorded – loading a state doesn't take it back)
         pickSlot(p.slot);
         flash(MANUAL_SLOTS.includes(p.slot) ? t('play.stateLoaded', 'State {n} loaded', { n: p.slot }) : t('states.loaded', '“{name}” loaded', { name: slotName(p.slot) }));
@@ -863,6 +870,7 @@ export function GameSession({ session, mode }) {
           if (res.ok) {
             lastSave = h; // otherwise the next round tries again
             guard.saved(h);
+            payRef.current?.saved(); // (a wager written into the game is in its save now)
             // fresh in-game save: re-take "where you left off" so it matches the save on disk again
             if (!given) saveAuto(grabState());
           }
@@ -1043,6 +1051,17 @@ export function GameSession({ session, mode }) {
         }
         e.songKey(key);
       }, 100); // a few bytes: read often, so the turbo music follows a new song within a moment
+      // link battle wagers (web/lib/wagerpay.mjs): this player's own game of the run, alone – the money goes in there
+      const ownRun = isRun && !!doc && !!manifest && target.runId === manifest.id && target.saveUrl === `/api/runs/${manifest.id}/save/${me}`;
+      const pay = ownRun ? new WagerPay({ doc, me, onPaid: (o) => {
+        for (const p of o.pays) if (p.from === me) logWagerPaid(doc, manifest, o.sid, me, p.to, p.amount);
+        diag('wager', { sid: o.sid, delta: o.delta, before: o.before, after: o.after });
+        flash(o.delta > 0 ? t('wager.got', '+{amount} from the link battle', { amount: moneyText(o.delta) }) : t('wager.paid', '{amount} paid for the lost link battle', { amount: moneyText(-o.delta) }), 3500);
+      } }) : null;
+      payRef.current = pay;
+      const gameNow = () => gameOfEntry(liveRef.current?.entry);
+      if (ownRun && wagerRef) wagerRef.current.money = () => (target.link || !emu()?.read ? null : readMoney(gameNow(), (a, n) => emu()?.read(a, n)));
+      let world3 = null; // (Gen 3: the Shared World's reader says when the player stands in the overworld)
       // live loop
       let lastLocate = 0;
       let wramEntry = null;
@@ -1174,6 +1193,12 @@ export function GameSession({ session, mode }) {
               // read from the game go along once its data is known (web/lib/run.mjs files them for the run)
               const romCaps = romDataReady() ? (own?.caps ? { caps: own.caps.caps, leaders: own.caps.leaders, final: own.caps.final } : null) : undefined;
               if (isRun) snapRef.current?.({ source: 'live', party, boxes: res.boxes || null, game: entry.id, here: hereNow, ...(res.badges !== undefined ? { badges: res.badges } : {}), ...(romCaps !== undefined ? { romCaps } : {}) }, { battle: fight, held: shown.held });
+              const g = pay && gameNow();
+              if (g) {
+                if (ent.gen === 3 && world3?.from !== ent) world3 = { from: ent, t: worldTable(ent) };
+                pay.tick({ game: g, read: e.read, write: e.write, busyGame: !!fight || !!target.link, cam: ent.gen === 3 && world3?.t ? readCamera(world3.t, e.read) : undefined })
+                  .catch(() => {});
+              }
               // (an ended run takes no snapshots: what is held is still revealed as it comes due)
               if (isRun) revealRef.current?.(shown.held);
               // the first Poké Balls in the bag start the run's rules for this player (outside battles: the bag is
@@ -1181,7 +1206,13 @@ export function GameSession({ session, mode }) {
               const bw = ballsRef.current;
               if (isRun && bw?.waiting && !fight && Date.now() - lastBalls > 3000) {
                 lastBalls = Date.now();
-                if (readBalls(ent, e.read, state) > 0) bw.seen(party.filter((m) => m?.key && m.maxHp > 0 && m.hp === 0).map((m) => m.key));
+                const balls = readBalls(ent, e.read, state);
+                if (balls > 0) bw.seen(party.filter((m) => m?.key && m.maxHp > 0 && m.hp === 0).map((m) => m.key));
+                // a 3DS bag that isn't where souldew knows it: searched for nearby, at most once a minute
+                else if (balls === null && ent.platform === '3ds' && e.watch && Date.now() - (state.ctrBagSearched || 0) > 60000) {
+                  state.ctrBagSearched = Date.now();
+                  locateCtrBag(ent, { read: e.read, watch: e.watch }, state).then((r) => r && diag('live', { type: 'ctrBagSearch', ...r }), () => {});
+                }
               }
             } else if (isRun) {
               // no team in memory (a menu, the title screen after a reset): the held deaths still come when their time is up
@@ -1195,6 +1226,8 @@ export function GameSession({ session, mode }) {
     })();
     return () => {
       stopped = true;
+      if (payRef.current) payRef.current = null;
+      if (wagerRef?.current) wagerRef.current.money = null;
       // the game closes: every death held for the game to show is shown now (recorded already)
       revealer.current.releaseAll();
       revealRef.current?.(null);
@@ -1501,6 +1534,16 @@ export function GameSession({ session, mode }) {
     setWorldEnabled(target.runId, on);
     focusGame();
   };
+  // the Pokémon following you: the first one of your team that can fight (live tracking), shown here when the
+  // switch is on and to the partners either way (lib/sharedworld.mjs packs it into the world message)
+  const [followOn, setFollowOnState] = useState(followEnabled);
+  const setFollowOn = (on) => {
+    setFollowOnState(on);
+    setFollowEnabled(on);
+    focusGame();
+  };
+  const worldLead = worldOk ? leadOf(myParty) : null;
+  const leadKey = JSON.stringify(worldLead);
   const linkIdle = !linkPlay || linkPlay.phase === 'idle' || linkPlay.phase === 'ended';
   const worldPlayers = {};
   const worldActions = {};
@@ -1520,8 +1563,10 @@ export function GameSession({ session, mode }) {
   useEffect(() => {
     if (!worldOk) return undefined;
     const w = new SharedWorld({
-      sync: link, me, frame: () => frame.current, onNear: setWorldNear, onSupported: setWorldSupported,
+      sync: link, me, frame: () => frame.current, onNear: setWorldNear, onSupported: setWorldSupported, rps: rpsFor(link), lead: worldLead, follow: followOn,
       onAction: async (kind, slot) => {
+        if (kind === 'rps-limit') return void toast({ kind: 'soul', title: t('world.rps', 'Rock-paper-scissors'), text: t('rps.limit', 'Not so fast – try again in a few seconds.') });
+        if (kind.startsWith('rps-')) return;
         try {
           await linkSessions?.invite(kind, [slot]);
         } catch (e) {
@@ -1537,8 +1582,8 @@ export function GameSession({ session, mode }) {
     };
   }, [worldOk, link, me]);
   useEffect(() => {
-    worldRef.current?.update({ players: worldPlayers, actions: worldActions, enabled: worldOn });
-  }, [worldKey, worldOk]);
+    worldRef.current?.update({ players: worldPlayers, actions: worldActions, enabled: worldOn, lead: worldLead, follow: followOn });
+  }, [worldKey, worldOk, leadKey, followOn]);
   const btn = (name, title, onClick, extra = {}) => html`<button class="btn icon" title=${title} aria-label=${title} onClick=${onClick} ...${extra}><${Icon} name=${name} size=${14} /></button>`;
 
   // Cheats (Rare Candies, Max Repels): written straight into the bag in RAM. In a run only while its rules allow them
@@ -1566,18 +1611,22 @@ export function GameSession({ session, mode }) {
     let res;
     try {
       // (the 3DS player answers once its host has written – between two frames)
-      res = await applyCheat(id, entry, { read: e.read, write: e.write }, state);
+      // (a 3DS game's bag that isn't where souldew knows it is searched for nearby: the player reads more memory then)
+      res = await applyCheat(id, entry, { read: e.read, write: e.write, ...(entry.platform === '3ds' && e.watch ? { watch: e.watch } : {}) }, state);
     } catch {
       res = { error: 'write' };
     }
-    diag('cheat', { cheat: id, game: entry.id, ...res });
+    // (a 3DS bag that wasn't found: each address tried and why it wasn't the bag, and how the search went)
+    diag('cheat', { cheat: id, game: entry.id, ...(entry.platform === '3ds' ? { version: entry.partyAddrs?.[state?.g67]?.version || null } : {}), ...res });
     if (res.ok) {
       if (isRun) logCheat(doc, manifest, me, { added: res.added, cheat: id });
       flash(text.done(res.added), 2500);
     } else {
       toast({ kind: 'death', title: text.failed, text: {
-        // (a 3DS game keeps its bag at one address per update: not there means an update souldew doesn't know)
-        notFound: entry.gen >= 6 ? t('cheat.notFoundVersion', 'Your bag wasn’t found where this version of the game keeps it – souldew may not know this game update yet.')
+        // (a 3DS game: not where souldew knows it, not nearby either – or, without the game's own pocket table, an
+        // empty bag that can't be told from other memory yet)
+        notFound: entry.gen >= 6 ? (res.why === 'empty' ? t('cheat.notFoundEmpty', 'Your bag looks empty, and souldew can’t tell an empty bag from other memory in this game. Pick up any item in the game, then try again.')
+          : t('cheat.notFoundCtr', 'souldew couldn’t find your bag in the game’s memory – not where this game keeps it, and not nearby. “Save diagnostics” in the sound menu records where it looked; please send it along with a report.'))
           : t('cheat.notFound', 'Your bag wasn’t found in the game’s memory just now. Try again outside of menus and battles.'),
         changed: t('cheat.changed', 'The game changed your bag just then – try again.'),
         full: t('cheat.full', 'The bag pocket is full – make room and try again.'),
@@ -1629,7 +1678,7 @@ export function GameSession({ session, mode }) {
             ${asked && html`<${MissedPrompt} key=${asked.id} missed=${asked.foe} here=${asked.here} onDone=${(no) => { setQuestions((qs) => (no ? dropQuestion(qs, asked, { areaOf: (q) => areaRef.current(q) }) : qs.filter((q) => q !== asked))); focusGame(); }} />`}
             ${confirmReset && html`<div class="screen-confirm" role="alertdialog" aria-live="assertive">
               <span class="grow">${t('play.resetConfirm', 'Reset the game? Unsaved progress is lost.')}</span>
-              <button class="btn small primary" onClick=${() => { setConfirmReset(false); emu()?.restart(); revealNow(); focusGame(); }}>${t('play.resetYes', 'Reset')}</button>
+              <button class="btn small primary" onClick=${() => { setConfirmReset(false); emu()?.restart(); revealNow(); payRef.current?.restarted(); focusGame(); }}>${t('play.resetYes', 'Reset')}</button>
               <button class="btn small ghost" data-pad-back onClick=${() => { setConfirmReset(false); focusGame(); }}>${t('common.cancel', 'Cancel')}</button>
             </div>`}
             ${confirmCheat && !confirmReset && !pendingLoad && html`<div class="screen-confirm" role="alertdialog" aria-live="assertive">
@@ -1791,7 +1840,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
   const groups = isRun && names && !solo;
   const teamEl = html`
     <${LiveStatus} status=${liveState.status} phase=${phase} names=${names} me=${me} others=${others}
-      extra=${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} />`} />
+      extra=${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} follow=${followOn} onFollow=${setFollowOn} />`} />
     ${liveState.status === 'unsupported' && html`<span class="small muted">${isRun
       ? t('play.liveUnsupportedRun', 'This ROM isn’t in the memory table (other language or a hack with a changed layout). The run still works – enter catches by hand.')
       : t('play.liveNoneSolo', 'Live tracking reads Pokémon games – this one plays without it.')}</span>`}

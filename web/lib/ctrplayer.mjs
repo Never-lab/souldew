@@ -472,14 +472,15 @@ function onFfSound(p) {
 
 // ---- memory (the regions the live reader needs – and the bag for the cheats – ten times a second) ---------------------
 let addresses = null;
-let extraRegions = []; // __emu.watch(): more regions on top of the game's (diagnostics, research)
+let extraRegions = []; // __emu.watch(): more regions on top of the game's (the bag's search, diagnostics, research)
+/** Tell the host what to read; → the regions asked for (at most 16 – the game's own first). */
 async function watchFor(titleId) {
   try {
     addresses ||= await fetch('/shared/data/addresses.json').then((r) => r.json());
     const entry = titleId ? findEntry(addresses, { platform: '3ds', titleId }) : null;
     const regions = [...(entry ? [...regionsFor(entry), ...cheatRegions(entry)] : []), ...extraRegions].slice(0, 16);
     const sig = regions.map((r) => `${r.addr}:${r.len}`).join();
-    if (sig === st.watching) return;
+    if (sig === st.watching) return regions;
     st.watching = sig;
     const b = new Uint8Array(4 + regions.length * 8);
     const v = new DataView(b.buffer);
@@ -489,23 +490,43 @@ async function watchFor(titleId) {
       v.setUint32(8 + i * 8, r.len, true);
     });
     cmd(CMD.WATCH, b);
+    return regions;
   } catch (e) {
     st.log.push(`watch: ${e.message}`);
+    return null;
   }
 }
+// waiting for the first memory message that has every one of some regions (__emu.watch) – (unmapped ones come empty)
+const memWaiters = new Set(); // { want: Set of region addresses, done }
 function onMem(p) {
   const v = new DataView(p.buffer, p.byteOffset, p.length);
   const n = v.getUint32(0, true);
   const out = [];
+  const asked = new Set();
   let o = 4;
   for (let i = 0; i < n && o + 8 <= p.length; i++) {
     const addr = v.getUint32(o, true);
     const len = v.getUint32(o + 4, true);
     o += 8;
+    asked.add(addr);
     if (len) out.push({ addr, b: p.slice(o, o + len) });
     o += len;
   }
   st.mem = out;
+  for (const w of memWaiters) if ([...w.want].every((a) => asked.has(a))) w.done(true);
+}
+function memFor(regions, ms = 3000) {
+  if (!regions.length) return Promise.resolve(true);
+  return new Promise((res) => {
+    const w = { want: new Set(regions.map((r) => r.addr >>> 0)) };
+    const timer = setTimeout(() => w.done(false), ms);
+    w.done = (ok) => {
+      memWaiters.delete(w);
+      clearTimeout(timer);
+      res(ok);
+    };
+    memWaiters.add(w);
+  });
 }
 function read(addr, len) {
   for (const { addr: a, b } of st.mem) if (addr >= a && addr + len <= a + b.length) return b.subarray(addr - a, addr - a + len);
@@ -1064,11 +1085,20 @@ window.__emu = {
     wholePixels = !!on;
     layout();
   },
-  /** More memory to read (at most 16 regions of 64 KB together with the game's own) – diagnostics and research. */
-  watch(regions = []) {
-    extraRegions = regions.filter((r) => Number.isInteger(r.addr) && Number.isInteger(r.len) && r.len > 0 && r.len <= 65536);
+  /**
+   * More memory to read (at most 16 regions of 64 KB together with the game's own) – the 3DS bag's search
+   * (shared/live/cheats.mjs locateCtrBag), diagnostics and research; replaces what was asked before. Resolves true
+   * once the host has sent all of them (read() has them then – unmapped ones read null), false when they didn't fit
+   * in or no memory came.
+   */
+  async watch(regions = []) {
+    const want = regions.filter((r) => Number.isInteger(r.addr) && Number.isInteger(r.len) && r.len > 0 && r.len <= 65536);
+    extraRegions = want;
     st.watching = '';
-    return watchFor(st.title && !/^0+$/.test(st.title) ? st.title : null);
+    if (!st.liveMemory || st.ended) return false;
+    const sent = await watchFor(st.title && !/^0+$/.test(st.title) ? st.title : null);
+    if (!sent || want.some((r) => !sent.includes(r))) return false;
+    return memFor(want);
   },
 };
 

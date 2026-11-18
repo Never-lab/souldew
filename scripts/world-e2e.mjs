@@ -4,13 +4,20 @@
 // same map; B walks around while A's page draws B over A's game – screenshots and a strip of frames go to --out. Then A
 // walks up to B and presses A: the menu opens, A picks Wave, and B sees the bubble.
 //
-//   node scripts/world-e2e.mjs --rom <emerald.gba> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] --data <dir> --out <dir> [--show]
+//   node scripts/world-e2e.mjs --rom <emerald.gba> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] [--save4 <d.sav>] --data <dir> --out <dir> [--show]
+//                              [--rom2/--rom3/--rom4 <gba>] (that player's own game – a pair run of Emerald and Sapphire …)
+//                              [--lang de]   (the app's language on every computer)
 //                              [--browser]   (A plays in the browser player, EmulatorJS, instead of the fast player)
 //                              [--engine]    (every fast player is the souldew engine – Settings › "souldew engine (beta)")
 //                              [--occlusion] (Emerald, three saves in the Oldale Pokémon Center 2F: instead of the walk and
 //                                             the menu, the players line up behind the potted plants, then walk out to a
 //                                             tree top in Oldale Town, then A walks into Route 101 while B stands under
 //                                             the map-name popup – crops of every player's picture side by side)
+//                              [--plus]      (followers, emotes and rock-paper-scissors: B walks with A's and B's
+//                                             Pokémon following – a strip and a muted clip; A challenges B from the
+//                                             A menu, both pick in their pictures, the hands show over both heads and
+//                                             the log gets its line; A sends a heart; with four players the fourth
+//                                             has Shared World off and answers a challenge in the app's card)
 //
 // Never commit ROMs, saves or the screenshots.
 import { spawn } from 'node:child_process';
@@ -140,6 +147,116 @@ async function occlusion({ world, hold, shot, log, sleep, until, out, emu }) {
   void emu;
 }
 
+/**
+ * The followers, emotes and rock-paper-scissors (--plus). A and B play the same game family on the same map.
+ */
+async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId }) {
+  const step = async (i, dir) => { await hold(i, [dir], 150); await sleep(420); };
+  const key = (i, k) => ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); f.contentWindow.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true })); return true; })()`);
+  const local = async (i) => (await world(i))?.local;
+  const goto = async (i, tx, ty) => {
+    for (let n = 0; n < 40; n++) {
+      const s = await local(i);
+      if (!s) { await sleep(200); continue; }
+      if (s.tx === tx && s.ty === ty) return s;
+      if (s.tx !== tx) await step(i, s.tx < tx ? 'right' : 'left');
+      else await step(i, s.ty < ty ? 'down' : 'up');
+    }
+    return local(i);
+  };
+  const result = { followers: {}, rps: {}, emote: {}, card: null };
+  // 1. who follows whom: the leads as both pages know them
+  await until('leads known', async () => {
+    const [a, b] = [await world(0), await world(1)];
+    return a?.lead && b?.lead && a.partners?.p2?.lead && b.partners?.p1?.lead;
+  }, 60000);
+  const [a0, b0] = [await world(0), await world(1)];
+  result.followers.leads = { A: a0.lead, B: b0.lead, AseesB: a0.partners.p2.lead, BseesA: b0.partners.p1.lead };
+  log('leads', JSON.stringify(result.followers.leads));
+  // 2. a clip: B walks a square, A a few steps the other way – A's picture
+  const frames = [];
+  const rec = (async () => {
+    for (let n = 0; n < 56; n++) {
+      frames.push((await wins[0].webContents.capturePage(await gameRect(0))).toPNG());
+      await sleep(70);
+    }
+  })();
+  const walk = async (i, keys) => { for (const k of keys) await hold(i, [k], 270); };
+  await Promise.all([walk(1, ['left', 'left', 'down', 'down', 'right', 'right', 'up', 'up']), (async () => { await sleep(600); await walk(0, ['down', 'down', 'up', 'up']); })()]);
+  await rec;
+  mkdirSync(join(out, 'clip'), { recursive: true });
+  frames.forEach((png, n) => writeFileSync(join(out, 'clip', `f${String(n).padStart(3, '0')}.png`), png));
+  result.followers.drawn = (await world(0)).followers;
+  log('followers drawn on A', JSON.stringify(result.followers.drawn));
+  await shot('10-followers-A', 0, true);
+  await shot('10-followers-B', 1, true);
+
+  // 3. rock-paper-scissors from the A menu: A next to B, facing them, A → down to the game → Enter
+  const b = await local(1);
+  await goto(0, b.tx - 1, b.ty);
+  for (let n = 0; n < 6 && (await local(0))?.facing !== 4; n++) { await hold(0, ['right'], 50 + n * 15); await sleep(400); }
+  log('next to B', JSON.stringify({ local: (await world(0)).local, own: (await world(0)).own, drawn: (await world(0)).followers }));
+  await hold(0, ['a'], 120);
+  const m = await until('menu', async () => (await world(0))?.menu, 6000);
+  for (let n = 0; n < 8 && (await world(0))?.menu?.sel !== 'rps'; n++) { await key(0, 'ArrowDown'); await sleep(120); }
+  await shot('20-menu-rps-A', 0);
+  await key(0, 'Enter');
+  await until('A picks', async () => (await world(0))?.rps?.phase === 'pick', 6000);
+  await until('B is asked', async () => (await world(1))?.rps?.phase === 'pick', 10000);
+  result.rps.asked = { A: (await world(0)).rps, B: (await world(1)).rps };
+  await shot('21-rps-pick-A', 0);
+  await shot('21-rps-pick-B', 1);
+  // A: scissors (paper → right), B: paper (as it opens) – A wins
+  await key(0, 'ArrowRight');
+  await sleep(150);
+  await key(0, 'Enter');
+  await sleep(400);
+  await shot('22-rps-waiting-A', 0, true);
+  await key(1, 'Enter');
+  await until('hands over the heads', async () => Object.keys((await world(0))?.bubbles || {}).length >= 2, 8000);
+  await sleep(250);
+  await shot('23-rps-hands-A', 0, true);
+  await shot('23-rps-hands-B', 1, true);
+  await shot('23-rps-hands-A-page', 0);
+  result.rps.bubbles = { A: (await world(0)).bubbles, B: (await world(1)).bubbles, Asays: (await world(0)).rps?.say, Bsays: (await world(1)).rps?.say };
+  log('rps', JSON.stringify(result.rps.bubbles));
+  await sleep(3500);
+  const feedOf = (i) => ev(i, `JSON.stringify(Object.values(window.__slLink.sync.doc.scan('feed:')).filter((f) => f.type === 'rps').map((f) => ({ slot: f.slot, partner: f.partner, text: f.text })))`).then(JSON.parse);
+  result.rps.log = { A: await feedOf(0), B: await until('the line reached B', async () => { const f = await feedOf(1); return f.length ? f : null; }, 15000).catch(() => []) };
+  log('log', JSON.stringify(result.rps.log));
+
+  // 4. an emote: A → menu → the heart; B sees it over A
+  await sleep(600);
+  await hold(0, ['a'], 120);
+  await until('menu again', async () => (await world(0))?.menu, 6000);
+  for (let n = 0; n < 8 && !String((await world(0))?.menu?.sel || '').startsWith('emote'); n++) { await key(0, 'ArrowDown'); await sleep(120); }
+  await key(0, 'Enter');
+  await until('B sees the heart', async () => (await world(1))?.bubbles?.p1 === 'heart', 6000).catch(() => null);
+  await shot('30-heart-B', 1, true);
+  result.emote = { B: (await world(1)).bubbles };
+
+  // 5. four players: D plays without Shared World – the card
+  if (profiles.length > 3) {
+    await ev(0, `window.__slWorld.challenge('p4'); true`);
+    const card = await until('D’s card', () => ev(3, `document.querySelector('.rps-card') ? document.querySelector('.rps-card').innerText : null`), 10000).catch(() => null);
+    log('D’s games', await ev(3, `import('/lib/worldrps.mjs').then((m) => JSON.stringify({ games: m.rpsFor(window.__slLink.sync)?.hub.list(), claimed: [...(m.rpsFor(window.__slLink.sync)?.claimed || [])] }))`));
+    await shot('40-card-D', 3);
+    await ev(3, `document.querySelectorAll('.rps-card .rps-hands button')[0].click(); true`); // rock
+    await until('A picks vs D', async () => (await world(0))?.rps?.phase === 'pick', 6000);
+    await key(0, 'Enter'); // paper
+    await sleep(1200);
+    await shot('41-card-D-result', 3);
+    await shot('41-vs-D-A', 0, true);
+    result.card = { asked: card, after: await ev(3, `document.querySelector('.rps-card')?.innerText || null`) };
+    log('card', JSON.stringify(result.card));
+    // C and D (another game family) see each other, not A and B
+    const c = await world(2);
+    result.cd = { Csees: Object.entries(c?.partners || {}).filter(([, p]) => p.pos).map(([s]) => s), Cfollowers: c?.followers };
+  }
+  writeFileSync(join(out, 'plus.json'), JSON.stringify(result, null, 1));
+  void m;
+  void runId;
+}
 async function main() {
   const { app, BrowserWindow } = await import('electron');
   const data = resolve(opt('data'));
@@ -147,15 +264,16 @@ async function main() {
   mkdirSync(out, { recursive: true });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
-  const saves = [opt('save1'), opt('save2'), opt('save3')].filter(Boolean);
-  const SLOTS = ['p1', 'p2', 'p3'].slice(0, saves.length);
+  const saves = [opt('save1'), opt('save2'), opt('save3'), opt('save4')].filter(Boolean);
+  const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, saves.length);
 
   const servers = [];
-  const profiles = [['A', 'Marius', 7411], ['B', 'Tim', 7412], ['C', 'Kim', 7413]].slice(0, saves.length).map(([id, name, port]) => {
+  const profiles = [['A', 'Marius', 7411], ['B', 'Tim', 7412], ['C', 'Kim', 7413], ['D', 'Lena', 7414]].slice(0, saves.length).map(([id, name, port], i) => {
     const dir = join(data, id);
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
-    copyFileSync(opt('rom'), join(lib, basename(opt('rom'))));
+    const romFile = opt(`rom${i + 1}`) || opt('rom');
+    copyFileSync(romFile, join(lib, basename(romFile)));
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: opt('lang', 'en'), playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: !(id === 'A' && args.includes('--browser')), nativeEngine: args.includes('--engine') }));
     const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stderr.on('data', (d) => process.stderr.write(`[${id}] ${d}`));
@@ -230,6 +348,8 @@ async function main() {
       return true;
     }, 240000);
     log('direct links between all pages');
+    // (--plus with four players: the fourth plays without Shared World – rock-paper-scissors comes in the app's card)
+    if (args.includes('--plus') && profiles.length > 3) await ev(3, `localStorage.setItem('sl-world-${runId}', 'false'); true`);
     for (const [i] of profiles.entries()) await ev(i, `location.hash = '#/play?run=${runId}'`);
     const emu = (i, js) => ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); const e = f?.contentWindow?.__emu; const w = f?.contentWindow?.__world; return e ? (${js}) : null; })()`);
     await until('pictures', async () => {
@@ -250,8 +370,10 @@ async function main() {
     for (const [i] of profiles.entries()) {
       await until(`page ${i} in the overworld`, async () => {
         const s = await world(i);
-        if (s?.local && s.cam && !s.cam.locked && s.cam.cb2 && s.cam.fade === 0) return true;
-        await press(i, 'a', 900);
+        if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && s.cam.cb2 && s.cam.fade === 0 && s.drawable !== false) return true;
+        // (FR/LG replay your last steps after loading – B skips that; it must not count as being there)
+        if (s?.cam?.replay) log(`page ${i}: the quest-log replay – skipped`, JSON.stringify({ drawable: s.shown, local: s.local }));
+        await press(i, s?.cam?.replay ? 'b' : 'a', 900);
         return false;
       }, 120000);
     }
@@ -274,6 +396,11 @@ async function main() {
     for (const [i] of profiles.entries()) await shot('01-same-map', i);
     if (args.includes('--occlusion')) {
       await occlusion({ world, hold, shot, log, sleep, until, out, emu });
+      finish(0);
+      return;
+    }
+    if (args.includes('--plus')) {
+      await plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId });
       finish(0);
       return;
     }

@@ -9,8 +9,12 @@
 // link.
 //
 // Messages (msg.t), all with msg.sid = the session id; every player speaks for their OWN seat's game only:
-//   invite {kind, seats:[slot], sha1:{me}, crc:{me}, system}   from the one who starts it
-//   accept {sha1:{me}, crc:{me}} | refuse {reason}            every invited player, to everybody in the session
+//   invite {kind, seats:[slot], sha1:{me}, crc:{me}, system,   from the one who starts it; caps: what this build knows
+//           caps, wager, format}                              ('wager1'), wager: the money a battle is for (0: none),
+//                                                             format: 'single' | 'double' | 'multi' (what to pick in game)
+//   accept {sha1:{me}, crc:{me}, caps, wager} | refuse {reason} every invited player, to everybody in the session
+//                                                             (wager: the most this player puts in – a wager counts
+//                                                             only when every seat has the caps, web/lib/wager.mjs)
 //   snap   {slot, sha1, i, n, data} | {slot, sha1, bin}        a seat's running game: the fast player's save state,
 //                                                             deflate-raw (sha1 of the state itself) – as bytes over the
 //                                                             channel's binary transfer, or in base64 parts
@@ -34,6 +38,8 @@
 import { serverErrorText } from './errors.mjs';
 import { LINK_CMD, linkDelay } from '/shared/link.mjs';
 import { b64, unb64, deflate, inflate, sha1 } from './bytes.mjs';
+import { LinkResult } from './linkresult.mjs';
+import { WAGER_CAP, wagerRules, agreedWager, resultEntry } from './wager.mjs';
 
 // Seamless (docs/MULTIPLAYER.md › "Seamless"): a player whose game runs here in the fast player doesn't restart it for
 // the link. Once every seat's game is found, that game stops for a moment ("Linking…"), its save state goes to every
@@ -83,9 +89,12 @@ function collect(box, m) {
  *          'ended', sid, kind, seats, host, sha1, crc, missing, route, … }
  */
 export class LinkSessions {
-  constructor({ sync, runId, me, onChange = () => {}, openSession = () => {}, closeSession = () => {}, emu = () => null, ownGame = () => false, fetchImpl = null }) {
+  constructor({ sync, runId, me, onChange = () => {}, openSession = () => {}, closeSession = () => {}, emu = () => null, ownGame = () => false, fetchImpl = null,
+    rules = () => ({}), onResult = () => {} }) {
     // ownGame(): this player's game of this run runs in the fast player right now (a link starts from it, no restart)
-    Object.assign(this, { sync, runId, me, onChange, openSession, closeSession, emu, ownGame });
+    // rules(): the run's rules (the wager rule); onResult(entry): what this computer read of a session's battles – into
+    // the run (web/lib/wager.mjs)
+    Object.assign(this, { sync, runId, me, onChange, openSession, closeSession, emu, ownGame, rules, onResult });
     this.fetch = fetchImpl || ((...a) => fetch(...a)); // (tests give each player's page its own server)
     this.state = { phase: 'idle' };
     this.off = sync.onLink((m) => this._in(m));
@@ -112,6 +121,8 @@ export class LinkSessions {
     this.measuring = this.rtt = null;
     this.own = null;
     this.snapAt = null;
+    this.result?.stop();
+    this.result = null;
     this.stats = {}; // (tests / diagnostics: hashes compared, inputs sent and received, resends, the start's steps)
     clearTimeout(this.inviteTimer);
   }
@@ -125,6 +136,7 @@ export class LinkSessions {
 
   stop() {
     this.off?.();
+    this.result?.stop();
     clearInterval(this.routeTimer);
     clearTimeout(this.rejoinTimer);
     clearTimeout(this.inviteTimer);
@@ -161,8 +173,11 @@ export class LinkSessions {
     return this._api(`/api/link/check?runId=${this.runId}`);
   }
 
-  /** Start a session with `slots` (the others; kind 'trade' | 'battle'). */
-  async invite(kind, slots) {
+  /**
+   * Start a session with `slots` (the others; kind 'trade' | 'battle'). A battle may be for a `wager` (money, capped by
+   * the run's rule) and name the `format` the players pick in the game.
+   */
+  async invite(kind, slots, { wager = 0, format = null } = {}) {
     if (!['idle', 'ended', 'rejoinable'].includes(this.state.phase)) throw new Error('busy');
     const c = await this.check();
     if (!c.tool || !c.supported) throw Object.assign(new Error('unsupported'), { code: c.tool ? 'linkSystem' : 'linkMissing' });
@@ -170,19 +185,24 @@ export class LinkSessions {
     if (!own?.rom) throw Object.assign(new Error('missing'), { code: 'linkOwnMissing' });
     this.ownModel = c.model || null;
     const seats = [this.me, ...slots.filter((s) => s !== this.me)];
+    const wr = wagerRules(this.rules());
+    const offer = kind === 'battle' && wr.on ? Math.max(0, Math.floor(Number(wager) || 0)) : 0;
+    const bet = wr.cap ? Math.min(offer, wr.cap) : offer;
+    const fmt = kind === 'battle' && ['single', 'double', 'multi'].includes(format) ? format : null;
     store.set(REJOIN_KEY(this.runId), null);
     this._new({
       phase: 'inviting', sid: newSid(), kind, seats, host: this.me, sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null },
       accepted: {}, ready: {}, saves: {}, snaps: {}, missing: null, error: null, system: c.system, ended: null, route: {}, waiting: null, seamless: false,
+      wager: { offer: bet, accepts: {}, caps: { [this.me]: true } }, format: fmt, outcome: null,
     });
     const sid = this.state.sid;
     this.inviteTimer = setTimeout(() => this.state.sid === sid && this.state.phase === 'inviting' && this._fail('linkNoAnswer'), INVITE_TIMEOUT_MS);
     this.inviteTimer?.unref?.();
-    this._send({ t: 'invite', kind, seats, sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null }, system: c.system }, { relayToo: true });
+    this._send({ t: 'invite', kind, seats, sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null }, system: c.system, caps: [WAGER_CAP], wager: bet, format: fmt }, { relayToo: true });
   }
 
-  /** Answer an invite. */
-  async accept() {
+  /** Answer an invite – `wager`: the most this player puts in (less than offered: the wager is lowered for everybody). */
+  async accept({ wager = null } = {}) {
     const st = this.state;
     if (st.phase !== 'invited') return;
     const c = await this.check().catch(() => null);
@@ -196,8 +216,13 @@ export class LinkSessions {
     st.crc[this.me] = own.crc || null;
     st.accepted[this.me] = true;
     this.ownModel = c.model || null;
+    const stake = Math.max(0, Math.min(st.wager?.offer || 0, wager === null ? Infinity : Math.floor(Number(wager) || 0)));
+    if (st.wager) {
+      st.wager.caps[this.me] = true;
+      st.wager.accepts[this.me] = stake;
+    }
     this._set({ phase: 'preparing' });
-    this._send({ t: 'accept', sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null } }, { relayToo: true });
+    this._send({ t: 'accept', sha1: { [this.me]: own.sha1 }, crc: { [this.me]: own.crc || null }, caps: [WAGER_CAP], wager: stake }, { relayToo: true });
     this._resolve();
   }
 
@@ -364,6 +389,8 @@ export class LinkSessions {
         restored = null;
       }
     }
+    // the session's battles, read while every console still stands where the session left it (before ours goes on alone)
+    if (was === 'running' || was === 'rejoining') await this._result(st, reason);
     // our own game goes on alone – from where the session left it, or (out of step) from where it was before the link.
     // A session that never ran: the snapshot's game simply goes on.
     let resumed = false;
@@ -388,7 +415,11 @@ export class LinkSessions {
       return this._new({
         phase: 'invited', sid: m.sid, kind: m.kind === 'battle' ? 'battle' : 'trade', seats: m.seats, host: m.from, sha1: { [m.from]: m.sha1?.[m.from] || null },
         crc: { [m.from]: m.crc?.[m.from] || null }, saves: {}, snaps: {}, accepted: { [m.from]: true }, ready: {}, missing: null, error: null, system: m.system, ended: null,
-        route: {}, waiting: null, seamless: false,
+        route: {}, waiting: null, seamless: false, outcome: null,
+        // (an older build sends no caps and no wager: the battle is for nothing)
+        wager: { offer: m.kind === 'battle' && Array.isArray(m.caps) && m.caps.includes(WAGER_CAP) ? Math.max(0, Math.floor(Number(m.wager) || 0)) : 0, accepts: {},
+          caps: { [m.from]: Array.isArray(m.caps) && m.caps.includes(WAGER_CAP) } },
+        format: m.kind === 'battle' && ['single', 'double', 'multi'].includes(m.format) ? m.format : null,
       });
     }
     if (m.sid !== st.sid) return;
@@ -400,6 +431,10 @@ export class LinkSessions {
       st.sha1[m.from] = m.sha1[m.from];
       st.crc[m.from] = m.crc?.[m.from] || null;
       st.accepted[m.from] = true;
+      if (st.wager) {
+        st.wager.caps[m.from] = Array.isArray(m.caps) && m.caps.includes(WAGER_CAP);
+        st.wager.accepts[m.from] = Math.max(0, Math.floor(Number(m.wager) || 0));
+      }
       if (st.phase === 'inviting' && this.partners.every((s) => st.accepted[s])) {
         this._set({ phase: 'preparing' });
         this._measure(); // (the round trips meanwhile, while every player checks every seat's game)
@@ -542,7 +577,15 @@ export class LinkSessions {
       // our game was running here: the player's picture switches to the link session – no new player, no restart
       const seamless = !!snapOf(this.me) && !!this.emu()?.attachLink?.(r.id);
       const models = Object.fromEntries(seats.map((x) => [x.slot, x.model]));
-      this._set({ phase: 'running', id: r.id, delay, rtc, local: r.local, waiting: null, startedAt: Date.now(), seamless, models });
+      // the wager every seat agreed to (each peer works it out from the same invite and accepts)
+      const stake = st.wager ? agreedWager({ offer: st.wager.offer, seats: st.seats, host: st.host, accepts: st.wager.accepts, caps: st.wager.caps, cap: wagerRules(this.rules()).cap }) : 0;
+      this._set({ phase: 'running', id: r.id, delay, rtc, local: r.local, waiting: null, startedAt: Date.now(), seamless, models, stake, rejoined: !!state });
+      // the battles: read from every seat's console from now on (a rejoin can't know what happened while it was away)
+      if (!state) {
+        const startSaves = Object.fromEntries(st.seats.map((s) => [s, st.saves[s]?.b64 ? unb64(st.saves[s].b64) : null]));
+        this.result = new LinkResult({ emu: this.emu, seats: st.seats, system: st.system, startSaves });
+        this.result.begin();
+      }
       // what a reload / crash needs to come back into this session (docs/MULTIPLAYER.md › "Rejoin")
       // (models: a rejoining host must run every Game Boy seat on the console the others run it on)
       store.set(REJOIN_KEY(this.runId), { sid: st.sid, kind: st.kind, seats: st.seats, host: st.host, sha1: st.sha1, crc: st.crc, delay, rtc, system: st.system, models, at: Date.now() });
@@ -550,6 +593,34 @@ export class LinkSessions {
       for (const m of this.early.splice(0)) this._toHost(m);
     } catch (e) {
       this._fail(e.code || 'linkStart');
+    }
+  }
+
+  /**
+   * What this computer read of the session's battles, into the run (onResult → `lb:<sid>:<me>`): every seat's battles
+   * and the wager – or void (out of step, a player who dropped out and came back). A trade session only writes when a
+   * battle was fought in it (the Colosseum is next door).
+   */
+  async _result(st, reason) {
+    const res = this.result;
+    this.result = null;
+    if (reason === 'linkDesync' || st.rejoined) res?.stop();
+    const base = { sid: st.sid, seats: st.seats, host: st.host, kind: st.kind };
+    let entry = null;
+    if (reason === 'linkDesync') entry = resultEntry({ ...base, reason: 'desync' });
+    else if (st.rejoined) entry = resultEntry({ ...base, reason: 'rejoin' });
+    else if (res) {
+      const found = await Promise.race([res.finish().catch(() => null), new Promise((r) => setTimeout(() => r(null), 12000))]);
+      res.stop();
+      const fought = found && Object.values(found.per).some((c) => c.w + c.l + c.d > 0);
+      if (st.kind === 'battle' || fought) entry = resultEntry({ ...base, found, wager: st.stake || 0, money: res.money || {} });
+    } else if (st.kind === 'battle') entry = resultEntry({ ...base, reason: 'unread' });
+    if (!entry) return;
+    this.stats.result = entry;
+    try {
+      this.onResult(entry);
+    } catch (e) {
+      console.warn('link result', e);
     }
   }
 

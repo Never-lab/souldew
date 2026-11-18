@@ -10,7 +10,10 @@ import { applySkin, refreshPack } from './lib/cosmetics/index.mjs';
 import { initFavourites } from './lib/favourites.mjs';
 import { initHandheld, prewarm as prewarmHandheld } from './lib/handheld/look.mjs';
 import { detectLayout, resolveHotkeys, accelerator } from './lib/controls.mjs';
-import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, rules as getRules, lives as getLives, livesFor, settleLives, revealHeld, startRules, HELD_PREFIX } from './lib/run.mjs';
+import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, logLinkBattle, rules as getRules, lives as getLives, livesFor, settleLives, revealHeld, startRules, HELD_PREFIX } from './lib/run.mjs';
+import { attachRps } from './lib/worldrps.mjs';
+import { RpsCards } from './views/rps.mjs';
+import { sessionsIn, outcomeOf } from './lib/wager.mjs';
 import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal } from './lib/ui.mjs';
 import { groupArrowKeys } from './lib/a11y.mjs';
@@ -277,6 +280,8 @@ function App() {
   const [, setLangTick] = useState(0);
   const linkRef = useRef(null);
   const linkPlayRef = useRef(null); // trades and battles (web/lib/linksession.mjs)
+  // the play view's reader of this player's money (views/play.mjs sets it while the run's game runs) – the wager dialogs
+  const wagerRef = useRef({ money: null });
   const [linkPlay, setLinkPlay] = useState(null);
   const runIdRef = useRef(null);
   runIdRef.current = runId;
@@ -714,6 +719,24 @@ function App() {
     account: (p) => accountEvent(p),
   }), [runId]);
 
+  // ---- link battles every player agreed on: the log entry (each computer writes the same, keyed by the session) ----
+  useEffect(() => {
+    if (!runDoc || !manifest) return undefined;
+    const doc = runDoc;
+    const check = () => {
+      for (const [sid, entries] of Object.entries(sessionsIn(doc))) {
+        if (doc.get(`feed:lb-${sid}`)) continue;
+        try {
+          logLinkBattle(doc, manifest, sid, outcomeOf(entries));
+        } catch (e) {
+          console.warn('link battle log', e);
+        }
+      }
+    };
+    check();
+    return doc.subscribe((keys) => keys.some((k) => k.startsWith('lb:')) && check());
+  }, [runDoc, manifest]);
+
   // ---- live link -----------------------------------------------------------------
   const connect = useCallback(async () => {
     if (!runDoc) return;
@@ -734,6 +757,7 @@ function App() {
       },
     });
     linkRef.current = link;
+    attachRps(link, { doc, manifest }); // rock-paper-scissors between the players (lib/worldrps.mjs)
     linkPlayRef.current?.stop();
     // a link session: the play view shows the local seat (target.link); its end closes it
     // this player's game of this run, running in the fast player right now (a link session starts from it – seamless)
@@ -744,6 +768,9 @@ function App() {
     };
     const lp = new LinkSessions({
       sync: link, runId: manifest.id, me, emu: nativeEmu, ownGame,
+      rules: () => getRules(doc, manifest),
+      // what this computer read of a session's battles (web/lib/wager.mjs): compared with the partners' in the run
+      onResult: (entry) => doc.set(`lb:${entry.sid}:${me}`, entry),
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
       openSession: (st) => {
         lp.partyFirst = lp.partyLast = null; // the teams the link session shows first and last (the trade's log entry)
@@ -871,7 +898,7 @@ function App() {
     status, reloadStatus, library, reloadLibrary, runId, setRunId, manifest, missingRun, reloadManifest, doc: runDoc, docVersion, runData, me, setMe,
     navigate, route, link: linkRef.current, linkStatus, linkPlay, linkSessions: linkPlayRef.current, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, revealDeaths, ballsSeen, toast, liveInfo,
     externalRun, setExternalRun,
-    session, startSession, endSession, closeSession, offerRestart,
+    session, startSession, endSession, closeSession, offerRestart, wagerRef,
   };
 
   if (!ready) {
@@ -995,6 +1022,7 @@ function App() {
         <div class=${`main-inner ${session && showsSession ? 'under-session' : ''}`}><${Boundary} route=${route.route}><${View} /><//></div>
         ${session && html`<${Boundary} route="session"><${GameSession} key=${session.target.key + session.at} session=${session} mode=${showsSession ? 'full' : 'mini'} /><//>`}
         ${externalRun && html`<${Boundary} route="external"><${ExternalFeed} /><//>`}
+        <${RpsCards} />
       </main>
     </div>
     ${showOnboarding && !boot && html`<${Onboarding} onDone=${() => navigate('library')} />`}

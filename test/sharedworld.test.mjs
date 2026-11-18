@@ -80,7 +80,16 @@ test('the Gen 3 tables: every English/German RSE and FR/LG revision with pret ad
   assert.ok(r9.objectEvents);
   assert.equal(W.worldTable(findEntry(addresses, { platform: 'nds', code: 'IPKE' }), 0), null);
   assert.equal(W.worldTable(null), null);
-  assert.equal(W.worldTable(entry('BPRD'), 0), null, 'FR German: no verified addresses → no overlay');
+  // FR/LG German (and French, Italian, Spanish – one entry each): the RAM 0xB0 lower from gMain on, the ROM per code
+  for (const [code, cb2] of [['BPRD', 0x080565d5], ['BPGD', 0x080565d5], ['BPRF', 0], ['BPGS', 0]]) {
+    const de = W.worldTable(entry(code), 0, code);
+    assert.equal(de.family, 'frlg', code);
+    assert.deepEqual([de.main, de.saveBlock1Ptr, de.fieldCamera, de.backupMap, de.tasks], [0x03003040, 0x03004f58, 0x03004fa0, 0x03004f90, 0x03004fe0], code);
+    assert.equal(de.objectEvents, W.worldTable(entry('BPRE'), 0).objectEvents, 'EWRAM: as in English');
+    assert.equal(de.overworldCb2, cb2, code);
+    assert.equal(!!de.popup, !!cb2, `${code}: the popup cut-out only where its task is known`);
+    assert.equal(de.questLog, 0x0203adfa);
+  }
 });
 
 test('the camera: SaveBlock1 pos plus the camera object’s sub-tile offset (walking right, left, standing)', () => {

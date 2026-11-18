@@ -24,13 +24,43 @@ Plus a new play view that gives the game the room it deserves.
   last save is kept next to it. In the Game Boy and GBA games a player whose game dropped out can rejoin while the
   others wait. Nothing a link session shows counts for the run – a battle there never files a death. The run's rules
   decide whether trades and link battles are allowed.
+- **Battle for money, and keep score.** A challenge can be for in-game money: pick single or double battle (two
+  against two with four Game Boy Advances), set a wager up to what you have, and your partner sees it in the invite –
+  joining for less if they have less. When the battle is over, every player's souldew reads the result from the games
+  themselves, the results are compared, and only one everybody agrees on counts: the log says “Marius won a link
+  battle against Tim”, the loser's game pays the winner's as soon as both stand in the overworld again (saved with
+  your next in-game save – once, even after a reset), and the board keeps the record between you: “Marius 3 : 1 Tim”.
+  Games out of step, a game that dropped out of the link or a result that isn't clear: nobody pays. The host decides
+  whether wagers are allowed and the highest wager. Works in Red, Blue, Yellow, Gold, Silver, Crystal, Ruby,
+  Sapphire, Emerald, FireRed, LeafGreen and Platinum (English, and the German Gen 3 games except Emerald); stream
+  tools get a `link-battle` event.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into
   the link) or Wave – the wave shows on every player's screen. Like you, they walk behind trees, plants and counters,
   and they never cover the game's text boxes or the place name. It is drawn over your game; nothing is written into
-  it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald and Sapphire;
-  Ruby, FireRed and LeafGreen run on the same code, with their addresses from the games' disassembly.
+  it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald, Sapphire,
+  FireRed and LeafGreen – English and German (Feuerrote, Blattgrüne) – with up to four players; Ruby runs on the same
+  code with its addresses from the games' disassembly.
+- **Your Pokémon walks with you – and your partners' with them** (Shared World, Gen 3). Every player is followed by
+  the first Pokémon of their team that can fight, one step behind on their path: round corners, out of doors after
+  them, behind trees like everyone else, gone while they surf. The games have no walking Pokémon, so it's the
+  Pokémon's own party icon from your ROM, stepping along with its two frames (a shiny one sparkles now and then);
+  randomized games show the right one too. “Show my Pokémon following me” in the play view switches yours off on this
+  computer – your partners see it either way. It walks through people and doors like the partners do: the game
+  doesn't know it's there.
+- **Rock-paper-scissors with your partners, fair and square.** Walk up to a partner and press A, click their name tag
+  or the hand on their tile, or use “Rock-paper-scissors” in the board's log – that last one works in every game, not
+  just the Gen 3 ones. Both pick within 10 seconds; souldew only swaps the hands once both have picked (each side first
+  sends a sealed fingerprint of its hand), so nobody can wait and counter, a changed hand is refused and walking away
+  after seeing the other hand counts as a loss. In the game the hands pop up over both heads, everywhere else in a
+  small card; the log says “Marius beat Tim at rock-paper-scissors”. A draw is played again; best of 3 from the board.
+- **More bubbles next to Wave:** a heart, “!”, “?” and “GG”, from the same A menu – small pixel art over your head on
+  every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
+- **Partners next door:** a partner on a map connected to yours (the route beyond the town's edge) now shows across
+  the edge and walks over it smoothly, instead of appearing only once you're on the same map.
+- **FireRed and LeafGreen: the “Previously on your quest…” replay after loading** no longer shows (or sends) where you
+  walked last time as if you were there.
 - **souldew engine (beta)** – Settings › Play. One player of souldew's own for DS, GBA and Game Boy, on the
   same emulators as the fast player: a trade or battle simply brings your partners' consoles into your running game,
   and when the link ends they leave it again – nothing restarts, not even for a moment's handover. Speed steps, Max,
@@ -157,6 +187,16 @@ Good to know:
   can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the
   other Game Boy look load once you switch back to it.
 - Gen 2 and Gen 4 trades work, but don't appear in the run's log yet. Gen 5 (Black/White) links come later.
+
+## 2.8.4
+
+- **Cheats in Sun, Moon, Ultra Sun and Ultra Moon work right from the start** (thanks to a player for the report). In
+  these games your bag stays empty for a while after you get your first Pokémon, and souldew never writes into memory
+  it can't be sure is your bag – an empty bag looked just like empty memory, so “Add 99 Rare Candies” and “Add 10 Max
+  Repels” said your bag wasn't found and blamed a game update you didn't have. souldew now recognises the empty bag by
+  the game's own bookkeeping, and when the bag of a 3DS game isn't where souldew expects it, it now looks for it nearby
+  instead of giving up. If it still can't find it, the message says so plainly, and “Save diagnostics” records where it
+  looked.
 
 ## 2.8.3
 

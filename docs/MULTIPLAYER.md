@@ -340,8 +340,91 @@ Since November 2026 (branch `feat/engine`, Settings › Emulators › **"souldew
 **Battles everywhere** use the same session as trades. The game's link battle runs on both consoles, so there is no extra work in the host. souldew adds:
 - a "Battle" invite;
 - optional battle rules (level cap = the run's cap, no items);
-- a result entry in the log ("Marius won 3–1").
-- For SoulLink, battle losses never count as deaths unless the run says so (§10).
+- a result entry in the log ("Marius won a link battle against Tim") and the head-to-head record (below);
+- an optional wager in in-game money (below).
+- For SoulLink, battle losses never count as deaths unless the run says so (§10). The wager is independent of it.
+
+### 8a. Battle results and wagers
+
+Built in November 2026 (branch `feat/30-wager`; `shared/linkbattle.mjs`, `web/lib/linkresult.mjs`, `web/lib/wager.mjs`,
+`web/lib/wagerpay.mjs`).
+
+**Who won – read from every seat on every peer.** Every peer's link host runs every console, so every peer reads every
+seat's game itself (the link host's `READ`, now allowed for a page in a link session – a few bytes, read-only, at most
+4 KB; the battery saves of every seat on `FLUSH`). The cartridge header (`READ` at 0x080000A0 / 0x0134 / 0x027FFE00)
+says which game a seat runs. The source per generation is the one the game itself decides with, checked against the
+recorded battles:
+
+| Gen | Source | Recorded battle | Read |
+|---|---|---|---|
+| 1 | `wBattleResult` (0 won, 1 lost, 2 draw) once `wIsInBattle` falls to 0 after a battle with `wLinkState` = 4 (battling); the cartridge keeps no record | Red ↔ Red Colosseum | seat 0 lost, seat 1 won (the result screen: “ASH lost to RED”) |
+| 2 | the cartridge's own link battle record `sLinkBattleStats` (wins, losses, draws – u16 big-endian, SRAM bank 1: save offset 0x31BA Gold/Silver, 0x3260 Crystal), before and after the session. The game writes it at the battle's end, independent of saving. (`wBattleResult` read in RAM was ambiguous during the battle in this recording.) | Crystal ↔ Silver | Crystal L+1 vs “BIG”, Silver W+1 vs “ACE” – Silver won (“YOU WIN”) |
+| 3 | `gBattleOutcome` (1 won, 2 lost, 3 drew; bit 7 = forfeit) at the end of a battle with `BATTLE_TYPE_LINK`; `BATTLE_TYPE_MULTI` marks 2 vs 2. Multi battles write no link battle record into the save, so the save is no source for them. Same EWRAM addresses for every revision and the German R/S, FR/LG | Emerald ↔ Sapphire single; E, S, E, S multi | single: Emerald 1, Sapphire 2; multi: seats 0+1 lose, 2+3 win |
+| 4 (Pt) | the game records `RECORD_LOCAL_LINK_BATTLE_WINS / _LOSSES` (ids 21, 22) in the save data in RAM (`*0x02101D40 + 0x61C4`), encrypted with an LCRNG keystream seeded by the block's byte sum and a modifier (pokeplatinum `src/game_records.c`), checked by that sum. Before and after. No draw record | Platinum ↔ Platinum Union Room | seat 0 W+1, seat 1 L+1 |
+
+Not supported (no wager offered; the log gets no result): Gen 1/2 in other languages (their RAM differs), Emerald DE,
+Diamond/Pearl/HeartGold/SoulSilver (records not checked), Gen 5, hacks whose RAM moved, four DS players (who fought whom
+can't be told from counters).
+
+**Agreement.** At the session's end (before each console goes on alone) every peer writes what it read into the run
+document under its own key: `lb:<sid>:<slot>` = `{ seats, per: { slot: { w, l, d } }, multi, wager, h }`, `h` = FNV-1a 64
+over the session id, the seats, every seat's counts and the wager. A result counts only when every seat's entry is
+there, none is void and all hashes are equal (`outcomeOf`). Void: the session fell out of step (`desync` – the saves go
+back anyway), a player dropped out and rejoined (`rejoin` – their page can't know what happened while it was away), a
+seat's game can't be read (`unread`), the counts don't fit together. A player who never writes their entry (crashed)
+leaves the session pending forever: nobody pays. Two seats: who won more of the session's battles wins (several
+battles in one session are fine, “won 2 : 1”); a tie is a draw. Four Game Boy Advances: two winners against two
+losers of a multi battle.
+
+**The log, the record, the stream.** `feed:lb-<sid>` (every computer writes the same entry, keyed by the session):
+“Marius won a link battle against Tim” / “… won 2 : 1 in link battles against Tim” / “Marius & Lena beat Tim & Robin
+in a multi battle”. The head-to-head record is computed from the agreed entries (`headToHead`) and shown on the
+partner's card on the board and in the result card. The stream API has a `link-battle` event and the log entry carries
+winners, losers and the wager (docs/STREAM_API.md).
+
+**Wagers.** The challenger's Battle opens a small challenge: the format (single/double where the game lets you pick;
+multi with four GBAs) and “Battle for money”: an amount up to what their game holds (read from the running game) and
+the run's limit. The invite carries `caps: ['wager1']`, `wager` and `format`; the accept carries the invitee's caps and
+the most they put in (their money, read when they join). The stake every peer works out at the start: the offer,
+lowered to every accept and the rule's cap – 0 unless every seat announced `wager1` (a partner on an older 3.0 build
+sees an invite without a wager and the bar says “no wager – Tim's souldew doesn't know wagers yet”) – then at the
+session's end lowered again to what every seat's game holds then (read by every peer from every console – at the start a
+game that boots for the link has no save loaded yet and reads ₽0; nothing can be spent in the Colosseum anyway). The stake is
+part of the hash.
+
+- **Currency: money only.** Game Corner coins were considered and left out: not every game has them in the same way
+  (the Coin Case first; some regional versions removed the slot machines), they buy Pokémon and TMs at the prize
+  counters directly – which a SoulLink's encounter rules don't expect – and a coin wager would double the per-game
+  tables for little gain. Money only buys items, so it is harmless in a Nuzlocke-type run.
+- **Settlement** (`WagerPay`, from the play view's live loop): once the player stands in the overworld of their own
+  game, alone (no link, no battle; Gen 1 `wIsInBattle`/`wLinkState` 0, Gen 2 `wBattleMode`/`wLinkMode`/`wScriptRunning`
+  0, Gen 3 the Shared World's camera reader: not locked, no fade, Gen 4 the battle flag's overworld value), the money
+  goes into RAM through the cheat path (the fast player's WRITE between two frames), is read back, and read again
+  1.5 s later: still the old sum (Emerald moved its save blocks just then) → it goes in again; anything else → done.
+  Gen 1 3-byte BCD, Gen 2 3-byte big-endian, Gen 3 u32 XORed with SaveBlock2's key (Emerald, FR/LG; R/S plain), Gen 4
+  u32 in the trainer block (save data +0x90, only when its records decode). Clamped to ₽0 … ₽999,999.
+- **Exactly once into a save.** `lbpay:<sid>:<slot>` = `written` (with the game's boot id) → `saved` when the game's next
+  battery save reached the run. A reset, a loaded save state or a new start before that is another boot: the money goes
+  in again. The payer's computer logs “Tim paid Marius ₽2,000 (link battle)” (`feed:lbp-<sid>-<slot>`).
+- **Multi battle:** each player stakes the wager; each loser pays one winner (the pot split per team).
+- **Exploits considered:** a client can only change its own game's money – a tampered page could add money without any
+  of this (cheats are a run rule of their own). A lie in the result voids it (the hashes differ). Writing nothing as a
+  loser is possible for a tampered client – the log shows the result and the missing payment.
+
+**Rules** (host-signed like every SoulLink rule, `shared/hostrules.mjs`): “Wagers in link battles” (`linkWagers`,
+default on, only with link battles allowed) and “Highest wager” (`linkWagerCap`: no limit, ₽1,000, ₽5,000, ₽10,000,
+₽50,000). “Losing a link battle counts as deaths” is independent.
+
+**Level fairness (research, not built).** linkcable.app offers “Scale Levels”. The games' own link rules don't: the Gen 1
+and 2 Colosseum have no level cap (Gen 2 only checks Pokémon that can't be traded), the Gen 3 Colosseum has none (the
+Battle Tower's level-50/open rules apply only there), the Gen 4 Union Room has none. Options: (a) a run rule that
+refuses the invite when either team is above the run's current level cap (the tracker knows both teams – cheap, no
+memory writes); (b) a souldew-side check before the battle that only warns; (c) writing scaled levels/stats into both
+consoles' battle copies at the start of each battle – deterministic on every peer, but per-game battle structs, stat
+recalculation and the risk of a desync make it the expensive option. (a) fits a SoulLink best.
+
+**Ideas not built:** a “Win 10 link battles” trophy (counted from the agreed entries – suggested, not added: trophies
+are counted from run digests, which would need the head-to-head in them); an overlay alert for the `link-battle` event.
 
 ## 9. Shared World
 
@@ -349,14 +432,19 @@ Goal: partners walk visibly in your game, on the same map, and you can walk up t
 
 GBA-PK's approach injects NPC objects into game RAM per ROM revision, which breaks on randomizers and is CC BY-NC. souldew's version is an **overlay drawn by souldew** over the emulator picture, fed by RAM reads. Nothing is written into the game.
 
-**Status (branch `feat/shared-world`): Gen 3 works in the app** – Emerald and Sapphire tested end to end with two and three scratch profiles (`scripts/world-e2e.mjs`), FireRed/LeafGreen and Ruby share the code path with addresses from the pret symbol files (no FR/LG ROM was at hand to try).
+**Status (branches `feat/shared-world`, `feat/30-world-plus`): Gen 3 works in the app** – Emerald, Sapphire, FireRed and LeafGreen (English and German) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`), Ruby shares the code path with addresses from the pret symbol files. Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
 
 | Game | Status |
 |---|---|
-| Emerald (US/EU) | **Works**: partners drawn and animated, names, depth against your own player, hidden behind the map's top layer (tree tops, roofs, plants) and under the map-name popup, A → menu, Wave both sides, Trade/Battle into the link flow |
-| Ruby / Sapphire (US rev 0–2, Ruby DE) | **Works** (Sapphire US tested) |
-| FireRed / LeafGreen (US rev 0–1) | Addresses from `pokefirered*.sym`/`pokeleafgreen*.sym`, same code – untested in the app |
-| Other languages, hacks with moved RAM (FR/LG DE/FR/IT/ES, Sapphire DE, CFRU/Unbound …) | No overlay (no verified RAM addresses); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM and sprite tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
+| Emerald (US/EU rev 0) | **Works** (tested 18 Nov 2026, 2 and 4 players): partners drawn and animated, names, followers, depth against your own player, hidden behind the map's top layer (tree tops, roofs, plants) and under the map-name popup, A → menu, Wave/emotes/rock-paper-scissors both sides, Trade/Battle into the link flow |
+| Sapphire (US rev 0) | **Works** (tested, 4 players: two Sapphire players see each other and their followers, the Emerald pair doesn't – another map numbering) |
+| Ruby (US rev 0–2, DE rev 0–1), Sapphire US rev 1–2 | Same code and tables from the pret symbol files – not run here |
+| FireRed (US rev 0) | **Works** (tested 18 Nov 2026 with a German LeafGreen partner: walking, followers, rock-paper-scissors, the log line). Every address checked in the running game (see the FR/LG notes below); rev 1 untested |
+| FireRed / LeafGreen German (Feuerrote, Blattgrüne rev 0) | **Works** (tested: German LeafGreen ↔ German FireRed, app in German). Own `world` table in `firered_eu`/`leafgreen_eu` (RAM: IWRAM from gMain on 0xB0 lower, EWRAM as in English; ROM addresses per game code `BPRD:0`/`BPGD:0`), every address verified live |
+| FireRed / LeafGreen French, Italian, Spanish | The same entry and RAM as German (two tracker tables say so) – untested; the overworld callback is learned, the sprite and icon tables searched, no map-name popup cut-out |
+| LeafGreen US (rev 0–1) | Same as FireRed US, from `pokeleafgreen*.sym` – untested |
+| Radical Red 4.1 (the "FireRed (patched)" here) | The FireRed US RAM still fits (checked by the literal pools and a live probe), the graphics table is found by the search; its expanded species (1375) have no icon table souldew recognises: **no followers**, partners untested |
+| Emerald/Ruby/Sapphire DE/FR/IT/ES, hacks with moved RAM (CFRU/Unbound …) | No overlay (no verified RAM addresses – no such ROM on the test Mac); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM, sprite and icon tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
 | Gen 1/2, Gen 4/5, 3DS | Not yet – see the feasibility notes below |
 
 ### How it works
@@ -385,17 +473,27 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 3. **Interpolate** (`Track`): the picture runs ~1.5 message gaps behind the newest state (60–600 ms, adaptive), linear in between; past the newest it extrapolates ≤150 ms and never past the tile it was heading for; a map change or a jump of more than 3 tiles snaps.
 4. **Render** (`web/lib/worldoverlay.mjs`): a 240×160 canvas exactly over the picture, scaled by the same CSS size with `image-rendering: pixelated` (nearest neighbour, like the game). Sprites come from **this computer's ROM** at run time (`shared/worldsprites.mjs`: `gObjectEventGraphicsInfoPointers` → graphics info → 4bpp frames, palette by tag from `sObjectEventSpritePalettes`, the game's own animation tables; tables searched for when not at the known address). Animation follows the distance walked (walk, run, Mach/Acro bike, surf). Depth: partners behind your feet line are drawn first, then your own sprite again (its exact current frame from the ROM) where it covers them, then partners in front. Occlusion: each sprite (the partners', and your own when it is drawn again) loses the pixels under the map's top-layer masks at its spot – unless its elevation puts it above BG1 (`sElevationToPriority` < 2: bridges). Nothing is drawn on the map-name popup's rectangle while it shows (with 12 rows extra while it slides in: the tasks come from the 10 Hz mirror). Name tags are crisp HTML in the player's colour; the wave bubble is pixel art (original, no game graphics). Partners show only on the same map of the same game family (Ruby ↔ Sapphire, FireRed ↔ LeafGreen; Emerald ↔ Ruby are not mixed – their map numbering differs).
 5. **Interact**: standing still, facing a partner's tile, A (from the game's own `gMain.heldKeys`, or the fast player's input) → after 110 ms, if the game didn't answer the button itself (a sign, a person: field controls locked), souldew's menu opens over the game and the game pauses: **Trade / Battle / Wave / Cancel** (arrows, Enter/Space and Escape, the mapped A/B keys in the fast player, a controller, the mouse; clicking a name tag opens it too). Trade/Battle call `LinkSessions.invite(kind, [slot])` (the existing invite → Join/Not now flow) and dispatch `sl-world-action` for other integrations; they're disabled with the reason when the run's rules, the link state or a missing direct connection don't allow them. Wave shows the bubble over your avatar on every screen that sees you.
-6. **UX**: one quiet switch in the play view's side column, "Show partners in my game" (per run, this computer only, default on; shows "· 1 here" while someone is on your map). It only appears when this game is supported. Off hides the overlay; your own position still goes out so the partners can see you. Never in link sessions, solo runs or games without tables.
+6. **UX**: one quiet switch in the play view's side column, "Show partners in my game" (per run, this computer only, default on; shows "· 1 here" while someone is on your map). It only appears when this game is supported. Off hides the overlay; your own position still goes out so the partners can see you. Never in link sessions, solo runs or games without tables. A second switch, "Show my Pokémon following me" (every run, this computer only, default on), is independent of it: with partners off your own follower still walks.
+7. **Followers** (`shared/worldicons.mjs`, `shared/world.mjs` `Follower`): Gen 3 retail has no overworld Pokémon, so a follower is the Pokémon's **party-menu icon from this computer's ROM** (32×32, two frames, 4bpp). The three tables lie together in every Gen 3 game and language – `gMonIconTable` (440 pointers by internal species, Egg 412, Unown B–? from 413), `gMonIconPaletteIndices` (440 bytes 0–5), `gMonIconPaletteTable` (6 × { palette, tag 0xDAC0+i }) – and are found by that palette table's tags in one pass (~5 ms; Emerald 0x0857BCA8, FR US 0x083D37A0, FR DE 0x083D30B4, LG DE 0x083D2EF0, Ruby US 0x083BBD20). Species on the wire are National Dex numbers, mapped to the internal index with `gen3_index_to_dex.json` (Unown by its letter, Deoxys with the game's own form icon). The lead is the first party member that isn't an egg and isn't at 0 HP – from live tracking for you, from the partner's message for them. A randomizer changes species, not tables: the icon is right. A hack with more species or other tags isn't recognised: no follower (never a wrong one).
+   - **The trail**: the follower walks the leader's *path* one tile (16 px of path) behind – not a straight line – so it rounds corners, steps out of a door after them and swaps places when they turn back. Fed every picture with the leader's position (yours exact from the camera, a partner's interpolated); a map change or a jump of more than three tiles puts it onto the leader (hidden until they step away – it comes out of the door after them); the first sight of a player puts it one tile behind their back. It faces where it walks (the icons look left; mirrored walking right), changes frame every 8 px walked, stands still with them. Hidden while its player surfs, dives or is hidden.
+   - **Drawing**: a sprite like the partners – sorted by its feet line between them and your own sprite (your sprite is drawn again over a follower behind you), cut by the map's top layer at the leader's elevation, clipped by the map-name popup; its lowest opaque pixel stands on the tile's bottom row. A shiny lead gets a small original sparkle every 2.4 s (Gen 3 icons have no shiny colours). It **overlaps people, walls and doors**: the game doesn't know it's there (nothing is written into the game), just like the partners.
+   - **On the wire**: an optional 9th element of the world message, `{ f: [species, flags], z: [w, h] }` (flags: bit 0 shiny, bits 1–5 the form; `f: 0` = nobody follows; `z` the sender's map size, for connected maps). Sent when it changes and with the once-a-second heartbeat (and every relay message), so it costs ~0 bytes while walking. 3.0 builds from before it read only elements 0–7 and never see it (`test/worldplus.test.mjs` keeps a copy of their parser). Your partners always see your follower; the switch only changes your own picture.
+8. **Emotes**: Wave plus a heart, "!", "?" and "GG" – a row in the A menu, original pixel art in a speech bubble (`web/lib/worldart.mjs`). `{ t: 'wave' }` as before (older builds show it), `{ t: 'emote', e }` for the new ones (older builds ignore them). A token bucket on both ends: 4 at once, then one every 2.5 s – a partner's client that sends more gets 5 bubbles and then nothing.
+9. **Rock-paper-scissors** (`shared/rps.mjs`, `web/lib/worldrps.mjs`, `web/views/rps.mjs`): from the A menu (or a name tag), the hand on a partner's tile, or the board's log ("Play against: …", best of 1 or 3) – the board works for every game, Gen 1 to 3DS, since it only needs the run's peer channel. **Commit–reveal**: each side first sends SHA-256 over `souldew-rps|game|round|slot|hand|nonce` (16 random bytes); the hands go out only once both commitments are in; a hand that doesn't match its commitment is refused (the game doesn't count, both screens say so); the slot in the hash makes copying the other's commitment useless; a reveal that arrives before your own commitment is kept back. Time: 10 s to pick (no pick in the first round = no game; later = a loss), 6 s to show your hand once both picked – **not showing it after seeing the other's is a loss**, so leaving can't undo a defeat. A draw is played again (5 rounds at most, then a draw); best of 3 goes to two wins. In a Gen 3 game on the overworld the picker opens in the picture (the game waits while you pick, ≤ 10 s; ◀ ▶, A, B to pass, a controller, the mouse) and the hands pop up over both heads (the losing one fades) – partners on the same map see them too. Otherwise (another generation, Shared World off, a battle or a menu on screen when the challenge came) a small card at the bottom of the app. One game per pair; three challenges, then one every 20 s (the receiver ignores more). The player who asked writes one line into the run's log: "Marius beat Tim at rock-paper-scissors" (best of 3 with the score; "… (Tim gave up)" for a forfeit; draws too). Messages: `{ t: 'rps', op: 'ask' | 'c' | 'v' | 'x', id, to, … }` on the world action, over the relay for partners without a direct link (older builds ignore them – the asker sees "didn't answer").
+10. **Connected maps**: the local map's size (its layout in the ROM) and connections (`gMapHeader.connections` → { direction, offset, map }) place a partner on a neighbouring map in your frame (pokeemerald `Fill*Connection`: south at your height + offset, east at your width, north and west at minus *their* size – which they send in `z`). `Track.sample` interpolates in that frame, so a partner crossing the edge slides on instead of stopping; followers, the A menu and name tags work across it. Partners on older builds (no `z`) show next door only to the south and east.
+11. **FR/LG's quest-log replay** ("Previously on your quest…" after loading) runs with the overworld callback, unlocked, the player walking: `gQuestLogState` (EWRAM 0x0203ADFA in every revision and language; 2/3 = playback, 1 = the recording during normal play) hides the partners and sends you as hidden while it plays (verified live in Feuerrote/Blattgrüne/FireRed).
 
 ### Limits (Gen 3)
 
 - Partners disappear behind the map's top layer exactly where the real player does (tree tops, roofs, the leaves of potted plants, counters). Not covered: tall grass (a field-effect sprite in the game, not the map), animated top-layer tiles (the mask is the ROM's first frame), and other sprites (NPCs) – partners walk through NPCs and walls on your screen if they stand there in their game (their own game decides where they can walk).
 - The map-name popup is cut out with the mirror's lag: for about a tenth of a second after it slid away a partner under it may still miss a few rows.
-- Partners on a neighbouring connected map aren't shown until you're on the same map (the connection offsets aren't applied yet).
+- Partners next door are placed by the map connection; dive/emerge connections (another layer) and warps never count. Occlusion beyond the 7-tile border the game keeps of a connected map is not applied (it's off screen anyway).
+- Followers overlap NPCs, walls and doors and stand in the void for one step after entering a room (they come in through the door with you): the game doesn't know them. Party icons are 32×32 and a little bigger than the trainer sprites; no shiny colours (the sparkle says so). Hacks with expanded species (Radical Red, Unbound …): no followers.
 - Surfing partners are drawn without the surf blob (a field-effect sprite with its own palette table – a follow-up); ledge jumps slide instead of hop.
 - Partners vanish while a menu, a message or a script holds your player (they would be drawn over the text box), with a short fade.
 - Pair runs with different games (Emerald ↔ FireRed) never share a map, by design.
-- No FR/LG ROM was available here: its addresses come from the symbol files and the same struct layouts; verify with `scripts/world-e2e.mjs` before shipping.
+- FR/LG verified (US rev 0, German FR/LG rev 0) on 18 Nov 2026 by `scripts/world-e2e.mjs --plus` with saves made by `scripts/rom-matrix.mjs` plans (ROM copies and saves in a scratch folder, never committed). French/Italian/Spanish FR/LG, FR/LG rev 1, Ruby and the German RSE games are not verified (no ROMs here).
+- **Stream overlay (not built)**: the stream page could show the followers and the last rock-paper-scissors result next to each player's card (the lead is already in each player's live data; a result is one feed entry), and an "emote" event could flash the bubble over the player's tile. Left for later: the overlay draws cards, not the game picture.
 
 ### Feasibility for the other generations
 
@@ -408,8 +506,9 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 
 | Item | Effort |
 |---|---|
-| FR/LG verification with a real ROM (and the e2e) | ½ day |
-| Surf blob, ledge hop, partners on connected maps | 2–3 days |
+| ~~FR/LG verification with a real ROM (and the e2e)~~ | done (US rev 0, DE) |
+| ~~Partners on connected maps~~, followers, emotes, rock-paper-scissors | done |
+| Surf blob, ledge hop | 1–2 days |
 | More languages (verify RAM per language with pret or community tables) | ½ day per language |
 | Gen 1/2 | 4–6 days |
 | Gen 4 | 2–3 weeks |
@@ -482,7 +581,7 @@ What is left for 3.0, with effort:
 | First green `native.yml` run (Linux + Windows link host; the RGBDS step is new) | ½ d |
 | Release packaging: `linkhost` + its licences in the app bundles (`npm run dist` checks it now), signing/notarising one more binary on macOS | ½–1 d |
 | A real two-computer test over the internet, once with TURN forced (relayed) | ½ d |
-| Trade log entry for Gen 2 and Gen 4 (the e2e saw the trade in the saves but no log entry – the live party's keys) and a battle result entry ("Marius won") | 1 d |
+| Trade log entry for Gen 2 and Gen 4 (the e2e saw the trade in the saves but no log entry – the live party's keys); the battle result entry is built (§8a) | ½ d |
 | FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e; their link rooms on the sign | 3–4 d |
 | Gen 1 ↔ 2 Time Capsule | 1 d |
 | DS rejoin during a wireless exchange (the state can't be taken while a console waits mid-frame): retry until the exchange pauses, or make the wait state serialisable | 2–3 d |
