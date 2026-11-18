@@ -195,6 +195,7 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   const b = await local(1);
   await goto(0, b.tx - 1, b.ty);
   for (let n = 0; n < 6 && (await local(0))?.facing !== 4; n++) { await hold(0, ['right'], 50 + n * 15); await sleep(400); }
+  log('next to B', JSON.stringify({ local: (await world(0)).local, own: (await world(0)).own, drawn: (await world(0)).followers }));
   await hold(0, ['a'], 120);
   const m = await until('menu', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && (await world(0))?.menu?.sel !== 'rps'; n++) { await key(0, 'ArrowDown'); await sleep(120); }
@@ -369,7 +370,7 @@ async function main() {
     for (const [i] of profiles.entries()) {
       await until(`page ${i} in the overworld`, async () => {
         const s = await world(i);
-        if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && s.cam.cb2 && s.cam.fade === 0) return true;
+        if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && s.cam.cb2 && s.cam.fade === 0 && s.drawable !== false) return true;
         // (FR/LG replay your last steps after loading – B skips that; it must not count as being there)
         if (s?.cam?.replay) log(`page ${i}: the quest-log replay – skipped`, JSON.stringify({ drawable: s.shown, local: s.local }));
         await press(i, s?.cam?.replay ? 'b' : 'a', 900);

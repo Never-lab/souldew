@@ -146,6 +146,7 @@ function world(host, t, rom, dex) {
   let conns = null; // this map's size and connections, this picture
   let fdraw = {}; // diagnostics: the followers drawn this picture
   let rpsUi = null; // the rock-paper-scissors picker
+  let ownLast = null; // diagnostics: your own follower this picture
   const spriteCache = {};
   const frameCache = new Map();
   const learner = new OverworldLearner();
@@ -348,6 +349,7 @@ function world(host, t, rom, dex) {
     }
     const own = cfg.follow && cfg.lead && me && !followerHidden(me) ? ownFollower.update(`L${cam.map}`, me.x, me.y, me.facing) : null;
     if (!own) ownFollower.trail = [];
+    ownLast = own;
     if (!rect || !active() || !host.ready()) {
       near = 0;
       canvas.style.opacity = '0';
@@ -960,12 +962,12 @@ function world(host, t, rom, dex) {
       const now = performance.now();
       const it = menu?.items[menu.sel];
       return {
-        supported: true, game: t.id, enabled: cfg.enabled, follow: cfg.follow, lead: cfg.lead, cam, shown, learned: learner.cb2, perFrame: !!watched?.bytes,
+        supported: true, game: t.id, enabled: cfg.enabled, follow: cfg.follow, lead: cfg.lead, cam, shown, drawable: drawable(t, cam, learner.cb2), learned: learner.cb2, perFrame: !!watched?.bytes,
         menu: menu ? { slot: menu.slot, sel: it?.row ? `emote:${it.row[menu.sub]}` : it?.act } : null,
         rps: rpsUi ? { id: rpsUi.id, phase: rpsUi.v?.phase, modal: rpsUi.modal, sel: rpsUi.sel, say: rpsUi.say.textContent } : null,
         bubbles: Object.fromEntries([...bubbles].filter(([, b]) => now < b.until).map(([slot, b]) => [slot, b.art])),
         local: cam ? readPlayer(t, reader(), cam) : null, sprite: lastSprite, icons: !!icons,
-        followers: fdraw, conns,
+        followers: fdraw, own: ownLast, conns,
         occlusion: occ ? { layout: occ.layout, covered } : null, popup,
         partners: Object.fromEntries([...tracks].map(([slot, tr]) => {
           const conv = conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null;
