@@ -138,6 +138,26 @@ export function freeSeats(run, mySlot = 'p1') {
   return slotsOf(run).filter((s) => s !== mySlot && !run.summary?.live?.[s]).length;
 }
 
+const OVER = ['expired', 'cancelled', 'locked', 'conflict', 'error'];
+/**
+ * How many more friends can be invited into a run: its seats minus those somebody has (taken) and minus this app's
+ * invites for it that are still open (each holds a seat until it ends) or already handed out a seat. Keeps the picker
+ * from sending a 2-seat run three invites – the extra friends would only find every seat gone.
+ */
+export function seatsLeft(manifest, taken = [], invites = hostedInvites()) {
+  if (!manifest || runMode(manifest) !== 'soullink') return 0;
+  const slots = slotsOf(manifest);
+  const gone = new Set(taken.filter((s) => slots.includes(s)));
+  let open = 0;
+  for (const h of invites) {
+    if (h.runId !== manifest.id || OVER.includes(h.state?.phase)) continue;
+    const s = h.state?.seat?.slot;
+    if (s && slots.includes(s)) gone.add(s);
+    else if (!s && h.state?.phase !== 'done') open++;
+  }
+  return Math.max(0, slots.length - gone.size - open);
+}
+
 // Closing or reloading the host's app: the codes die with it, so the invites go too (best effort – the service
 // expires them anyway).
 if (typeof addEventListener === 'function') {

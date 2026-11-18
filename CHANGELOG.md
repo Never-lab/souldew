@@ -34,6 +34,14 @@ Plus a new play view that gives the game the room it deserves.
   whether wagers are allowed and the highest wager. Works in Red, Blue, Yellow, Gold, Silver, Crystal, Ruby,
   Sapphire, Emerald, FireRed, LeafGreen and Platinum (English, and the German Gen 3 games except Emerald); stream
   tools get a `link-battle` event.
+- **Leaving the link inside a link room can't hurt your run.** A game that's still in the Trade Center or the
+  Colosseum when the link ends goes on alone in its link mode – Gold, Silver and Crystal even start the next battle
+  against the partner's team they already received. souldew counts nothing of it (no deaths, no catches, no team
+  changes) until you walk out or start the game again. The result card says “₽2,000 to pay …” until the money has
+  really left your game – in the Gen 1 Colosseum, which has no way out, that's after switching the game off and on.
+- **Trades in Gold, Silver and Crystal go into the log** too – two of your own Pokémon with the same trainer ID and
+  stats no longer hide the trade. The “You are here” sign knows the Union Room and the Colosseums of Diamond, Pearl,
+  Platinum, HeartGold and SoulSilver.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into
@@ -173,6 +181,13 @@ Plus a new play view that gives the game the room it deserves.
   other; they slide round buttons and screens. Up to 12 saved designs, “Surprise me at start”, favourites, export /
   import as a small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy.
   Only you see your handheld. From the library's header tile, the souldew+ page or Settings › Play › Launch animation.
+- **When souldew+ ends, your picks wait.** A souldew+ launch look (Gold, Clear shell, Holo label) and the souldew+ skin,
+  stickers and finishes on your handheld stay saved, but nothing paid is shown or played: the launch plays “Your
+  colours”, and the still of your handheld in Settings and the library's tile show it without them, with a line that
+  they're back as soon as souldew+ is active again.
+- **Inviting friends counts the seats.** “Invite friends” on a run lets you pick only as many friends as there are free
+  seats – invites still out hold theirs – and is greyed out once every seat is taken, instead of sending invites into
+  a run nobody else fits in.
 - **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
   link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
   the board's Rules – and every change goes to the log; the others see them read-only.

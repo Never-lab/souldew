@@ -835,6 +835,7 @@
   "linkplay.resultLost": "{name} hat gewonnen",
   "linkplay.resultOthers": "{name} hat gewonnen",
   "linkplay.resultPaid": "{amount} gezahlt",
+  "linkplay.resultToPay": "{amount} zu zahlen, sobald du in deinem Spiel wieder herumläufst",
   "linkplay.resultPending": "Das Ergebnis wird mit den anderen abgeglichen …",
   "linkplay.resultWon": "Du hast gewonnen!",
   "linkplay.resultWonTeam": "Du und {name} habt gewonnen!",
@@ -3953,5 +3954,9 @@
   "world.followHint": "Das erste kampffähige Pokémon deines Teams läuft hinter dir her – nur auf diesem Computer. Deine Partner sehen es so oder so. Es läuft durch Leute und Türen, wie die Partner.",
   "world.rps": "Schere-Stein-Papier",
   "world.tagHint2": "Tauschen, kämpfen, winken oder Schere-Stein-Papier spielen",
-  "world.toggleHint2": "Deine Partner laufen in deinem Spiel herum, wenn ihr auf derselben Karte oder nebenan seid – mit dem Pokémon vorne in ihrem Team. Geh zu ihnen und drück A, um zu tauschen, zu kämpfen, zu winken oder Schere-Stein-Papier zu spielen."
+  "world.toggleHint2": "Deine Partner laufen in deinem Spiel herum, wenn ihr auf derselben Karte oder nebenan seid – mit dem Pokémon vorne in ihrem Team. Geh zu ihnen und drück A, um zu tauschen, zu kämpfen, zu winken oder Schere-Stein-Papier zu spielen.",
+  "fr.pickSeats": "1 Platz ist frei – wähl einen Freund.|{count} Plätze sind frei – wähl bis zu {count} Freunde.",
+  "fr.noSeatLeft": "Jeder Platz dieses Runs ist vergeben oder hat schon eine Einladung.",
+  "launch.pending": "{name} spielt wieder, sobald souldew+ auf diesem Computer aktiv ist – bis dahin startet dein Spiel mit „Deine Farben“.",
+  "hh.keptPlus": "Dein souldew+-Skin und deine souldew+-Sticker bleiben gespeichert – sie sind wieder drauf, sobald souldew+ auf diesem Computer wieder aktiv ist."
 }

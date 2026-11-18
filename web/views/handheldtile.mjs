@@ -13,7 +13,7 @@ import { PlusMark } from '../lib/cosmetics/components.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
 import { WRAPS, STICKERS, UNLOCKS, launchLook, wrapById, devKey } from '/shared/handheld.mjs';
-import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick } from '../lib/handheld/look.mjs';
+import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick, ownedLook } from '../lib/handheld/look.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { atlasNow, loadAtlas } from '../lib/handheld/stickers.mjs';
 import { wrapThumb } from '../lib/handheld/wrap.mjs';
@@ -51,8 +51,9 @@ export function HandheldTile({ system }) {
   const L = launchConfig(status?.config);
   const member = !!packState().entitled;
   const look = launchLook(L.look).tier === 'plus' && !member ? 'theme' : launchLook(L.look).look;
+  const own = ownedLook(doc); // a souldew+ skin or sticker shows only while souldew+ is active (the launch plays the same)
   return html`<button type="button" class="hh-tile" onClick=${() => navigate('handheld', { sys })} title=${t('hh.dress', 'Dress your handheld')}>
-    <${HandheldStillImg} sys=${sys} look=${look} skin=${doc.skin} stickers=${doc.stickers[sys] || []} w=${84} h=${52} zoom=${2.6} class="hh-tile-pic" />
+    <${HandheldStillImg} sys=${sys} look=${look} skin=${own.skin} stickers=${own.stickers[sys] || []} w=${84} h=${52} zoom=${2.6} class="hh-tile-pic" />
     <span class="hh-tile-txt"><span class="hh-tile-k">${t('hh.title', 'Your handheld')}${!member && html` <${PlusMark} title=${t('hh.plusQuiet', 'More skins and stickers come with souldew+')} />`}</span>
       <b class="ellipsis">${wearing(doc)}</b></span>
   </button>`;

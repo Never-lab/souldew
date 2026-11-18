@@ -66,6 +66,14 @@ export function launchConfig(cfg) {
   const pace = cleanLaunchPace(cfg?.launchPace);
   return { look, pace, clear: cleanClearTint(cfg?.launchClear), off: pace === 'off' || cfg?.bootAnimation === false };
 }
+/**
+ * The launch a preview plays (Settings, the editor, the souldew+ page): launchConfig() of the config – a caller may hand
+ * either the config itself or launchConfig() of it – and Off plays Full (pressing Preview asks to see it).
+ */
+export function previewConfig(cfg) {
+  const L = cfg && typeof cfg === 'object' && 'look' in cfg && 'pace' in cfg ? cfg : launchConfig(cfg);
+  return { ...L, pace: L.pace === 'off' ? 'full' : L.pace, off: false };
+}
 export const member = () => !!packState().entitled;
 /** The launch look this account can play: a souldew+ look without souldew+ plays "Your colours" (the choice is kept). */
 export const playableLook = (id) => (launchLook(id).tier === 'plus' && !member() ? 'your-colours' : launchLook(id).id);
@@ -76,6 +84,15 @@ export function lookNow(rnd = Math.random) {
   // the very moment it starts the game. Not known yet: the earned stickers wait for the next start.
   const tr = earnedTrophies();
   return lookToPlay(doc, { member: member(), trophies: tr || new Set(), favDesigns: favourites().design || [], rnd });
+}
+
+/**
+ * The current look as this account can wear it right now – what a still of "Your handheld" shows (Settings, the library's
+ * tile): souldew+ skin, stickers and finishes only with souldew+, like the launch itself. The handheld keeps them all
+ * (the editor shows them as kept), so they are back the moment souldew+ is.
+ */
+export function ownedLook(d = doc) {
+  return lookToPlay({ ...d, surprise: false }, { member: member(), trophies: earnedTrophies() || new Set() });
 }
 
 /** a wrap for the scene: { skin: composition + finish, recipe } – or null (the theme colour, or its data isn't here) */

@@ -835,6 +835,7 @@
   "linkplay.resultLost": "{name} a gagné",
   "linkplay.resultOthers": "{name} a gagné",
   "linkplay.resultPaid": "{amount} payés",
+  "linkplay.resultToPay": "{amount} à payer dès que tu te déplaces à nouveau dans ton jeu",
   "linkplay.resultPending": "Comparaison du résultat avec les autres …",
   "linkplay.resultWon": "Tu as gagné !",
   "linkplay.resultWonTeam": "{name} et toi avez gagné !",
@@ -3953,5 +3954,9 @@
   "world.followHint": "Le premier Pokémon de ton équipe en état de combattre marche derrière toi – sur cet ordinateur seulement. Tes partenaires le voient dans tous les cas. Il traverse les gens et les portes, comme les partenaires.",
   "world.rps": "Pierre-feuille-ciseaux",
   "world.tagHint2": "Échanger, combattre, saluer ou jouer à pierre-feuille-ciseaux",
-  "world.toggleHint2": "Tes partenaires marchent dans ton jeu quand vous êtes sur la même carte ou juste à côté, avec le Pokémon en tête de leur équipe. Approche-toi et appuie sur A pour échanger, combattre, saluer ou jouer à pierre-feuille-ciseaux."
+  "world.toggleHint2": "Tes partenaires marchent dans ton jeu quand vous êtes sur la même carte ou juste à côté, avec le Pokémon en tête de leur équipe. Approche-toi et appuie sur A pour échanger, combattre, saluer ou jouer à pierre-feuille-ciseaux.",
+  "fr.pickSeats": "1 place est libre – choisis un ami.|{count} places sont libres – choisis jusqu’à {count} amis.",
+  "fr.noSeatLeft": "Chaque place de cette partie est prise ou a déjà une invitation.",
+  "launch.pending": "{name} revient dès que souldew+ est actif sur cet ordinateur – d’ici là, ton lancement joue « Tes couleurs ».",
+  "hh.keptPlus": "Ton skin et tes stickers souldew+ sont gardés – ils reviennent dessus dès que souldew+ est de nouveau actif sur cet ordinateur."
 }

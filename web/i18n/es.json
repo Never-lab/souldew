@@ -835,6 +835,7 @@
   "linkplay.resultLost": "Ganó {name}",
   "linkplay.resultOthers": "Ganó {name}",
   "linkplay.resultPaid": "{amount} pagados",
+  "linkplay.resultToPay": "{amount} por pagar en cuanto vuelvas a moverte por tu juego",
   "linkplay.resultPending": "Comparando el resultado con los demás …",
   "linkplay.resultWon": "¡Has ganado!",
   "linkplay.resultWonTeam": "¡{name} y tú habéis ganado!",
@@ -3953,5 +3954,9 @@
   "world.followHint": "El primer Pokémon de tu equipo que puede luchar camina detrás de ti – solo en este ordenador. Tus compañeros lo ven de todos modos. Atraviesa a la gente y las puertas, igual que los compañeros.",
   "world.rps": "Piedra, papel o tijera",
   "world.tagHint2": "Intercambiar, combatir, saludar o jugar a piedra, papel o tijera",
-  "world.toggleHint2": "Tus compañeros caminan en tu juego cuando estáis en el mismo mapa o en el de al lado, con el Pokémon que va primero en su equipo. Acércate y pulsa A para intercambiar, combatir, saludar o jugar a piedra, papel o tijera."
+  "world.toggleHint2": "Tus compañeros caminan en tu juego cuando estáis en el mismo mapa o en el de al lado, con el Pokémon que va primero en su equipo. Acércate y pulsa A para intercambiar, combatir, saludar o jugar a piedra, papel o tijera.",
+  "fr.pickSeats": "Queda 1 plaza libre – elige un amigo.|Quedan {count} plazas libres – elige hasta {count} amigos.",
+  "fr.noSeatLeft": "Todas las plazas de esta partida están ocupadas o ya tienen una invitación.",
+  "launch.pending": "{name} vuelve en cuanto souldew+ esté activo en este ordenador – hasta entonces, tu inicio usa «Tus colores».",
+  "hh.keptPlus": "Tu skin y tus pegatinas de souldew+ se guardan – vuelven a estar puestos en cuanto souldew+ esté activo otra vez en este ordenador."
 }

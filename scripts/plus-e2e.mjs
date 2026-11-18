@@ -20,13 +20,18 @@
 //   4b. the public preview media (a signed "previews" pack, registered free): Kim, signed OUT, sees the real pictures of
 //      souldew+ items in Settings › Account – no account needed
 //   9. Robin unlinks the membership → pack key rotated, tier gone → the encrypted cache is wiped, the theme goes back
+//
+// Also: the launch animation (Settings › Play) plays the member's pick (Gold) and "Your colours" for everybody else,
+// "Your handheld" wears a souldew+ skin and stickers only while souldew+ is active, and the ways around it don't work –
+// Robin's encrypted cache copied to Kim's computer, souldew+ picks written into Kim's config.json by hand. No page may
+// crash or log an error on the way (the pages' console errors are collected).
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, mkdtempSync, rmSync, readFileSync, existsSync, readdirSync, cpSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createServer } from 'node:net';
-import { createHmac } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -237,9 +242,10 @@ async function main(scratch) {
     });
     const [HOST, GUEST] = profiles;
     const RUN = 'e3a1d07b';
+  // a room of its own on every run: the public relay would otherwise join two e2e runs at the same time into one room
     mkdirSync(join(HOST.dir, 'runs', RUN), { recursive: true });
     writeFileSync(join(HOST.dir, 'runs', RUN, 'run.json'), JSON.stringify({
-      id: RUN, name: 'Emerald with Kim', mode: 'soullink', room: 'room-e3a1d07b-5f2c91', secret: 'e2e-room-secret-0c7b2a9d', createdAt: new Date().toISOString(),
+      id: RUN, name: 'Emerald with Kim', mode: 'soullink', room: `room-e3a1d07b-${randomBytes(4).toString('hex')}`, secret: `e2e-${randomBytes(12).toString('hex')}`, createdAt: new Date().toISOString(),
       players: { p1: { name: 'Robin' }, p2: { name: 'Kim' } }, game: { id: 'pokemon-emerald', system: 'gba', code: 'BPEE', title: 'POKEMON EMER' },
       randomizer: { enabled: false, values: {}, seeds: { p1: '1', p2: '2' } }, outputs: {}, rules: {},
     }));
@@ -274,6 +280,19 @@ async function main(scratch) {
     };
     const click = (i, sel, text) => ev(i, `(() => { const els = [...document.querySelectorAll(${JSON.stringify(sel)})]; const el = ${text ? `els.find((e) => e.textContent.includes(${JSON.stringify(text)}))` : 'els[0]'}; if (!el) return false; el.click(); return true; })()`);
     const cos = (i, expr) => ev(i, `import('/lib/cosmetics/index.mjs').then((C) => ${expr})`);
+    // what the launch and "Your handheld" would play right now (web/lib/handheld/look.mjs – the play view uses the same)
+    const hh = (i, expr) => ev(i, `import('/lib/handheld/look.mjs').then((L) => ${expr})`);
+    // the launch preview in Settings › Play (the play view's own LaunchStage): which look it played, from its stats
+    const launchPlays = async (i, start) => {
+      await ev(i, `import('/views/launchstage.mjs').then((m) => { m.launchStats.last = null; return true; })`);
+      await start();
+      return until('launch preview played', () => ev(i, `import('/views/launchstage.mjs').then((m) => m.launchStats.last)`), 30000).catch(() => null);
+    };
+    const pageErrors = [];
+    for (const [i, w] of wins.entries()) {
+      w.webContents.on('console-message', (e) => { if (e.level === 'error' || e.level === 3) pageErrors.push(`${profiles[i].name}: ${e.message}`.slice(0, 300)); });
+      w.webContents.on('render-process-gone', (_e, d) => pageErrors.push(`${profiles[i].name}: page gone (${d.reason})`));
+    }
     for (const [i] of profiles.entries()) await until(`page ${i}`, () => ev(i, '!!document.querySelector(".nav")'), 60000);
 
     // the "system browser": its own cookie jar, the real redirects, the fake authorize form, the confirmation page
@@ -479,16 +498,72 @@ async function main(scratch) {
     await click(1, '.fr-pick', 'Robin');
     await sleep(2000);
     await shot(1, '15-friends-sees-plus-badge');
-    // launch animation preview (Settings › Play)
-    await go(0, '#/settings?s=play', '.launch-picker');
-    await ev(0, `document.querySelector('.launch-picker').scrollIntoView({ block: 'center' }); true`);
-    const anims = await ev(0, `[...document.querySelectorAll('.launch-card')].map((b) => b.textContent)`);
-    check('souldew+ launch animations offered', anims.length > 1, anims.join(' | ').slice(0, 120));
-    await ev(0, `document.querySelectorAll('.launch-card')[1].click(); true`);
-    await sleep(900);
-    await shot(0, '16-launch-animation-preview');
-    await sleep(1200);
-    await shot(0, '16b-launch-animation-preview-later');
+    // ------------------------------------------------------------------ 7b · the launch animation + "Your handheld" (member)
+    await go(0, '#/settings?s=play', '.launch-setting');
+    await ev(0, `document.querySelector('.launch-setting').scrollIntoView({ block: 'start' }); true`);
+    const anims = await ev(0, `[...document.querySelectorAll('.launch-card')].map((b) => b.querySelector('b').textContent)`);
+    check('the launch looks: Your colours and the three souldew+ ones, no lock for a member', anims.length === 4 && !(await ev(0, `!!document.querySelector('.launch-card .plus-mark, .launch-card [class*=plus]')`)), anims.join(' | '));
+    const gold = await launchPlays(0, () => click(0, '.launch-card', 'Gold'));
+    check('member: Gold picked and saved', (await api(HOST, '/api/status')).config.launchAnimation === 'gold');
+    check('member: the launch plays Gold', gold?.look === 'gold', JSON.stringify(gold && { look: gold.look, pace: gold.pace, T: gold.T }));
+    await sleep(300);
+    await shot(0, '16-launch-gold-member');
+    // "Your handheld": a souldew+ skin and sticker (and a holo finish) – what the launch would play now
+    await ev(0, `Promise.all([import('/lib/handheld/look.mjs'), import('/shared/handheld.mjs')]).then(([L, H]) => { L.setHandheld({ ...L.handheld(), skin: 'night-train',
+      stickers: { nds: [{ id: 'crescent', finish: 'holo', region: 'lid:top', U: [0.1, 0.1], rot: 0 }, { id: 'heart', finish: 'vinyl', region: 'lid:top', U: [-0.2, 0], rot: 0 }] } }); return L.handheldSaved(); }).then(() => true)`);
+    const lookM = await hh(0, 'L.lookNow()');
+    check('member: "Your handheld" wears the souldew+ skin, sticker and holo finish', lookM.skin === 'night-train' && lookM.stickers.nds?.some((x) => x.id === 'crescent' && x.finish === 'holo'), JSON.stringify(lookM));
+    check('member: Holo label plays Holo label', await hh(0, `L.playableLook('holo')`) === 'holo');
+    await go(0, '#/settings?s=play', '.launch-setting');
+    await ev(0, `document.querySelector('.hhs-hand').scrollIntoView({ block: 'center' }); true`);
+    await sleep(2500);
+    await shot(0, '16b-your-handheld-member');
+
+    // ------------------------------------------------------------------ 7c · Kim (no souldew+): the default, nothing paid
+    await go(1, '#/settings?s=play', '.launch-setting');
+    await ev(1, `document.querySelector('.launch-setting').scrollIntoView({ block: 'start' }); true`);
+    const before = (await api(GUEST, '/api/status')).config.launchAnimation;
+    await click(1, '.launch-card', 'Gold');
+    await sleep(800);
+    check('non-member: Gold is not saved (it leads to souldew+ instead)', (await api(GUEST, '/api/status')).config.launchAnimation === before, `${before} → ${(await api(GUEST, '/api/status')).config.launchAnimation}`);
+    await shot(1, '17a-launch-gold-nonmember-leads-to-plus');
+    await go(1, '#/settings?s=play', '.launch-setting');
+    const kimLaunch = await launchPlays(1, () => click(1, '.hhs-btns .btn.ghost'));
+    check('non-member: the launch plays the default (Your colours)', kimLaunch?.look === 'your-colours', JSON.stringify(kimLaunch && { look: kimLaunch.look }));
+    // exploit 1: souldew+ picks written into config.json by hand (the same as a local edit): nothing paid plays
+    await api(GUEST, '/api/config', { launchAnimation: 'gold', launchClear: 'jungle', skin: 'dusk',
+      handheld: { skin: 'night-train', stickers: { nds: [{ id: 'crescent', finish: 'glitter', region: 'lid:top', U: [0, 0], rot: 0 }, { id: 'heart', finish: 'holo', region: 'lid:top', U: [0.2, 0], rot: 0 }] } } });
+    await wins[1].webContents.reload();
+    await until('Kim reloaded', () => ev(1, '!!document.querySelector(".nav")'), 60000);
+    await sleep(1500);
+    const lookK = await hh(1, 'L.lookNow()');
+    check('config edit: a souldew+ handheld skin, sticker and finish are not played', lookK.skin === null && !lookK.stickers.nds?.some((x) => x.id === 'crescent') && lookK.stickers.nds?.every((x) => x.finish === 'vinyl'), JSON.stringify(lookK));
+    check('config edit: the souldew+ theme is not applied', await ev(1, `!document.documentElement.dataset.skin`));
+    await go(1, '#/settings?s=play', '.launch-setting');
+    const kimLaunch2 = await launchPlays(1, () => click(1, '.hhs-btns .btn.ghost'));
+    check('config edit: launchAnimation "gold" still plays Your colours', kimLaunch2?.look === 'your-colours', JSON.stringify(kimLaunch2 && { look: kimLaunch2.look }));
+    await sleep(300);
+    await shot(1, '17b-config-edit-nothing-paid');
+    // exploit 2: Robin's encrypted cache copied onto Kim's computer – without Kim's own key it opens nothing and goes
+    cpSync(join(HOST.dir, 'plus'), join(GUEST.dir, 'plus'), { recursive: true });
+    await cos(1, 'C.refreshPack()');
+    const kimPack = await cos(1, 'C.packState()');
+    check('a copied cache unlocks nothing (not entitled, no souldew+ skin CSS in memory)', !kimPack.entitled && !(await cos(1, `C.catalog().skins.some((x) => x.plus && x.available)`)), JSON.stringify(kimPack));
+    check('… and the copied cache is wiped', !existsSync(join(GUEST.dir, 'plus', 'pack.json')) && !existsSync(join(GUEST.dir, 'plus', 'files')));
+    // exploit 3: the cached envelopes are served to the page, but they are only ciphertext
+    const env = await fetch(`${HOST.base}/api/plus/pack/file?path=${encodeURIComponent(meta.paths.find((x) => x.endsWith('.css')) || meta.paths[0])}`, { headers: { 'x-soullink': '1' } });
+    const envBytes = Buffer.from(await env.arrayBuffer());
+    check('a cached file is an encrypted envelope (no stylesheet text in it)', env.ok && !envBytes.includes(Buffer.from('html[data-skin')) && !envBytes.includes(Buffer.from('--sk-')), `${env.status} ${envBytes.length} B`);
+    // exploit 4: a souldew+ banner / frame / nameplate sent to the service straight from the API (past the editor)
+    {
+      const r = await fetch(`${GUEST.base}/api/account/me`, { method: 'PATCH', headers: { 'x-soullink': '1', 'content-type': 'application/json' }, body: JSON.stringify({ banner: banner, frame, nameplate }) });
+      const mine = (await api(GUEST, '/api/account')).me;
+      check('non-member: the service refuses a souldew+ banner, frame and nameplate sent past the editor', !r.ok && mine.banner !== banner && mine.frame !== frame && mine.nameplate !== nameplate, `${r.status} ${JSON.stringify({ b: mine.banner, f: mine.frame, n: mine.nameplate })}`);
+    }
+    // back to a plain profile for the preview below
+    await api(GUEST, '/api/config', { launchAnimation: 'your-colours', skin: null, handheld: { skin: null, stickers: {} } });
+    await wins[1].webContents.reload();
+    await until('Kim reloaded (2)', () => ev(1, '!!document.querySelector(".nav")'), 60000);
 
     // ------------------------------------------------------------------ 8 · Kim tries a theme for 15 minutes
     await go(1, '#/settings?s=general', '.skin-setting');
@@ -527,6 +602,26 @@ async function main(scratch) {
     await sleep(600);
     await shot(0, '20-after-unlink-theme-back');
     check('the theme waits for souldew+ (pending), the app looks like itself', await ev(0, `document.body.innerText.includes('is back as soon as souldew+ is active')`));
+    // the launch and "Your handheld" after the membership ended: the choices are kept, nothing paid plays
+    check('ended: the Gold pick is kept in the settings', (await api(HOST, '/api/status')).config.launchAnimation === 'gold');
+    const lookE = await hh(0, 'L.lookNow()');
+    check('ended: "Your handheld" plays without the souldew+ skin, sticker and finish (free sticker kept)', lookE.skin === null && lookE.stickers.nds?.length === 1 && lookE.stickers.nds[0].id === 'heart', JSON.stringify(lookE));
+    await go(0, '#/settings?s=play', '.launch-setting');
+    await ev(0, `document.querySelector('.launch-setting').scrollIntoView({ block: 'start' }); true`);
+    const ended = await launchPlays(0, () => click(0, '.hhs-btns .btn.ghost'));
+    check('ended: the launch plays Your colours', ended?.look === 'your-colours', JSON.stringify(ended && { look: ended.look }));
+    check('ended: Settings says the launch look waits for souldew+', await ev(0, `document.querySelector('.launch-setting').innerText.includes('as soon as souldew+ is active')`));
+    await sleep(400);
+    await shot(0, '21-after-unlink-launch-and-handheld');
+    await go(0, '#/profile', '.pf-mast');
+    await sleep(1500);
+    await shot(0, '22-after-unlink-profile');
+    check('ended: no souldew+ badge on the own profile', !(await ev(0, `!!document.querySelector('.pf-mast .acct-badge.plus')`)));
+    const kimSees2 = await api(GUEST, `/api/account/users/${robin.id}`);
+    check('ended: friends no longer see the souldew+ badge', !(kimSees2.badges || []).includes('plus'), JSON.stringify({ b: kimSees2.banner, f: kimSees2.frame, badges: kimSees2.badges }));
+    // (the browser's own "ResizeObserver loop" notice is not the app's error – Chromium logs it for any layout that settles)
+    const errs = [...new Set(pageErrors.filter((x) => !/Failed to load resource|ERR_|stun|favicon|net::|ResizeObserver loop/i.test(x)))];
+    check('no page crashed or logged an error', errs.length === 0, errs.slice(0, 8).join(' || '));
 
     const failed = results.filter((r) => !r.ok);
     log(`done: ${results.length - failed.length}/${results.length} checks passed →`, out);

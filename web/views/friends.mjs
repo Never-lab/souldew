@@ -14,7 +14,7 @@ import { parseFriendQuery } from '/shared/social.mjs';
 import {
   useAccount, useFriends, useInvites, useCatalog, accentHex, addFriend, answerRequest, cancelRequest, removeFriend, blockUser, report, askToJoin, profileOf,
 } from '../lib/account.mjs';
-import { inviteFriends, letIn, allowFriend, declineFriend, cancelInvite, useHostedInvites, declineInvite, freeSeats } from '../lib/friendinvite.mjs';
+import { inviteFriends, letIn, allowFriend, declineFriend, cancelInvite, useHostedInvites, declineInvite, freeSeats, seatsLeft } from '../lib/friendinvite.mjs';
 import { shortTitle } from '../lib/friendpresence.mjs';
 import { coverOf } from './library.mjs';
 import { takenSlots } from './invitecode.mjs';
@@ -111,7 +111,10 @@ function ReportModal({ user, onClose }) {
 export function InviteModal({ friend, onClose }) {
   const { status, library, navigate, toast, me, doc, linkStatus, manifest } = useApp();
   const runs = (status?.runs || []).filter((r) => runMode(r) === 'soullink' && slotsOf(r).length > 1 && (r.summary?.status?.state || 'active') === 'active');
-  const withSeats = runs.map((r) => ({ r, free: r.id === manifest?.id ? slotsOf(manifest).filter((s) => !takenSlots(manifest, { me, doc, linkStatus }).includes(s)).length : freeSeats(r) }));
+  const hosted = useHostedInvites();
+  // a seat an invite of this app still holds is not free (an open run: whoever this computer knows is in it)
+  const withSeats = runs.map((r) => ({ r, free: r.id === manifest?.id ? seatsLeft(manifest, takenSlots(manifest, { me, doc, linkStatus }), hosted)
+    : Math.min(freeSeats(r), seatsLeft(r, ['p1'], hosted)) }));
   const [pick, setPick] = useState(withSeats.find((x) => x.free > 0)?.r.id || (withSeats.length ? withSeats[0].r.id : 'new'));
   const [busy, setBusy] = useState(false);
   const send = async () => {
@@ -356,12 +359,12 @@ export function FriendsView() {
 }
 
 /** Pick friends (online first) – for "Invite friends" on a run's invite panel. */
-function FriendPicker({ onClose, onPick, exclude = [] }) {
+function FriendPicker({ onClose, onPick, exclude = [], max = 3 }) {
   const { data } = useFriends(true);
   const [sel, setSel] = useState([]);
   const list = (data?.friends || []).filter((f) => !exclude.includes(f.user.id))
     .sort((a, b) => ['playing', 'online', 'offline'].indexOf(groupOf(a)) - ['playing', 'online', 'offline'].indexOf(groupOf(b)));
-  const toggle = (u) => setSel((s) => (s.some((x) => x.id === u.id) ? s.filter((x) => x.id !== u.id) : [...s, u].slice(0, 3)));
+  const toggle = (u) => setSel((s) => (s.some((x) => x.id === u.id) ? s.filter((x) => x.id !== u.id) : [...s, u].slice(0, max)));
   return html`<${Modal} open onClose=${onClose} title=${t('fr.pickTitle', 'Invite friends')}
     footer=${html`<button class="btn ghost" onClick=${onClose}>${t('common.cancel', 'Cancel')}</button>
       <button class="btn go" disabled=${!sel.length} onClick=${() => onPick(sel)}><${Icon} name="link" size=${14} />${t('fr.sendInvites', 'Send invite|Send {count} invites', { count: sel.length })}</button>`}>
@@ -371,7 +374,7 @@ function FriendPicker({ onClose, onPick, exclude = [] }) {
           <input type="checkbox" checked=${sel.some((x) => x.id === f.user.id)} onChange=${() => toggle(f.user)} />
           <${Avatar} user=${f.user} size=${30} presence=${f.presence} />
           <span class="grow stack-s fr-text"><b class="ellipsis">${f.user.name}</b><span class="small muted ellipsis">${presenceText(f.presence)}</span></span></label>`)}</div>`}
-      <p class="small muted">${t('fr.pickHint', 'Each friend gets their own invite in souldew. They still need their own copy of the game.')}</p>
+      <p class="small muted">${t('fr.pickSeats', '1 seat is free – pick one friend.|{count} seats are free – pick up to {count} friends.', { count: max })} ${t('fr.pickHint', 'Each friend gets their own invite in souldew. They still need their own copy of the game.')}</p>
     </div>
   <//>`;
 }
@@ -388,14 +391,16 @@ export function RunFriendInvites({ manifest, autoFriends = [] }) {
   const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const on = !!acct.session?.signedIn;
+  // the open run: whoever this computer knows is in it; a run just built: only its host
+  const taken = () => (doc?.runId === manifest.id ? takenSlots(manifest, { me, doc, linkStatus }) : ['p1']);
+  const left = seatsLeft(manifest, taken(), hosted);
   const send = async (friends) => {
     setPicking(false);
     setBusy(true);
     try {
       await inviteFriends(manifest, friends, {
         gameTitle: shortTitle({ gameId: manifest.game?.id, hackId: manifest.game?.hackId, title: manifest.game?.title }),
-        // the open run: whoever this computer knows is in it; a run just built: only its host
-        taken: () => (doc?.runId === manifest.id ? takenSlots(manifest, { me, doc, linkStatus }) : ['p1']),
+        taken,
       });
       toast({ kind: 'ok', title: t('fr.invitesSent', 'Invite sent|{count} invites sent', { count: friends.length }), text: t('fr.inviteSentText', 'Keep souldew open – you allow them in when their app asks.') });
     } catch (e) {
@@ -410,7 +415,7 @@ export function RunFriendInvites({ manifest, autoFriends = [] }) {
   if (!on) return null;
   return html`<div class="fr-runinv stack-s">
     <div class="row"><${Icon} name="heart" size=${14} /><span class="small grow">${t('fr.runInvite', 'Your souldew friends get the invite in the app – no code to read out.')}</span>
-      <button class="btn small go" disabled=${busy} onClick=${() => setPicking(true)}><${Icon} name="plus" size=${14} />${t('fr.inviteFriends', 'Invite friends')}</button></div>
+      <button class="btn small go" disabled=${busy || left < 1} title=${left < 1 ? t('fr.noSeatLeft', 'Every seat of this run is taken or has an invite out.') : ''} onClick=${() => setPicking(true)}><${Icon} name="plus" size=${14} />${t('fr.inviteFriends', 'Invite friends')}</button></div>
     ${hosted.map((h) => html`<div class=${`fr-inv row nowrap ${h.state?.phase === 'request' ? 'asking' : ''}`} key=${h.id}>
       <${Avatar} user=${h.friend} size=${30} />
       ${h.state?.phase === 'request' ? html`<span class="grow small"><b>${t('fr.wantsInShort', '{name} wants to join', { name: h.friend.name })}</b></span>
@@ -421,6 +426,6 @@ export function RunFriendInvites({ manifest, autoFriends = [] }) {
         : html`<span class="grow small muted"><${Led} on blink />${t('fr.waitingFriend', 'Waiting for {name} …', { name: h.friend.name })}</span>
           <button class="btn small ghost" onClick=${() => cancelInvite(h.id)}>${t('common.cancel', 'Cancel')}</button>`}
     </div>`)}
-    ${picking && html`<${FriendPicker} onClose=${() => setPicking(false)} onPick=${send} exclude=${hosted.filter((h) => !['expired', 'cancelled'].includes(h.state?.phase)).map((h) => h.friend.id)} />`}
+    ${picking && left > 0 && html`<${FriendPicker} max=${left} onClose=${() => setPicking(false)} onPick=${send} exclude=${hosted.filter((h) => !['expired', 'cancelled'].includes(h.state?.phase)).map((h) => h.friend.id)} />`}
   </div>`;
 }

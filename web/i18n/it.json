@@ -835,6 +835,7 @@
   "linkplay.resultLost": "Ha vinto {name}",
   "linkplay.resultOthers": "Ha vinto {name}",
   "linkplay.resultPaid": "{amount} pagati",
+  "linkplay.resultToPay": "{amount} da pagare appena torni a muoverti nel tuo gioco",
   "linkplay.resultPending": "Confronto del risultato con gli altri …",
   "linkplay.resultWon": "Hai vinto!",
   "linkplay.resultWonTeam": "Tu e {name} avete vinto!",
@@ -3953,5 +3954,9 @@
   "world.followHint": "Il primo Pokémon della tua squadra in grado di lottare cammina dietro di te – solo su questo computer. I tuoi partner lo vedono comunque. Attraversa persone e porte, come i partner.",
   "world.rps": "Sasso-carta-forbici",
   "world.tagHint2": "Scambia, lotta, saluta o gioca a sasso-carta-forbici",
-  "world.toggleHint2": "I tuoi partner camminano nel tuo gioco quando siete sulla stessa mappa o in quella accanto, con il Pokémon in testa alla loro squadra. Avvicinati e premi A per scambiare, lottare, salutare o giocare a sasso-carta-forbici."
+  "world.toggleHint2": "I tuoi partner camminano nel tuo gioco quando siete sulla stessa mappa o in quella accanto, con il Pokémon in testa alla loro squadra. Avvicinati e premi A per scambiare, lottare, salutare o giocare a sasso-carta-forbici.",
+  "fr.pickSeats": "C’è 1 posto libero – scegli un amico.|Ci sono {count} posti liberi – scegli fino a {count} amici.",
+  "fr.noSeatLeft": "Ogni posto di questa partita è occupato o ha già un invito.",
+  "launch.pending": "{name} torna appena souldew+ è attivo su questo computer – fino ad allora la tua partenza usa «I tuoi colori».",
+  "hh.keptPlus": "La tua skin e i tuoi adesivi souldew+ restano salvati – tornano sopra appena souldew+ è di nuovo attivo su questo computer."
 }
