@@ -74,6 +74,15 @@ Notes: "prestep 4" – the state is from frame F−4 and those 4 frames run in t
 | Windows x64 | cross-compiled and linked with MinGW here (only Windows DLLs); not run on Windows yet |
 | Linux x64 | `native.yml` builds it (RGBDS from source); in an Ubuntu 22.04 container mGBA and SameBoy built, the melonDS step stopped on a full disk on the build machine – the CI run is the check |
 
+**3.0 acceptance (18–19 Nov 2026, `test/30-acceptance`, the link host built from the branch):** every row above again,
+2 and 4 players, each also seamless, with `--winner` and a wager per generation (Gen 3 paid and saved; Gen 1/2 after
+switching the game off and on – Gen 1's Colosseum has no exit – found and fixed: the money went in on the title screen;
+Gen 4: see §13), rejoin, disconnect and out of step; a third player standing by while two link (never invited, told
+"in another link", their game untouched, the trade in their log). Games never linked before, from the running games
+(`--seamless --continue`, nothing pressed, 4,800 frames, equal hashes, both back alone): FireRed US ↔ German LeafGreen,
+Ruby ↔ Sapphire, Gold ↔ Silver, Blue ↔ Yellow (also Blue on the original Game Boy – found and fixed: Yellow's player
+refused every invite from Red/Blue), Diamond ↔ Pearl, HeartGold ↔ SoulSilver. Two computers: §6a.
+
 Still open for 3.0: see §13.
 
 ## 2. Architecture
@@ -356,8 +365,8 @@ the same hash sha256 on both, the route "direct". The real Mac ↔ Windows run i
 |---|---|---|---|---|---|---|
 | 1 | R/B/Y (+hacks) | GB serial | SameBoy (link host) | Cable Club trade ✅ app | Colosseum ✅ app | Gen 1 has no exit from the Trade Center/Colosseum: the game saved, the session ends by "Leave link" (on hardware: switching off). |
 | 2 | G/S/C, Polished Crystal, Crystal Legacy | GB serial | SameBoy (link host) | Trade Center ✅ app | Colosseum ✅ app | The cartridge clock travels in the save (VBA-M footer) both ways; the fast player keeps it now too. The Cable Club needs `EVENT_GAVE_MYSTERY_EGG_TO_ELM`; a trade needs a second non-egg Pokémon. Time Capsule (Gen 1 ↔ 2): both seats are CGBs in one backend – not tried yet (~1 d). |
-| 3 | R/S/E, FR/LG, hacks (Unbound, Radical Red …) | GBA SIO link cable | mGBA (link host) | Cable Club ✅ app | Colosseum single ✅ app; Multi Battle (4 players) ✅ app | FR/LG: not tried (no ROM in the test set) – their Cable Club works by cable, the location sign doesn't know their link rooms yet. The Union Room needs the wireless adapter: skipped (decision). Hacks: anything with the vanilla link code should work; check per hack. |
-| 4 | D/P/Pt, HG/SS | DS local wireless | melonDS's core ×N in one process, deterministic MP layer (MULTIPLAYER-DS.md) | Union Room ✅ app (Platinum) | Union Room battle ✅ app | D/P and HG/SS not tried in the app (Pearl boots); the sign knows Platinum's Union Room only. Rejoin only between wireless exchanges. Interpreter only: 4 consoles ≈ 1.6× real time on an M1 – slow PCs may struggle with 4 players. |
+| 3 | R/S/E, FR/LG, hacks (Unbound, Radical Red …) | GBA SIO link cable | mGBA (link host) | Cable Club ✅ app | Colosseum single ✅ app; Multi Battle (4 players) ✅ app | FR/LG: FireRed US ↔ German LeafGreen linked from the running games in the app (3.0 acceptance: lockstep, back alone; nothing traded – no recording yet) – their Cable Club works by cable, the location sign doesn't know their link rooms yet. The Union Room needs the wireless adapter: skipped (decision). Hacks: anything with the vanilla link code should work; check per hack. |
+| 4 | D/P/Pt, HG/SS | DS local wireless | melonDS's core ×N in one process, deterministic MP layer (MULTIPLAYER-DS.md) | Union Room ✅ app (Platinum) | Union Room battle ✅ app | Diamond ↔ Pearl and HeartGold ↔ SoulSilver linked from the running games in the app (3.0 acceptance: lockstep, back alone; nothing traded – no recordings yet); the sign knows the Union Room and the Colosseums of D/P, Platinum and HG/SS (pret's map ids; Platinum's Union Room measured). Rejoin only between wireless exchanges. Interpreter only: 4 consoles ≈ 1.6× real time on an M1 – slow PCs may struggle with 4 players. |
 | 5 | B/W, B2/W2 (+Blaze Black/Volt White) | DS local wireless (+ C-Gear IR) | as Gen 4 | Union Room, C-Gear | Union Room, C-Gear | Same backend; Black and White 2 boot, their Union Rooms weren't reached yet (~2–3 d with recordings). Whether the C-Gear's IR features work in melonDS is unknown. |
 | 6–7 | X/Y, ORAS, S/M, US/UM | 3DS local wireless | Azahar rooms (libretro core has no room client) or 2 instances | Player Search System | PSS battles | Research. Azahar's network room needs a room server (souldew's Hetzner box) and a core patch. **Later.** |
 
@@ -608,8 +617,8 @@ What is left for 3.0, with effort:
 | First green `native.yml` run (Linux + Windows link host; the RGBDS step is new) | ½ d |
 | Release packaging: `linkhost` + its licences in the app bundles (`npm run dist` checks it now), signing/notarising one more binary on macOS | ½–1 d |
 | A real two-computer test over the internet, once with TURN forced (relayed) | ½ d |
-| Trade log entry for Gen 2 and Gen 4 (the e2e saw the trade in the saves but no log entry – the live party's keys); the battle result entry is built (§8a) | ½ d |
-| FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e; their link rooms on the sign | 3–4 d |
+| ~~Trade log entry for Gen 2~~ (done: two Pokémon of the recording's saves shared trainer ID and DVs; a Pokémon is now its key and species, counted). Gen 4: the recordings' start saves hold cloned Pokémon – after the trade a player has the same PID twice, which the live reader refuses as a misread – so the e2e can't show the entry (or a Gen 4 wager paid); a recording from clean saves would | ½ d |
+| FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e (FR ↔ LG, R ↔ S, G ↔ S, Blue ↔ Yellow, D ↔ P and HG ↔ SS link from the running games – 3.0 acceptance, nothing pressed); FR/LG's link rooms on the sign | 3–4 d |
 | Gen 1 ↔ 2 Time Capsule | 1 d |
 | DS rejoin during a wireless exchange (the state can't be taken while a console waits mid-frame): retry until the exchange pauses, or make the wait state serialisable | 2–3 d |
 | UX polish from real players: the need/pick bar, what happens to an invite while the partner is in a menu (seamless: the link simply starts there) | 1–2 d |
