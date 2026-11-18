@@ -18,6 +18,7 @@ import { NuzlockeRules, Choice, TypeHelpRule } from './nuzrules.mjs';
 import { ShareButton, HallOfFame } from './liveshare.mjs';
 import { deathEvent } from '../lib/liveshare.mjs';
 import { LinkButtons, LinkGroupButton, LINK_SYSTEMS } from './linkplay.mjs';
+import { RpsStart } from './rps.mjs';
 
 
 /** Is `slot` connected right now? Per player once the app tracks it (`onlineSlots`), before that "any partner". */
@@ -739,7 +740,7 @@ function GravesTab() {
 }
 
 function LogTab() {
-  const { doc, manifest, me, link } = useApp();
+  const { doc, manifest, me, link, onlineSlots } = useApp();
   const [text, setText] = useState('');
   const names = getPlayers(doc, manifest);
   const solo = isNuzlocke(manifest);
@@ -749,6 +750,7 @@ function LogTab() {
       <input type="text" class="grow" placeholder=${solo ? t('log.placeholderSolo', 'Note for the log …') : t('log.placeholder', 'Message to the log …')} value=${text} onInput=${(e) => setText(e.target.value)} />
       <button class="btn">${solo ? t('log.add', 'Add') : t('log.send', 'Send')}</button>
       ${!solo && html`<button type="button" class="btn ghost" disabled=${!link} onClick=${() => link?.sendMessage({ type: 'ping', text: t('log.pingText', 'Hey, take a look!') })}>${t('log.ping', 'Ping')}</button>`}
+      ${!solo && link && html`<${RpsStart} online=${onlineSlots} />`}
     </form>
     <div class="feed" style="max-height:none">
       ${items.length === 0 && html`<p class="small faint">${solo ? t('log.emptySolo', 'Catches, deaths, badges and your notes show up here.')
