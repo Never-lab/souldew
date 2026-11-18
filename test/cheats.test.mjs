@@ -66,8 +66,9 @@ test('which games can get Rare Candies', () => {
     { platform: 'nds', code: 'IRBO' }, { platform: 'nds', code: 'IRDO' }]) {
     assert.ok(cheatSupported(entry(h)), JSON.stringify(h));
   }
-  // no addresses for German Emerald / FireRed – the cheat isn't offered there
-  assert.equal(cheatSupported(entry({ platform: 'gba', code: 'BPED' })), false);
+  // no addresses for Spanish Emerald – the cheat isn't offered there (the German one shares the English RAM: offered)
+  assert.equal(cheatSupported(entry({ platform: 'gba', code: 'BPES' })), false);
+  assert.ok(cheatSupported(entry({ platform: 'gba', code: 'BPED' })));
   assert.equal(cheatSupported(null), false);
   assert.deepEqual(addRareCandies(null, memory(), {}), { error: 'unsupported' });
 });
@@ -76,7 +77,7 @@ test('Max Repels: offered in every game that gets Rare Candies, and nowhere else
   const headers = [{ platform: 'gb', title: 'POKEMON RED' }, { platform: 'gb', title: 'POKEMON BLUE' }, { platform: 'gb', title: 'POKEMON YELLOW' },
     { platform: 'gbc', title: 'PM_CRYSTAL', code: 'BYTE' }, { platform: 'gbc', title: 'POKEMON_GLD', code: 'AAUE' }, { platform: 'gbc', title: 'POKEMON_SLV', code: 'AAXE' },
     { platform: 'gba', code: 'AXVE' }, { platform: 'gba', code: 'AXPD' }, { platform: 'gba', code: 'BPEE' }, { platform: 'gba', code: 'BPRE' }, { platform: 'gba', code: 'BPGD' },
-    { platform: 'gba', code: 'BPED' }, { platform: 'nds', code: 'IPKE' }, { platform: 'nds', code: 'IPGD' }, { platform: 'nds', code: 'CPUE' }, { platform: 'nds', code: 'ADAE' },
+    { platform: 'gba', code: 'BPED' }, { platform: 'gba', code: 'BPES' }, { platform: 'nds', code: 'IPKE' }, { platform: 'nds', code: 'IPGD' }, { platform: 'nds', code: 'CPUE' }, { platform: 'nds', code: 'ADAE' },
     { platform: 'nds', code: 'IRBO' }, { platform: 'nds', code: 'IREO' }, { platform: '3ds', titleId: '0004000000055D00' }, { platform: '3ds', titleId: '0004000000164800' },
     { platform: '3ds', titleId: '00040000001B5100' }];
   for (const h of headers) {

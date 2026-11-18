@@ -386,7 +386,7 @@ recorded battles:
 | 3 | `gBattleOutcome` (1 won, 2 lost, 3 drew; bit 7 = forfeit) at the end of a battle with `BATTLE_TYPE_LINK`; `BATTLE_TYPE_MULTI` marks 2 vs 2. Multi battles write no link battle record into the save, so the save is no source for them. Same EWRAM addresses for every revision and the German R/S, FR/LG | Emerald ↔ Sapphire single; E, S, E, S multi | single: Emerald 1, Sapphire 2; multi: seats 0+1 lose, 2+3 win |
 | 4 (Pt) | the game records `RECORD_LOCAL_LINK_BATTLE_WINS / _LOSSES` (ids 21, 22) in the save data in RAM (`*0x02101D40 + 0x61C4`), encrypted with an LCRNG keystream seeded by the block's byte sum and a modifier (pokeplatinum `src/game_records.c`), checked by that sum. Before and after. No draw record | Platinum ↔ Platinum Union Room | seat 0 W+1, seat 1 L+1 |
 
-Not supported (no wager offered; the log gets no result): Gen 1/2 in other languages (their RAM differs), Emerald DE,
+Not supported (no wager offered; the log gets no result): Gen 1/2 in other languages (their RAM differs), Emerald DE (its RAM is the English game's – shown in the 3.0 acceptance – but its link battles weren't recorded, so it stays off),
 Diamond/Pearl/HeartGold/SoulSilver (records not checked), Gen 5, hacks whose RAM moved, four DS players (who fought whom
 can't be told from counters).
 
@@ -456,19 +456,22 @@ Goal: partners walk visibly in your game, on the same map, and you can walk up t
 
 GBA-PK's approach injects NPC objects into game RAM per ROM revision, which breaks on randomizers and is CC BY-NC. souldew's version is an **overlay drawn by souldew** over the emulator picture, fed by RAM reads. Nothing is written into the game.
 
-**Status (branches `feat/shared-world`, `feat/30-world-plus`): Gen 3 works in the app** – Emerald, Sapphire, FireRed and LeafGreen (English and German) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`), Ruby shares the code path with addresses from the pret symbol files. Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
+**Status (branches `feat/shared-world`, `feat/30-world-plus`): Gen 3 works in the app** – Ruby, Sapphire, Emerald, FireRed and LeafGreen (English and German: Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`). Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
 
 | Game | Status |
 |---|---|
 | Emerald (US/EU rev 0) | **Works** (tested 18 Nov 2026, 2 and 4 players): partners drawn and animated, names, followers, depth against your own player, hidden behind the map's top layer (tree tops, roofs, plants) and under the map-name popup, A → menu, Wave/emotes/rock-paper-scissors both sides, Trade/Battle into the link flow |
 | Sapphire (US rev 0) | **Works** (tested, 4 players: two Sapphire players see each other and their followers, the Emerald pair doesn't – another map numbering) |
-| Ruby (US rev 0–2, DE rev 0–1), Sapphire US rev 1–2 | Same code and tables from the pret symbol files – not run here |
+| Ruby (US rev 0) | **Works** (tested 18 Nov 2026, 2 and 4 players – also Ruby ↔ German Sapphire with followers, rock-paper-scissors, the heart, the log line). Every address of its table checked in the running game: SaveBlock1 pos = the player object, the camera offset mid-step, CB2_Overworld, the lock with the START menu, the fades on the stairs and the door, Task_MapNamePopup on entering Route 101, the backup map = layout +15/+14, the player's sprite at OAM 112/56 |
+| Ruby / Sapphire German (Rubin rev 0, Saphir rev 1) | **Works** (tested 18 Nov 2026, app in German, 4 players: Rubin ↔ Saphir see each other, the German Emerald pair doesn't). Rubin: `ruby_de` from `pokeruby_de.sym`; Saphir: own `world` table in `sapphire_de` (the German Ruby's RAM – `pokesapphire_de.sym` agrees symbol for symbol – and its ROM addresses, rev 0 and 1). Every address checked in the running games like Ruby's |
+| Emerald German (Smaragd rev 0) | **Works** (tested 18 Nov 2026, 2 and 4 players, also with an English Emerald partner). New entry `emerald_de`, which also turns on the live tracker (team, place, battle, catch, level caps, the bag – checked in the game): the RAM is the English Emerald's – derived by aligning the two ROMs and reading every load site of each English address (9–2372 sites per symbol, no conflicting vote), then every address checked in the running game like Ruby's; ROM addresses of its own (`rom.0`) |
+| Ruby US rev 1–2, Sapphire US rev 1–2, Rubin rev 1, Saphir rev 0 | Same code and tables from the pret symbol files – not run here |
 | FireRed (US rev 0) | **Works** (tested 18 Nov 2026 with a German LeafGreen partner: walking, followers, rock-paper-scissors, the log line). Every address checked in the running game (see the FR/LG notes below); rev 1 untested |
 | FireRed / LeafGreen German (Feuerrote, Blattgrüne rev 0) | **Works** (tested: German LeafGreen ↔ German FireRed, app in German). Own `world` table in `firered_eu`/`leafgreen_eu` (RAM: IWRAM from gMain on 0xB0 lower, EWRAM as in English; ROM addresses per game code `BPRD:0`/`BPGD:0`), every address verified live |
 | FireRed / LeafGreen French, Italian, Spanish | The same entry and RAM as German (two tracker tables say so) – untested; the overworld callback is learned, the sprite and icon tables searched, no map-name popup cut-out |
 | LeafGreen US (rev 0–1) | Same as FireRed US, from `pokeleafgreen*.sym` – untested |
 | Radical Red 4.1 (the "FireRed (patched)" here) | The FireRed US RAM still fits (checked by the literal pools and a live probe), the graphics table is found by the search; its expanded species (1375) have no icon table souldew recognises: **no followers**, partners untested |
-| Emerald/Ruby/Sapphire DE/FR/IT/ES, hacks with moved RAM (CFRU/Unbound …) | No overlay (no verified RAM addresses – no such ROM on the test Mac); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM, sprite and icon tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
+| Emerald/Ruby/Sapphire FR/IT/ES, hacks with moved RAM (CFRU/Unbound …) | No overlay (no verified RAM addresses – no such ROM on the test Mac); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM, sprite and icon tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
 | Gen 1/2, Gen 4/5, 3DS | Not yet – see the feasibility notes below |
 
 ### How it works
@@ -516,7 +519,7 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 - Surfing partners are drawn without the surf blob (a field-effect sprite with its own palette table – a follow-up); ledge jumps slide instead of hop.
 - Partners vanish while a menu, a message or a script holds your player (they would be drawn over the text box), with a short fade.
 - Pair runs with different games (Emerald ↔ FireRed) never share a map, by design.
-- FR/LG verified (US rev 0, German FR/LG rev 0) on 18 Nov 2026 by `scripts/world-e2e.mjs --plus` with saves made by `scripts/rom-matrix.mjs` plans (ROM copies and saves in a scratch folder, never committed). French/Italian/Spanish FR/LG, FR/LG rev 1, Ruby and the German RSE games are not verified (no ROMs here).
+- FR/LG verified (US rev 0, German FR/LG rev 0) on 18 Nov 2026 by `scripts/world-e2e.mjs --plus` with saves made by `scripts/rom-matrix.mjs` plans (ROM copies and saves in a scratch folder, never committed). Ruby US, Rubin, Saphir rev 1 and Smaragd verified the same way in the 3.0 acceptance (18 Nov 2026, 2 and 4 players). French/Italian/Spanish FR/LG and FR/LG rev 1 are not verified (no ROMs here).
 - **Stream overlay (not built)**: the stream page could show the followers and the last rock-paper-scissors result next to each player's card (the lead is already in each player's live data; a result is one feed entry), and an "emote" event could flash the bubble over the player's tile. Left for later: the overlay draws cards, not the game picture.
 
 ### Feasibility for the other generations

@@ -190,8 +190,11 @@ test('readLocation with ROM data: Gen 4 map id → the ROM\'s location, through 
   assert.deepEqual(readLocation(maps, entry, read, { rom }), { gen: 4, id: 9, map: 3, romName: 'Route 29' });
   assert.equal(readLocation(maps, entry, bus({ 0x02000ba8: le32(0x02111860), 0x02111880: le32(save), [save + 0x1244]: le32(3) }), { rom }), null, 'no trainer there: not the save data');
   // the party reader already knows the save data: that wins
-  const read2 = bus({ [0x02240000 + 0x1244]: le32(2) });
-  assert.deepEqual(readLocation(maps, entry, read2, { rom, state: { saveBase: 0x02240000 } }), { gen: 4, id: 7, map: 2, romName: 'Rosalia City' });
+  // (map 6 here – HG/SS's maps 2, 4 and 5 are the Union Room and the Colosseums: shared/live/location.mjs GEN4_LINK)
+  const rom6 = { ...rom, mapLoc: [0, 0, 7, 9, 0, 0, 7] };
+  const read2 = bus({ [0x02240000 + 0x1244]: le32(6) });
+  assert.deepEqual(readLocation(maps, entry, read2, { rom: rom6, state: { saveBase: 0x02240000 } }), { gen: 4, id: 7, map: 6, romName: 'Rosalia City' });
+  assert.equal(readLocation(maps, entry, bus({ [0x02240000 + 0x1244]: le32(2) }), { rom, state: { saveBase: 0x02240000 } }).link, 'union', 'HG/SS map 2: the Union Room');
   // only a scanned party (maybe a battle's copy): no save data is guessed from it
   const read3 = bus({ [0x02250000 + 0x1244]: le32(3) });
   assert.equal(readLocation(maps, entry, read3, { rom, state: { partyAddr: 0x02250000 + 0xa0 } }), null);

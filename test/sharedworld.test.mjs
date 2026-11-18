@@ -63,7 +63,7 @@ function emerald({ x = 10, y = 7, ox = 0, oy = 0, map = [0, 3], facing = W.DIR.S
 }
 
 test('the Gen 3 tables: every English/German RSE and FR/LG revision with pret addresses; nothing for other games', () => {
-  for (const [code, fam, revs] of [['BPEE', 'e', [0]], ['BPRE', 'frlg', [0, 1]], ['BPGE', 'frlg', [0, 1]], ['AXVE', 'rs', [0, 1, 2]], ['AXPE', 'rs', [0, 1, 2]], ['AXVD', 'rs', [0]]]) {
+  for (const [code, fam, revs] of [['BPEE', 'e', [0]], ['BPRE', 'frlg', [0, 1]], ['BPGE', 'frlg', [0, 1]], ['AXVE', 'rs', [0, 1, 2]], ['AXPE', 'rs', [0, 1, 2]], ['AXVD', 'rs', [0]], ['AXPD', 'rs', [0, 1]], ['BPED', 'e', [0]]]) {
     for (const rev of revs) {
       const t = W.worldTable(entry(code), rev);
       assert.equal(t.family, fam, code);
@@ -90,6 +90,35 @@ test('the Gen 3 tables: every English/German RSE and FR/LG revision with pret ad
     assert.equal(!!de.popup, !!cb2, `${code}: the popup cut-out only where its task is known`);
     assert.equal(de.questLog, 0x0203adfa);
   }
+});
+
+test('German Ruby/Sapphire/Emerald: Saphir has the German Ruby’s RAM, Smaragd the English Emerald’s – the ROM per game', () => {
+  // (each verified in the running game, docs/MULTIPLAYER.md › 9; the addresses below are what was read there)
+  const rubin = W.worldTable(entry('AXVD'), 0, 'AXVD');
+  const ruby = W.worldTable(entry('AXVE'), 0, 'AXVE');
+  for (const rev of [0, 1]) {
+    const saphir = W.worldTable(entry('AXPD'), rev, 'AXPD');
+    assert.equal(saphir.family, 'rs');
+    assert.equal(saphir.fam, ruby.fam, 'the German Sapphire meets Ruby and Sapphire in any language');
+    for (const k of ['objectEvents', 'playerAvatar', 'fieldCamera', 'saveBlock1', 'main', 'paletteFade', 'lock', 'sprites', 'mapHeader', 'backupMap', 'tasks']) assert.equal(saphir[k], rubin[k], k);
+    assert.deepEqual([saphir.overworldCb2, saphir.graphicsInfo, saphir.spritePalettes, saphir.popup.task], [0x080546e9, 0x083793d4, 0x0837eef8, 0x080a3145], `Saphir rev ${rev}`);
+    assert.deepEqual(saphir.popup.rect, ruby.popup.rect);
+  }
+  assert.deepEqual([rubin.objectEvents, rubin.fieldCamera, rubin.backupMap, rubin.tasks], [0x030048b0, 0x03004890, 0x03004880, 0x03004b30], 'German R/S: IWRAM 0x10 further on');
+  const em = W.worldTable(entry('BPEE'), 0, 'BPEE');
+  const smaragd = W.worldTable(entry('BPED'), 0, 'BPED');
+  assert.equal(entry('BPED').id, 'emerald_de');
+  assert.equal(smaragd.fam, em.fam, 'Smaragd meets Emerald');
+  for (const k of ['objectEvents', 'playerAvatar', 'fieldCamera', 'saveBlock1Ptr', 'main', 'paletteFade', 'lock', 'sprites', 'mapHeader', 'backupMap', 'tasks']) assert.equal(smaragd[k], em[k], `Smaragd ${k}: the English RAM`);
+  assert.deepEqual(smaragd.inBattle, em.inBattle);
+  assert.deepEqual([smaragd.overworldCb2, smaragd.graphicsInfo, smaragd.spritePalettes, smaragd.popup.task], [0x08085e79, 0x08517350, 0x0851d8f8, 0x080d44d9]);
+  assert.deepEqual(smaragd.avatars, em.avatars);
+  // the tracker's tables too: the same party, battle and save block addresses as the English game
+  const [de, us] = [entry('BPED'), entry('BPEE')];
+  for (const k of ['partyAddr', 'partyCountAddr', 'enemyPartyAddr', 'battleTypeFlagsAddr']) assert.equal(de[k], us[k], k);
+  assert.deepEqual(de.liveBattleHp, us.liveBattleHp);
+  // an unknown Emerald language (Spanish, French, Italian): still nothing
+  assert.equal(W.worldTable(entry('BPES'), 0, 'BPES'), null);
 });
 
 test('the camera: SaveBlock1 pos plus the camera object’s sub-tile offset (walking right, left, standing)', () => {
@@ -529,7 +558,7 @@ test('the map-name popup: its rectangle while the game’s task runs, by the sli
 });
 
 test('the occlusion and popup tables: every game with a world table, per revision', () => {
-  for (const [code, revs, help] of [['BPEE', [0], false], ['BPRE', [0, 1], true], ['BPGE', [0, 1], true], ['AXVE', [0, 1, 2], false], ['AXPE', [0, 1, 2], false], ['AXVD', [0, 1], false]]) {
+  for (const [code, revs, help] of [['BPEE', [0], false], ['BPRE', [0, 1], true], ['BPGE', [0, 1], true], ['AXVE', [0, 1, 2], false], ['AXPE', [0, 1, 2], false], ['AXVD', [0, 1], false], ['AXPD', [0, 1], false], ['BPED', [0], false]]) {
     for (const rev of revs) {
       const t = W.worldTable(entry(code), rev);
       assert.ok(t.mapHeader >= 0x02000000 && t.mapHeader < 0x02040000, code);

@@ -154,13 +154,25 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   const step = async (i, dir) => { await hold(i, [dir], 150); await sleep(420); };
   const key = (i, k) => ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); f.contentWindow.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true })); return true; })()`);
   const local = async (i) => (await world(i))?.local;
+  // (around what's in the way – a counter, a pillar: the other axis first, else a step to the side; gives up when stuck)
   const goto = async (i, tx, ty) => {
+    let yFirst = false;
+    let stuck = 0;
+    let side = 0;
     for (let n = 0; n < 40; n++) {
       const s = await local(i);
       if (!s) { await sleep(200); continue; }
       if (s.tx === tx && s.ty === ty) return s;
-      if (s.tx !== tx) await step(i, s.tx < tx ? 'right' : 'left');
-      else await step(i, s.ty < ty ? 'down' : 'up');
+      const wantX = s.tx !== tx ? (s.tx < tx ? 'right' : 'left') : null;
+      const wantY = s.ty !== ty ? (s.ty < ty ? 'down' : 'up') : null;
+      const dir = (yFirst ? wantY || wantX : wantX || wantY) || 'down';
+      const blocked = stuck >= 2 && !(yFirst ? wantX : wantY);
+      await step(i, blocked ? (wantX ? ['up', 'down'] : ['left', 'right'])[side++ % 2] : dir);
+      const t = await local(i);
+      if (t && t.tx === s.tx && t.ty === s.ty) {
+        if (++stuck > 6) return t;
+        yFirst = !yFirst;
+      } else if (!blocked) stuck = 0;
     }
     return local(i);
   };
@@ -193,8 +205,15 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
 
   // 3. rock-paper-scissors from the A menu: A next to B, facing them, A → down to the game → Enter
   const b = await local(1);
-  await goto(0, b.tx - 1, b.ty);
-  for (let n = 0; n < 6 && (await local(0))?.facing !== 4; n++) { await hold(0, ['right'], 50 + n * 15); await sleep(400); }
+  // (the tile left of B first; where a wall or a pillar is there – the Ruby/Sapphire Pokémon Center 2F – the right one,
+  // above or below)
+  let side = null;
+  for (const [dx, dy, key, dir] of [[-1, 0, 'right', 4], [1, 0, 'left', 3], [0, 1, 'up', 2], [0, -1, 'down', 1]]) {
+    const s = await goto(0, b.tx + dx, b.ty + dy);
+    if (s?.tx === b.tx + dx && s?.ty === b.ty + dy) { side = { key, dir }; break; }
+  }
+  side = side || { key: 'right', dir: 4 };
+  for (let n = 0; n < 6 && (await local(0))?.facing !== side.dir; n++) { await hold(0, [side.key], 50 + n * 15); await sleep(400); }
   log('next to B', JSON.stringify({ local: (await world(0)).local, own: (await world(0)).own, drawn: (await world(0)).followers }));
   await hold(0, ['a'], 120);
   const m = await until('menu', async () => (await world(0))?.menu, 6000);

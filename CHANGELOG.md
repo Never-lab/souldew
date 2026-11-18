@@ -47,9 +47,9 @@ Plus a new play view that gives the game the room it deserves.
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into
   the link) or Wave – the wave shows on every player's screen. Like you, they walk behind trees, plants and counters,
   and they never cover the game's text boxes or the place name. It is drawn over your game; nothing is written into
-  it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald, Sapphire,
-  FireRed and LeafGreen – English and German (Feuerrote, Blattgrüne) – with up to four players; Ruby runs on the same
-  code with its addresses from the games' disassembly.
+  it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Ruby, Sapphire,
+  Emerald, FireRed and LeafGreen – English and German (Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) – with up to
+  four players.
 - **Your Pokémon walks with you – and your partners' with them** (Shared World, Gen 3). Every player is followed by
   the first Pokémon of their team that can fight, one step behind on their path: round corners, out of doors after
   them, behind trees like everyone else, gone while they surf. The games have no walking Pokémon, so it's the
@@ -67,6 +67,10 @@ Plus a new play view that gives the game the room it deserves.
   every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
 - **Partners next door:** a partner on a map connected to yours (the route beyond the town's edge) now shows across
   the edge and walks over it smoothly, instead of appearing only once you're on the same map.
+- **German Emerald (Smaragd) is read live.** souldew showed nothing for it so far: its memory was taken to be laid out
+  differently from the English game's. It isn't – every address souldew reads is the same – so the team, the place,
+  battles, level caps and badges, the bag (the Poké Ball rule, Rare Candies, Max Repels) and Shared World now work in
+  Smaragd as they do in Emerald. Link battle results and wagers are still for the other games only.
 - **FireRed and LeafGreen: the “Previously on your quest…” replay after loading** no longer shows (or sends) where you
   walked last time as if you were there.
 - **souldew engine (beta)** – Settings › Play. One player of souldew's own for DS, GBA and Game Boy, on the
