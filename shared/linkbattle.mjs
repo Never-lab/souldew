@@ -68,12 +68,12 @@ export function gameOf(system, bytes) {
  * pokecrystal, pokeruby(_de), pokeemerald, pokefirered), the money's layout as shared/live/cheats.mjs reads the bag.
  */
 export const GAMES = {
-  redblue: { gen: 1, kind: 'events', inBattle: 0xd057, link: 0xd12b, result: 0xcf0b, money: { at: 0xd347, enc: 'bcd' } },
-  yellow: { gen: 1, kind: 'events', inBattle: 0xd056, link: 0xd12a, result: 0xcf0b, money: { at: 0xd346, enc: 'bcd' } },
+  redblue: { gen: 1, kind: 'events', inBattle: 0xd057, link: 0xd12b, result: 0xcf0b, party: 0xd163, money: { at: 0xd347, enc: 'bcd' } },
+  yellow: { gen: 1, kind: 'events', inBattle: 0xd056, link: 0xd12a, result: 0xcf0b, party: 0xd162, money: { at: 0xd346, enc: 'bcd' } },
   // (sLinkBattleStats: bank 1 0xB1BA / 0xB260 → save file offset 0x2000 + 0x11BA / 0x1260; wBattleMode, wLinkMode and
   // wScriptRunning say whether the player stands in the overworld)
-  goldsilver: { gen: 2, kind: 'sram', stats: 0x31ba, idle: [0xd116, 0xd042, 0xd15f], money: { at: 0xd573, enc: 'be24' } },
-  crystal: { gen: 2, kind: 'sram', stats: 0x3260, idle: [0xd22d, 0xc2dc, 0xd438], money: { at: 0xd84e, enc: 'be24' } },
+  goldsilver: { gen: 2, kind: 'sram', stats: 0x31ba, idle: [0xd116, 0xd042, 0xd15f], party: 0xda22, money: { at: 0xd573, enc: 'be24' } },
+  crystal: { gen: 2, kind: 'sram', stats: 0x3260, idle: [0xd22d, 0xc2dc, 0xd438], party: 0xdcd7, money: { at: 0xd84e, enc: 'be24' } },
   rs: { gen: 3, kind: 'events', outcome: 0x02024d26, flags: 0x020239f8, money: { sb1: 0x02025734, off: 0x490 } },
   emerald: { gen: 3, kind: 'events', outcome: 0x0202433a, flags: 0x02022fec, money: { sb1Ptr: 0x03005d8c, sb2Ptr: 0x03005d90, keyOff: 0xac, off: 0x490 } },
   frlg: { gen: 3, kind: 'events', outcome: 0x02023e8a, flags: 0x02022b4c, money: { sb1Ptr: 0x03005008, sb2Ptr: 0x0300500c, keyOff: 0xf20, off: 0x290 } },
@@ -400,17 +400,43 @@ export async function addMoney(game, read, write, delta) {
 export async function fieldIdle(game, read, { cam = undefined } = {}) {
   const g = GAMES[game];
   if (!g) return false;
+  // (Gen 1/2: those flags are 0 on the title screen too, before Continue loads the save – the money there is
+  // overwritten a moment later. A loaded game has a team: wPartyCount 1–6)
+  const loaded = async () => {
+    const p = await read(g.party, 1);
+    return !!p && p[0] >= 1 && p[0] <= 6;
+  };
   if (g.gen === 1) {
     const [b, l] = [await read(g.inBattle, 1), await read(g.link, 1)];
-    return !!b && !!l && b[0] === 0 && l[0] === 0;
+    return !!b && !!l && b[0] === 0 && l[0] === 0 && (await loaded());
   }
   if (g.gen === 2) {
     const v = await Promise.all(g.idle.map((a) => read(a, 1)));
-    return v.every((b) => b && b[0] === 0);
+    return v.every((b) => b && b[0] === 0) && (await loaded());
   }
   if (g.gen === 3) return !!cam && !cam.battle && !cam.locked && !cam.help && !cam.fade;
   const f = await read(g.field.addr, 2);
   return !!f && u16le(f, 0) === g.field.value;
+}
+
+/**
+ * Does the game itself say it is linked – the Cable Club's mode, set when the players sit down and cleared only when they
+ * walk out (Gen 1 wLinkState, Gen 2 wLinkMode, Gen 3 a battle of BATTLE_TYPE_LINK)? A game whose link session ended
+ * while it was still in a link room goes on alone in that mode: in the Gen 2 Colosseum it even starts the next battle
+ * against the partner's team it already received. Nothing it shows then is the run's (no deaths, no catches, no
+ * party) – as during the session. Synchronous `read` (the fast player's mirror); false for the games without a table.
+ */
+export function gameLinked(game, read, { inBattle = false } = {}) {
+  const g = GAMES[game];
+  if (!g) return false;
+  const b = (a) => read(a, 1)?.[0] ?? 0;
+  if (g.gen === 1) return b(g.link) !== 0;
+  if (g.gen === 2) return b(g.idle[1]) !== 0;
+  if (g.gen === 3) { // (the flags stay from the last battle: only a battle on screen counts)
+    const f = read(g.flags, 4);
+    return !!inBattle && !!f && (u32le(f, 0) & 2) !== 0;
+  }
+  return false;
 }
 
 /** "₽2,000" – the games' own sign, the number grouped for `lang`. */

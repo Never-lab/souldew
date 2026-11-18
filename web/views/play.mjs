@@ -49,7 +49,7 @@ import { resolveHotkeys, hotkeyOf, keyMatches } from '../lib/controls.mjs';
 import { hotkeyHint, comboLabel } from './guide.mjs';
 
 import { WagerPay } from '../lib/wagerpay.mjs';
-import { gameOfEntry, readMoney, moneyText } from '/shared/linkbattle.mjs';
+import { gameOfEntry, readMoney, moneyText, gameLinked } from '/shared/linkbattle.mjs';
 import { worldTable, readCamera } from '/shared/world.mjs';
 /**
  * What each shortcut of Settings › Controls does (lib/controls.mjs HOTKEYS – one entry each, test/controls.test.mjs
@@ -1199,7 +1199,10 @@ export function GameSession({ session, mode }) {
               // the battle goes along: a Pokémon that falls in it gets the opponent as its cause of death; the level caps
               // read from the game go along once its data is known (web/lib/run.mjs files them for the run)
               const romCaps = romDataReady() ? (own?.caps ? { caps: own.caps.caps, leaders: own.caps.leaders, final: own.caps.final } : null) : undefined;
-              if (isRun) snapRef.current?.({ source: 'live', party, boxes: res.boxes || null, game: entry.id, here: hereNow, ...(res.badges !== undefined ? { badges: res.badges } : {}), ...(romCaps !== undefined ? { romCaps } : {}) }, { battle: fight, held: shown.held });
+              // (a game still in a link room after its session ended – it says so itself: nothing of it is the run's)
+              const g0 = isRun && !target.link ? gameOfEntry(ent) : null;
+              const linkedGame = !!g0 && gameLinked(g0, e.read, { inBattle: !!seen });
+              if (isRun) snapRef.current?.({ source: 'live', party, boxes: res.boxes || null, game: entry.id, here: hereNow, ...(res.badges !== undefined ? { badges: res.badges } : {}), ...(romCaps !== undefined ? { romCaps } : {}), ...(linkedGame ? { linkedGame: true } : {}) }, { battle: fight, held: shown.held });
               const g = pay && gameNow();
               if (g) {
                 if (ent.gen === 3 && world3?.from !== ent) world3 = { from: ent, t: worldTable(ent) };

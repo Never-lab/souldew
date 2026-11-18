@@ -15,9 +15,8 @@ import { packState } from '../lib/cosmetics/index.mjs';
 import { PlusMark } from '../lib/cosmetics/components.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
-import { WRAPS, STICKERS, UNLOCKS, wrapById, devKey, playableLookFor, launchLook, lookToPlay } from '/shared/handheld.mjs';
-import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick, useLaunchRights } from '../lib/handheld/look.mjs';
-import { earnedTrophies } from '../lib/trophies.mjs';
+import { WRAPS, STICKERS, UNLOCKS, wrapById, devKey, playableLookFor, launchLook } from '/shared/handheld.mjs';
+import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick, useLaunchRights, ownedLook } from '../lib/handheld/look.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { atlasNow, loadAtlas } from '../lib/handheld/stickers.mjs';
 import { wrapThumb } from '../lib/handheld/wrap.mjs';
@@ -57,9 +56,9 @@ export function HandheldTile({ system }) {
   const sys = devKey(system) || 'nds';
   const L = launchConfig(status?.config);
   const look = launchLook(playableLookFor(L.look, R)).look;
-  const plays = lookToPlay(doc, { member: R.plus, trophies: earnedTrophies(), surprise: false });
+  const own = ownedLook(doc, R); // what this account wears now – a kept souldew+ skin or sticker waits (the launch plays the same)
   return html`<button type="button" class="hh-tile" onClick=${() => navigate('handheld', { sys })} title=${t('hh.dress', 'Dress your handheld')}>
-    <${HandheldStillImg} sys=${sys} look=${look} skin=${plays.skin} stickers=${plays.stickers[sys] || []} w=${84} h=${52} zoom=${2.6} class="hh-tile-pic" />
+    <${HandheldStillImg} sys=${sys} look=${look} skin=${own.skin} stickers=${own.stickers[sys] || []} w=${84} h=${52} zoom=${2.6} class="hh-tile-pic" />
     <span class="hh-tile-txt"><span class="hh-tile-k">${t('hh.title', 'Your handheld')}${!R.plus && html` <${PlusMark} title=${t('hh.plusQuiet', 'More skins and stickers come with souldew+')} />`}</span>
       <b class="ellipsis">${wearing(doc, R)}</b></span>
   </button>`;
@@ -79,7 +78,7 @@ export function HandheldShowcase() {
   // free: the showcase wears the theme colour and the free look (their kept handheld waits for a membership);
   // Supporter / souldew+: their own handheld as the launch plays it
   const look = R.three ? launchLook(playableLookFor(L.look, R)).look : 'theme';
-  const plays = R.three ? lookToPlay(doc, { member, trophies: earnedTrophies(), surprise: false }) : { skin: null, stickers: {} };
+  const plays = R.three ? ownedLook(doc, R) : { skin: null, stickers: {} };
   const stickers = plays.stickers[sys] || [];
   useEffect(() => {
     let alive = true, scene = null, raf = 0, io = null, seen = true;

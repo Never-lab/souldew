@@ -34,14 +34,27 @@ Plus a new play view that gives the game the room it deserves.
   whether wagers are allowed and the highest wager. Works in Red, Blue, Yellow, Gold, Silver, Crystal, Ruby,
   Sapphire, Emerald, FireRed, LeafGreen and Platinum (English, and the German Gen 3 games except Emerald); stream
   tools get a `link-battle` event.
+- **Leaving the link inside a link room can't hurt your run.** A game that's still in the Trade Center or the
+  Colosseum when the link ends goes on alone in its link mode – Gold, Silver and Crystal even start the next battle
+  against the partner's team they already received. souldew counts nothing of it (no deaths, no catches, no team
+  changes) until you walk out or start the game again. The result card says “₽2,000 to pay …” until the money has
+  really left your game – in the Gen 1 Colosseum, which has no way out, that's after switching the game off and on –
+  and in the Game Boy games it now waits for Continue: on the title screen the money would have been lost when the
+  save loads, so the winner never got it.
+- **Trades in Gold, Silver and Crystal go into the log** too – two of your own Pokémon with the same trainer ID and
+  stats no longer hide the trade. The “You are here” sign knows the Union Room and the Colosseums of Diamond, Pearl,
+  Platinum, HeartGold and SoulSilver.
+- **Blue or Red with Yellow:** a Game Boy game and a Game Boy Color game link again – Yellow's
+  player refused every invite from Red or Blue (“isn't available for this game”), and each seat now runs on its own
+  player's console on every computer.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into
   the link) or Wave – the wave shows on every player's screen. Like you, they walk behind trees, plants and counters,
   and they never cover the game's text boxes or the place name. It is drawn over your game; nothing is written into
-  it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Emerald, Sapphire,
-  FireRed and LeafGreen – English and German (Feuerrote, Blattgrüne) – with up to four players; Ruby runs on the same
-  code with its addresses from the games' disassembly.
+  it. One switch in the play view, “Show partners in my game”, turns it off per run. Tested in Ruby, Sapphire,
+  Emerald, FireRed and LeafGreen – English and German (Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) – with up to
+  four players.
 - **Your Pokémon walks with you – and your partners' with them** (Shared World, Gen 3). Every player is followed by
   the first Pokémon of their team that can fight, one step behind on their path: round corners, out of doors after
   them, behind trees like everyone else, gone while they surf. The games have no walking Pokémon, so it's the
@@ -59,6 +72,10 @@ Plus a new play view that gives the game the room it deserves.
   every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
 - **Partners next door:** a partner on a map connected to yours (the route beyond the town's edge) now shows across
   the edge and walks over it smoothly, instead of appearing only once you're on the same map.
+- **German Emerald (Smaragd) is read live.** souldew showed nothing for it so far: its memory was taken to be laid out
+  differently from the English game's. It isn't – every address souldew reads is the same – so the team, the place,
+  battles, level caps and badges, the bag (the Poké Ball rule, Rare Candies, Max Repels) and Shared World now work in
+  Smaragd as they do in Emerald. Link battle results and wagers are still for the other games only.
 - **FireRed and LeafGreen: the “Previously on your quest…” replay after loading** no longer shows (or sends) where you
   walked last time as if you were there.
 - **souldew engine (beta)** – Settings › Play. One player of souldew's own for DS, GBA and Game Boy, on the
@@ -182,13 +199,18 @@ Plus a new play view that gives the game the room it deserves.
   header tile (with Supporter or souldew+), the souldew+ page or Settings › Play › Launch animation.
 - **When a membership ends, nothing you set is lost.** Your launch settings, your handheld and its designs stay as they
   are and come back with the membership; meanwhile the launch plays what your tier has now – from souldew+ to
-  Supporter the free parts, without a membership the cartridge.
+  Supporter the free parts, without a membership the cartridge. Nothing paid is shown or played in the meantime: the
+  launch plays “Your colours”, the still of your handheld in Settings and the library's tile show it without the
+  souldew+ skin, stickers and finishes, and a line says they're back as soon as souldew+ is active again.
 - **souldew+ looks stay souldew+'s.** Gold, Clear shell, Holo label, the Rare start and the holo and glitter sticker
   finishes now come in the souldew+ pack like the banners and stickers, instead of being built into the app – a
   changed copy of the open-source app can't just switch them on. The pack's key belongs to the device you signed in
   on: copying souldew's data folder to another computer opens nothing, and signing a device out ends its key. The
   pictures of souldew+ stickers and skins you see before joining are shots of the real thing, not the files
   themselves.
+- **Inviting friends counts the seats.** “Invite friends” on a run lets you pick only as many friends as there are free
+  seats – invites still out hold theirs – and is greyed out once every seat is taken, instead of sending invites into
+  a run nobody else fits in.
 - **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
   link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
   the board's Rules – and every change goes to the log; the others see them read-only.

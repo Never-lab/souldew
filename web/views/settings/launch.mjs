@@ -9,13 +9,13 @@
 import { html, useState, useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { t } from '../../lib/i18n.mjs';
 import { useApp } from '../../lib/ui.mjs';
+import { packState } from '../../lib/cosmetics/index.mjs';
 import { useCosmetics, PlusMark } from '../../lib/cosmetics/components.mjs';
 import { openPlus } from '../../lib/cosmetics/plus.mjs';
 import { Icon } from '../../lib/icons.mjs';
 import { FavScope } from '../../lib/favourites.mjs';
-import { LAUNCH_LOOKS, CLEAR_TINTS, STICKER_MAX, wrapById, launchLook, playableLookFor, ownsWrap, lookToPlay } from '/shared/handheld.mjs';
-import { earnedTrophies } from '../../lib/trophies.mjs';
-import { useHandheld, launchConfig, CLEAR, useCosmeticsTick, useLaunchRights } from '../../lib/handheld/look.mjs';
+import { LAUNCH_LOOKS, CLEAR_TINTS, STICKER_MAX, wrapById, launchLook, playableLookFor } from '/shared/handheld.mjs';
+import { useHandheld, launchConfig, CLEAR, useCosmeticsTick, useLaunchRights, ownedLook } from '../../lib/handheld/look.mjs';
 import { placeholderCanvas } from '../../lib/handheld/placeholder.mjs';
 import { CartInsert } from '../cartinsert.mjs';
 import { LaunchPreview } from '../launchstage.mjs';
@@ -111,7 +111,7 @@ function LaunchSetting3D({ cfg, save, R }) {
     <span class="small faint">${animsOff ? t('launch.off', 'Animations are switched off (General › Play animations) – the game starts without one.')
       : L.pace === 'off' ? t('launch.offHint', 'Off: the game starts without an animation.')
         : t('launch.hint3', 'Plays over the game screen while the game starts – it never makes the game wait, and it is silent. A click or any key skips it. With reduced motion (your system’s setting) it is a short fade, with your handheld in it.')}</span>
-    ${shown !== L.look && html`<span class="small faint">${t('launch.waits', '{look} is kept for when souldew+ is active again – until then “Your colours” plays.', { look: names[L.look][0] })}</span>`}
+    ${shown !== L.look && !packState().loading && html`<span class="small faint">${t('launch.waits', '{look} is kept for when souldew+ is active again – until then “Your colours” plays.', { look: names[L.look][0] })}</span>`}
     ${member ? html`<span class="small faint">${t('launch.rare', 'souldew+: one start in 64 is a Rare start – golden light, glints and a little dust.')}</span>`
       : html`<span class="small faint plus-note"><${PlusMark} /> ${t('launch.more3', 'Gold, Clear shell, Holo label and the Rare start come with souldew+.')}</span>`}
     <${HandheldRow} cfg=${cfg} R=${R} sys=${sys} setSys=${setSys} play=${playing} onPreview=${() => setPlaying((n) => n + 1)} />
@@ -124,18 +124,22 @@ function HandheldRow({ cfg, R, sys, setSys, play, onPreview }) {
   const { navigate } = useApp();
   const doc = useHandheld();
   const L = launchConfig(cfg);
-  const V = launchLook(playableLookFor(L.look, R));
+  const V = launchLook(playableLookFor(L.look, R)); // a souldew+ shell without souldew+: the still shows what the launch plays
   const shellOnly = V.look === 'clear' || V.look === 'gold';
-  const skin = ownsWrap(wrapById(doc.skin), { member: R.plus }) ? wrapById(doc.skin) : null; // what plays
-  const plays = lookToPlay(doc, { member: R.plus, trophies: earnedTrophies(), surprise: false });
-  const n = (d) => (plays.stickers[d] || []).length; // what plays (a Supporter: the free and earned ones)
+  // what it wears right now (a Supporter: the free skin, the free and the earned stickers; souldew+ items only with
+  // souldew+) – the handheld keeps the rest, and says so when a souldew+ skin or sticker waits
+  const own = ownedLook(doc, R);
+  const skin = wrapById(own.skin);
+  const withPlus = R.plus ? own : ownedLook(doc, { ...R, plus: true });
+  const kept = own.skin !== withPlus.skin || Object.keys(withPlus.stickers).some((d) => (withPlus.stickers[d] || []).length !== (own.stickers[d] || []).length);
+  const n = (d) => (own.stickers[d] || []).length;
   const active = doc.designs.find((d) => d.id === doc.active);
   const [showing, setShowing] = useState(false);
   const first = useRef(play);
   useEffect(() => { if (play !== first.current) setShowing(true); }, [play]);
   return html`<div class="hhs-hand">
-    <div class="hhs-still">${showing ? html`<${LaunchPreview} key=${`${play}-${sys}`} cfg=${cfg} system=${sys} onDone=${() => setShowing(false)} />`
-      : html`<${HandheldStillImg} sys=${sys} look=${V.look} skin=${plays.skin} stickers=${plays.stickers[sys] || []} w=${340} h=${210} />`}</div>
+    <div class="hhs-still">${showing ? html`<${LaunchPreview} key=${`${play}-${sys}`} cfg=${L} system=${sys} onDone=${() => setShowing(false)} />`
+      : html`<${HandheldStillImg} sys=${sys} look=${V.look} skin=${own.skin} stickers=${own.stickers[sys] || []} w=${340} h=${210} />`}</div>
     <div class="hhs-text stack-s">
       <h3>${t('hh.title', 'Your handheld')}</h3>
       <span class="small muted">${t('hh.lead', 'The device your launch animation plays with. One skin for all of them, stickers for each – up to {n}. Only you see it: it isn’t on your profile.', { n: STICKER_MAX })}</span>
@@ -146,6 +150,7 @@ function HandheldRow({ cfg, R, sys, setSys, play, onPreview }) {
       ${doc.designs.length > 0 && html`<span class="small faint">${t('hh.designCount', 'one saved design|{count} saved designs', { count: doc.designs.length })}${R.surprise && doc.surprise && doc.designs.length > 1
         ? ` · ${t('hh.surpriseOn', 'Surprise me at start: a different one each launch')}` : active ? ` · ${t('hh.wearing', 'wearing “{name}”', { name: active.name })}` : ''}</span>`}
       ${!R.plus && R.tier === 'supporter' && html`<span class="small faint">${t('hh.supporterHas', 'With Supporter: the Plain Dusk skin, the 8 free stickers, the earned ones and one saved design.')}</span>`}
+      ${kept && !packState().loading && html`<span class="small faint">${t('hh.keptPlus', 'Your souldew+ skin and stickers are kept – they’re back on it as soon as souldew+ is active on this computer again.')}</span>`}
       ${shellOnly && skin && html`<span class="small faint">${t('hh.shellNote2', '{skin} shows with “Your colours” and Holo label; with {shell}, your stickers do.', { skin: skin.name, shell: lookName(V.id) })}</span>`}
       <div class="hhs-btns"><button type="button" class="btn primary" onClick=${() => navigate('handheld', { sys })}>${t('hh.dress', 'Dress your handheld')}</button>
         <button type="button" class="btn ghost" disabled=${L.off && cfg.bootAnimation === false} onClick=${onPreview}><${Icon} name="play" size=${14} />${t('launch.preview', 'Preview')}</button></div>

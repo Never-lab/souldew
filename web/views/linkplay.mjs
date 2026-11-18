@@ -9,8 +9,8 @@ import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
 import { players as getPlayers, rules as getRules, slotsOf } from '../lib/run.mjs';
 import { sameLinkSystem, LINK_SYSTEMS } from '/shared/link.mjs';
-import { wagerGame, battleFormats, moneyText, MONEY_MAX, deltaOf } from '/shared/linkbattle.mjs';
-import { wagerRules, agreedWager, sessionsIn, outcomeOf, headToHead } from '../lib/wager.mjs';
+import { wagerGame, battleFormats, moneyText, MONEY_MAX } from '/shared/linkbattle.mjs';
+import { wagerRules, agreedWager, sessionsIn, outcomeOf, headToHead, wagerStatus } from '../lib/wager.mjs';
 import { currentLang } from '../lib/i18n.mjs';
 
 export { LINK_SYSTEMS }; // (the board shows the link buttons for these)
@@ -293,7 +293,7 @@ function BattleResult({ st, names }) {
   }
   const s = o.summary;
   if (!s.battles) return null;
-  const delta = deltaOf(o.pays, me);
+  const { delta, settled } = wagerStatus(doc, st.sid, me, o.pays);
   const other = o.seats.find((x) => x !== me);
   const rec = other && o.seats.length === 2 ? headToHead(doc, me, other) : null;
   const head = s.draw ? t('linkplay.resultDraw', 'A draw')
@@ -304,7 +304,8 @@ function BattleResult({ st, names }) {
     <${Icon} name="bolt" size=${18} />
     <div class="stack-s" style="gap:2px">
       <b>${head}${s.battles > 1 ? html` <span class="num">${s.score[0]} : ${s.score[1]}</span>` : ''}</b>
-      <span class="small">${[delta > 0 ? t('linkplay.resultGot', '+{amount} for you', { amount: moneyText(delta, lang) }) : delta < 0 ? t('linkplay.resultPaid', '{amount} paid', { amount: moneyText(-delta, lang) }) : null,
+      <span class="small">${[delta > 0 ? t('linkplay.resultGot', '+{amount} for you', { amount: moneyText(delta, lang) }) : delta < 0 ? (settled ? t('linkplay.resultPaid', '{amount} paid', { amount: moneyText(-delta, lang) })
+          : t('linkplay.resultToPay', '{amount} to pay once you walk around in your game again', { amount: moneyText(-delta, lang) })) : null,
         rec ? t('linkplay.h2h', '{me} {a} : {b} {name}', { me: name(me), a: rec.a, b: rec.b, name: name(other) }) : null].filter(Boolean).join(' · ')}</span>
     </div>
   </div>`;

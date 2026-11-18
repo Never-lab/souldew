@@ -835,6 +835,7 @@
   "linkplay.resultLost": "Ganó {name}",
   "linkplay.resultOthers": "Ganó {name}",
   "linkplay.resultPaid": "{amount} pagados",
+  "linkplay.resultToPay": "{amount} por pagar en cuanto vuelvas a moverte por tu juego",
   "linkplay.resultPending": "Comparando el resultado con los demás …",
   "linkplay.resultWon": "¡Has ganado!",
   "linkplay.resultWonTeam": "¡{name} y tú habéis ganado!",
@@ -3979,5 +3980,8 @@
   "plus.launchHint4": "El juego nunca la espera – un clic o cualquier tecla la salta. Con Colaborador tu consola sale en tus colores; souldew+ añade tres carcasas y, uno de cada 64 inicios, un Inicio raro.",
   "plus.supLede2": "Tu insignia de colaborador ayuda a que souldew siga siendo gratis para todos – y tus juegos empiezan en tu propia consola en 3D. souldew+ añade los estilos de abajo – temas, banners, marcos, placas, y las carcasas, skins y pegatinas de tu consola.",
   "plus.tPlus1b": "Todos los temas, banners, marcos y placas – y cada estilo de inicio, skin y pegatina para tu consola",
-  "plus.tSup3": "El inicio en 3D: tu propia consola, en tus colores"
+  "plus.tSup3": "El inicio en 3D: tu propia consola, en tus colores",
+  "fr.pickSeats": "Queda 1 plaza libre – elige un amigo.|Quedan {count} plazas libres – elige hasta {count} amigos.",
+  "fr.noSeatLeft": "Todas las plazas de esta partida están ocupadas o ya tienen una invitación.",
+  "hh.keptPlus": "Tu skin y tus pegatinas de souldew+ se guardan – vuelven a estar puestos en cuanto souldew+ esté activo otra vez en este ordenador."
 }

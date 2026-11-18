@@ -835,6 +835,7 @@
   "linkplay.resultLost": "{name} hat gewonnen",
   "linkplay.resultOthers": "{name} hat gewonnen",
   "linkplay.resultPaid": "{amount} gezahlt",
+  "linkplay.resultToPay": "{amount} zu zahlen, sobald du in deinem Spiel wieder herumläufst",
   "linkplay.resultPending": "Das Ergebnis wird mit den anderen abgeglichen …",
   "linkplay.resultWon": "Du hast gewonnen!",
   "linkplay.resultWonTeam": "Du und {name} habt gewonnen!",
@@ -3979,5 +3980,8 @@
   "plus.launchHint4": "Das Spiel wartet nie darauf – ein Klick oder eine beliebige Taste überspringt sie. Mit Supporter läuft dein Handheld in deinen Farben; souldew+ bringt drei Gehäuse dazu und, bei einem von 64 Starts, einen Seltenen Start.",
   "plus.supLede2": "Dein Supporter-Abzeichen hilft, souldew für alle kostenlos zu halten – und deine Spiele starten auf deinem eigenen Handheld in 3D. souldew+ bringt die Looks unten dazu – Themes, Banner, Rahmen, Namensschilder und die Gehäuse, Skins und Sticker für dein Handheld.",
   "plus.tPlus1b": "Alle Themes, Banner, Rahmen und Namensschilder – und jeder Start-Look, Skin und Sticker für dein Handheld",
-  "plus.tSup3": "Der 3D-Start: dein eigenes Handheld, in deinen Farben"
+  "plus.tSup3": "Der 3D-Start: dein eigenes Handheld, in deinen Farben",
+  "fr.pickSeats": "1 Platz ist frei – wähl einen Freund.|{count} Plätze sind frei – wähl bis zu {count} Freunde.",
+  "fr.noSeatLeft": "Jeder Platz dieses Runs ist vergeben oder hat schon eine Einladung.",
+  "hh.keptPlus": "Dein souldew+-Skin und deine souldew+-Sticker bleiben gespeichert – sie sind wieder drauf, sobald souldew+ auf diesem Computer wieder aktiv ist."
 }

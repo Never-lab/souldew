@@ -4,7 +4,12 @@
 // the own and a friend's profile, the profile editor, Friends, inviting a friend from the new-run wizard and the
 // board, the friend's invite notification, joining and the host's "Allow". Screenshots go to --out.
 //
-//   node scripts/social-e2e.mjs --out <dir> [--show] [--lang de]
+//   node scripts/social-e2e.mjs --out <dir> [--show] [--lang de] [--players 3|4]
+//
+// --players 3|4: a run with 3 or 4 seats – Lou (and Ida) sign in on servers of their own too. Their apps' Friends page
+// and the real presence they report are checked, then Robin invites them from the board's picker (which offers only
+// the seats still free), both ask at the same time and Robin allows them together: every friend gets the run and a seat
+// of their own. Checks go to <out>/results.json.
 //
 // The join step uses the app's real invite-code relay (public MQTT brokers), so it needs internet.
 import { spawn } from 'node:child_process';
@@ -13,6 +18,7 @@ import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
+import { randomBytes } from 'node:crypto';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -28,7 +34,7 @@ if (!process.versions.electron) {
   const scratch = mkdtempSync(join(tmpdir(), 'souldew-social-e2e-'));
   app.setPath('userData', join(scratch, 'electron'));
   app.on('window-all-closed', () => {});
-  app.whenReady().then(() => main(scratch));
+  app.whenReady().then(() => main(scratch)).catch((e) => { console.error(e); app.exit(1); });
 }
 
 /** A port nobody uses right now (never the installed app's 47390). */
@@ -55,6 +61,13 @@ async function main(scratch) {
   const out = resolve(opt('out', join(scratch, 'shots')));
   mkdirSync(out, { recursive: true });
   const lang = opt('lang', 'en');
+  const N = Math.max(2, Math.min(4, Number(opt('players', 2)) || 2));
+  const results = [];
+  const check = (what, ok, detail = '') => {
+    results.push({ what, ok: !!ok, detail: String(detail).slice(0, 300) });
+    console.log(ok ? 'PASS' : 'FAIL', what, detail ? String(detail).slice(0, 200) : '');
+    return !!ok;
+  };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
   const fake = await startFakeAccounts();
@@ -93,11 +106,12 @@ async function main(scratch) {
   fake.keepStats.add(robin.id);
   fake.keepStats.add(kim.id);
   let kimPresence = null;
+  const real = new Set(); // players whose own app reports their presence (--players 3|4) – the fake leaves them alone
   const keepPresence = () => {
     const now = Date.now();
     if (kimPresence) fake.presence.set(kim.id, { ...kimPresence, at: now });
-    fake.presence.set(lou.id, { state: 'in_run', game: { title: 'HeartGold', system: 'nds' }, run: { name: 'Kim & Lou', mode: 'soullink', free_slot: true, joinable: false }, at: now });
-    fake.presence.set(ida.id, { state: 'playing', game: { title: 'Platinum', system: 'nds' }, at: now });
+    if (!real.has(lou.id)) fake.presence.set(lou.id, { state: 'in_run', game: { title: 'HeartGold', system: 'nds' }, run: { name: 'Kim & Lou', mode: 'soullink', free_slot: true, joinable: false }, at: now });
+    if (!real.has(ida.id)) fake.presence.set(ida.id, { state: 'playing', game: { title: 'Platinum', system: 'nds' }, at: now });
     fake.presence.set(sam.id, { state: 'library', at: now });
     for (const u of [mo, tim, lena]) fake.presence.delete(u.id);
   };
@@ -106,8 +120,9 @@ async function main(scratch) {
 
   // ---- two apps ----
   const servers = [];
-  const ports = [await freePort(), await freePort()];
-  const profiles = [['host', 'Robin', ports[0]], ['guest', 'Kim', ports[1]]].map(([id, name, port]) => {
+  const seats = [['host', 'Robin'], ['guest', 'Kim'], ['p3', 'Lou'], ['p4', 'Ida']].slice(0, N);
+  for (const s of seats) s.push(await freePort());
+  const profiles = seats.map(([id, name, port]) => {
     const dir = join(scratch, id);
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
@@ -119,18 +134,57 @@ async function main(scratch) {
     return { id, name, port, dir, base: `http://127.0.0.1:${port}` };
   });
   const [HOST, GUEST] = profiles;
+  const EXTRA = profiles.slice(2).map((pr, k) => ({ ...pr, user: [lou, ida][k], slot: `p${k + 3}` }));
   const RUN = 'e3a1d07b';
+  // a room of its own on every run: the public relay would otherwise join two e2e runs at the same time into one room
   mkdirSync(join(HOST.dir, 'runs', RUN), { recursive: true });
+  // seats 3 and 4 carry no player's name: the seat a friend gets comes from what is taken, not from a matching name
+  const runPlayers = Object.fromEntries(['Robin', 'Kim', 'Player 3', 'Player 4'].slice(0, N).map((name, k) => [`p${k + 1}`, { name }]));
   writeFileSync(join(HOST.dir, 'runs', RUN, 'run.json'), JSON.stringify({
-    id: RUN, name: 'Emerald with Kim', mode: 'soullink', room: 'room-e3a1d07b-5f2c91', secret: 'e2e-room-secret-0c7b2a9d', createdAt: new Date().toISOString(),
-    players: { p1: { name: 'Robin' }, p2: { name: 'Kim' } }, game: { id: 'pokemon-emerald', system: 'gba', code: 'BPEE', title: 'POKEMON EMER' },
+    id: RUN, name: 'Emerald with Kim', mode: 'soullink', room: `room-e3a1d07b-${randomBytes(4).toString('hex')}`, secret: `e2e-${randomBytes(12).toString('hex')}`, createdAt: new Date().toISOString(),
+    players: runPlayers, game: { id: 'pokemon-emerald', system: 'gba', code: 'BPEE', title: 'POKEMON EMER' },
     randomizer: { enabled: false, values: {}, seeds: { p1: '1', p2: '2' } }, outputs: {}, rules: {},
   }));
+  // never throws and always ends the process: the windows and the servers go first (on Windows a file they still hold
+  // makes removing the scratch folder fail with EPERM), the folder is removed with retries, then the app exits
+  let finishing = false;
   const finish = async (code) => {
+    if (finishing) return;
+    finishing = true;
+    setTimeout(() => app.exit(code), 30000).unref?.(); // whatever hangs below, the run ends
+    const quietly = async (what, fn) => {
+      try {
+        await fn();
+      } catch (e) {
+        console.error(`finish: ${what}:`, e?.message || e);
+      }
+    };
     clearInterval(presenceTimer);
-    for (const p of servers) p.kill();
-    await fake.close();
-    if (!args.includes('--keep')) rmSync(scratch, { recursive: true, force: true });
+    await quietly('results', () => writeFileSync(join(out, 'results.json'), JSON.stringify({ ok: code === 0 && results.every((r) => r.ok), players: N, results }, null, 2)));
+    await quietly('windows', async () => {
+      const { BrowserWindow } = await import('electron');
+      for (const w of BrowserWindow.getAllWindows()) w.destroy();
+    });
+    await quietly('servers', () => Promise.all(servers.map((p) => new Promise((res) => {
+      if (p.exitCode !== null || p.signalCode !== null) return res();
+      const t = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} res(); }, 5000);
+      p.once('exit', () => { clearTimeout(t); res(); });
+      p.kill();
+    }))));
+    await quietly('fake accounts', () => Promise.race([fake.close(), sleep(3000)]));
+    if (!args.includes('--keep')) {
+      await quietly('scratch folder', async () => {
+        for (let i = 0; ; i++) {
+          try {
+            rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+            return;
+          } catch (e) {
+            if (i >= 10) throw e;
+            await sleep(500);
+          }
+        }
+      });
+    }
     app.exit(code);
   };
   const api = async (pr, path, body, method) => {
@@ -156,6 +210,8 @@ async function main(scratch) {
       const w = new BrowserWindow({ width: W, height: Hh, x: 20 + i * 60, y: 20 + i * 40, show, webPreferences: { partition: `social-e2e-${pr.id}`, backgroundThrottling: false } });
       w.webContents.setAudioMuted(true);
       w.loadURL(`${pr.base}/#/library`);
+      // the achievement plates ("Press Start" …) are not what this run checks: kept out of the shots and the checks
+      w.webContents.on('did-finish-load', () => w.webContents.insertCSS('.trophy-toasts { display: none !important; }').catch(() => {}));
       return w;
     });
     const ev = (i, js) => wins[i].webContents.executeJavaScript(js, true);
@@ -249,7 +305,7 @@ async function main(scratch) {
     fake.pinPresence.delete(kim.id);
     await go(0, `#/soullink?run=${RUN}`, '.run-steps, .board, main');
     await sleep(1500);
-    await click(0, 'button', 'Invite player');
+    await until('Invite player', () => click(0, 'button', 'Invite player'));
     await until('invite panel', () => ev(0, '!!document.querySelector(".fr-runinv")'));
     await click(0, '.fr-runinv .btn.go');
     await until('picker', () => ev(0, '!!document.querySelector(".fr-picklist")'));
@@ -273,14 +329,96 @@ async function main(scratch) {
     await shot(1, '12-invite-join-waiting');
     // 13 · the host: "Kim wants to join" → Allow
     const asked = await until('host asked', () => ev(0, `[...document.querySelectorAll('.toast, .fr-inv.asking')].some((t) => t.textContent.includes('wants to join'))`), 90000).catch(() => false);
+    check('Kim: the invite reached her app, Join opened the join page and the host was asked', !!asked);
     if (asked) {
       await sleep(500);
       await shot(0, '13-host-allow', { toasts: true });
       await click(0, '.fr-inv.asking .btn.go') || await click(0, '.toast .toast-action', 'Allow');
-      await until('pack on the guest', () => ev(1, `!!document.querySelector('.chip.ok') || document.body.textContent.includes('Your game')`), 60000).catch(() => null);
+      const got = await until('pack on the guest', () => ev(1, `(() => { const n = document.querySelector('.note'); return n && n.textContent.includes('SoulLink with') ? n.textContent : null; })()`), 60000).catch(() => null);
+      check(`Kim got the run after "Allow" (${N} seats)`, got && got.includes(`SoulLink with ${N} players`), got);
+      const seat = await ev(1, `document.querySelector('.seg [aria-checked="true"]')?.textContent || null`).catch(() => null);
+      check('Kim: her own seat is suggested', seat === 'Kim', seat);
       await sleep(1500);
       await shot(1, '14-invite-joined');
     } else log('the relay did not connect (offline?) – no Allow shot');
+
+    // ---- 3 or 4 seats: Lou (and Ida) on apps of their own ----
+    if (EXTRA.length) {
+      for (const [k, pr] of EXTRA.entries()) {
+        const i = k + 2;
+        await signIn(pr, pr.user);
+        real.add(pr.user.id);
+        fake.presence.delete(pr.user.id);
+        await until(`${pr.name} signed in`, async () => (await api(pr, '/api/account')).me?.name === pr.name);
+        await go(i, '#/friends', '.fr-list');
+        await until(`${pr.name}: friends`, () => ev(i, `[...document.querySelectorAll('.fr-pick')].some((b) => b.textContent.includes('Robin'))`));
+        await click(i, '.fr-pick', 'Robin');
+        await sleep(1200);
+        check(`${pr.name}: Friends lists Robin (and her friends only)`, await ev(i, `(() => { const n = [...document.querySelectorAll('.fr-pick b')].map((b) => b.textContent); return n.includes('Robin') && !n.includes('Noor') ? n.join(', ') : false; })()`));
+        await shot(i, `2${k}-${pr.id}-friends`);
+      }
+      // their own apps report their presence (no example pinned): Robin sees it on his Friends page
+      for (const pr of EXTRA) {
+        const seen = await until(`${pr.name}'s presence`, async () => {
+          const f = (await api(HOST, '/api/account/friends')).friends.find((x) => x.user.id === pr.user.id);
+          return f && f.presence?.state && f.presence.state !== 'offline' ? f.presence.state : null;
+        }, 40000).catch(() => null);
+        check(`Robin sees ${pr.name}'s presence reported by her own app`, !!seen, seen);
+      }
+      await go(0, '#/friends', '.fr-list');
+      await sleep(1500);
+      await shot(0, '24-host-friends-real-presence');
+
+      // the board: "Invite friends" → the picker offers only the seats still free
+      await go(0, `#/soullink?run=${RUN}`, '.run-steps, .board, main');
+      await sleep(1200);
+      await until('Invite player', () => click(0, 'button', 'Invite player'));
+      await until('invite panel (2)', () => ev(0, '!!document.querySelector(".fr-runinv")'));
+      await click(0, '.fr-runinv .btn.go');
+      await until('picker (2)', () => ev(0, '!!document.querySelector(".fr-picklist")'));
+      for (const name of ['Sam', 'Mo', 'Tim', 'Lou', 'Ida']) await click(0, '.fr-pickrow', name);
+      await sleep(300);
+      const picked = await ev(0, `[...document.querySelectorAll('.fr-pickrow.on b')].map((b) => b.textContent)`);
+      check(`picker: at most the ${N - 2} free seat(s) can be picked`, picked.length === N - 2, picked.join(', '));
+      await shot(0, '25-picker-free-seats');
+      // pick exactly the extra players
+      await ev(0, `[...document.querySelectorAll('.fr-pickrow.on input')].forEach((i) => i.click()); true`);
+      for (const pr of EXTRA) await click(0, '.fr-pickrow', pr.name);
+      await sleep(300);
+      await click(0, '.modal-foot .btn.go');
+      await until('invites out', () => ev(0, `document.querySelectorAll('.fr-runinv .fr-inv').length >= ${1 + EXTRA.length}`), 30000);
+      await sleep(800);
+      await shot(0, '26-invites-sent');
+      // the run is full now: the panel says so instead of offering more invites
+      check('a full run offers no more friend invites', await ev(0, `!!document.querySelector('.fr-runinv .btn.go')?.disabled`));
+      for (const [k, pr] of EXTRA.entries()) {
+        const i = k + 2;
+        await go(i, '#/library', '.nav');
+        const toast = await until(`${pr.name}: invite toast`, () => ev(i, `[...document.querySelectorAll('.toast')].some((t) => t.textContent.includes('invites you'))`), 90000).catch(() => false);
+        check(`${pr.name}: the invite notification`, toast);
+        await shot(i, `27-${pr.id}-invite-notification`, { toasts: true });
+        await click(i, '.toast .toast-action', 'Join');
+        await until(`${pr.name}: join page`, () => ev(i, '!!document.querySelector(".note")'), 30000).catch(() => null);
+      }
+      // both ask at the same time – Robin allows them together
+      const asking = await until('all asking', () => ev(0, `document.querySelectorAll('.fr-runinv .fr-inv.asking').length >= ${EXTRA.length} ? document.querySelectorAll('.fr-runinv .fr-inv.asking').length : 0`), 90000).catch(() => 0);
+      check(`the host is asked by all ${EXTRA.length} at once`, asking >= EXTRA.length, asking);
+      await shot(0, '28-host-allow-all', { toasts: true });
+      await ev(0, `[...document.querySelectorAll('.fr-runinv .fr-inv.asking .btn.go')].forEach((b) => b.click()); true`);
+      const seatsGot = [];
+      for (const [k, pr] of EXTRA.entries()) {
+        const i = k + 2;
+        const got = await until(`${pr.name}: run`, () => ev(i, `(() => { const n = document.querySelector('.note'); return n && n.textContent.includes('SoulLink with') ? n.textContent : null; })()`), 60000).catch(() => null);
+        check(`${pr.name} got the run (${N} seats)`, got && got.includes(`SoulLink with ${N} players`), got);
+        const seat = await ev(i, `document.querySelector('.seg [aria-checked="true"]')?.textContent || null`).catch(() => null);
+        seatsGot.push(seat);
+        await sleep(800);
+        await shot(i, `29-${pr.id}-joined`);
+      }
+      check('every friend is offered a free seat of their own', seatsGot.every((s) => s && !['Robin', 'Kim'].includes(s)) && new Set(seatsGot).size === seatsGot.length, seatsGot.join(', '));
+      await sleep(1500);
+      await shot(0, '30-host-everyone-in');
+    }
     // 15 · the editor without souldew+: a souldew+ banner can be tried on, quietly marked, not saved
     await go(1, '#/profile', '.pf-mast');
     await click(1, '.pf-actions .btn');
@@ -293,12 +431,13 @@ async function main(scratch) {
     await shot(1, '15-profile-editor-locked');
     await click(1, '.pe-bar .btn.ghost');
     log('done →', out);
-    await finish(0);
+    await finish(results.every((r) => r.ok) ? 0 : 1);
   } catch (e) {
     console.error(e);
     try {
       for (const [i, w] of BrowserWindow.getAllWindows().entries()) writeFileSync(join(out, `fail-${i}.png`), (await w.webContents.capturePage()).toPNG());
     } catch {}
+    check(`run stopped: ${e?.message || e}`, false);
     await finish(1);
   }
 }

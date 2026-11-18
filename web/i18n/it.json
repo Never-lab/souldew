@@ -835,6 +835,7 @@
   "linkplay.resultLost": "Ha vinto {name}",
   "linkplay.resultOthers": "Ha vinto {name}",
   "linkplay.resultPaid": "{amount} pagati",
+  "linkplay.resultToPay": "{amount} da pagare appena torni a muoverti nel tuo gioco",
   "linkplay.resultPending": "Confronto del risultato con gli altri …",
   "linkplay.resultWon": "Hai vinto!",
   "linkplay.resultWonTeam": "Tu e {name} avete vinto!",
@@ -3979,5 +3980,8 @@
   "plus.launchHint4": "Il gioco non la aspetta mai – un clic o un tasto qualsiasi la salta. Con Sostenitore la tua console gira nei tuoi colori; souldew+ aggiunge tre scocche e, un avvio su 64, un Avvio raro.",
   "plus.supLede2": "Il tuo badge Sostenitore aiuta a mantenere souldew gratuito per tutti – e i tuoi giochi partono sulla tua console in 3D. souldew+ aggiunge gli stili qui sotto – temi, banner, cornici, targhette, e le scocche, skin e adesivi per la tua console.",
   "plus.tPlus1b": "Tutti i temi, banner, cornici e targhette – e ogni stile di avvio, skin e adesivo per la tua console",
-  "plus.tSup3": "L’avvio in 3D: la tua console, nei tuoi colori"
+  "plus.tSup3": "L’avvio in 3D: la tua console, nei tuoi colori",
+  "fr.pickSeats": "C’è 1 posto libero – scegli un amico.|Ci sono {count} posti liberi – scegli fino a {count} amici.",
+  "fr.noSeatLeft": "Ogni posto di questa partita è occupato o ha già un invito.",
+  "hh.keptPlus": "La tua skin e i tuoi adesivi souldew+ restano salvati – tornano sopra appena souldew+ è di nuovo attivo su questo computer."
 }

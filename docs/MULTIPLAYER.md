@@ -74,6 +74,15 @@ Notes: "prestep 4" – the state is from frame F−4 and those 4 frames run in t
 | Windows x64 | cross-compiled and linked with MinGW here (only Windows DLLs); not run on Windows yet |
 | Linux x64 | `native.yml` builds it (RGBDS from source); in an Ubuntu 22.04 container mGBA and SameBoy built, the melonDS step stopped on a full disk on the build machine – the CI run is the check |
 
+**3.0 acceptance (18–19 Nov 2026, `test/30-acceptance`, the link host built from the branch):** every row above again,
+2 and 4 players, each also seamless, with `--winner` and a wager per generation (Gen 3 paid and saved; Gen 1/2 after
+switching the game off and on – Gen 1's Colosseum has no exit – found and fixed: the money went in on the title screen;
+Gen 4: see §13), rejoin, disconnect and out of step; a third player standing by while two link (never invited, told
+"in another link", their game untouched, the trade in their log). Games never linked before, from the running games
+(`--seamless --continue`, nothing pressed, 4,800 frames, equal hashes, both back alone): FireRed US ↔ German LeafGreen,
+Ruby ↔ Sapphire, Gold ↔ Silver, Blue ↔ Yellow (also Blue on the original Game Boy – found and fixed: Yellow's player
+refused every invite from Red/Blue), Diamond ↔ Pearl, HeartGold ↔ SoulSilver. Two computers: §6a.
+
 Still open for 3.0: see §13.
 
 ## 2. Architecture
@@ -308,6 +317,30 @@ Since November 2026 (branch `feat/engine`, Settings › Emulators › **"souldew
   - Costs: inputs are ~3 KB/s per peer, so a 10-minute session is ~2 MB. The free tier (1,000 GB/month, TURN and SFU combined) covers ~500,000 sessions per month. Partner video over TURN is the real cost; keep it to stills when relayed, as today.
 - **Fallback when even TURN fails:** a Durable Object WebSocket relay per session. The payload stays encrypted with the run key, so the relay sees nothing. Build it only if field data asks for it.
 
+### 6a. Two computers: the cross-machine check (`link-e2e --host` / `--join`)
+
+The open check before release is x64 ↔ arm64 lockstep (a Windows PC and a Mac in one session). `scripts/link-e2e.mjs`
+runs one seat per computer: each side starts its own souldew server and a hidden, muted page with a scratch data folder;
+the host builds the run and shows the app's **invite code** (6 digits, the public relay – web/lib/invitecode.mjs; the
+script allows the request itself), the other side joins with it, builds its own game and uploads its own seat's save;
+the host invites, the session runs over the run's real peer channel (direct first, TURN when that fails; `--relay` forces
+TURN), and each side plays its own seat's column of the **same recording** (`SLS_LINK_TEST_SCRIPT`, as in every e2e).
+Both stop at the recording's last frame. Each side prints `RESULT {…}`: `hashes` (count, first, last, sha256 over every
+hash its link host computed – **must be identical on both computers**), `saveAfterSha256` of its seat's run save and,
+with `--expect`, `checks.saveAsRecorded`; the session itself compares every 120-frame hash and ends as out of step on any
+difference (`checks.noMismatch`). Also in the result: platform, arch, the link host's sha256, delay and route.
+
+```
+Mac (host, seat 1):  node scripts/link-e2e.mjs --host --rom <Red.gb> --save trade-seat0.sav --script trade.rec --expect trade-expect --data <scratch>/x-host
+                     → INVITE CODE: 123456 (valid 15 minutes, also in <data>/out/invite-code.txt)
+Windows (seat 2):    node scripts/link-e2e.mjs --join 123456 --rom <Red.gb> --save trade-seat1.sav --script trade.rec --expect trade-expect --data C:\souldew-debug\e2e\x-join
+```
+Two different games (Emerald ↔ Sapphire): each side adds the other's file with `--other-rom`. Without `--script` the
+session runs `--frames` frames (default 7,200) with nothing pressed, from the saves. Both sides need the same souldew
+build, the same ROMs (SHA-1) and internet. Checked on one Mac with two processes and separate data folders (18 Nov 2026):
+Red ↔ Red trade (SameBoy), Emerald ↔ Sapphire trade (mGBA) and Platinum trade (melonDS) – both sides `saveAsRecorded`,
+the same hash sha256 on both, the route "direct". The real Mac ↔ Windows run is next.
+
 ## 7. Saves, ROMs and the tracker
 
 - **ROMs never cross the network.** Every seat's ROM must exist locally.
@@ -332,8 +365,8 @@ Since November 2026 (branch `feat/engine`, Settings › Emulators › **"souldew
 |---|---|---|---|---|---|---|
 | 1 | R/B/Y (+hacks) | GB serial | SameBoy (link host) | Cable Club trade ✅ app | Colosseum ✅ app | Gen 1 has no exit from the Trade Center/Colosseum: the game saved, the session ends by "Leave link" (on hardware: switching off). |
 | 2 | G/S/C, Polished Crystal, Crystal Legacy | GB serial | SameBoy (link host) | Trade Center ✅ app | Colosseum ✅ app | The cartridge clock travels in the save (VBA-M footer) both ways; the fast player keeps it now too. The Cable Club needs `EVENT_GAVE_MYSTERY_EGG_TO_ELM`; a trade needs a second non-egg Pokémon. Time Capsule (Gen 1 ↔ 2): both seats are CGBs in one backend – not tried yet (~1 d). |
-| 3 | R/S/E, FR/LG, hacks (Unbound, Radical Red …) | GBA SIO link cable | mGBA (link host) | Cable Club ✅ app | Colosseum single ✅ app; Multi Battle (4 players) ✅ app | FR/LG: not tried (no ROM in the test set) – their Cable Club works by cable, the location sign doesn't know their link rooms yet. The Union Room needs the wireless adapter: skipped (decision). Hacks: anything with the vanilla link code should work; check per hack. |
-| 4 | D/P/Pt, HG/SS | DS local wireless | melonDS's core ×N in one process, deterministic MP layer (MULTIPLAYER-DS.md) | Union Room ✅ app (Platinum) | Union Room battle ✅ app | D/P and HG/SS not tried in the app (Pearl boots); the sign knows Platinum's Union Room only. Rejoin only between wireless exchanges. Interpreter only: 4 consoles ≈ 1.6× real time on an M1 – slow PCs may struggle with 4 players. |
+| 3 | R/S/E, FR/LG, hacks (Unbound, Radical Red …) | GBA SIO link cable | mGBA (link host) | Cable Club ✅ app | Colosseum single ✅ app; Multi Battle (4 players) ✅ app | FR/LG: FireRed US ↔ German LeafGreen linked from the running games in the app (3.0 acceptance: lockstep, back alone; nothing traded – no recording yet) – their Cable Club works by cable, the location sign doesn't know their link rooms yet. The Union Room needs the wireless adapter: skipped (decision). Hacks: anything with the vanilla link code should work; check per hack. |
+| 4 | D/P/Pt, HG/SS | DS local wireless | melonDS's core ×N in one process, deterministic MP layer (MULTIPLAYER-DS.md) | Union Room ✅ app (Platinum) | Union Room battle ✅ app | Diamond ↔ Pearl and HeartGold ↔ SoulSilver linked from the running games in the app (3.0 acceptance: lockstep, back alone; nothing traded – no recordings yet); the sign knows the Union Room and the Colosseums of D/P, Platinum and HG/SS (pret's map ids; Platinum's Union Room measured). Rejoin only between wireless exchanges. Interpreter only: 4 consoles ≈ 1.6× real time on an M1 – slow PCs may struggle with 4 players. |
 | 5 | B/W, B2/W2 (+Blaze Black/Volt White) | DS local wireless (+ C-Gear IR) | as Gen 4 | Union Room, C-Gear | Union Room, C-Gear | Same backend; Black and White 2 boot, their Union Rooms weren't reached yet (~2–3 d with recordings). Whether the C-Gear's IR features work in melonDS is unknown. |
 | 6–7 | X/Y, ORAS, S/M, US/UM | 3DS local wireless | Azahar rooms (libretro core has no room client) or 2 instances | Player Search System | PSS battles | Research. Azahar's network room needs a room server (souldew's Hetzner box) and a core patch. **Later.** |
 
@@ -362,7 +395,7 @@ recorded battles:
 | 3 | `gBattleOutcome` (1 won, 2 lost, 3 drew; bit 7 = forfeit) at the end of a battle with `BATTLE_TYPE_LINK`; `BATTLE_TYPE_MULTI` marks 2 vs 2. Multi battles write no link battle record into the save, so the save is no source for them. Same EWRAM addresses for every revision and the German R/S, FR/LG | Emerald ↔ Sapphire single; E, S, E, S multi | single: Emerald 1, Sapphire 2; multi: seats 0+1 lose, 2+3 win |
 | 4 (Pt) | the game records `RECORD_LOCAL_LINK_BATTLE_WINS / _LOSSES` (ids 21, 22) in the save data in RAM (`*0x02101D40 + 0x61C4`), encrypted with an LCRNG keystream seeded by the block's byte sum and a modifier (pokeplatinum `src/game_records.c`), checked by that sum. Before and after. No draw record | Platinum ↔ Platinum Union Room | seat 0 W+1, seat 1 L+1 |
 
-Not supported (no wager offered; the log gets no result): Gen 1/2 in other languages (their RAM differs), Emerald DE,
+Not supported (no wager offered; the log gets no result): Gen 1/2 in other languages (their RAM differs), Emerald DE (its RAM is the English game's – shown in the 3.0 acceptance – but its link battles weren't recorded, so it stays off),
 Diamond/Pearl/HeartGold/SoulSilver (records not checked), Gen 5, hacks whose RAM moved, four DS players (who fought whom
 can't be told from counters).
 
@@ -432,19 +465,22 @@ Goal: partners walk visibly in your game, on the same map, and you can walk up t
 
 GBA-PK's approach injects NPC objects into game RAM per ROM revision, which breaks on randomizers and is CC BY-NC. souldew's version is an **overlay drawn by souldew** over the emulator picture, fed by RAM reads. Nothing is written into the game.
 
-**Status (branches `feat/shared-world`, `feat/30-world-plus`): Gen 3 works in the app** – Emerald, Sapphire, FireRed and LeafGreen (English and German) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`), Ruby shares the code path with addresses from the pret symbol files. Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
+**Status (branches `feat/shared-world`, `feat/30-world-plus`): Gen 3 works in the app** – Ruby, Sapphire, Emerald, FireRed and LeafGreen (English and German: Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`). Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
 
 | Game | Status |
 |---|---|
 | Emerald (US/EU rev 0) | **Works** (tested 18 Nov 2026, 2 and 4 players): partners drawn and animated, names, followers, depth against your own player, hidden behind the map's top layer (tree tops, roofs, plants) and under the map-name popup, A → menu, Wave/emotes/rock-paper-scissors both sides, Trade/Battle into the link flow |
 | Sapphire (US rev 0) | **Works** (tested, 4 players: two Sapphire players see each other and their followers, the Emerald pair doesn't – another map numbering) |
-| Ruby (US rev 0–2, DE rev 0–1), Sapphire US rev 1–2 | Same code and tables from the pret symbol files – not run here |
+| Ruby (US rev 0) | **Works** (tested 18 Nov 2026, 2 and 4 players – also Ruby ↔ German Sapphire with followers, rock-paper-scissors, the heart, the log line). Every address of its table checked in the running game: SaveBlock1 pos = the player object, the camera offset mid-step, CB2_Overworld, the lock with the START menu, the fades on the stairs and the door, Task_MapNamePopup on entering Route 101, the backup map = layout +15/+14, the player's sprite at OAM 112/56 |
+| Ruby / Sapphire German (Rubin rev 0, Saphir rev 1) | **Works** (tested 18 Nov 2026, app in German, 4 players: Rubin ↔ Saphir see each other, the German Emerald pair doesn't). Rubin: `ruby_de` from `pokeruby_de.sym`; Saphir: own `world` table in `sapphire_de` (the German Ruby's RAM – `pokesapphire_de.sym` agrees symbol for symbol – and its ROM addresses, rev 0 and 1). Every address checked in the running games like Ruby's |
+| Emerald German (Smaragd rev 0) | **Works** (tested 18 Nov 2026, 2 and 4 players, also with an English Emerald partner). New entry `emerald_de`, which also turns on the live tracker (team, place, battle, catch, level caps, the bag – checked in the game): the RAM is the English Emerald's – derived by aligning the two ROMs and reading every load site of each English address (9–2372 sites per symbol, no conflicting vote), then every address checked in the running game like Ruby's; ROM addresses of its own (`rom.0`) |
+| Ruby US rev 1–2, Sapphire US rev 1–2, Rubin rev 1, Saphir rev 0 | Same code and tables from the pret symbol files – not run here |
 | FireRed (US rev 0) | **Works** (tested 18 Nov 2026 with a German LeafGreen partner: walking, followers, rock-paper-scissors, the log line). Every address checked in the running game (see the FR/LG notes below); rev 1 untested |
 | FireRed / LeafGreen German (Feuerrote, Blattgrüne rev 0) | **Works** (tested: German LeafGreen ↔ German FireRed, app in German). Own `world` table in `firered_eu`/`leafgreen_eu` (RAM: IWRAM from gMain on 0xB0 lower, EWRAM as in English; ROM addresses per game code `BPRD:0`/`BPGD:0`), every address verified live |
 | FireRed / LeafGreen French, Italian, Spanish | The same entry and RAM as German (two tracker tables say so) – untested; the overworld callback is learned, the sprite and icon tables searched, no map-name popup cut-out |
 | LeafGreen US (rev 0–1) | Same as FireRed US, from `pokeleafgreen*.sym` – untested |
 | Radical Red 4.1 (the "FireRed (patched)" here) | The FireRed US RAM still fits (checked by the literal pools and a live probe), the graphics table is found by the search; its expanded species (1375) have no icon table souldew recognises: **no followers**, partners untested |
-| Emerald/Ruby/Sapphire DE/FR/IT/ES, hacks with moved RAM (CFRU/Unbound …) | No overlay (no verified RAM addresses – no such ROM on the test Mac); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM, sprite and icon tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
+| Emerald/Ruby/Sapphire FR/IT/ES, hacks with moved RAM (CFRU/Unbound …) | No overlay (no verified RAM addresses – no such ROM on the test Mac); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM, sprite and icon tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
 | Gen 1/2, Gen 4/5, 3DS | Not yet – see the feasibility notes below |
 
 ### How it works
@@ -492,7 +528,7 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 - Surfing partners are drawn without the surf blob (a field-effect sprite with its own palette table – a follow-up); ledge jumps slide instead of hop.
 - Partners vanish while a menu, a message or a script holds your player (they would be drawn over the text box), with a short fade.
 - Pair runs with different games (Emerald ↔ FireRed) never share a map, by design.
-- FR/LG verified (US rev 0, German FR/LG rev 0) on 18 Nov 2026 by `scripts/world-e2e.mjs --plus` with saves made by `scripts/rom-matrix.mjs` plans (ROM copies and saves in a scratch folder, never committed). French/Italian/Spanish FR/LG, FR/LG rev 1, Ruby and the German RSE games are not verified (no ROMs here).
+- FR/LG verified (US rev 0, German FR/LG rev 0) on 18 Nov 2026 by `scripts/world-e2e.mjs --plus` with saves made by `scripts/rom-matrix.mjs` plans (ROM copies and saves in a scratch folder, never committed). Ruby US, Rubin, Saphir rev 1 and Smaragd verified the same way in the 3.0 acceptance (18 Nov 2026, 2 and 4 players). French/Italian/Spanish FR/LG and FR/LG rev 1 are not verified (no ROMs here).
 - **Stream overlay (not built)**: the stream page could show the followers and the last rock-paper-scissors result next to each player's card (the lead is already in each player's live data; a result is one feed entry), and an "emote" event could flash the bubble over the player's tile. Left for later: the overlay draws cards, not the game picture.
 
 ### Feasibility for the other generations
@@ -581,8 +617,8 @@ What is left for 3.0, with effort:
 | First green `native.yml` run (Linux + Windows link host; the RGBDS step is new) | ½ d |
 | Release packaging: `linkhost` + its licences in the app bundles (`npm run dist` checks it now), signing/notarising one more binary on macOS | ½–1 d |
 | A real two-computer test over the internet, once with TURN forced (relayed) | ½ d |
-| Trade log entry for Gen 2 and Gen 4 (the e2e saw the trade in the saves but no log entry – the live party's keys); the battle result entry is built (§8a) | ½ d |
-| FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e; their link rooms on the sign | 3–4 d |
+| ~~Trade log entry for Gen 2~~ (done: two Pokémon of the recording's saves shared trainer ID and DVs; a Pokémon is now its key and species, counted). Gen 4: the recordings' start saves hold cloned Pokémon – after the trade a player has the same PID twice, which the live reader refuses as a misread – so the e2e can't show the entry (or a Gen 4 wager paid); a recording from clean saves would | ½ d |
+| FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e (FR ↔ LG, R ↔ S, G ↔ S, Blue ↔ Yellow, D ↔ P and HG ↔ SS link from the running games – 3.0 acceptance, nothing pressed); FR/LG's link rooms on the sign | 3–4 d |
 | Gen 1 ↔ 2 Time Capsule | 1 d |
 | DS rejoin during a wireless exchange (the state can't be taken while a console waits mid-frame): retry until the exchange pauses, or make the wait state serialisable | 2–3 d |
 | UX polish from real players: the need/pick bar, what happens to an invite while the partner is in a menu (seamless: the link simply starts there) | 1–2 d |

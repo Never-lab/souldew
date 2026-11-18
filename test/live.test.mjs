@@ -32,6 +32,10 @@ const inv = (charset) => Object.fromEntries(Object.entries(charset.table).map(([
 
 test('entry lookup by game code / header title', () => {
   assert.equal(findEntry(TABLE, { platform: 'gba', code: 'BPRE' }).id, 'firered_us');
+  // German Emerald (Smaragd) is tracked live like the English game – its RAM is the same (3.0 acceptance, verified in the
+  // running game: team, place, cap, battle, bag, catch); French, Italian and Spanish Emerald weren't checked: no entry
+  assert.equal(findEntry(TABLE, { platform: 'gba', code: 'BPED', title: 'POKEMON EMER' }).id, 'emerald_de');
+  for (const code of ['BPEF', 'BPEI', 'BPES']) assert.equal(findEntry(TABLE, { platform: 'gba', code, title: 'POKEMON EMER' }), null, code);
   assert.equal(findEntry(TABLE, { platform: 'gb', title: 'POKEMON RED' }).id, 'red_us');
   assert.equal(findEntry(TABLE, { platform: 'nds', code: 'IPKE' }).id, 'heartgold_us');
   assert.ok(findEntry(TABLE, { platform: 'nds', code: 'IPKD' }).scanOnly, 'German HG falls back to scanning');

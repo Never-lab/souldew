@@ -835,6 +835,7 @@
   "linkplay.resultLost": "{name} a gagné",
   "linkplay.resultOthers": "{name} a gagné",
   "linkplay.resultPaid": "{amount} payés",
+  "linkplay.resultToPay": "{amount} à payer dès que tu te déplaces à nouveau dans ton jeu",
   "linkplay.resultPending": "Comparaison du résultat avec les autres …",
   "linkplay.resultWon": "Tu as gagné !",
   "linkplay.resultWonTeam": "{name} et toi avez gagné !",
@@ -3979,5 +3980,8 @@
   "plus.launchHint4": "Le jeu ne l’attend jamais – un clic ou n’importe quelle touche la passe. Avec Soutien, ta console se joue à tes couleurs ; souldew+ ajoute trois coques et, un lancement sur 64, un Lancement rare.",
   "plus.supLede2": "Ton badge Soutien aide à garder souldew gratuit pour tout le monde – et tes jeux démarrent sur ta propre console en 3D. souldew+ ajoute les looks ci-dessous – thèmes, bannières, cadres, plaques, et les coques, skins et stickers de ta console.",
   "plus.tPlus1b": "Tous les thèmes, bannières, cadres et plaques – et chaque look de lancement, skin et sticker pour ta console",
-  "plus.tSup3": "Le lancement en 3D : ta propre console, à tes couleurs"
+  "plus.tSup3": "Le lancement en 3D : ta propre console, à tes couleurs",
+  "fr.pickSeats": "1 place est libre – choisis un ami.|{count} places sont libres – choisis jusqu’à {count} amis.",
+  "fr.noSeatLeft": "Chaque place de cette partie est prise ou a déjà une invitation.",
+  "hh.keptPlus": "Ton skin et tes stickers souldew+ sont gardés – ils reviennent dessus dès que souldew+ est de nouveau actif sur cet ordinateur."
 }

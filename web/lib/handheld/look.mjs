@@ -68,6 +68,15 @@ export function launchConfig(cfg) {
   const pace = cleanLaunchPace(cfg?.launchPace);
   return { look, pace, clear: cleanClearTint(cfg?.launchClear), off: pace === 'off' || cfg?.bootAnimation === false };
 }
+/**
+ * The launch a preview plays (Settings, the editor, the souldew+ page): launchConfig() of the config – a caller may hand
+ * either the config itself or launchConfig() of it – and Off plays Full (pressing Preview asks to see it). The look is
+ * the member's pick; LaunchStage still plays only what the account's rights and the pack allow (playableLook).
+ */
+export function previewConfig(cfg) {
+  const L = cfg && typeof cfg === 'object' && 'look' in cfg && 'pace' in cfg ? cfg : launchConfig(cfg);
+  return { ...L, pace: L.pace === 'off' ? 'full' : L.pace, off: false };
+}
 
 /**
  * What this account's launch may use right now (shared/handheld.mjs launchRights): the verified tier from the account
@@ -107,6 +116,21 @@ export function lookNow(rnd = Math.random, rights = launchRightsNow()) {
   // the very moment it starts the game. Not known yet: the earned stickers wait for the next start.
   const tr = earnedTrophies();
   return lookToPlay(doc, { member: rights.plus, trophies: tr || new Set(), favDesigns: favourites().design || [], rnd, surprise: rights.surprise });
+}
+
+/**
+ * The current look as this account can wear it right now – what a still of "Your handheld" shows (Settings, the library's
+ * tile): souldew+ skin, stickers and finishes only with souldew+ (launchRights: the tier and the pack), holo / glitter
+ * only with their data from the pack – like the launch itself. A Supporter sees the free skin, the free and the earned
+ * stickers. The handheld keeps them all (the editor shows them as kept), so they are back the moment souldew+ is.
+ */
+export function ownedLook(d = doc, rights = launchRightsNow()) {
+  const own = lookToPlay(d, { member: rights.plus, trophies: earnedTrophies() || new Set(), surprise: false });
+  // holo / glitter are drawn from the pack's data (looks.mjs finishIndex) – without it the launch draws vinyl, so does this
+  const fin = paidLooks()?.finishes || {};
+  const stickers = {};
+  for (const [k, list] of Object.entries(own.stickers)) stickers[k] = list.map((st) => (st.finish !== 'vinyl' && !fin[st.finish] ? { ...st, finish: 'vinyl' } : st));
+  return { ...own, stickers };
 }
 
 /** a wrap for the scene: { skin: composition + finish, recipe } – or null (the theme colour, or its data isn't here) */

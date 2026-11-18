@@ -951,7 +951,88 @@
     "partyCountAddr": "pokesapphire_de.sym:615",
     "partyAddr": "pokesapphire_de.sym:616"
    },
-   "verified": "pret symbols branch .sym"
+   "verified": "pret symbols branch .sym",
+   "world": {
+    "family": "rs",
+    "objectEvents": "0x030048B0",
+    "playerAvatar": "0x0202E858",
+    "fieldCamera": "0x03004890",
+    "saveBlock1": "0x02025734",
+    "main": "0x03001770",
+    "paletteFade": "0x0202F388",
+    "lockFieldControls": "0x030006A4",
+    "sprites": "0x02020004",
+    "mapHeader": "0x0202E828",
+    "backupMapLayout": "0x03004880",
+    "tasks": "0x03004B30",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      112,
+      32
+     ],
+     "offsetData": 2,
+     "offsetBase": 32
+    },
+    "rom": {
+     "0": {
+      "overworldCb2": "0x080546E8",
+      "graphicsInfo": "0x083793D4",
+      "spritePalettes": "0x0837EEF8",
+      "mapNamePopupTask": "0x080A3144"
+     },
+     "1": {
+      "overworldCb2": "0x080546E8",
+      "graphicsInfo": "0x083793D4",
+      "spritePalettes": "0x0837EEF8",
+      "mapNamePopupTask": "0x080A3144"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      89
+     ],
+     [
+      "mach",
+      1,
+      90
+     ],
+     [
+      "acro",
+      63,
+      91
+     ],
+     [
+      "surf",
+      2,
+      92
+     ],
+     [
+      "dive",
+      111,
+      112
+     ],
+     [
+      "fieldmove",
+      3,
+      93
+     ],
+     [
+      "fish",
+      137,
+      138
+     ],
+     [
+      "water",
+      191,
+      192
+     ]
+    ],
+    "source": "pret symbols branch pokesapphire_de.sym (pokeruby, the German Sapphire build): every RAM symbol is the German Ruby’s (gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1, gMain, gPaletteFade, sScriptContext2Enabled = sLockFieldControls, gSprites, gMapHeader, gBackupMapLayout, gTasks); ROM: CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopup. The German Sapphire rev 1 ROM has these exact functions and tables at the .sym addresses (CB2_Overworld and Task_MapNamePopup byte for byte the German Ruby’s, the graphics table is also what findGraphicsTable finds), rev 0 is taken from the same .sym. Checked in the running German Sapphire rev 1, Nov 2026 (souldew 3.0 acceptance): SaveBlock1 pos = the player object’s coords −7, the camera offset mid-step, CB2_Overworld on the overworld, the lock with the START menu, the palette fade on the stairs and the door, Task_MapNamePopup on entering Route 101, the backup map = layout size +15/+14, the player’s sprite. Structs as in ruby_de."
+   }
   },
   {
    "id": "emerald_us",
@@ -1084,6 +1165,140 @@
      ]
     ],
     "source": "pret symbols branch: gObjectEvents, gPlayerAvatar, gFieldCamera, gSaveBlock1Ptr, gMain, gPaletteFade, sLockFieldControls, gSprites, gMapHeader, gBackupMapLayout, gTasks (RAM); CB2_Overworld, gObjectEventGraphicsInfoPointers, sObjectEventSpritePalettes, Task_MapNamePopUpWindow (ROM, per revision: pokeemerald.sym). Structs: include/global.fieldmap.h (ObjectEvent 0x24, PlayerAvatar, ObjectEventGraphicsInfo), src/field_camera.c (CameraObject x/y = sub-tile offset), include/palette.h (PaletteFadeControl), src/field_player_avatar.c sPlayerAvatarGfxIds (avatars: kind, male gfx id, female gfx id); src/map_name_popup.c (the popup window and its slide offset in task data[2])"
+   }
+  },
+  {
+   "id": "emerald_de",
+   "name": "Pokémon Smaragd-Edition (Germany)",
+   "gen": 3,
+   "platform": "gba",
+   "language": "de",
+   "match": {
+    "gameCode": [
+     "BPED"
+    ],
+    "gameCodeOffset": "0xAC",
+    "softwareVersionOffset": "0xBC",
+    "softwareVersion": [
+     0
+    ]
+   },
+   "memory": {
+    "note": "Absolute GBA bus addresses. EWRAM 0x02000000 (256 KiB), IWRAM 0x03000000 (32 KiB). Offset into the region array = addr & 0xFFFFFF."
+   },
+   "partyCountAddr": "0x020244E9",
+   "partyCountRegion": "EWRAM",
+   "partyCountType": "u8",
+   "partyAddr": "0x020244EC",
+   "partyRegion": "EWRAM",
+   "structSize": 100,
+   "maxParty": 6,
+   "otNamesAddr": null,
+   "nicknamesAddr": null,
+   "namesInline": {
+    "nickname": "struct+0x08 (10 bytes)",
+    "otName": "struct+0x14 (7 bytes)"
+   },
+   "charset": "charset_gen3.json",
+   "speciesTable": "gen3_index_to_dex.json",
+   "enemyPartyAddr": "0x02024744",
+   "inBattle": {
+    "addr": "0x030026F9",
+    "type": "u8",
+    "mask": "0x02",
+    "meaning": "gMain.inBattle bitfield (bit 1 of the byte after gMain.state)",
+    "source": "pokeemerald.sym:894 (gMain) + include/main.h struct Main offset 0x439"
+   },
+   "battleTypeFlagsAddr": "0x02022FEC",
+   "liveBattleHp": {
+    "battleMonsAddr": "0x02024084",
+    "battleMonSize": "0x58",
+    "hpOffset": "0x28",
+    "maxHpOffset": "0x2C",
+    "battlerPartyIndexesAddr": "0x0202406E",
+    "note": "Player battler 0 (and 2 in doubles); gBattlerPartyIndexes is u16[4]. gPlayerParty HP is also written live (Cmd_datahpupdate -> REQUEST_HP_BATTLE).",
+    "source": "pokeemerald.sym:124, pokeemerald.sym:118"
+   },
+   "sources": {
+    "partyCountAddr": "pokeemerald.sym:200",
+    "partyAddr": "pokeemerald.sym:202",
+    "evidence": "RAM: the US/European English Emerald’s for every address souldew reads – no pret build of the German game exists, so each was derived by aligning the English ROM with the German one (unique 16-byte runs, ~940k anchors) and reading the literal-pool word at every load site of the English address: gPlayerParty 1085 sites, gPlayerPartyCount 1130, gEnemyParty 474, gMain 791 (inBattle = gMain+0x439), gBattleTypeFlags 438, gBattleMons 406, gBattlerPartyIndexes 420, gSaveBlock1Ptr 1667, gSaveBlock2Ptr 844, gPokemonStoragePtr 45, gMapHeader 142, sCurrentMapMusic 48, gBattleOutcome 134 – each one the English address, no conflicting vote. (The same method finds the German FireRed’s 0xB0 IWRAM shift and the pret pokeruby_de.sym addresses from the English ROMs.) Checked in the running German Emerald, Nov 2026 (souldew 3.0 acceptance)."
+   },
+   "verified": "derived from the English ROM by literal-pool alignment (see sources.evidence); checked live in the German ROM (BPED rev 0, CRC 34C9DF89): the Shared World table and the ROM matrix’s Emerald plan",
+   "world": {
+    "family": "e",
+    "objectEvents": "0x02037350",
+    "playerAvatar": "0x02037590",
+    "fieldCamera": "0x03005DD0",
+    "saveBlock1Ptr": "0x03005D8C",
+    "main": "0x030022C0",
+    "paletteFade": "0x02037FD4",
+    "lockFieldControls": "0x03000F2C",
+    "sprites": "0x02020630",
+    "mapHeader": "0x02037318",
+    "backupMapLayout": "0x03005DC0",
+    "tasks": "0x03005E00",
+    "mapNamePopup": {
+     "rect": [
+      0,
+      0,
+      96,
+      40
+     ],
+     "offsetData": 2,
+     "offsetBase": 40
+    },
+    "rom": {
+     "0": {
+      "overworldCb2": "0x08085E78",
+      "graphicsInfo": "0x08517350",
+      "spritePalettes": "0x0851D8F8",
+      "mapNamePopupTask": "0x080D44D8"
+     }
+    },
+    "avatars": [
+     [
+      "walk",
+      0,
+      89
+     ],
+     [
+      "mach",
+      1,
+      90
+     ],
+     [
+      "acro",
+      63,
+      91
+     ],
+     [
+      "surf",
+      2,
+      92
+     ],
+     [
+      "dive",
+      111,
+      112
+     ],
+     [
+      "fieldmove",
+      3,
+      93
+     ],
+     [
+      "fish",
+      137,
+      138
+     ],
+     [
+      "water",
+      191,
+      192
+     ]
+    ],
+    "source": "The English Emerald’s RAM table, unchanged in the German game: gObjectEvents 320 load sites, gPlayerAvatar 221, gFieldCamera 9, gSaveBlock1Ptr 1667, gMain 791, gPaletteFade 414, sLockFieldControls 18, gSprites 1572, gMapHeader 142, gBackupMapLayout 29, gTasks 2372 – every load site in the aligned German code names the English address. ROM addresses (rev 0): CB2_Overworld and Task_MapNamePopUpWindow have the English bytes (their literal-pool references map to them), gObjectEventGraphicsInfoPointers (284 entries, as in English; also what findGraphicsTable finds) and sObjectEventSpritePalettes from their references. Checked in the running German Emerald, Nov 2026 (souldew 3.0 acceptance): SaveBlock1 pos = the player object’s coords −7, the camera offset mid-step, CB2_Overworld on the overworld, sLockFieldControls with the START menu, the palette fade on the stairs and the door, Task_MapNamePopUpWindow on entering Route 101, the backup map = layout size +15/+14, the player’s sprite. Structs and avatars as in emerald_us."
    }
   },
   {

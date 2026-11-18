@@ -13,7 +13,7 @@ import { layoutKey, LAYOUTS } from '../lib/handheld/layouts.mjs';
 import { placeholderCanvas } from '../lib/handheld/placeholder.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { launchLook, devKey, RARE_ODDS } from '/shared/handheld.mjs';
-import { loadScene, lookNow, sceneWrap, shellColor, CLEAR, playableLook, launchRightsNow, paidLooks } from '../lib/handheld/look.mjs';
+import { loadScene, lookNow, sceneWrap, shellColor, CLEAR, playableLook, launchRightsNow, paidLooks, previewConfig } from '../lib/handheld/look.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { coverOf } from './library.mjs';
 
@@ -269,7 +269,8 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
 
 /**
  * The launch as a preview (Settings, the editor's "Play my launch", the souldew+ page): a small play area with a screen
- * in the game's shape showing the neutral placeholder picture, and the stage over it. cfg as launchConfig(); Off plays Full.
+ * in the game's shape showing the neutral placeholder picture, and the stage over it. cfg: launchConfig() or the config
+ * itself (previewConfig); Off plays Full.
  */
 export function LaunchPreview({ cfg, system, onDone }) {
   const lk = layoutKey(system, 'tb', 'tb');
@@ -283,5 +284,5 @@ export function LaunchPreview({ cfg, system, onDone }) {
     cv.getContext('2d').drawImage(src, 0, 0);
   }, [lk]);
   return html`<div class="hhs-prev"><div class="console-screen hhs-prev-cs" style=${`--arn:${L.W / L.H}`}><canvas ref=${ref}></canvas></div>
-    <${LaunchStage} cfg=${{ ...cfg, pace: cfg.pace === 'off' ? 'full' : cfg.pace }} system=${system} ready picture="placeholder" title="souldew" onDone=${onDone} /></div>`;
+    <${LaunchStage} cfg=${previewConfig(cfg)} system=${system} ready picture="placeholder" title="souldew" onDone=${onDone} /></div>`;
 }
