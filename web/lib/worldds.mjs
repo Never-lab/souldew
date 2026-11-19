@@ -626,6 +626,10 @@ function worldDs(host, t, gfx) {
     if (latest?.task) return; // the game answered the button itself (a sign, someone standing there)
     const me = dsPlayer(t, latest);
     if (!me || me.x !== me.tx * DS_TILE + DS_TILE / 2 || me.y !== me.ty * DS_TILE + DS_TILE / 2) return; // standing still
+    // (HGSS: your own Pokémon on that tile – the game talks to it, the partner waits)
+    const fm = latest?.follow;
+    const step = { [DIR.S]: [0, 1], [DIR.N]: [0, -1], [DIR.W]: [-1, 0], [DIR.E]: [1, 0] }[me.facing] || [0, 0];
+    if (fm?.active && Math.floor(fm.x / DS_TILE) === me.tx + step[0] && Math.floor(fm.z / DS_TILE) === me.ty + step[1]) return;
     const faced = dsFacedPartner(me, list.filter((p) => p.here).map((p) => ({ slot: p.slot, state: p.s })));
     if (faced) ui.openMenu(faced);
   }

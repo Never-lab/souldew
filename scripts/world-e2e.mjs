@@ -32,6 +32,8 @@
 //                              [--lead <n>]  (--plus: the lead every page shows when live tracking can't read the team)
 //                              [--behind --walk up,left,…] (the DS: B walks those steps, A's picture and the map's
 //                                             depth cut after each)
+//                              [--tgds]      (the DS: playing together's ⚔, catch, tombstone, "come here" and the A menu
+//                                             on A's picture, from data handed to A's overlay)
 //                              [--clip]      (a muted clip of A's picture: B walks away and around, A walks and turns)
 // The DS (Gen 4) is driven frame-exactly through the fast player's step() – a tap turns, six frames walk a tile.
 //                              [--plus]      (followers, emotes and rock-paper-scissors: B walks with A's and B's
@@ -272,6 +274,8 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   await shot('10-followers-B', 1, true);
 
   // 3. rock-paper-scissors from the A menu: A next to B, facing them, A → down to the game → Enter
+  // (the DS: B two steps on first – A must not come from B's tile, where HGSS's own Pokémon would then stand between)
+  if (ds) for (const d of ['right', 'right']) await ds.step(1, d);
   const b = await local(1);
   // (the tile left of B first; where a wall or a pillar is there – the Ruby/Sapphire Pokémon Center 2F – the right one,
   // above or below)
@@ -992,6 +996,52 @@ async function main() {
     if (args.includes('--occlusion')) {
       await occlusion({ world, hold, shot, log, sleep, until, out, emu });
       finish(0);
+      return;
+    }
+    if (args.includes('--tgds')) {
+      // the DS and playing together: B a few steps away; A's overlay gets a catch over B, a tombstone
+      // in front of B, B's "come here" and B in a battle – what A's picture draws (the play view feeds the same data from the run)
+      for (const d of ['right', 'right', 'right']) await ds.step(1, d);
+      await sleep(800);
+      const b = (await world(1)).local;
+      const data = { battles: { p2: true }, pops: [{ slot: 'p2', species: 25, shiny: false, form: 0, age: 0 }],
+        tombs: [{ id: 'tomb:p2:test', slot: 'p2', fam: 0, map: b.map, x: b.x - 32, y: b.y + 16, h: b.h }],
+        ping: null };
+      const fam = await emu(0, 'w?.state?.()?.game');
+      const famNo = { platinum_us: 21, heartgold_us: 22, soulsilver_us: 22 }[fam] || 0;
+      data.tombs[0].fam = famNo;
+      const feed = (d) => emu(0, `(w.together(${JSON.stringify(d)}), true)`);
+      for (let n = 0; n < 6; n++) { await feed(data); await sleep(150); }
+      await shot('tg-battle-pop-tomb', 0, true);
+      const r1 = (await world(0))?.together;
+      log('together drawn', JSON.stringify(r1));
+      // "come here" from far to the right: the arrow at the edge
+      const ping = { slot: 'p2', fam: famNo, map: b.map, x: b.x + 16 * 20, y: b.y, h: b.h };
+      for (let n = 0; n < 6; n++) { await feed({ ...data, pops: [], ping }); await sleep(150); }
+      await shot('tg-ping-edge', 0, true);
+      const r2 = (await world(0))?.together;
+      log('ping drawn', JSON.stringify(r2?.ping));
+      // B in a battle: B leaves the field for a menu screen (X, then A: the first item of the menu – a screen of its own),
+      // which sends "hidden" as a battle does; A's overlay, told B battles, keeps B standing there with the ⚔
+      await ds.press(1, 'x');
+      await sleep(900);
+      await ds.press(1, 'a');
+      await until('B hidden', async () => (await world(0))?.partners?.p2?.s?.hidden, 15000).catch(() => null);
+      for (let n = 0; n < 6; n++) { await feed({ ...data, pops: [], ping: null }); await sleep(200); }
+      const r3 = (await world(0))?.together;
+      log('B away in a battle', JSON.stringify(r3));
+      await shot('tg-battling', 0, true);
+      for (let n = 0; n < 4; n++) { await ds.press(1, 'b'); await sleep(700); }
+      await until('B back', async () => (await world(0))?.partners?.p2?.s && !(await world(0)).partners.p2.s.hidden, 20000).catch(() => null);
+      // the menu with a partner who can be given an item: from B's name tag
+      await ev(0, `(() => { const f = document.querySelector('.console-screen iframe'); const t = [...f.contentWindow.document.querySelectorAll('.sw-tag')].find((e) => e.style.opacity !== '0'); t?.click(); return !!t; })()`);
+      await sleep(500);
+      const menu = (await world(0))?.menu;
+      const items = await ev(0, `(() => { const f = document.querySelector('.console-screen iframe'); return [...f.contentWindow.document.querySelectorAll('.sw-menu button')].map((b) => (b.textContent || b.title) + (b.disabled ? ' (off: ' + (b.title || '') + ')' : '')); })()`);
+      log('menu', JSON.stringify(menu), JSON.stringify(items));
+      await shot('tg-menu', 0);
+      writeFileSync(join(out, 'tgds.json'), JSON.stringify({ popTomb: r1, ping: r2?.ping, battling: r3, menu, items }, null, 1));
+      finish(r1?.pops?.length && r1?.tombs?.length && r2?.ping && r3?.battling?.includes('p2') && items.includes('Give item') ? 0 : 1);
       return;
     }
     if (args.includes('--behind')) {

@@ -628,7 +628,8 @@ xMAPs: `sFieldSystem`, `NNS_G3dGlb`, `gSystem`).
    field also while a menu or a message is open on your side; a battle or a menu screen sends "hidden".
 10. **A, the menu, emotes, rock-paper-scissors**: as in Gen 1–3 (`web/lib/worldui.mjs` – one set of controls for every
    generation): standing still on a tile's centre, facing a partner's tile at about your height, A (the game's
-   `heldKeysRaw` or the fast player's input), and no script started by the game within 110 ms.
+   `heldKeysRaw` or the fast player's input), and no script started by the game within 110 ms. In HeartGold/SoulSilver
+   your own Pokémon on that tile wins: the game talks to it, the partner waits (as Yellow's Pikachu does in Gen 1).
 
 ### Limits (Gen 4)
 
@@ -646,13 +647,17 @@ xMAPs: `sFieldSystem`, `NNS_G3dGlb`, `gSystem`).
 - Verified with two players on one Mac (19 Nov 2026, a loaded machine – the games ran at 20–60 % speed): Platinum in
   the Sandgem Pokémon Center 2F (the orthographic camera), HeartGold in New Bark Town (perspective, evening light).
   Clips: `world-e2e.mjs --clip`. The DS recordings' saves hold cloned Pokémon, so live tracking can't read their team:
-  the Platinum follower run used `--lead`.
+  the Platinum follower run used `--lead`. The depth cut (`--behind`, B walking set steps while A watches): in
+  Platinum's Pokémon Center the partner disappears behind the NPC standing south of him and behind the potted plants'
+  leaves, as the game's own player does; in HeartGold behind the follower Pokémon in front of him and the mailbox – both
+  in retrohost and in the souldew engine (`--engine`). The depth buffer itself was dumped and compared with the picture
+  (every NPC, counter, roof and tree canopy is there).
 
 ### Playing together
 
 Owner's goal: multiplayer should feel like *playing together*, not just seeing each other. Four things, built on hooks
 any generation's Shared World gets once it has its tables (a partner's position and map, "in a battle", the run's
-catches and deaths) – today the Game Boy games and Gen 3 – and, where no picture of the game is needed, for every
+catches and deaths) – today the Game Boy games, Gen 3 and Gen 4 (Platinum, HeartGold/SoulSilver) – and, where no picture of the game is needed, for every
 game of a SoulLink.
 
 | Part | Where |
@@ -701,7 +706,7 @@ game of a SoulLink.
      it back). After a restart the giver's app restores its open gifts from the doc and asks.
    - **When:** both games running in souldew with live tracking, never during a battle or a link (a partner linked
      with others: Give item is greyed with the A menu's "In a link with …", like Trade and Battle), and – where the
-     screen state is read (Gen 1–3 today) – only on the overworld with no menu, text or fade (the bag menu keeps its own
+     screen state is read (Gen 1–4 today) – only on the overworld with no menu, text or fade (the bag menu keeps its own
      copy of the list). One gift per pair at a time; offers 3 at once, then one every 10 s, on both ends.
    - **What:** the pockets of ordinary items only (Items, Medicine, Poké Balls, Berries where the game keeps them
      apart); Gen 1's one bag by a list (no key items, badges, fossils, Safari Balls, TMs/HMs). Never the Master Ball
@@ -718,6 +723,14 @@ game of a SoulLink.
    card says "Marius is at Route 110 – come here" (and a card at the bottom of the app for a few seconds). It clears
    when they get within two tiles, after three minutes, when you take it back or call again. Two at once, then one
    every 20 s (both ends).
+
+**On the DS** (`web/lib/worldds.mjs`, the same data): a partner in a battle stands where it began with the ⚔ (the
+standing-in of `standIn`), the catch pops up over their head (the party icon from this computer's ROM – HGSS's icon NARC
+`a/0/2/0` too), the tombstone stands on its tile as a billboard as deep as a game sprite there (hidden by the map like
+the partners; a DS position carries its height, and the tile's centre – Gen 1–3 keep its corner), and the "come here"
+arrow points along the game's own camera – off screen at the edge, over the spot when it's on the picture. A gift waits
+while the DS field isn't free (`gameWhy`: a script, a menu screen, a battle). Checked 19 Nov 2026 with data handed to
+A's overlay (`world-e2e.mjs --tgds`, Platinum and HeartGold) and the A menu's Give item.
 
 Older builds ignore `t: 'tg'` (Shared World and rock-paper-scissors look only at their own types – `test/together.test.mjs`
 checks both). A partner that never sent a status has no gifts offered ("their souldew needs an update"); their board
