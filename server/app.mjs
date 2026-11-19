@@ -2255,8 +2255,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
           if (!file) return send(res, 400, { error: 'bad name', code: 'badRequest' });
           return serveFile(res, file, url.searchParams.get('inline') ? {} : { 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` }, req.method === 'HEAD');
         }
-        if (path === '/api/account/avatar') return accounts.avatar(req, res, url);
-        if (path === '/api/plus/previews/file' && req.method === 'GET') return servePreview(plusPreviews, res, url);
+        // (awaited: a rejection must reach the catch below – an un-awaited one is an unhandled rejection, which leaves the
+        // request without an answer in the app and ends the server of the browser build)
+        if (path === '/api/account/avatar') return await accounts.avatar(req, res, url);
+        if (path === '/api/plus/previews/file' && req.method === 'GET') return await servePreview(plusPreviews, res, url);
         if (path === '/api/library/patched' && req.method === 'GET') {
           const r = preparePatchedRom(url.searchParams.get('romId'), url.searchParams.get('patchId'), () => {}, loadConfig());
           return serveFile(res, r.path);
@@ -2344,7 +2346,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         return res.end();
       }
       // the system browser's way back after "Sign in with Discord" (a navigation from the accounts service, not the app)
-      if (path === '/auth/done') return accounts.authDone(req, res, url);
+      if (path === '/auth/done') return await accounts.authDone(req, res, url);
       if (VENDOR[path]) return serveFile(res, VENDOR[path]);
       if (path === '/live/soullink.lua') {
         // embeds the live bridge token – PRIVATE_GETS (app header or same-origin), not a typed URL / other program
