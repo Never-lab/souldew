@@ -15,8 +15,9 @@ import { t } from './i18n.mjs';
 
 const GONE_MS = 5000; // a partner silent this long is gone from the overlay
 
-/** Systems with a Shared World so far (Gen 1/2 on the Game Boy, Gen 3 on the GBA; the player page checks the game itself). */
-export const WORLD_SYSTEMS = ['gb', 'gbc', 'gba'];
+/** Systems with a Shared World so far (Gen 1/2 on the Game Boy, Gen 3 on the GBA, Gen 4 on the DS; the player page checks
+ * the game itself). */
+export const WORLD_SYSTEMS = ['gb', 'gbc', 'gba', 'nds'];
 
 /** The per-run "Show partners in my game" switch (this computer only, default on). */
 export const worldPrefKey = (runId) => `sl-world-${runId}`;
@@ -125,7 +126,7 @@ export class SharedWorld {
     this.configured.add(win);
     // (true once the player page found this game's tables – the switch shows only then)
     Promise.resolve(w.config({ me: this.me, players: this.players, enabled: this.enabled, actions: this.actions, labels: this.labels(), lead: this.lead, follow: this.follow }))
-      .then((ok) => this.onSupported(!!ok), () => this.onSupported(false));
+      .then((ok) => this.onSupported(!!ok, { follow: w.ownFollower?.() !== false }), () => this.onSupported(false, {}));
     if (this.togetherData) w.together?.(this.togetherData);
   }
 
@@ -141,7 +142,8 @@ export class SharedWorld {
   /** Where I last stood on the overworld: { fam, map, x, y, size } or null (not on it since this game started). */
   position() {
     const st = this.shown?.st;
-    return st && st.fam ? { fam: st.fam, map: st.map, x: st.x, y: st.y, size: this.shown.size || null } : null;
+    // (the DS: its height too – a tombstone stands on the bridge where it happened)
+    return st && st.fam ? { fam: st.fam, map: st.map, x: st.x, y: st.y, ...(Number.isFinite(st.h) ? { h: st.h } : {}), size: this.shown.size || null } : null;
   }
 
   _tick() {

@@ -39,6 +39,7 @@
 #include <Args.h>
 #include <FreeBIOS.h>
 #include <GPU.h>
+#include <GPU3D_Soft.h>
 
 #include <atomic>
 #include <condition_variable>
@@ -589,10 +590,21 @@ size_t d_audio(int seat, int16_t *out, size_t max) {
   return n > 0 ? static_cast<size_t>(spu.ReadOutput(out, n)) : 0;
 }
 
+// Shared World: the 3D depth of the seat's frame on screen (souldew's patch to melonDS, native/melonds-patch – the
+// software renderer keeps it once its rendering is done, before the next frame's starts)
+static int d_depth(int seat, int on, int x, int y, int w, int h, uint32_t *out) {
+  if (seat < 0 || seat >= LINK_MAX_SEATS || !seats[seat].nds) return -1;
+  auto *soft = dynamic_cast<melonDS::SoftRenderer3D *>(seats[seat].nds->GPU.GetRenderer().Souldew3D());
+  if (!soft) return -1;
+  soft->SouldewKeepDepth(on != 0);
+  if (!on || !out) return 0;
+  return soft->SouldewDepth(x, y, w, h, out);
+}
+
 extern "C" const struct link_backend link_backend_melonds = {
     "melonds", d_system, d_probe, d_open, d_close, d_set_input, d_run_frame, d_video, d_fps, d_sram, d_hash,
     d_mem, d_read8, d_write8, d_state_size, d_save_state, d_load_state, d_sample_rate, d_audio,
-    nullptr, d_export, d_import,
+    nullptr, d_export, d_import, d_depth,
 };
 
 // ---- melonDS's platform layer (what the core asks of a frontend) ---------------------------------------------------

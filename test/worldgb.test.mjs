@@ -489,7 +489,7 @@ test('SharedWorld: Yellow’s own Pikachu following you goes out as your followe
   globalThis.dispatchEvent ??= () => true;
   globalThis.CustomEvent ??= class { constructor(type, o) { this.type = type; this.detail = o?.detail; } };
   const { SharedWorld, WORLD_SYSTEMS } = await import('../web/lib/sharedworld.mjs');
-  assert.deepEqual(WORLD_SYSTEMS, ['gb', 'gbc', 'gba']);
+  assert.deepEqual(WORLD_SYSTEMS, ['gb', 'gbc', 'gba', 'nds']);
   const sent = [];
   const sync = { others: ['p2'], status: { partners: { p2: {} } }, onWorld: () => () => {}, sendWorld: (m, o = {}) => (sent.push({ m, relay: !!o.relay }), new Set(['p2'])) };
   let now = 0;

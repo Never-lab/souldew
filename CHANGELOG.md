@@ -5,8 +5,8 @@
 ## 3.0.0
 
 souldew 3.0 brings multiplayer: the players of a run trade Pokémon and battle each other the way the games meant it –
-in the Cable Club, the Colosseum and the Union Room – and in the Game Boy and Game Boy Advance games (Gen 1 to 3) your
-partners walk around in your game.
+in the Cable Club, the Colosseum and the Union Room – and in the Game Boy and Game Boy Advance games (Gen 1 to 3),
+Platinum and HeartGold/SoulSilver your partners walk around in your game.
 Plus a new play view that gives the game the room it deserves.
 
 - **Trade and battle with your partners – Gen 1 to Gen 4, no restart.** On the board, each partner's card has Trade
@@ -89,6 +89,15 @@ Plus a new play view that gives the game the room it deserves.
   randomized games show the right one too. “Show my Pokémon following me” in the play view switches yours off on this
   computer – your partners see it either way. It walks through people and doors like the partners do: the game
   doesn't know it's there.
+- **Shared World in 3D: Platinum, HeartGold and SoulSilver.** Your partners now walk in the DS field too – with their
+  own trainer sprite from your ROM, standing on the ground of the 3D map wherever the camera looks: indoors, outdoors,
+  while it eases after you, smaller further away like everything the game draws. souldew uses the game's own camera,
+  so they stay on their tile to the pixel while you both walk. In HeartGold and SoulSilver they're lit like the field –
+  a blue evening, a dark cave – and their Pokémon walks behind them as the game's own follower does; in Platinum it's
+  the party icon. Names, Trade/Battle/Wave with A, the emotes and rock-paper-scissors work as in Gen 3. They walk
+  behind houses, trees, counters, plants and people exactly like the game's own figures: souldew's DS emulator hands
+  over the depth of the 3D picture, pixel for pixel. Surfing partners sit without their Pokémon. Diamond and Pearl
+  follow later.
 - **Rock-paper-scissors with your partners, fair and square.** Walk up to a partner and press A, click their name tag
   or the hand on their tile, or use “Rock-paper-scissors” in the board's log – that last one works in every game, not
   just the Gen 3 ones. Both pick within 10 seconds; souldew only swaps the hands once both have picked (each side first

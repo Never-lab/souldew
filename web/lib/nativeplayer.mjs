@@ -25,8 +25,8 @@ const SYSTEM = q.get('system') || 'nds';
 // ?link=1&session=<id>: a session the play view opened for a game that wasn't running here (it starts from the save).
 let LINK_SESSION = q.get('link') === '1' ? q.get('session') : null;
 // (retrohost's messages – the link host speaks the same ones plus its own, shared/link.mjs)
-const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, MEM: LINK_MSG.MEM, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE, WATCHED: 16 };
-const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, SEATSTATE: LINK_CMD.SEATSTATE, READ: LINK_CMD.READ };
+const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, MEM: LINK_MSG.MEM, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE, WATCHED: 16, DEPTH: 17 };
+const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, DEPTH: 15, SEATSTATE: LINK_CMD.SEATSTATE, READ: LINK_CMD.READ };
 const post = (m) => window.parent?.postMessage(m, location.origin);
 // ?debug=1 (the ROM matrix): what arrives from the host – events, picture sizes, saves – on the console
 const DEBUG = q.get('debug') === '1';
@@ -174,6 +174,7 @@ const sideBySide = () => SYSTEM === 'nds' && st.lr;
 let pendingFrame = null;
 let lastFrame = null;
 let nextWatched = null; // WATCHED: the bytes the host sends right before a picture (Shared World's camera)
+let nextDepth = null; // DEPTH: the DS's 3D depth in the rectangles the overlay named, for the same picture
 let lastWatched = null; // (the newest of them, drawn or not – Shared World's A press checks what the game shows now)
 // the game's picture in game pixels (the DS side by side: both screens next to each other) and the whole factor it is
 // drawn at (lib/pixelscale.mjs) – the canvas holds pic × pre
@@ -196,6 +197,7 @@ function drawFrame() {
     canvas.height = ch * pic.pre;
     gl.viewport(0, 0, canvas.width, canvas.height);
   }
+  if (f.depth) window.__world?.onDepth?.(f.depth); // (the DS's 3D depth for this picture – before its bytes, which draw it)
   if (f.watched) window.__world?.onWatched(f.watched); // (the overlay draws for exactly this picture)
   if (f.fmt === 2) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, f.w, f.h, 0, gl.RGB, gl.UNSIGNED_SHORT_5_6_5, new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h));
   else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.px);
@@ -240,8 +242,9 @@ function onVideo(p) {
     if (st.switches.length > 20) st.switches.shift();
   }
   if (!pendingFrame) requestAnimationFrame(drawFrame);
-  pendingFrame = { w, h, fmt, px, watched: nextWatched };
+  pendingFrame = { w, h, fmt, px, watched: nextWatched, depth: nextDepth };
   nextWatched = null;
+  nextDepth = null;
   st.frames++;
   if (!st.ready) {
     st.ready = true;
@@ -541,6 +544,7 @@ async function pump() {
       else if (type === MSG.EVENT) onEvent(p);
       else if (type === MSG.LINPUT && LINK_SESSION) post({ type: 'emu-link-input', bytes: p.slice() });
       else if (type === MSG.WATCHED) nextWatched = lastWatched = p.slice();
+      else if (type === MSG.DEPTH) nextDepth = p.slice();
       else if (type === MSG.STATE) waiters.state.shift()?.(p.slice());
       else if (type === MSG.SEATSTATE) waiters.seatState.shift()?.(p.length > 4 ? p.slice(4) : null);
       else if (type === MSG.SEATSRAM && p.length >= 4) onSeatSram(new DataView(p.buffer, p.byteOffset, 4).getUint32(0, true), p.slice(4));
@@ -1038,6 +1042,23 @@ if (!LINK_SESSION) {
     romUrl: q.get('rom'),
     read,
     rect: () => (st.ready ? canvas.getBoundingClientRect() : null),
+    /** The DS's 3D depth in a few rectangles of the top screen with every picture: [[x, y, w, h]…] (≤ 8, ≤ 16384
+     *  pixels), [] stops it. Only souldew's melonDS DS core has it (native/melonds-ds-patch); others send nothing. */
+    depth(rects) {
+      const b = new Uint8Array(4 + rects.length * 8);
+      const v = new DataView(b.buffer);
+      v.setUint32(0, rects.length, true);
+      rects.forEach(([x, y, w, h], i) => (v.setInt16(4 + i * 8, x, true), v.setInt16(6 + i * 8, y, true), v.setUint16(8 + i * 8, w, true), v.setUint16(10 + i * 8, h, true)));
+      if (!st.id || LINK_SESSION) return false;
+      cmd(CMD.DEPTH, b);
+      return true;
+    },
+    /** The DS's top screen (where its 3D field is): the upper half, or the left one side by side. */
+    screen() {
+      if (!st.ready) return null;
+      const r = canvas.getBoundingClientRect();
+      return sideBySide() ? { left: r.left, top: r.top, width: r.width / 2, height: r.height } : { left: r.left, top: r.top, width: r.width, height: r.height / 2 };
+    },
     // (hidden while a seamless link session runs on this page: the Cable Club is no place for partners walking about)
     ready: () => st.ready && !st.ended && !LINK_SESSION,
     /** A few RAM bytes with every picture (WATCH): ranges [[addr, len]…], [] stops it. Only retrohost knows WATCH –
@@ -1058,7 +1079,8 @@ if (!LINK_SESSION) {
     resume: () => window.__emu.resume(),
     post,
     keyButton: (e) => keyMap[e.keyCode],
-    /** The picture on screen: { w, h, fmt (0: 32-bit BGRX, else RGB565), px } – the Game Boy overlay takes its colours from it. */
+    /** The picture on screen: { w, h, fmt (0: 32-bit BGRX, else RGB565), px } – the Game Boy overlay takes its colours from
+     *  it, the DS overlay the field's light (off the player's own sprite). */
     picture: () => lastFrame,
   });
 }
