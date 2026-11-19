@@ -499,6 +499,26 @@ export function logLinkBattle(doc, manifest, sid, o) {
   return true;
 }
 
+/**
+ * A raid that is over (web/lib/raid.mjs): "Marius, Tim & Kim won a raid (1:23 · most damage: Tim)" / "… lost a raid".
+ * Every computer that was in it writes the same entry, keyed by the raid (shared/raid.mjs raidFeedEntry).
+ */
+export function logRaid(doc, manifest, entry) {
+  const key = `feed:raid-${entry.raid}`;
+  if (doc.get(key)) return false;
+  const names = players(doc, manifest);
+  const name = (s) => names[s]?.name || s;
+  const who = joinNames(entry.players.map(name));
+  const time = Number.isFinite(entry.ms) ? `${Math.floor(entry.ms / 60000)}:${String(Math.floor((entry.ms % 60000) / 1000)).padStart(2, '0')}` : '';
+  const m = entry.won
+    ? entry.mvp ? msg('feed.raidWonMvp', '{names} won a raid together ({time} · most damage: {mvp})', { names: who, time, mvp: name(entry.mvp) })
+      : msg('feed.raidWon', '{names} won a raid together ({time})', { names: who, time })
+    : msg('feed.raidLost', '{names} lost a raid ({time})', { names: who, time });
+  const e = { ...entry, slot: null, msg: m };
+  doc.set(key, { ...e, text: feedText(doc, manifest, e) });
+  return true;
+}
+
 /** `slot`'s game paid a lost wager: "Tim paid Marius ₽2,000 (link battle)" – once per session and payer. */
 export function logWagerPaid(doc, manifest, sid, slot, to, amount) {
   const key = `feed:lbp-${sid}-${slot}`;

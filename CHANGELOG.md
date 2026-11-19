@@ -48,6 +48,22 @@ Plus a new play view that gives the game the room it deserves.
 - **Blue or Red with Yellow:** a Game Boy game and a Game Boy Color game link again – Yellow's
   player refused every invite from Red or Blue (“isn't available for this game”), and each seat now runs on its own
   player's console on every computer.
+- **Raids: one trainer, all of you, one shared health bar.** On the board's log, “Raid” asks your partners; they
+  press Join, a short countdown runs, and the next trainer battle each of you walks into is the raid. Every hit in
+  anybody's game comes off one shared HP pool – as a share of each game's HP, so randomized games with other Pokémon
+  work too – and souldew puts the pool into everybody's game while it waits for your move: the opponent's HP bar
+  slides there the game's own way. The trainer is beaten when the pool is empty, in everyone's game at once (the
+  Pokémon that is out keeps 1 HP until your next hit, so the game knocks it out itself). A Pokémon of the trainer's
+  that went down in one game never comes out in the others. Your own team fights normally; whoever's team goes
+  down is out and watches the others in the raid panel and the partner screens. The raid panel in the play view
+  shows the pool per opponent Pokémon and everybody's team; afterwards the result – won or lost, who did the most
+  damage, who's still standing, the time – and one line in the log (“Marius, Tim & Lena won a raid together
+  (1:38 · most damage: Tim)”). Works in Red, Blue, Crystal, FireRed, LeafGreen, Emerald, Platinum, HeartGold and
+  Black 2 (English); not in the 3DS games yet, and the app says why for every other game. A partner on an older 3.0
+  build isn't asked.
+- **Two new host rules:** “Raids” (on by default) and “Deaths in a raid count” (on: a raid is a real battle). With it
+  off, Pokémon that go down in a raid don't count – they stand on the board until you heal them.
+- **Stream tools:** a `raid` event with who took part, won or lost, the MVP, the survivors and the time.
 - **Who's linked shows on the board.** In a run of three or four, while two players trade or battle, the others now
   see “In a link with Tim” on both players' cards right away – Trade and Battle are greyed out with that as the
   reason, instead of an invite that's turned down after the click. “Link all of us” leaves them out, and the Shared
@@ -277,6 +293,10 @@ Plus a new play view that gives the game the room it deserves.
   often, a short tap could fall between two pictures and nothing opened. Now the press counts the moment you make it,
   and whether the game answered it itself (a sign, someone standing there) is checked on what the game shows right
   then.
+- **A DS run opens right away.** Opening a run waited for souldew to read the game's own data out of the game file
+  (its types, a ROM hack's own Pokémon) – a few seconds for a DS game, much longer on a slower PC the first time.
+  All that time you showed as offline to your partners, nothing synced and no trade or battle could start. The run
+  now opens at once and that data comes in a moment later.
 - **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
   keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
   2.8.2 in the souldew engine too.

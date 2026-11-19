@@ -18,11 +18,13 @@ import { HostCode, PackVersionNote } from './invitecode.mjs';
 import { RestartModal } from './restart.mjs';
 import { KeepIntroItem } from './introsave.mjs';
 import { useStreamer } from '../lib/streamer.mjs';
-import { NuzlockeRules, Choice, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, HostRulesNote, BallsRule, LinkRules, GiftRule } from './nuzrules.mjs';
+import { NuzlockeRules, Choice, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, HostRulesNote, BallsRule, LinkRules, GiftRule, RaidRules } from './nuzrules.mjs';
 import { ShareButton, HallOfFame } from './liveshare.mjs';
 import { deathEvent } from '../lib/liveshare.mjs';
 import { LinkButtons, LinkGroupButton, HeadToHead, LINK_SYSTEMS } from './linkplay.mjs';
 import { RpsStart } from './rps.mjs';
+import { RaidStart } from './raid.mjs';
+import { RAID_SYSTEMS } from '/shared/live/raidhp.mjs';
 import { PartnerTogether } from './together.mjs';
 
 
@@ -807,6 +809,7 @@ function LogTab() {
       <button class="btn">${solo ? t('log.add', 'Add') : t('log.send', 'Send')}</button>
       ${!solo && html`<button type="button" class="btn ghost" disabled=${!link} onClick=${() => link?.sendMessage({ type: 'ping', text: t('log.pingText', 'Hey, take a look!') })}>${t('log.ping', 'Ping')}</button>`}
       ${!solo && link && html`<${RpsStart} online=${onlineSlots} />`}
+      ${!solo && html`<${RaidStart} online=${onlineSlots} />`}
     </form>
     <div class="feed" style="max-height:none">
       ${items.length === 0 && html`<p class="small faint">${solo ? t('log.emptySolo', 'Catches, deaths, badges and your notes show up here.')
@@ -950,6 +953,7 @@ export function RulesTab() {
       <h2>${t('rules.options', 'Options')}</h2>
       <${SoulLinkRules} value=${r} onChange=${set} players=${n} disabled=${locked} />
       ${LINK_SYSTEMS.includes(manifest.game?.system) && html`<${LinkRules} value=${r} onChange=${set} disabled=${locked} />`}
+      ${RAID_SYSTEMS.includes(manifest.game?.system) && html`<${RaidRules} value=${r} onChange=${set} disabled=${locked} />`}
       <${GiftRule} value=${r} onChange=${set} disabled=${locked} />
     </section>`}
     <section class="panel stack">
