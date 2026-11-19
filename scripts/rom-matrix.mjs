@@ -29,6 +29,11 @@
 //                 game) – implies --native; each result says which player ran it ("player")
 //   --plan <json> play this plan file instead of the game's own (with --only: a probe for one game)
 //   --saves <dir> where saves for the plans that start from one are, too: <patch or ROM name>.sav or <hack id>.sav
+//   --cheats      the play screen's cheats instead of the whole plan: the plan up to its first team (its first check of
+//                 a party), then every cheat of shared/live/cheats.mjs with every amount, each checked through a read
+//                 of its own (page.mjs `cheats` step; the results under "cheats" in live.json – which games get onto
+//                 the checked lists in cheats.mjs). `--cheat-steps <json>`: steps to run after it (open the bag …);
+//                 `--cheats-at <check>`: after that check of the plan instead (one out of battle: afterbattle …)
 // Zipped ROMs are unpacked one at a time when they are needed and deleted again right after (a DS ROM is up to 512 MB);
 // the same ROM found twice (the same CRC32) is checked once.
 // A plan with "save": true starts from a save instead of a new game: <name>.sav next to the patch (or the ROM) of the
@@ -53,7 +58,7 @@ const opt = (n, d = null) => {
 };
 // ROM folders (or single files): every argument that is neither an option nor an option's value (any order – `npm run
 // matrix -- <dir>` puts them after --live)
-const VALUED = new Set(['--only', '--out', '--tools', '--attempts', '--plan', '--saves']);
+const VALUED = new Set(['--only', '--out', '--tools', '--attempts', '--plan', '--saves', '--cheat-steps', '--cheats-at']);
 const sources = [];
 for (let i = 0; i < args.length; i++) {
   if (VALUED.has(args[i])) i++;
@@ -333,8 +338,9 @@ async function runLive(list) {
     return near.find((f) => f && existsSync(f)) || null;
   };
   const override = opt('plan') ? JSON.parse(readFileSync(resolve(opt('plan')), 'utf8')) : null;
+  const cheatSteps = opt('cheat-steps') ? JSON.parse(readFileSync(resolve(opt('cheat-steps')), 'utf8')) : [];
   const jobs = list.map((r) => {
-    const plan = override || planFor(r);
+    const plan = flag('cheats') ? cheatPlan(override || planFor(r), cheatSteps, opt('cheats-at')) : override || planFor(r);
     if (plan?.save && !saveFor(r)) {
       r.liveResult = { skipped: `the plan starts from a save: put one next to the ${r.patch ? 'patch' : 'ROM'} (${basename(r.patch || r.name, extname(r.patch || r.name))}.sav)` };
       return null;
@@ -389,6 +395,18 @@ async function runLive(list) {
     log(`    party ${mark(L.party)} items ${mark(L.items)} place ${mark(L.place)} battle ${mark(L.battle)} catch ${mark(L.catch)} types ${mark(L.types)} cap ${mark(L.cap)}${L.error ? ` – ${L.error}` : ''}`);
   }
   writeFileSync(join(out, 'live.json'), JSON.stringify(all, null, 1));
+}
+
+/**
+ * --cheats: the plan up to its first check whose expectation is a team (its starter – or, from a save, the team it
+ * loads), then the cheats step and `extra` steps; the rest of the plan is left out. null: no such check.
+ */
+function cheatPlan(plan, extra = [], name = null) {
+  if (!plan) return null;
+  const at = plan.steps.findIndex((s) => s.do === 'check' && (name ? s.name === name : plan.expect?.[s.name]?.party));
+  if (at < 0) return null;
+  const exp = plan.expect?.[plan.steps[at].name];
+  return { ...plan, steps: [...plan.steps.slice(0, at + 1), { do: 'cheats' }, ...extra], expect: exp ? { [plan.steps[at].name]: exp } : {} };
 }
 
 /** Checks the plan's expectations against what the live readers saw. */
@@ -467,6 +485,13 @@ function judge(r, plan, x) {
       verdict.battle = verdict.battle === false ? false : ok;
       verdict.notes.push(`${c.name}: battle ${b?.enemy ? `${b.kind} ${b.enemy.name} Lv${b.enemy.level} ${b.enemy.hp}/${b.enemy.maxHp}` : 'none'}`);
     }
+  }
+  // --cheats: every cheat with every amount, as the page's step checked it
+  const ch = (x.log || []).find((l) => l.do === 'cheats')?.result;
+  if (ch) {
+    verdict.cheats = ch;
+    const ids = Object.entries(ch.cheats).filter(([, v]) => !v.skipped);
+    verdict.notes.push(`cheats (${ch.layout}${ch.checked ? ', checked' : ''}): ${ids.map(([id, v]) => `${id} ${v.ok ? 'ok' : 'FAILED'}`).join(', ') || 'none'}`);
   }
   return verdict;
 }
