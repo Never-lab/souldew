@@ -107,7 +107,7 @@ function BackupNote({ backup }) {
   return html`<div class="stack-s">
     <div class="row"><span class="grow small">${t('set.backupMade', 'Before its first start, souldew 3.0 backed up your runs, saves, save states, settings and trophies ({size}, {date}) – not your games, which stay where they are.', { size: mb(backup.bytes), date })}</span>
       <button class="btn small" onClick=${open}><${Icon} name="folder" size=${14} />${t('set.backupOpen', 'Open backup folder')}</button></div>
-    <span class="small faint">${t('set.backupHint', 'The folder “{name}” is in “backups” next to your data. souldew never touches it again – delete it once you’re sure you don’t need it.', { name: backup.name || '' })}</span>
+    <span class="small faint">${t('set.backupHint', 'The folder “{name}” is in the “backups” folder inside souldew’s data folder. souldew never touches it again – delete it once you’re sure you don’t need it.', { name: backup.name || '' })}</span>
     ${error && html`<span class="small warning error" role="alert">${error}</span>`}
   </div>`;
 }

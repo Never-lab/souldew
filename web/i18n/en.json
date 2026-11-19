@@ -3722,7 +3722,7 @@
   "set.addFolder": "Include a folder",
   "set.appearance": "Appearance",
   "set.backupFailed": "souldew couldn’t make a backup before 3.0. Your data is as it was.",
-  "set.backupHint": "The folder “{name}” is in “backups” next to your data. souldew never touches it again – delete it once you’re sure you don’t need it.",
+  "set.backupHint": "The folder “{name}” is in the “backups” folder inside souldew’s data folder. souldew never touches it again – delete it once you’re sure you don’t need it.",
   "set.backupMade": "Before its first start, souldew 3.0 backed up your runs, saves, save states, settings and trophies ({size}, {date}) – not your games, which stay where they are.",
   "set.backupNoSpace": "souldew didn’t make a backup before 3.0: the disk had {free} free, the backup needs {need} and leaves room for your games. Your data is as it was – nothing was changed for lack of space.",
   "set.backupOpen": "Open backup folder",

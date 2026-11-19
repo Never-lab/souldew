@@ -4236,7 +4236,7 @@
   "feed.olderApp": "{name} usa un souldew più vecchio: scambi, lotte, raid e il mondo condiviso richiedono souldew 3.0 su ogni computer del run. Aggiorna in Impostazioni › Info.",
   "linkplay.olderApp": "{name} usa un souldew più vecchio: scambiare e lottare richiedono souldew 3.0 su entrambi i computer",
   "set.backupFailed": "souldew non è riuscito a fare un backup prima della 3.0. I tuoi dati sono rimasti com’erano.",
-  "set.backupHint": "La cartella «{name}» si trova in «backups» accanto ai tuoi dati. souldew non la tocca più: eliminala quando sei sicuro di non averne bisogno.",
+  "set.backupHint": "La cartella «{name}» si trova nella cartella «backups» dentro la cartella dei dati di souldew. souldew non la tocca più: eliminala quando sei sicuro di non averne bisogno.",
   "set.backupMade": "Prima del primo avvio, souldew 3.0 ha fatto un backup di run, salvataggi, stati salvati, impostazioni e trofei ({size}, {date}) – non dei tuoi giochi, che restano dove sono.",
   "set.backupNoSpace": "souldew non ha fatto un backup prima della 3.0: sul disco c’erano {free} liberi, il backup richiede {need} e lascia spazio ai tuoi giochi. I tuoi dati sono rimasti com’erano – nulla è stato cambiato per mancanza di spazio.",
   "set.backupOpen": "Apri cartella del backup",

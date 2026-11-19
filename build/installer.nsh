@@ -288,8 +288,12 @@ Var sdDeleteData ; "1": the player said yes to deleting the data folder
   ${AndIfNot} ${isUpdated}
     SetShellVarContext current
     ${If} ${FileExists} "${SD_DATA_DIR}\*.*"
+      ; the one-click uninstaller has already switched itself to silent (after its "Are you sure …?"), and a silent
+      ; MessageBox answers /SD on its own without showing – so speak up for this one question, then back to silent
+      SetSilent normal
       MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "$(sdUnDeleteData)" /SD IDNO IDNO +2
       StrCpy $sdDeleteData "1"
+      SetSilent silent
     ${EndIf}
     ${If} $installMode == "all"
       SetShellVarContext all
