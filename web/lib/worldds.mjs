@@ -134,6 +134,7 @@ function worldDs(host, t, gfx) {
   let near = 0;
   let ticks = 0;
   let drawnDebug = {};
+  let trace = null; // diagnostics (trace(true)): per drawn picture where each sprite went
   const awayLog = []; // (diagnostics: on the field ⇄ away)
   let lastA = null; // (diagnostics: the last A press and what came of it)
   let lastOnField = null;
@@ -237,6 +238,14 @@ function worldDs(host, t, gfx) {
 
   /** `fresh`: a new picture's bytes came (the snapshot queue moves on); else the same picture is drawn again. */
   function render(now, fresh) {
+    draw(now, fresh);
+    if (trace && trace.length < 40000) {
+      const me = dsPlayer(t, shown);
+      trace.push({ v: document.timeline?.currentTime ?? null, t: Math.round(now * 100) / 100, p: fresh ? 1 : 0, f: shown?.fc ?? null, me: me ? [me.x, me.y] : null,
+        at: Object.fromEntries(Object.entries(drawnDebug).map(([k, d]) => [k, [d.x, d.y, d.frame, ...(d.w || [])]])) });
+    }
+  }
+  function draw(now, fresh) {
     if (!(++ticks % 30)) rewatch();
     if (fresh) {
       depthNow = depthNext;
@@ -511,19 +520,19 @@ function worldDs(host, t, gfx) {
       anim.set(sp.slot, k);
       const i = dsAvatarFrame(sheet, s.facing, s.moving, k.dist, s.speed || 0, s.kind);
       img = canvasOf(sheet.frames[i].rgba, sheet.w, sheet.h);
-      drawnDebug[sp.slot] = { x: Math.round(bb.x), y: Math.round(bb.y), k: Math.round(bb.k * 100) / 100, frame: i, cut: !!cut };
+      drawnDebug[sp.slot] = { x: Math.round(bb.x), y: Math.round(bb.y), k: Math.round(bb.k * 100) / 100, frame: i, cut: !!cut, w: [sp.at[0], sp.at[2]] };
     } else if (sp.type === 'tomb') {
       img = canvasOf(sheet.frames[0].rgba, sheet.w, sheet.h);
     } else if (sheet.kind === 'overworld') {
       const i = dsFollowerFrame(sheet, sp.f.facing ?? DIR.S, sp.f.moving, sp.f.dist ?? 0);
       img = canvasOf(sheet.frames[i].rgba, sheet.w, sheet.h);
-      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: i };
+      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: i, w: [sp.at[0], sp.at[2]] };
     } else {
       // a party icon: two frames, it looks left – mirrored walking right; stands on the tile like a sprite
       const fr = sp.f.frame & 1;
       img = canvasOf(sheet.frames[fr].rgba, 32, 32);
       flip = sp.f.flip;
-      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: fr };
+      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: fr, w: [sp.at[0], sp.at[2]] };
     }
     // (scale 1 – the interiors and most of the outdoors near the player: whole pixels, crisp like the game's own)
     const k = bb.k;
@@ -695,6 +704,7 @@ function worldDs(host, t, gfx) {
     onWatched(bytes) {
       if (!watched || !bytes || bytes.length !== 4 + watched.total) return;
       watched.bytes = bytes.subarray(4);
+      watched.frameNo = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
       if (!stopped) render(performance.now(), true);
     },
     input(bits) {
@@ -719,6 +729,13 @@ function worldDs(host, t, gfx) {
       rewatch();
     },
     menuOpen: () => ui.modal(),
+    trace(on) {
+      if (on === true) trace = [];
+      else if (on === false) trace = null;
+      const out = trace;
+      if (on === undefined && trace) trace = [];
+      return out;
+    },
     debug() {
       const now = performance.now();
       const me = dsPlayer(t, latest);

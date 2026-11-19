@@ -78,6 +78,8 @@ export function installWorld(host) {
     menuOpen: () => !!st?.menuOpen?.(),
     /** tests / diagnostics */
     state: () => st?.debug() || null,
+    /** diagnostics: trace(true) records every drawn picture's sprite positions, trace() hands them over (and clears) */
+    trace: (on) => st?.trace?.(on) ?? null,
     /** tests: the picture the overlay was drawn for (the native player's last one) */
     picture: () => host.picture?.() || null,
     stop: () => st?.stop(),
@@ -167,6 +169,8 @@ function world(host, t, rom, dex) {
   let conns = null; // this map's size and connections, this picture
   let fdraw = {}; // diagnostics: the followers drawn this picture
   let ownLast = null; // diagnostics: your own follower this picture
+  let trace = null; // diagnostics (trace(true)): per drawn picture where each sprite went – [{ v, t, p, f, cam, me, at }]
+  let traced = {}; // (this picture's: slot → [x, y] drawn, 'f:slot' its follower)
   const spriteCache = {};
   const frameCache = new Map();
   // the Game Boy games (shared/worldgb.mjs): sprites and icons as colour numbers, coloured with the palette of the moment
@@ -428,7 +432,15 @@ function world(host, t, rom, dex) {
     render(now);
   }
   /** One picture of the overlay – every animation frame, and again right when the native player shows a new picture. */
-  function render(now) {
+  function render(now, fresh = false) {
+    traced = {};
+    draw(now);
+    if (trace && trace.length < 40000) {
+      trace.push({ v: document.timeline?.currentTime ?? null, t: Math.round(now * 100) / 100, p: fresh ? 1 : 0, f: watched?.frameNo ?? null,
+        cam: cam ? [cam.cx, cam.cy] : null, at: traced });
+    }
+  }
+  function draw(now) {
     if (!(++ticks % 30)) rewatch();
     const read = reader();
     cam = readCamera(t, read, gb && watched?.before ? rangeReader(watched.ranges, watched.before) : null);
@@ -592,6 +604,7 @@ function world(host, t, rom, dex) {
     const n = drawSprite(ic.frames[fr], ic.rgba[fr], ic.w, ic.h, x, y, f.flip, p.elev, gb && grassAt(f.x, f.y));
     p.box = { x: x + left, y: y + ic.top, w: right - left + 1, h: ic.bottom - ic.top + 1 };
     fdraw[p.slot] = { species: p.lead.species, x: Math.round(p.pos.x), y: Math.round(p.pos.y), flip: f.flip, frame: fr, moving: f.moving, covered: n };
+    traced[`f:${p.slot}`] = [x, y, fr];
     // a shiny one sparkles now and then (a Gen 2 icon has its shiny colours; Gen 1 has no shiny ones)
     if (p.lead.shiny && !gb) {
       const k = (now % 2400) / 2400;
@@ -626,6 +639,7 @@ function world(host, t, rom, dex) {
     const x = Math.round(p.pos.x + TILE / 2 - a.w / 2);
     const y = Math.round(p.pos.y + TILE - a.h) + (t.spriteDy || 0);
     covered[p.slot] = drawSprite(a.frames[i], a.rgba[i], a.w, a.h, x, y, c.flip, s.elev, gb && grassAt(s.x, s.y));
+    traced[p.slot] = [x, y, i];
     p.box = { x, y, w: a.w, h: a.h };
   }
 
@@ -787,7 +801,8 @@ function world(host, t, rom, dex) {
           watched.frame = f;
         }
       } else watched.bytes = bytes.subarray(4);
-      if (!stopped) render(performance.now()); // (the picture these bytes belong to is being drawn right now)
+      watched.frameNo = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+      if (!stopped) render(performance.now(), true); // (the picture these bytes belong to is being drawn right now)
     },
     input(bits) {
       inputBits = bits >>> 0;
@@ -803,6 +818,13 @@ function world(host, t, rom, dex) {
       rewatch();
     },
     menuOpen: () => ui.modal(),
+    trace(on) {
+      if (on === true) trace = [];
+      else if (on === false) trace = null;
+      const out = trace;
+      if (on === undefined && trace) trace = [];
+      return out;
+    },
     debug() {
       const now = performance.now();
       const me0 = gb && cam ? readPlayer(t, reader(), cam) : null;
