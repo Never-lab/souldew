@@ -513,7 +513,9 @@ export class Track {
     const last = this.buf[this.buf.length - 1];
     if (last) {
       const gap = st.t - last.t;
-      if (gap > 0 && gap < 3000) {
+      // (a heartbeat while standing still says nothing about how fast walking states arrive: kept out, or the delay
+      // sits at its cap while idle and drops by ~0.5 s the moment the partner walks off – a jump forward)
+      if (gap > 0 && gap < SEND.idleMs * 0.9) {
         this.gaps.push(gap);
         if (this.gaps.length > 20) this.gaps.shift();
       }
@@ -531,6 +533,22 @@ export class Track {
   }
 
   /**
+   * The delay the picture uses at `now`: follows `delay`, but never faster than half a millisecond per millisecond, so
+   * a change in the network's rhythm slows the partner down or speeds them up a little instead of making them jump.
+   */
+  renderDelay(now) {
+    const target = this.delay;
+    if (this._rd === undefined || !Number.isFinite(this._rdAt) || now < this._rdAt) {
+      this._rd = target;
+    } else {
+      const step = (now - this._rdAt) * 0.5;
+      this._rd = this._rd < target ? Math.min(target, this._rd + step) : Math.max(target, this._rd - step);
+    }
+    this._rdAt = now;
+    return this._rd;
+  }
+
+  /**
    * The state at `now` (our clock): { map, x, y, facing, kind, gender, run, fam, moving, hidden } or null.
    * `conv(state)` (optional): the state's position in the local player's frame – { x, y } or null (another map that
    * isn't connected to yours). With it, x/y come back in that frame (`local: true`, or `away: true` when it has none)
@@ -545,7 +563,7 @@ export class Track {
       return p ? { ...st, x: p.x, y: p.y, local: true } : { ...st, away: true };
     };
     const same = (p, q) => p.fam === q.fam && (conv ? !!p.local && !!q.local : p.map === q.map);
-    const rt = now - this.offset - this.delay; // render time on the sender's clock
+    const rt = now - this.offset - this.renderDelay(now); // render time on the sender's clock
     let i = b.length - 1;
     while (i > 0 && b[i].t > rt) i--;
     const a = at(b[i]);
