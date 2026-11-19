@@ -64,6 +64,7 @@ const TEXTS = {
   introEmpty: () => t('err.introEmpty', 'There is no game save in this file yet – save in the game first'),
   introUnsupported: () => t('err.introUnsupported', 'Intro saves don’t work for this game'),
   runNotFound: () => t('err.runNotFound', 'Run not found'),
+  backupGone: () => t('err.backupGone', 'The backup folder is gone – it was moved or deleted.'),
   runBuilding: () => t('err.runBuilding', 'This run is being built right now'),
   runIsLocal: () => t('err.runIsLocal', 'This run was created on this computer and can’t be replaced by a run pack'),
   notHost: () => t('err.notHost', 'Only the host can change the rules of this run'),

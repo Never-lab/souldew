@@ -6,6 +6,7 @@ import { LINKS } from '../lib/links.mjs';
 import { resolve as resolveControls, resolveHotkeys, keyLabel, HOTKEY_ROWS } from '../lib/controls.mjs';
 import { shortcut, IS_MAC } from '../lib/platform.mjs';
 import { ShowFirstStepsButton } from './firststeps.mjs';
+import { WHATS_NEW_EVENT } from '../lib/whatsnew.mjs';
 
 /**
  * A key binding for display, with its modifiers: "Tab", "⇧ Tab" / "⌘+" on a Mac, "Shift+Tab" / "Ctrl+R" elsewhere – "–"
@@ -117,7 +118,8 @@ export function GuideView() {
   const { route, status } = useApp();
   const [tab, setTab] = useState(route.params.tab || 'start');
   return html`<div class="stack-l">
-    <div class="topbar"><h1>${t('guide.title', 'Help')}</h1></div>
+    <div class="topbar"><h1>${t('guide.title', 'Help')}</h1>
+      <button class="btn small ghost" onClick=${() => dispatchEvent(new Event(WHATS_NEW_EVENT))}><${Icon} name="star" size=${14} />${t('wn.open', 'What’s new in 3.0')}</button></div>
     <div class="tabs" role="tablist" data-pad-tabs>
       ${[['start', t('guide.start', 'Getting started')], ['keys', t('guide.keys', 'Controls & shortcuts')], ['faq', t('guide.faq', 'Questions')]]
         .map(([k, l]) => html`<button role="tab" aria-selected=${tab === k} class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}

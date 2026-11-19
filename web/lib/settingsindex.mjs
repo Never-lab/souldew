@@ -28,7 +28,7 @@ export const SETTINGS = [
   { id: 'name', section: 'general', keys: ['set.name'], kw: 'player name nickname username spielername nom pseudo nombre jugador nome giocatore' },
   { id: 'animations', section: 'general', keys: ['set.boot'], kw: 'boot intro start-up startup cartridge animation motion reduce motion' },
   { id: 'sounds', section: 'general', keys: ['set.soundsAll'], kw: 'audio chime ping notification sfx effects töne geräusche klänge sons sonidos suoni' },
-  { id: 'tour', section: 'general', keys: ['set.replayOnboarding', 'fs.showAgain'], kw: 'onboarding welcome intro tutorial first start first steps checklist willkommen erste schritte bienvenue premiers pas bienvenida primeros pasos benvenuto primi passi' },
+  { id: 'tour', section: 'general', keys: ['set.replayOnboarding', 'fs.showAgain', 'wn.open'], kw: 'onboarding welcome intro tutorial first start first steps checklist whats new news 3.0 update neuigkeiten neu nouveautés novedades novità willkommen erste schritte bienvenue premiers pas bienvenida primeros pasos benvenuto primi passi' },
   { id: 'theme', section: 'general', keys: ['set.appearance', 'set.theme', 'set.themeText', 'theme.classic', 'theme.contrast', 'theme.deutan', 'theme.tritan'],
     kw: 'appearance colour color colors colours dark mode high contrast colour-blind colorblind color blind accessibility a11y design look darstellung farbe farbenblind kontrast couleur daltonien contraste color daltónico colore daltonico' },
   { id: 'skin', section: 'general', keys: ['skin.title', 'skin.note', 'skin.dark', 'skin.light'],
@@ -78,6 +78,7 @@ export const SETTINGS = [
   { id: 'account-data', section: 'account', keys: ['acct.dataTitle', 'acct.export', 'acct.delete'], kw: 'export download gdpr dsgvo data delete account remove rgpd datos dati' },
   // About
   { id: 'updates', section: 'about', keys: ['set.versionUpdates', 'upd.check'], kw: 'update updates version release download upgrade new version aktualisierung mise à jour actualización aggiornamento' },
+  { id: 'backup', section: 'about', keys: ['set.backupOpen', 'set.backupMade'], kw: 'backup back up restore copy safety upgrade 3.0 sicherung datensicherung sauvegarde copia de seguridad copia di sicurezza' },
   { id: 'gpu', section: 'about', keys: ['set.gpu', 'set.gpuHint', 'set.trouble'],
     kw: 'graphics backend vulkan opengl direct3d d3d11 gpu graphics card driver stutter crackle blank window black screen grafik grafikkarte graphique gráfica grafica' },
   { id: 'ctr-renderer', section: 'about', keys: ['set.ctrRenderer', 'set.ctrRendererHint', 'set.trouble'],

@@ -45,6 +45,8 @@ import { FirstStepsPill } from './views/firststeps.mjs';
 import { useCoffeeFx, CoffeeFx } from './views/coffee.mjs';
 import { LicenseNag } from './views/nag.mjs';
 import { countLaunch, shouldNag } from './lib/nag.mjs';
+import { WhatsNew } from './views/whatsnew.mjs';
+import { mayShowWhatsNew, whatsNewPending, whatsNewSeenPatch, WHATS_NEW_EVENT } from './lib/whatsnew.mjs';
 import { mySlotIn } from './lib/restart.mjs';
 import { initRules, setupHostRules } from './lib/hostrules.mjs';
 import { IS_MAC, IS_WIN, PLATFORM, shortcut } from './lib/platform.mjs';
@@ -316,10 +318,34 @@ function App() {
     }
     const next = countLaunch(status.config?.nag);
     const free = () => !!status.config?.onboarded && !sessionRef.current && !document.querySelector('dialog[open]');
-    const show = free() && shouldNag({ ...next, off: status.config?.nagOff });
+    // (never on the first start after the update to 3.0 – the "What's new" cards have that moment)
+    const show = free() && !whatsNewPending(status.config) && shouldNag({ ...next, off: status.config?.nagOff });
     api.post('/api/config', { nag: show ? { ...next, lastShown: Date.now() } : next }).catch(() => {});
     if (show) setTimeout(() => free() && setNag({ launches: next.launches }), 1500);
   }, [ready, boot, status]);
+  // "What's new in 3.0" (views/whatsnew.mjs): once after the update from 2.x – when nothing else is in the way (the
+  // welcome tour, the start-up animation, a game, another dialog: lib/whatsnew.mjs), so it may wait for the game to
+  // close – and again whenever Help or Settings ask for it (WHATS_NEW_EVENT). Closing it counts as seen.
+  const [whatsNew, setWhatsNew] = useState(false);
+  const whatsNewDone = useRef(false);
+  useEffect(() => {
+    if (!ready || whatsNew || whatsNewDone.current) return undefined;
+    const free = () => mayShowWhatsNew({ config: status?.config, boot, playing: !!sessionRef.current, dialogOpen: !!document.querySelector('dialog[open]') });
+    if (!free()) return undefined;
+    const id = setTimeout(() => { if (free() && !whatsNewDone.current) setWhatsNew(true); }, 900);
+    return () => clearTimeout(id);
+  }, [ready, boot, status, session, whatsNew]);
+  useEffect(() => {
+    const open = () => setWhatsNew(true);
+    addEventListener(WHATS_NEW_EVENT, open);
+    return () => removeEventListener(WHATS_NEW_EVENT, open);
+  }, []);
+  const closeWhatsNew = useCallback(() => {
+    setWhatsNew(false);
+    if (whatsNewDone.current || !whatsNewPending(status?.config)) return;
+    whatsNewDone.current = true;
+    api.post('/api/config', whatsNewSeenPatch()).then(() => reloadStatus()).catch(() => {});
+  }, [status]);
   useEffect(() => {
     // for trying it out: dispatchEvent(new Event('souldew:nag'))
     const open = () => setNag({ launches: Math.max(5, (status?.config?.nag?.launches) || 5) });
@@ -1087,6 +1113,7 @@ function App() {
       <p class="muted">${unsavedTexts(unsavedProgress()).text}</p>
     <//>
     <${LicenseNag} open=${!!nag} launches=${nag?.launches} onClose=${() => setNag(null)} />
+    <${WhatsNew} open=${whatsNew} onClose=${closeWhatsNew} />
     ${manifest && linkPlay && !playFold && html`<${LinkBar} />`}
     <${Toasts} toasts=${toasts} dismiss=${(id) => setToasts((ts) => ts.filter((x) => x.id !== id))} />
     <${TrophyToasts} items=${trophyToasts} navigate=${navigate} dismiss=${(key) => setTrophyToasts((ts) => ts.filter((x) => x.key !== key))} />
