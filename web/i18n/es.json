@@ -4052,5 +4052,6 @@
   "rules.raidDeaths": "Las muertes en una incursión cuentan",
   "rules.raidDeathsHint": "Una incursión es un combate de verdad. Desactivado: los Pokémon que caigan en ella no cuentan – cúralos en un Centro Pokémon.",
   "rules.raids": "Incursiones",
-  "rules.raidsHint": "Luchad juntos contra el próximo entrenador: cada golpe en cualquiera de vuestros juegos se resta de una sola reserva de PS, así cae en todos vuestros juegos a la vez."
+  "rules.raidsHint": "Luchad juntos contra el próximo entrenador: cada golpe en cualquiera de vuestros juegos se resta de una sola reserva de PS, así cae en todos vuestros juegos a la vez.",
+  "raid.titleBoss": "Incursión · {name}"
 }

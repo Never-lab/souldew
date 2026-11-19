@@ -4052,5 +4052,6 @@
   "rules.raidDeaths": "Tode im Raid zählen",
   "rules.raidDeathsHint": "Ein Raid ist ein echter Kampf. Aus: Pokémon, die dabei umfallen, zählen nicht – heil sie im Pokémon-Center.",
   "rules.raids": "Raids",
-  "rules.raidsHint": "Kämpft gemeinsam gegen den nächsten Trainer: Jeder Treffer in irgendeinem eurer Spiele geht von einem gemeinsamen KP-Pool ab, also ist er in allen Spielen zugleich besiegt."
+  "rules.raidsHint": "Kämpft gemeinsam gegen den nächsten Trainer: Jeder Treffer in irgendeinem eurer Spiele geht von einem gemeinsamen KP-Pool ab, also ist er in allen Spielen zugleich besiegt.",
+  "raid.titleBoss": "Raid · {name}"
 }

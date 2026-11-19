@@ -202,7 +202,8 @@ export function raidStatus(raid, seats, { now = Date.now(), goSeen = null } = {}
   const pool = foldPool(raid, seats);
   const base = { roster, pool, players, outWhy };
   if (raid.state === 'cancel') return { ...base, phase: 'cancelled' };
-  if (raid.state === 'open') return { ...base, phase: now - raid.at > RAID.keepMs ? 'stale' : 'invite' };
+  // (the host starts it RAID.answerMs after asking at the latest: still open long after that, their app is gone)
+  if (raid.state === 'open') return { ...base, phase: now - raid.at > RAID.answerMs * 4 ? 'stale' : 'invite' };
   // won: every slot empty, with every player's battle known (a player still on their way may bring a bigger party –
   // a randomizer that adds Pokémon); lost: everybody out
   const known = roster.every((s) => seats[s]?.b || seats[s]?.out);

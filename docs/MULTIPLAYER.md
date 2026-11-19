@@ -716,7 +716,7 @@ went down in another game, which the trainer then never sends out. Our own write
 |---|---|---|---|---|---|
 | 1 | Red, Blue (US/EU) | `wEnemyMonHP` / `wEnemyMons` (+1) | the battle menu's parameters (`wTopMenuItemY/X`, `wMaxMenuItem`) | tiles in `wTileMap` and its saved copy `wTileMapBackup` (DrawHPBar's tiles) – drawn at once; its colour follows at the game's next redraw | rival in Oak's lab: 2 and 3 games, the app e2e |
 | 2 | Crystal (US) | `wEnemyMonHP` / `wOTPartyMons` (+0x22) | the battle menu's 2D menu, or the move menu with its “TYPE/” box | tiles in `wTilemap` (the saved copy is in WRAM bank 2, out of reach: souldew draws the bar again while the move menu waits) | a wild battle on Route 29 driven as a trainer's (lab, 2 games) |
-| 3 | FireRed, LeafGreen (rev 0, 1), Emerald (US) | `gBattleMons[b].hp` / `gEnemyParty` (+0x56, outside the encrypted part) | `gBattleMainFunc` = HandleTurnActionSelectionState, the player's controller in HandleInputChooseAction/Move, the opponent's idle | the game's own **HP bar update**: `CONTROLLER_HEALTHBARUPDATE` in `gBattleBufferA` and the opponent's controller pointed at its handler – the bar slides from the party HP; the party HP only after it (FR/LG's first rival battle: no bar command – Oak's lesson would start in the menu; there the bar catches up with the next hit) | FireRed: rival in Oak's lab, 3 games, the app e2e; Emerald: lab, 2 games (bar command) |
+| 3 | FireRed, LeafGreen (rev 0, 1), Emerald (US) | `gBattleMons[b].hp` / `gEnemyParty` (+0x56, outside the encrypted part) | `gBattleMainFunc` = HandleTurnActionSelectionState, the player's controller in HandleInputChooseAction/Move, the opponent's idle | the game's own **HP bar update**: `CONTROLLER_HEALTHBARUPDATE` in `gBattleBufferA` and the opponent's controller pointed at its handler – the bar slides from the party HP; the party HP only after it (FR/LG's first rival battle, until Oak's first lesson was shown: no bar command – it would start his lesson in the action menu; the bar then catches up with that game's next hit) | FireRed: rival in Oak's lab, 3 games, the app e2e; Emerald: lab, 2 games (bar command) |
 | 4 | Platinum, HeartGold (US) | `BattleContext.battleMons[b].curHP` / the party Pokémon (+0x8E, PID-encrypted, no checksum) | battle command 5, the player's battler in a menu, no opponent command/queue/bar task | the game's own UpdateHPGauge command (queue entry, message, command byte) | Platinum vs Barry (lab, 2 games), HeartGold vs Bug Catcher Al (incl. a party member written to 30 % and 0) |
 | 5 | Black 2 (US/EU) | the server's and the client's battle copies (both, only while they agree) | the input proc in the action/move menu, single battles only | the gauge's own “HP changed” request (damage + flag) | Hugh's first battle (lab, 2 games; an extra-Pokémon variant for the party copies) |
 | 6/7 | X/Y, ORAS, Sun/Moon, US/UM | – | – | – | **not supported**: in souldew's 3DS host Hau's first battle never started in Sun (7 tries, three cores, old and new 3DS mode), so no write could be checked; the app says “Not in the 3DS games” |
@@ -749,12 +749,16 @@ Writes happen only in a trainer battle that isn't a link battle, while the game 
 
 **End to end** (`scripts/raid-e2e.mjs`: two or three souldew servers with scratch data folders, every page in
 Electron, hidden and muted, the souldew engine; every game loads the same save state from just before the battle; A
-starts the raid from the board, the others press Join, everybody walks into the battle, turns of hits):
+starts the raid from the board, the others press Join, everybody walks into the battle, turns of hits; `--skins` adds
+the raid panel in other colours). FireRed's first rival battle is Oak's lesson: until his “Inflicting damage…” text
+was shown (`gBattleStruct->simulatedInputState[2]` bit 0) the bar command is left out and the bar follows with that
+game's next hit – after it, the bar slides as everywhere else:
 
 | Game | Players | Result |
 |---|---|---|
 | Red (US/EU), rival in Oak's lab | 2 | won in both games; every hit mirrored (pool and both games' HP: 20 → 15 → 11 → 8 → 5 → 2, then 1 HP and the last hit in the other game); one log entry on both computers; muted clips |
 | FireRed (US), rival in Oak's lab | 3 | won in all three games; every hit mirrored into the other two (19 → … → 6 → 2 → 1/0); one log entry on all three |
+| FireRed (US), rival in Oak's lab | 2 | won in both games (15 → 11 → 7 → 3 → 1/0); the raid panel checked in the default colours, the high-contrast theme and five souldew+ skins (Fieldbook, Sakura, Cartridge Grey – light; Paper Lantern, Midnight Ink – dark), fighting and with the result |
 
 **Ideas not built.** A named boss (a gym leader or the Elite Four from the game's trainer table – `romcaps.mjs`
 already finds them; the games of a pair run have different tables); raids in the Shared World A menu; a “Win a raid”

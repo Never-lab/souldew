@@ -4052,5 +4052,6 @@
   "rules.raidDeaths": "Le morti nei raid contano",
   "rules.raidDeathsHint": "Un raid è una vera lotta. Disattivato: i Pokémon che vanno KO non contano – curali in un Centro Pokémon.",
   "rules.raids": "Raid",
-  "rules.raidsHint": "Affrontate insieme il prossimo allenatore: ogni colpo in uno qualsiasi dei vostri giochi viene tolto da un’unica riserva di PS, così è sconfitto in tutti i vostri giochi nello stesso momento."
+  "rules.raidsHint": "Affrontate insieme il prossimo allenatore: ogni colpo in uno qualsiasi dei vostri giochi viene tolto da un’unica riserva di PS, così è sconfitto in tutti i vostri giochi nello stesso momento.",
+  "raid.titleBoss": "Raid · {name}"
 }

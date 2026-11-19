@@ -116,6 +116,7 @@ test('raids in the doc: keys, the roster, seats of players who weren\'t invited 
 test('phases: invite, countdown, hunt, fight, won once every battle is known and every slot empty, lost once everybody is out', () => {
   const r = raid(['p1', 'p2']);
   assert.equal(R.raidStatus({ ...r, state: 'open' }, {}, { now: 2000 }).phase, 'invite');
+  assert.equal(R.raidStatus({ ...r, state: 'open' }, {}, { now: 1000 + R.RAID.answerMs * 4 + 1 }).phase, 'stale', 'the host\'s app went away before it started');
   assert.equal(R.raidStatus({ ...r, state: 'cancel' }, {}, { now: 2000 }).phase, 'cancelled');
   const ready = { p1: seat({ b: null }), p2: seat({ b: null }) };
   assert.equal(R.raidStatus(r, ready, { now: 3000, goSeen: 2000 }).phase, 'countdown');
@@ -505,4 +506,56 @@ test('"Deaths in a raid count" off: Pokémon that went down in the raid stand un
   assert.equal(hub.spared([{ key: 'a', hp: 20, maxHp: 20 }]), null);
   assert.deepEqual(doc.get('raidspared:p1'), []);
   hub.stop();
+});
+
+test('Platinum: the opponent\'s party HP in its encrypted block; the one out from the battle; quiet only while the battle waits for the player', () => {
+  const e = entryOf('platinum_us');
+  const m = new Uint8Array(0x400000);
+  const put = (a, bytes) => m.set(bytes, a - 0x02000000);
+  const read = (a, n) => (a >= 0x02000000 && a + n <= 0x02400000 ? m.slice(a - 0x02000000, a - 0x02000000 + n) : null);
+  const key = (pid, w) => { let s = pid >>> 0; let k = 0; for (let i = 0; i <= w; i++) { s = (Math.imul(s, 0x41c64e6d) + 0x6073) >>> 0; k = s >>> 16; } return k; };
+  const le16b = (v) => [v & 0xff, (v >> 8) & 0xff];
+  put(Number(e.inBattle.addr), le16b(0x2100));
+  const save = 0x02200000;
+  put(0x02101d40, le32b(save));
+  const ctx = save + 0x44878;
+  const sys = save + 0x417fc;
+  const party = 0x02300000;
+  const bd1 = 0x02310000;
+  const pid = 0x1234abcd;
+  put(sys + 0x30, le32b(ctx));
+  put(sys + 0x44, le32b(2));
+  put(sys + 0x34, [...le32b(0x02310400), ...le32b(bd1)]);
+  put(sys + 0x2c, le32b(1)); // a trainer battle
+  put(sys + 0x68 + 4, le32b(party));
+  put(sys + 0xa0, [0, 0, 0x53, 0x03]);
+  put(party, [...le32b(6), ...le32b(1)]);
+  const mon = party + 8;
+  put(mon, le32b(pid));
+  put(mon + 0x8c, le16b(5 ^ key(pid, 2)));
+  put(mon + 0x8e, le16b(19 ^ key(pid, 3)));
+  put(mon + 0x90, le16b(19 ^ key(pid, 4)));
+  // the one out: battler 1 is party slot 0, 19/19
+  put(ctx + 0x2d40 + 0xc0, le16b(390));
+  put(ctx + 0x2d40 + 0xc0 + 0x4c, le32b(19));
+  put(ctx + 0x2d40 + 0xc0 + 0x50, le32b(19));
+  put(ctx + 0x2d40 + 0xc0 + 0x68, le32b(pid));
+  put(ctx + 0x2d40 + 0xc0 + 0x34, [5]);
+  put(ctx + 0x08, le32b(5)); // the battle waits for the player's command
+  put(ctx, [1, 0, 0, 0]); // the player's battler in its action menu
+  const v = H.raidView(e, read, {});
+  assert.equal(v.quiet, true);
+  assert.equal(v.trainerId, 851);
+  assert.deepEqual(v.foes.map(({ debug, ...f }) => f), [{ idx: 0, hp: 19, maxHp: 19, level: 5 }]);
+  const w = H.raidWrites(e, read, {}, v, 0, 10);
+  assert.deepEqual([...w[0].bytes], le16b(10 ^ key(pid, 3)), 'the party copy, encrypted');
+  assert.deepEqual([w[1].addr, [...w[1].bytes]], [ctx + 0x2d40 + 0xc0 + 0x4c, le32b(10)], 'the battle\'s HP');
+  // its bar shows 19: the game's own UpdateHPGauge command (queue entry, message, command byte last)
+  put(bd1 + 0x50, le32b(19));
+  assert.deepEqual(H.raidWrites(e, read, {}, v, 0, 10).slice(2).map((x) => x.addr), [ctx + 0x2200 + 16, bd1 + 0x95, bd1 + 0x94]);
+  assert.equal(H.raidWrites(e, read, {}, v, 0, 0)[1].bytes[0], 1, 'never 0 for the one out');
+  put(ctx + 0x08, le32b(22)); // the turn runs
+  assert.equal(H.raidView(e, read, {}).quiet, false);
+  put(Number(e.inBattle.addr), le16b(0x2800));
+  assert.equal(H.raidView(e, read, {}), null, 'the overworld: the battle\'s memory keeps its bytes, the word decides');
 });

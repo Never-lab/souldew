@@ -7,6 +7,7 @@ import { useApp, Sprite, HpBar } from '../lib/ui.mjs';
 import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
 import { useRaid } from '../lib/raid.mjs';
+import { speciesName } from '../lib/data.mjs';
 import { players as getPlayers, slotsOf } from '../lib/run.mjs';
 import { RAID, FULL, rosterOf, raidResult, durationText } from '/shared/raid.mjs';
 
@@ -119,7 +120,11 @@ function Pools({ pool, gen = 4, species = null }) {
 
 /** The result of a finished raid. */
 function Result({ cur, name, me }) {
+  const { doc } = useApp();
   const res = raidResult(cur.raid, cur.seats, cur.st);
+  // (the time the log says: the moment the pool emptied – not the last game's final hit)
+  const logged = doc?.get?.(`feed:raid-${cur.id}`)?.ms;
+  if (Number.isFinite(logged)) res.ms = logged;
   return html`<dl class="raid-res">
     ${res.mvp && html`<dt>${t('raid.mvp', 'Most damage')}</dt><dd><b class=${`who-${res.mvp}`}>${res.mvp === me ? t('raid.you', 'You') : name(res.mvp)}</b> · ${t('raid.mvpShare', '{pct} of it', { pct: `${Math.round((res.dealt[res.mvp] / Math.max(1, Object.values(res.dealt).reduce((a, b) => a + b, 0))) * 100)} %` })}</dd>`}
     <dt>${t('raid.survivors', 'Still standing')}</dt><dd>${res.survivors.length ? res.survivors.map((s) => (s === me ? t('raid.you', 'You') : name(s))).join(', ') : t('raid.nobody', 'nobody')}</dd>
@@ -156,6 +161,9 @@ function RaidBlock({ c, where, species = null, gen = 4 }) {
   } else if (st.phase === 'countdown') {
     say = t('raid.countdown', 'Starts in {s} s – then walk into your next trainer battle.', { s: Math.ceil((st.left || 0) / 1000) });
   } else if (st.phase === 'hunt' || st.phase === 'fight') {
+    // the opponent out in this player's game (randomized games: each has their own)
+    const boss = species || cur.seats[me]?.bs;
+    if (st.phase === 'fight' && boss) title = t('raid.titleBoss', 'Raid · {name}', { name: speciesName(boss) });
     if (my === 'out') say = t('raid.youOut', 'You’re out ({why}) – watch the others finish it.', { why: outText(st.outWhy[me]) });
     else if (my === 'done') say = t('raid.youDone', 'You beat it in your game – the others are still on it.');
     else if (hub.holding()) {

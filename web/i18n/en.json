@@ -2935,6 +2935,7 @@
   "raid.survivors": "Still standing",
   "raid.time": "Time",
   "raid.title": "Raid",
+  "raid.titleBoss": "Raid · {name}",
   "raid.waitAnswers": "Asked {names} – the raid starts once they answered.",
   "raid.whyBusy": "{name} is in another raid",
   "raid.whyCtr": "Not in the 3DS games: souldew can’t change the opponent’s HP there cleanly.",

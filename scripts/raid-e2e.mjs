@@ -11,6 +11,8 @@
 //
 //   --walk red   Red/Blue: the state stands in Oak's lab with the starter – walking down starts the rival's battle
 //   --walk frlg  FireRed/LeafGreen: the state stands at the balls in Oak's lab – round the table to the door: the rival
+//   --skins <dir> the raid panel in colour themes as well (A's page, while fighting and at the end): the default, the
+//                 high-contrast theme and souldew+ skins (<dir>/<id>.css, set the way the app sets one) – light and dark
 //
 // Never commit ROMs, states or the screenshots.
 import { spawn, spawnSync } from 'node:child_process';
@@ -150,6 +152,18 @@ async function main() {
       writeFileSync(join(out, `${name}-${profiles[i].id}.png`), img.toPNG());
     };
     const all = (name, crop = false) => Promise.all(profiles.map((_, i) => shot(name, i, crop)));
+    // the raid panel in other colours (--skins): the default, a theme, souldew+ skins light and dark
+    const SKINS = opt('skins') ? [['classic'], ['contrast', 'theme'], ...['fieldbook', 'sakura', 'cartridge-grey', 'paper-lantern', 'midnight-ink'].map((id) => [id, 'skin', readFileSync(join(resolve(opt('skins')), `${id}.css`), 'utf8')])] : [];
+    const skinShots = async (i, name) => {
+      for (const [id, kind, css] of SKINS) {
+        await ev(i, `(() => { const r = document.documentElement; let st = document.getElementById('e2e-skin'); if (!st) { st = document.createElement('style'); st.id = 'e2e-skin'; document.head.append(st); }
+          st.textContent = ${JSON.stringify(css || '')}; delete r.dataset.skin; delete r.dataset.theme; ${kind === 'skin' ? `r.dataset.skin = ${JSON.stringify(id)};` : kind === 'theme' ? `r.dataset.theme = ${JSON.stringify(id)};` : ''} return true; })()`);
+        await sleep(400);
+        const rect = JSON.parse(await ev(i, `(() => { const e = document.querySelector('.raid'); if (!e) return 'null'; const b = e.closest('.dock-sec') || e; const r = b.getBoundingClientRect(); return JSON.stringify({ x: Math.max(0, Math.round(r.left - 8)), y: Math.max(0, Math.round(r.top - 8)), width: Math.round(r.width + 16), height: Math.round(r.height + 16) }); })()`));
+        if (rect) writeFileSync(join(out, `30-skin-${name}-${id}.png`), (await wins[i].webContents.capturePage(rect)).toPNG());
+      }
+      await ev(i, `(() => { const r = document.documentElement; document.getElementById('e2e-skin')?.remove(); delete r.dataset.skin; delete r.dataset.theme; return true; })()`);
+    };
     const raid = (i, js) => ev(i, `(() => { const h = window.__slRaid; const cur = h?.current(); return JSON.stringify(${js}); })()`).then((s) => JSON.parse(s || 'null'));
     // the clip: every game's picture four times a second while the raid runs
     let recording = true;
@@ -250,6 +264,7 @@ async function main() {
       if (ready === 'skip') { who = (who + 1) % n; continue; }
       await sleep(900);
       if (shots < 6) await all(`10-turn${String(turn).padStart(2, '0')}`, true), shots++;
+      if (turn === 2 && SKINS.length) await skinShots(0, 'fight');
       await press(i, 'a', 700);
       await press(i, 'a', 400);
       // the move runs; everybody else's texts go on
@@ -269,6 +284,7 @@ async function main() {
     log('results', JSON.stringify(results));
     log('log entries', feeds.join(' '));
     await all('21-result');
+    if (SKINS.length) await skinShots(0, 'result');
     recording = false;
     await rec;
     // the clips (muted: the pictures only)

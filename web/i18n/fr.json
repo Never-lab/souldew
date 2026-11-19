@@ -4052,5 +4052,6 @@
   "rules.raidDeaths": "Les morts en raid comptent",
   "rules.raidDeathsHint": "Un raid est un vrai combat. Désactivé : les Pokémon K.O. pendant le raid ne comptent pas – soigne-les au Centre Pokémon.",
   "rules.raids": "Raids",
-  "rules.raidsHint": "Affrontez ensemble le prochain dresseur : chaque coup porté dans n’importe lequel de vos jeux est retiré d’une seule réserve de PV, il est donc vaincu dans tous vos jeux en même temps."
+  "rules.raidsHint": "Affrontez ensemble le prochain dresseur : chaque coup porté dans n’importe lequel de vos jeux est retiré d’une seule réserve de PV, il est donc vaincu dans tous vos jeux en même temps.",
+  "raid.titleBoss": "Raid · {name}"
 }
