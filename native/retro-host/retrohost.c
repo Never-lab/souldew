@@ -210,6 +210,15 @@ static void core_log(enum retro_log_level level, const char *fmt, ...) {
   host_log("[core] %s", buf);
 }
 
+// the core's messages for the player: not the empty ones melonDS DS sends every frame, not the same one over and over
+#include "coremsg.h"
+static void core_message(const char *msg) {
+  unsigned repeats;
+  if (!core_msg_wanted(msg, compat_now(), &repeats)) return;
+  if (repeats) host_log("[core message] (the one before came %u more times)", repeats);
+  host_log("[core message] %s", msg);
+}
+
 static int fastforwarding;
 static double new_rate; // a sound rate the core announced while running (taken after the frame)
 static bool environment(unsigned cmd, void *data) {
@@ -262,8 +271,8 @@ static bool environment(unsigned cmd, void *data) {
   if (IS(cmd, RETRO_ENVIRONMENT_GET_LANGUAGE)) { *(unsigned *)data = RETRO_LANGUAGE_ENGLISH; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_USERNAME)) { *(const char **)data = "souldew"; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION)) { *(unsigned *)data = 1; return true; }
-  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE)) { host_log("[core message] %s", ((const struct retro_message *)data)->msg); return true; }
-  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE_EXT)) { host_log("[core message] %s", ((const struct retro_message_ext *)data)->msg); return true; }
+  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE)) { core_message(data ? ((const struct retro_message *)data)->msg : NULL); return true; }
+  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE_EXT)) { core_message(data ? ((const struct retro_message_ext *)data)->msg : NULL); return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE)) { *(float *)data = 60.0f; return true; }
   // (SameBoy otherwise makes its sound at half the Game Boy's clock – 2 MHz, more than any sound card plays)
   if (IS(cmd, RETRO_ENVIRONMENT_GET_TARGET_SAMPLE_RATE)) { *(unsigned *)data = 48000; return true; }

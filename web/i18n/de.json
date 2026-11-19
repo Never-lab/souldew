@@ -1342,7 +1342,7 @@
   "play.toNuzlockes": "Alle Nuzlockes",
   "play.toSoulLinks": "Alle SoulLinks",
   "play.turboAudio": "Turbo-Ton",
-  "play.turboAudioHint": "Was du beim Vorspulen hörst. „Musik läuft weiter“ behält Tempo und Tonhöhe der Musik bei – Soundeffekte bleiben stumm. „Beschleunigtes Original“ spielt den Ton des Spiels selbst, schneller und höher.",
+  "play.turboAudioHint": "Was du beim Vorspulen hörst. „Musik läuft weiter“ behält Tempo und Tonhöhe der Musik bei – Soundeffekte bleiben stumm. Wo souldew noch keine eigene Musik hat (ein Lied, das noch nicht in normalem Tempo lief), hörst du das beschleunigte Original. „Beschleunigtes Original“ spielt den Ton des Spiels selbst, schneller und höher.",
   "play.turboAudioMusic": "Musik läuft weiter",
   "play.turboAudioMute": "Stumm",
   "play.turboAudioOriginal": "Beschleunigtes Original",

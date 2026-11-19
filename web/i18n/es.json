@@ -1342,7 +1342,7 @@
   "play.toNuzlockes": "Todos los Nuzlockes",
   "play.toSoulLinks": "Todos los SoulLinks",
   "play.turboAudio": "Audio en turbo",
-  "play.turboAudioHint": "Lo que oyes al avanzar rápido. «La música sigue» mantiene la música a su velocidad y tono normales; los efectos de sonido quedan en silencio. «Original acelerado» reproduce el sonido del propio juego, más rápido y más agudo.",
+  "play.turboAudioHint": "Lo que oyes al avanzar rápido. «La música sigue» mantiene la música a su velocidad y tono normales; los efectos de sonido quedan en silencio. Donde souldew aún no tiene música propia (una canción que aún no ha sonado a velocidad normal), oyes el original acelerado. «Original acelerado» reproduce el sonido del propio juego, más rápido y más agudo.",
   "play.turboAudioMusic": "La música sigue",
   "play.turboAudioMute": "Silencio",
   "play.turboAudioOriginal": "Original acelerado",

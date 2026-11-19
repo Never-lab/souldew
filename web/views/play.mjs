@@ -1841,7 +1841,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
               <span class="mono tiny vol">${muted ? t('play.mutedShort', 'off') : `${Math.round(volume * 100)} %`}</span>
               ${btn(muted ? 'sound' : 'mute', muted ? t('play.unmute', 'Sound on') : t('play.mute', 'Mute') + hint('mute'), actions.mute)}
               </div>
-              <label class="turbo-audio" title=${t('play.turboAudioHint', 'What you hear while fast-forwarding. “Music continues” keeps the music at its normal speed and pitch – sound effects stay silent. “Sped-up original” plays the game’s own sound, faster and higher.')}>
+              <label class="turbo-audio" title=${t('play.turboAudioHint', 'What you hear while fast-forwarding. “Music continues” keeps the music at its normal speed and pitch – sound effects stay silent. Where souldew has no music of its own yet (a song not yet heard at normal speed), you hear the sped-up original. “Sped-up original” plays the game’s own sound, faster and higher.')}>
                 <span class="tiny">${t('play.turboAudio', 'Turbo audio')}</span>
                 <select value=${turboAudio} onChange=${(e) => actions.turboAudio(e.target.value)}>
                   <option value="music">${t('play.turboAudioMusic', 'Music continues')}</option>

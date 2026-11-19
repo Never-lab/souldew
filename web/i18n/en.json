@@ -2824,7 +2824,7 @@
   "play.toNuzlockes": "All Nuzlockes",
   "play.toSoulLinks": "All SoulLinks",
   "play.turboAudio": "Turbo audio",
-  "play.turboAudioHint": "What you hear while fast-forwarding. “Music continues” keeps the music at its normal speed and pitch – sound effects stay silent. “Sped-up original” plays the game’s own sound, faster and higher.",
+  "play.turboAudioHint": "What you hear while fast-forwarding. “Music continues” keeps the music at its normal speed and pitch – sound effects stay silent. Where souldew has no music of its own yet (a song not yet heard at normal speed), you hear the sped-up original. “Sped-up original” plays the game’s own sound, faster and higher.",
   "play.turboAudioMusic": "Music continues",
   "play.turboAudioMute": "Mute",
   "play.turboAudioOriginal": "Sped-up original",

@@ -324,6 +324,16 @@ Good to know:
   instead of giving up. If it still can't find it, the message says so plainly, and “Save diagnostics” records where it
   looked.
 
+- **Fast-forward with “Music continues” stays in step with the game** (thanks to a player on Discord). In the fast player
+  (DS, GBA, Game Boy) and the 3DS player, a song souldew had no music of its own for yet – right after starting a game,
+  on a new route, or in a ROM hack whose music it can't read – was played at its normal speed while the picture raced
+  ahead: first a moment of silence, then the game's sound up to a second late and skipping ahead in pieces, and a jump
+  when fast-forward ended. It sounded as if fast-forward didn't touch the sound and then lost step with the game. Now
+  you hear the sped-up original there, in step with the picture, until souldew has music of its own for that song
+  (heard at normal speed, or the game's own music track) – as the setting always promised. The fast player's log also no
+  longer fills up with thousands of empty messages from the DS emulator, so “Save diagnostics” keeps the lines that
+  matter.
+
 ## 2.8.3
 
 - **Nothing counts before your first Poké Balls** (thanks to players on Discord). Most Nuzlocke rules only start once
