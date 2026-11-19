@@ -191,12 +191,17 @@ Plus a new play view that gives the game the room it deserves.
   in Settings › Play › Launch animation, with a quiet line about the 3D one. The 13 older 2D souldew+ launch
   animations are gone; a choice of one of them plays what your tier has.
 - **Your handheld.** Dress that device: one skin for all of them (made from a banner), up to 8 stickers per device out
-  of 34 – turn them freely, size them 70–160 %, put them over the edges and on top of each other; they slide round
-  buttons and screens. Supporter: the Plain Dusk skin, the 8 free stickers and one saved design; souldew+: every skin
+  of 54 – turn them freely, size them 70–160 %, put them over the edges and on top of each other; they slide round
+  buttons and screens. Supporter: the Plain Dusk skin, the 11 free stickers and one saved design; souldew+: every skin
   and sticker, holo and glitter, up to 12 saved designs and “Surprise me at start”. Favourites, export / import as a
   small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy: the banner is
   on your profile for everyone, the stickers show in the 3D launch. Only you see your handheld. From the library's
   header tile (with Supporter or souldew+), the souldew+ page or Settings › Play › Launch animation.
+- **20 cool and funny stickers for your handheld,** next to the cosy ones: RIP, 1 HP and GG are free for everyone with
+  the 3D launch; Skill Issue, Snake Eyes, Crit!, Blow On It, Touch Grass, Rubber Duck, Cool Skull, Flame Skull, Bolt,
+  Hardcore, Arcade Stick, Floppy, Glitch, the souldew Racing Stripe, Verified Nuzlocker, LIVE and Finish Flag come with
+  souldew+. Their lettering is the souldew logo's own pixel font. The sticker sheet now shows the souldew+ stickers in
+  two groups – cosy, and funny and cool – so the 54 stay easy to look through.
 - **When a membership ends, nothing you set is lost.** Your launch settings, your handheld and its designs stay as they
   are and come back with the membership; meanwhile the launch plays what your tier has now – from souldew+ to
   Supporter the free parts, without a membership the cartridge. Nothing paid is shown or played in the meantime: the
