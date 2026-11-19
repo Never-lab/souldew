@@ -853,6 +853,7 @@
   "linkplay.h2hHint": "Lotte in link in questa run",
   "linkplay.group": "Colleghiamoci tutti ({n})",
   "linkplay.pickDiffers": "Quel file non è lo stesso gioco di {name} (lo SHA-1 è diverso): deve essere esattamente la stessa versione.",
+  "linkplay.stepFailed": "Non ha funzionato: riprova.",
   "linkplay.needBuild": "Il gioco di {name} non è ancora stato creato su questo computer (sei entrato nella run prima che esistesse il collegamento).",
   "linkplay.building": "Creazione …",
   "linkplay.build": "Crea il gioco di {name}",

@@ -853,6 +853,7 @@
   "linkplay.h2hHint": "Linkkämpfe in diesem Run",
   "linkplay.group": "Alle linken ({n})",
   "linkplay.pickDiffers": "Diese Datei ist nicht dasselbe Spiel wie das von {name} (die SHA-1 weicht ab) – es muss genau dieselbe Fassung sein.",
+  "linkplay.stepFailed": "Das hat nicht geklappt – versuch es noch einmal.",
   "linkplay.needBuild": "Das Spiel von {name} ist auf diesem Computer noch nicht gebaut (du bist dem Run beigetreten, bevor es Linken gab).",
   "linkplay.building": "Wird gebaut …",
   "linkplay.build": "Spiel von {name} bauen",

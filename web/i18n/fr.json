@@ -853,6 +853,7 @@
   "linkplay.h2hHint": "Combats link dans ce run",
   "linkplay.group": "Tous en link ({n})",
   "linkplay.pickDiffers": "Ce fichier n’est pas le même jeu que celui de {name} (son SHA-1 diffère) – il faut exactement la même version.",
+  "linkplay.stepFailed": "Ça n’a pas marché – réessaie.",
   "linkplay.needBuild": "Le jeu de {name} n’est pas encore construit sur cet ordinateur (tu as rejoint le run avant que le link existe).",
   "linkplay.building": "Construction …",
   "linkplay.build": "Construire le jeu de {name}",

@@ -701,3 +701,14 @@ test('linksession, wager: the run\'s rule – off: no wager; a cap lowers the of
   await cap.A.invite('trade', ['p2'], { wager: 1000 }).catch(() => {});
   cap.A.leave('left'); cap.A.stop(); cap.B.stop();
 });
+
+test('"Pick your copy": a failed step always says something – the server\'s code translated, else the error\'s own text', async () => {
+  const { needRomsError } = await import('../web/views/linkplay.mjs');
+  const names = { p2: { name: 'Tim' } };
+  assert.match(needRomsError({ code: 'linkPickDiffers', slot: 'p2' }, names), /Tim/);
+  // linksession's _api: the text is translated already, the code is one the tables may not know
+  assert.equal(needRomsError(Object.assign(new Error('The base game of this run is missing'), { code: 'noSuchCode' }), names), 'The base game of this run is missing');
+  // a network error (no code at all) – it used to leave the alert empty
+  assert.equal(needRomsError(new TypeError('Failed to fetch'), names), 'Failed to fetch');
+  assert.ok(needRomsError({}, names).length > 0, 'never empty');
+});

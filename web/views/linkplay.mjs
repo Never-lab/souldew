@@ -240,6 +240,15 @@ export function LinkGroupButton() {
     onClick=${() => (multi ? setSetup(true) : go())}><${Icon} name="link" size=${14} />${t('linkplay.group', 'Link all of us ({n})', { n: ready.length + 1 })}</button>`;
 }
 
+/**
+ * What "Pick your copy" / "Build Tim's game" says when a step fails: the server's code in the player's language, else
+ * the error's own text (already translated by linksession's _api – or a network error) – never an empty alert.
+ */
+export function needRomsError(e, names = {}) {
+  if (e?.code === 'linkPickDiffers') return t('linkplay.pickDiffers', 'That file isn’t the same game as {name}’s (its SHA-1 differs) – it must be exactly the same release.', { name: names[e.slot]?.name || '' });
+  return serverErrorText(e || {}) || e?.message || t('linkplay.stepFailed', 'That didn’t work – try again.');
+}
+
 /** "Pick your copy of FireRed" / "Build Tim's game": what's missing before the link can start. */
 function NeedRoms({ st, names }) {
   const { linkSessions, manifest } = useApp();
@@ -254,7 +263,10 @@ function NeedRoms({ st, names }) {
   // a file that isn't in the library yet: into the library (as the Library page adds one), then found by its checksum
   const addFile = async (file) => {
     const res = await fetch(`/api/library/upload?name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'x-soullink': '1' }, body: file });
-    if (!res.ok) throw Object.assign(new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`), {});
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(serverErrorText(body, res.status)), { code: body?.code, vars: body?.vars });
+    }
     loadLib().catch(() => {});
     await linkSessions.recheck();
     // (still missing: the added file isn't that game – name the first seat still missing)
@@ -266,7 +278,7 @@ function NeedRoms({ st, names }) {
     try {
       await fn();
     } catch (e) {
-      setErr(e.code === 'linkPickDiffers' ? t('linkplay.pickDiffers', 'That file isn’t the same game as {name}’s (its SHA-1 differs) – it must be exactly the same release.', { name: names[e.slot]?.name || '' }) : serverErrorText(e));
+      setErr(needRomsError(e, names));
     } finally {
       setBusy(false);
     }

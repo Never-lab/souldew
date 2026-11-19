@@ -2072,6 +2072,7 @@
   "linkplay.saveFirst": "Save in your game first – the link starts from your last in-game save.",
   "linkplay.startFailed": "The linked games didn’t start.",
   "linkplay.stateDiffers": "A player’s game arrived damaged. Try again.",
+  "linkplay.stepFailed": "That didn’t work – try again.",
   "linkplay.system": "Linking isn’t available for this game yet.",
   "linkplay.systemWith": "{name} plays {game} – that can’t link with your game.",
   "linkplay.title": "Link",

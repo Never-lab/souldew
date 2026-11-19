@@ -853,6 +853,7 @@
   "linkplay.h2hHint": "Combates en link en esta partida",
   "linkplay.group": "Enlazarnos todos ({n})",
   "linkplay.pickDiffers": "Ese archivo no es el mismo juego que el de {name} (su SHA-1 es distinto): tiene que ser exactamente la misma versión.",
+  "linkplay.stepFailed": "No ha funcionado: inténtalo de nuevo.",
   "linkplay.needBuild": "El juego de {name} aún no está creado en este ordenador (te uniste a la partida antes de que existiera el enlace).",
   "linkplay.building": "Creando …",
   "linkplay.build": "Crear el juego de {name}",
