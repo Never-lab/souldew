@@ -587,28 +587,38 @@ async function main() {
       for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/play?run=${runId}`)}; true`);
       await sleep(3000);
       if (!flag('save-after')) return;
-      // an in-game save – Gen 3: START, (the menu remembers SAVE), A, YES, YES; Gen 5: X, SAVE on the touch screen, YES,
-      // YES – then the save file holds the money
+      // an in-game save – Gen 3: START, (the menu remembers SAVE), A, YES, YES; Gen 5: X, SAVE on the touch screen, YES on
+      // the touch screen (after a tap the game's first A only brings the cursor back). Every wait counts the game's own
+      // frames: with the computer busy the games run slower than real time, and a press timed by the clock lands while
+      // the question is still being written out – then nothing is saved and the run never gets the money
+      const waitFrames = async (i, n) => {
+        const end = (Number(await emu(i, 'e.frames()')) || 0) + n;
+        for (let k = 0; k < 6000 && (Number(await emu(i, 'e.frames()')) || 0) < end; k++) await sleep(20);
+      };
+      const savedBefore = [];
+      for (const i of all) savedBefore.push(sha(Buffer.from(await fetch(`${profiles[i].base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer()))));
       for (const i of all) {
         const g = gameOfRom(romOf(i));
         const gen5 = ['black', 'white', 'black2', 'white2'].includes(g);
         const steps = gen5
-          // (a tap may only move the menu's cursor onto SAVE: a second one opens it – on the next screen it lands on the
-          // save summary, where it does nothing)
-          ? [[['x'], 120], [[], 1500], ['touch', 65 / 256, (192 + 141) / 384], [[], 1200], ['touch', 65 / 256, (192 + 141) / 384], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 9000], [['b'], 120], [[], 900]]
-          : [[['start'], 120], [[], 900], [['a'], 120], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 6000], [['a'], 120], [[], 1200], [['b'], 120], [[], 600]];
+          ? [[['x'], 8], [[], 90], ['touch', 65, 141], [[], 240], ['touch', 225, 60], [[], 900], [['b'], 8], [[], 60]]
+          : [[['start'], 8], [[], 54], [['a'], 8], [[], 90], [['a'], 8], [[], 90], [['a'], 8], [[], 360], [['a'], 8], [[], 72], [['b'], 8], [[], 36]];
         for (const [keys, a, b] of steps) {
-          if (keys === 'touch') { // (the stylus: down for a few frames, then up)
-            await emu(i, `e.touch(${a}, ${b}, true)`);
-            await sleep(300);
-            await emu(i, `e.touch(${a}, ${b}, false)`);
+          if (keys === 'touch') { // (the stylus on the bottom screen at (a, b): down for a few frames, then up)
+            const x = a / 256;
+            const y = (192 + b) / 384;
+            await emu(i, `e.touch(${x}, ${y}, true)`);
+            await waitFrames(i, 8);
+            await emu(i, `e.touch(${x}, ${y}, false)`);
             continue;
           }
           await emu(i, `e.hold(${JSON.stringify(keys)})`);
-          await sleep(a);
+          await waitFrames(i, a);
         }
       }
-      await sleep(8000); // (the battery save settles, then the play view writes it into the run)
+      // (the battery save settles, then the play view writes it into the run)
+      await until('every save in the run', () => everyone(async (i) => sha(Buffer.from(await fetch(`${profiles[i].base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer()))) !== savedBefore[i]), 120000).catch(() => null);
+      await sleep(3000);
       const savedMoney = [];
       for (const i of all) {
         const pr = profiles[i];
