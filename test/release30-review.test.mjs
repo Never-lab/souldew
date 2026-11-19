@@ -77,3 +77,39 @@ test('upgrade backup: a file that vanishes between the plan and the copy is skip
   assert.deepEqual(readFileSync(join(made.path, 'runs', 'abcd1234', 'p1.sav')), Buffer.alloc(1024, 7));
   assert.equal(existsSync(join(made.path, 'Cookies-journal')), false);
 });
+
+test('gifts between 3DS games: a Medicine item goes into the receiver\'s Medicine pocket; an item number no pocket holds is never written', async () => {
+  const { addItem, removeItem, bagRoom, itemFitsPocket } = await import('../shared/live/cheats.mjs');
+  const base = 0x33000000;
+  const mem = new Uint8Array(0xde0 + 64);
+  const dv = new DataView(mem.buffer);
+  dv.setUint32(0xb48, (17 | (3 << 10)) >>> 0, true); // Sun/Moon: 3 Potions in Medicine
+  dv.setUint32(0, (4 | (1 << 10)) >>> 0, true); // a Poké Ball in Items
+  const entry = { id: 'sm', gen: 7, partyAddrs: [{ bag: `0x${base.toString(16)}` }] };
+  const read = (a, n) => (a >= base && a + n <= base + mem.length ? mem.slice(a - base, a - base + n) : null);
+  const write = (a, b) => {
+    mem.set(b, a - base);
+    return true;
+  };
+  assert.equal(bagRoom(entry, read, null, 17, 2, { pocket: 'medicine' }), true);
+  const added = await addItem(entry, { read, write }, null, 17, 2, { pocket: 'medicine' });
+  assert.equal(added.ok, true, 'a Medicine gift is written (it used to be refused – and lost on the way back too)');
+  assert.equal((dv.getUint32(0xb48, true) >>> 10) & 0x3ff, 5);
+  assert.equal((await removeItem(entry, { read, write }, null, 17, 2, { pocket: 'medicine' })).ok, true);
+  // item 1500 would wrap into item 476 in Gen 7's 10 bits
+  const before = mem.slice();
+  assert.deepEqual(await addItem(entry, { read, write }, null, 1500, 2, { pocket: 'items' }), { error: 'unsupported' });
+  assert.deepEqual(mem, before, 'nothing written');
+  // the other generations' bounds
+  const gb2 = { kind: 'gb' };
+  assert.equal(itemFitsPocket(gb2, { gen: 2 }, 0x05, 'balls'), true);
+  assert.equal(itemFitsPocket(gb2, { gen: 2 }, 0x12, 'balls'), false, 'a Potion is no ball');
+  assert.equal(itemFitsPocket(gb2, { gen: 2 }, 0x05, 'items'), false);
+  assert.equal(itemFitsPocket(gb2, { gen: 1 }, 0xff, null), false, 'never the list\'s end mark');
+  const gba = { kind: 'gba', maxId: 376 };
+  assert.equal(itemFitsPocket(gba, { gen: 3 }, 4, 'balls'), true);
+  assert.equal(itemFitsPocket(gba, { gen: 3 }, 13, 'balls'), false);
+  assert.equal(itemFitsPocket(gba, { gen: 3 }, 68, null), true, 'Rare Candy into Items');
+  assert.equal(itemFitsPocket(gba, { gen: 3 }, 377, 'items'), false);
+  assert.equal(itemFitsPocket({ kind: 'ds', maxId: 536 }, { gen: 4 }, 537, 'medicine'), false);
+});

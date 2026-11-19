@@ -858,6 +858,27 @@ export async function readMoneyFor(entry, read, state, { untried = false } = {})
   }
 }
 
+/** Gen 2's Poké Balls (pokecrystal constants/item_constants.asm): the only items of its ball pocket. */
+const GB2_BALLS = new Set([0x01, 0x02, 0x04, 0x05, 0x9d, 0x9f, 0xa0, 0xa1, 0xa4, 0xa5, 0xa6, 0xb1]);
+
+/**
+ * Can `pocket` of this game hold item number `item` at all? The bounds the bag readers check a pocket against (an item
+ * written past them makes the bag unreadable for every later cheat or gift – or, in Gen 7, wraps into another item):
+ * Gen 1/2 never the list's 0xFF end and Gen 2's balls apart; Gen 3 balls 1–12, the rest up to the game's last item;
+ * Gen 4–7 up to the game's last item (Gen 7 keeps 10 bits for it).
+ */
+export function itemFitsPocket(L, entry, item, pocket = null) {
+  if (!L || !Number.isInteger(item) || item < 1) return false;
+  if (L.kind === 'gb') {
+    if (item > 0xfe) return false;
+    if (entry?.gen === 2) return pocket === 'balls' ? GB2_BALLS.has(item) : !GB2_BALLS.has(item);
+    return true;
+  }
+  if (L.kind === 'gba') return pocket === 'balls' ? item <= 12 : item > 12 && item <= L.maxId;
+  if (!L.maxId || item > L.maxId) return false;
+  return L.kind !== 'ctr' || L.gen !== 7 || item <= 0x3ff;
+}
+
 /**
  * Put `count` of an item into the bag – the same checks as addRareCandies. `pocket` 'balls' puts it into the Poké Ball
  * pocket where the game has one (Gen 2–4; Gen 1 and 5 keep balls with the items; the ROM test matrix –
@@ -869,13 +890,16 @@ export async function readMoneyFor(entry, read, state, { untried = false } = {})
 export function addItem(entry, mem, state, item, count = 1, { pocket = null, allowEmpty = false } = {}) {
   const L = layoutOf(entry);
   if (!L || !item) return { error: 'unsupported' };
+  // (an item number the pocket can't hold is never written – a gift's number comes from a partner's computer)
+  if (!itemFitsPocket(L, entry, item, pocket)) return { error: 'unsupported' };
   if (L.kind === 'ctr') {
     // (the Items pocket on request – the balls too: the 3DS games keep them with the items –, else Medicine items only;
     // nothing lands in the wrong pocket)
     if (pocket === 'items' || pocket === 'balls') return MED67.has(item) || TM67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count, 'items');
     // (a gift from a partner's Berries pocket – web/lib/together.mjs: into the same pocket here)
     if (pocket === 'berries') return L.pockets.berries && !MED67.has(item) && !TM67.has(item) ? ctrAdd(L, entry, mem, state, item, count, 'berries') : { error: 'unsupported' };
-    return pocket || !MED67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count);
+    // Medicine: the Rare Candy cheat (no pocket named) and a gift from a partner's Medicine pocket
+    return (pocket && pocket !== 'medicine') || !MED67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count);
   }
   if (L.kind === 'gb') {
     // Gen 2's ball pocket follows the key items: wNumKeyItems, 25 ids + 0xFF, then wNumBalls (pokecrystal wram.asm)
