@@ -41,7 +41,8 @@ function field(ctx, s) {
   // house
   const hx = Math.round(w * 0.36), hy = Math.round(h * 0.14), hw = 52, hh = 30;
   R(hx, hy + 16, hw, hh, C.wall); R(hx, hy + 16 + hh - 3, hw, 3, C.wallD);
-  for (let j = 0; j < 18; j++) R(hx - 4 + j * 0.6, hy + j, hw + 8 - j * 1.2, 1, j < 2 ? C.roofL : j % 4 === 3 ? C.roofD : C.roof);
+  // the roof: narrow at the ridge, widest at the eaves
+  for (let j = 0; j < 18; j++) { const k = 17 - j; R(hx - 4 + k * 0.9, hy + j, hw + 8 - k * 1.8, 1, j < 2 ? C.roofL : j === 17 ? C.roofD : j % 4 === 3 ? C.roofD : C.roof); }
   R(hx + 22, hy + 30, 9, 16, C.door); R(hx + 6, hy + 24, 10, 8, C.win); R(hx + 36, hy + 24, 10, 8, C.win);
   R(hx + 6, hy + 28, 10, 1, C.wallD); R(hx + 36, hy + 28, 10, 1, C.wallD);
   // fence along the left of the path
