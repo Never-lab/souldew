@@ -1055,6 +1055,8 @@ if (!LINK_SESSION) {
     resume: () => window.__emu.resume(),
     post,
     keyButton: (e) => keyMap[e.keyCode],
+    /** The picture on screen: { w, h, fmt (0: 32-bit BGRX, else RGB565), px } – the Game Boy overlay takes its colours from it. */
+    picture: () => lastFrame,
   });
 }
 

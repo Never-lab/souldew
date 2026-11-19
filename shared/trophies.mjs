@@ -67,6 +67,18 @@ const time = (x) => {
 };
 
 /**
+ * Has this computer really started the run? A run created here exists only once it's built. An invite (imported)
+ * counts once this computer built its game for it, i.e. the player joined and has a seat. Opening an invite (or
+ * leaving it unbuilt, declined) starts nothing: no "Press Start", "Linked Souls" or any other trophy from a preview.
+ */
+export function runStarted(manifest) {
+  if (!manifest || typeof manifest !== 'object') return false;
+  if (!manifest.imported) return true;
+  const out = manifest.outputs;
+  return !!out && typeof out === 'object' && Object.keys(out).length > 0;
+}
+
+/**
  * Reduce one run to what the trophies need. `entries`: the run doc ({ key: { v, t, by } }), `slot`: the player on
  * this computer, `opts.areaName(key, doc)`: optional name lookup for areas without one in the doc (curated routes).
  */

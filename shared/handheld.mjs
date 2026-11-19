@@ -44,7 +44,7 @@ export const launchLook = (id) => LAUNCH_LOOKS.find((l) => l.id === id) || LAUNC
 // free (signed out, or no paid tier): the 2D launch animation (the module slides into the console – views/cartinsert.mjs),
 //   On / Off; no 3D launch, no "Your handheld" in the library. The handheld only shows on the souldew+ page.
 // supporter (tier 1): the 3D launch in "Your colours", Full / Quick / Off; "Your handheld" with the free skin (Plain Dusk),
-//   the 8 free stickers, the earned ones once their trophy is there, and ONE saved design. No souldew+ skins, stickers,
+//   the 11 free stickers, the earned ones once their trophy is there, and ONE saved design. No souldew+ skins, stickers,
 //   finishes or shells (Gold / Clear / Holo), no Rare start, no Surprise me.
 // member (souldew+, and the Legend – the same plus a badge): everything. souldew+ ITEMS still need the pack on this
 //   computer (its art is in it): `plus` is the pack's word, `tier` the account's.
@@ -78,8 +78,11 @@ export const playableLookFor = (id, rights) => (launchLook(id).tier === 'plus' &
 export const FINISHES = { vinyl: { plus: false }, holo: { plus: true }, glitter: { plus: true } };
 
 /**
- * The 34 stickers. tier: free | plus | earned (free for everyone who has the trophy, never sold). size: s (clusters) |
- * m | l (a lid or a GBA back). finishes: the ones that suit the design (vinyl for all; holo / glitter are souldew+).
+ * The 54 stickers: 11 free, 40 souldew+, 3 earned. tier: free | plus | earned (free for everyone who has the trophy, never
+ * sold). size: s (clusters) | m | l (a lid or a GBA back; a double cell in the editor). finishes: the ones that suit the
+ * design (vinyl for all; holo / glitter are souldew+ – a free sticker in holo is a souldew+ finish). Rounds 1–6 are the
+ * cute and cosy ones; round 7 (RIP … Finish Flag, set: 'fun') the cool and funny ones for the Nuzlocke / SoulLink / stream
+ * crowd – the editor shows the souldew+ ones as two groups by set, so 40 stay easy to look through.
  */
 export const STICKERS = [
   { id: 'heart', name: 'Pixel Heart', tier: 'free', size: 'm', finishes: ['vinyl', 'holo', 'glitter'] },
@@ -90,6 +93,9 @@ export const STICKERS = [
   { id: 'dot', name: 'Dot', tier: 'free', size: 's', finishes: ['vinyl', 'holo', 'glitter'] },
   { id: 'dew', name: 'Dew Drop', tier: 'free', size: 's', finishes: ['vinyl', 'holo', 'glitter'] },
   { id: 'cloud', name: 'Cloud', tier: 'free', size: 'm', finishes: ['vinyl'] },
+  { id: 'rip', name: 'RIP', set: 'fun', tier: 'free', size: 'm', finishes: ['vinyl'] },
+  { id: 'one-hp', name: '1 HP', set: 'fun', tier: 'free', size: 'm', finishes: ['vinyl', 'holo'] },
+  { id: 'gg', name: 'GG', set: 'fun', tier: 'free', size: 'm', finishes: ['vinyl', 'holo', 'glitter'] },
   { id: 'crescent', name: 'Crescent', tier: 'plus', size: 's', finishes: ['vinyl', 'holo', 'glitter'] },
   { id: 'train', name: 'Night Train', tier: 'plus', size: 'm', finishes: ['vinyl'] },
   { id: 'campfire', name: 'Campfire', tier: 'plus', size: 'm', finishes: ['vinyl'] },
@@ -113,11 +119,30 @@ export const STICKERS = [
   { id: 'pennant', name: 'souldew Pennant', tier: 'plus', size: 'l', finishes: ['vinyl', 'holo'] },
   { id: 'pennant-s', name: 'souldew Pennant, short', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo'] },
   { id: 'patch', name: 'Dawn Patch', tier: 'plus', size: 'l', finishes: ['vinyl'] },
+  { id: 'skill-issue', name: 'Skill Issue', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl'] },
+  { id: 'rng', name: 'Snake Eyes', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo'] },
+  { id: 'crit', name: 'Crit!', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo', 'glitter'] },
+  { id: 'blow', name: 'Blow On It', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl'] },
+  { id: 'grass', name: 'Touch Grass', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl'] },
+  { id: 'duck', name: 'Rubber Duck', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'glitter'] },
+  { id: 'shades', name: 'Cool Skull', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo'] },
+  { id: 'flame-skull', name: 'Flame Skull', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo'] },
+  { id: 'bolt', name: 'Bolt', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo', 'glitter'] },
+  { id: 'hardcore', name: 'Hardcore', set: 'fun', tier: 'plus', size: 'l', finishes: ['vinyl'] },
+  { id: 'arcade', name: 'Arcade Stick', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl'] },
+  { id: 'floppy', name: 'Floppy', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo'] },
+  { id: 'glitch', name: 'Glitch', set: 'fun', tier: 'plus', size: 'l', finishes: ['vinyl', 'holo'] },
+  { id: 'stripe', name: 'souldew Racing Stripe', set: 'fun', tier: 'plus', size: 'l', finishes: ['vinyl', 'holo'] },
+  { id: 'verified', name: 'Verified Nuzlocker', set: 'fun', tier: 'plus', size: 'l', finishes: ['vinyl', 'holo', 'glitter'] },
+  { id: 'live', name: 'LIVE', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl', 'holo'] },
+  { id: 'flag', name: 'Finish Flag', set: 'fun', tier: 'plus', size: 'm', finishes: ['vinyl'] },
   { id: 'thread', name: 'Red Thread', tier: 'earned', trophy: 'winSoulLink', size: 'm', finishes: ['vinyl', 'holo'] },
   { id: 'signpost', name: 'Long Road', tier: 'earned', trophy: 'badges16', size: 'm', finishes: ['vinyl'] },
   { id: 'laurel', name: 'Laurel', tier: 'earned', trophy: 'deathlessWin', size: 'm', finishes: ['vinyl', 'glitter'] },
 ];
 export const stickerById = (id) => STICKERS.find((s) => s.id === id) || null;
+/** a sticker's set: 'cosy' (rounds 1–6) | 'fun' (round 7, the cool and funny ones) */
+export const stickerSet = (s) => (s?.set === 'fun' ? 'fun' : 'cosy');
 
 /** The skins: each one IS a banner (its art comes from the banner engine), printed as satin or gloss vinyl. */
 export const WRAPS = [
@@ -243,6 +268,29 @@ export function ownsSticker(s, { member = false, trophies = null } = {}) {
   return !trophies || trophies.has(s.trophy);
 }
 export const ownsWrap = (w, { member = false } = {}) => !!w && (w.tier === 'free' || !!member);
+
+// ---- the editor's sheet -------------------------------------------------------------------------------------------------
+// The filter row (All · ★ Favourites · Owned · souldew+ · Earned – shared/favourites.mjs filterChips) runs over the skins and
+// the stickers together; the stickers then show in four groups: free, the souldew+ ones in their two sets, earned.
+
+/** every skin and sticker with what the filter row asks of it: { ...item, kind, owned, plus, earned } */
+export function sheetItems(own = {}) {
+  return [
+    ...WRAPS.map((w) => ({ ...w, kind: 'skin', owned: ownsWrap(w, own), plus: w.tier === 'plus', earned: false })),
+    ...STICKERS.map((s) => ({ ...s, kind: 'sticker', owned: ownsSticker(s, own), plus: s.tier === 'plus', earned: s.tier === 'earned' })),
+  ];
+}
+/** the chip counts for filterChips */
+export const sheetCounts = (items, isFav) => ({
+  all: items.length, favs: items.filter(isFav).length, owned: items.filter((x) => x.owned).length, plus: items.filter((x) => x.plus).length, earned: items.filter((x) => x.earned).length,
+});
+/** does an item show under this filter? */
+export const sheetPass = (it, filter, isFav) => filter === 'all' || (filter === 'favs' && isFav(it)) || (filter === 'owned' && it.owned) || (filter === 'plus' && it.plus) || (filter === 'earned' && it.earned);
+
+export const STICKER_GROUPS = ['free', 'plus-cosy', 'plus-fun', 'earned'];
+export const stickerGroup = (s) => (s.tier === 'plus' ? `plus-${stickerSet(s)}` : s.tier);
+/** the stickers that show → [{ key, list }] in the sheet's order, empty groups left out */
+export const groupStickers = (list) => STICKER_GROUPS.map((key) => ({ key, list: list.filter((s) => stickerGroup(s) === key) })).filter((g) => g.list.length > 0);
 
 /**
  * What a design (or the current look) holds that this account can't play right now – it stays in the design:

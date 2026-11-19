@@ -5,7 +5,8 @@
 ## 3.0.0
 
 souldew 3.0 brings multiplayer: the players of a run trade Pokémon and battle each other the way the games meant it –
-in the Cable Club, the Colosseum and the Union Room – and in the Gen 3 games your partners walk around in your game.
+in the Cable Club, the Colosseum and the Union Room – and in the Game Boy and Game Boy Advance games (Gen 1 to 3) your
+partners walk around in your game.
 Plus a new play view that gives the game the room it deserves.
 
 - **Trade and battle with your partners – Gen 1 to Gen 4, no restart.** On the board, each partner's card has Trade
@@ -63,6 +64,16 @@ Plus a new play view that gives the game the room it deserves.
 - **Two new host rules:** “Raids” (on by default) and “Deaths in a raid count” (on: a raid is a real battle). With it
   off, Pokémon that go down in a raid don't count – they stand on the board until you heal them.
 - **Stream tools:** a `raid` event with who took part, won or lost, the MVP, the survivors and the time.
+- **Who's linked shows on the board.** In a run of three or four, while two players trade or battle, the others now
+  see “In a link with Tim” on both players' cards right away – Trade and Battle are greyed out with that as the
+  reason, instead of an invite that's turned down after the click. “Link all of us” leaves them out, and the Shared
+  World menu says the same. It's gone as soon as the link ends. Partners on an older 3.0 build just don't show it.
+- **Cloned Pokémon no longer stop live tracking.** A cloning glitch (Gen 1–4) leaves the same Pokémon twice in your
+  team. souldew took that for a misread and showed no team at all. Now they're two Pokémon: the one you caught keeps
+  its place in the run, the clone comes in like any other new Pokémon (the inbox asks what it is), and a Pokémon going
+  down or being traded only ever counts for that one – also after you reorder the team. A swap in the party menu,
+  or another Pokémon read under the same number, is still never taken for a clone. A trade that leaves a clone in
+  a team (getting back a Pokémon you already have a copy of) is logged now too – in Platinum it never was.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into
@@ -86,6 +97,14 @@ Plus a new play view that gives the game the room it deserves.
   small card; the log says “Marius beat Tim at rock-paper-scissors”. A draw is played again; best of 3 from the board.
 - **More bubbles next to Wave:** a heart, “!”, “?” and “GG”, from the same A menu – small pixel art over your head on
   every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
+- **Shared World on the Game Boy: Red, Blue, Yellow, Gold, Silver and Crystal.** Your partners walk in your Gen 1 and
+  Gen 2 games too – with their trainer sprite from your ROM, their name tag and the Pokémon at the front of their team
+  following them (its party icon from your ROM: Gen 2 in the Pokémon's own colours, a shiny one in its shiny ones; Gen
+  1 the game's own icon), across the edge to the next map, and the A menu with Trade, Battle, Wave,
+  rock-paper-scissors and the emotes. They look like the game's own people: on the original Game Boy in its greens, in
+  a Game Boy Color's colours, in Yellow's – and the tall grass covers their legs exactly where it covers yours. Red,
+  Blue and Yellow meet each other, so do Gold, Silver and Crystal. In Yellow, Pikachu already walks behind you: your
+  partners see Pikachu follow you, and souldew adds no second one.
 - **Partners next door:** a partner on a map connected to yours (the route beyond the town's edge) now shows across
   the edge and walks over it smoothly, instead of appearing only once you're on the same map.
 - **German Emerald (Smaragd) is read live.** souldew showed nothing for it so far: its memory was taken to be laid out
@@ -207,12 +226,17 @@ Plus a new play view that gives the game the room it deserves.
   in Settings › Play › Launch animation, with a quiet line about the 3D one. The 13 older 2D souldew+ launch
   animations are gone; a choice of one of them plays what your tier has.
 - **Your handheld.** Dress that device: one skin for all of them (made from a banner), up to 8 stickers per device out
-  of 34 – turn them freely, size them 70–160 %, put them over the edges and on top of each other; they slide round
-  buttons and screens. Supporter: the Plain Dusk skin, the 8 free stickers and one saved design; souldew+: every skin
+  of 54 – turn them freely, size them 70–160 %, put them over the edges and on top of each other; they slide round
+  buttons and screens. Supporter: the Plain Dusk skin, the 11 free stickers and one saved design; souldew+: every skin
   and sticker, holo and glitter, up to 12 saved designs and “Surprise me at start”. Favourites, export / import as a
   small file. Three stickers and the Summit Dawn banner can't be bought – they come with a hard trophy: the banner is
   on your profile for everyone, the stickers show in the 3D launch. Only you see your handheld. From the library's
   header tile (with Supporter or souldew+), the souldew+ page or Settings › Play › Launch animation.
+- **20 cool and funny stickers for your handheld,** next to the cosy ones: RIP, 1 HP and GG are free for everyone with
+  the 3D launch; Skill Issue, Snake Eyes, Crit!, Blow On It, Touch Grass, Rubber Duck, Cool Skull, Flame Skull, Bolt,
+  Hardcore, Arcade Stick, Floppy, Glitch, the souldew Racing Stripe, Verified Nuzlocker, LIVE and Finish Flag come with
+  souldew+. Their lettering is the souldew logo's own pixel font. The sticker sheet now shows the souldew+ stickers in
+  two groups – cosy, and funny and cool – so the 54 stay easy to look through.
 - **When a membership ends, nothing you set is lost.** Your launch settings, your handheld and its designs stay as they
   are and come back with the membership; meanwhile the launch plays what your tier has now – from souldew+ to
   Supporter the free parts, without a membership the cartridge. Nothing paid is shown or played in the meantime: the
@@ -227,6 +251,9 @@ Plus a new play view that gives the game the room it deserves.
 - **Inviting friends counts the seats.** “Invite friends” on a run lets you pick only as many friends as there are free
   seats – invites still out hold theirs – and is greyed out once every seat is taken, instead of sending invites into
   a run nobody else fits in.
+- **Trophies come once you've joined.** Opening a friend's invite already gave you “Press Start” and “Linked Souls”
+  (and “Roll the Dice” or “The More, the Deadlier” for such a run) before your game was even built. Now a run counts
+  once your game for it is built – an invite you only looked at, or turned down, earns nothing.
 - **Trades and battles are the host's call, like every rule.** “Trades between us”, “Battles between us” and “Losing a
   link battle counts as deaths” are set by the host – already in the new-run wizard for the games that link, later in
   the board's Rules – and every change goes to the log; the others see them read-only.
@@ -244,7 +271,7 @@ Good to know:
 - Save states made for Game Boy / Game Boy Color games in the fast player before 3.0 (on the old Gambatte emulator)
   can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the
   other Game Boy look load once you switch back to it.
-- Gen 2 and Gen 4 trades work, but don't appear in the run's log yet. Gen 5 (Black/White) links come later.
+- Gen 5 (Black/White) links come later.
 
 ## 2.8.4
 

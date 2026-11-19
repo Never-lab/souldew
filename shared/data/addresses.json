@@ -75,6 +75,31 @@
     "addr": "0xD356",
     "bytes": 1,
     "source": "pokered.sym wObtainedBadges (bit per badge)"
+   },
+   "world": {
+    "family": "rby",
+    "curMapAddr": "0xD35E",
+    "walkCounterAddr": "0xCFC5",
+    "sprite1Addr": "0xC100",
+    "sprite2Addr": "0xC200",
+    "fontLoadedAddr": "0xCFC4",
+    "joyIgnoreAddr": "0xCD6B",
+    "statusFlags5Addr": "0xD730",
+    "walkBikeSurfAddr": "0xD700",
+    "mapHeightAddr": "0xD368",
+    "connectionsAddr": "0xD370",
+    "tilesetBankAddr": "0xD52B",
+    "grassTileAddr": "0xD535",
+    "overworldMapAddr": "0xC6E8",
+    "rom": {
+     "playerSprite": "05:4180",
+     "bikeSprite": "05:4000",
+     "surfSprite": "05:76C0",
+     "iconPointers": "1C:57C0",
+     "iconCount": 28,
+     "iconData": "1C:590D"
+    },
+    "source": "pokered.sym (pret symbols branch)"
    }
   },
   {
@@ -149,6 +174,31 @@
     "addr": "0xD356",
     "bytes": 1,
     "source": "pokeblue.sym wObtainedBadges (bit per badge)"
+   },
+   "world": {
+    "family": "rby",
+    "curMapAddr": "0xD35E",
+    "walkCounterAddr": "0xCFC5",
+    "sprite1Addr": "0xC100",
+    "sprite2Addr": "0xC200",
+    "fontLoadedAddr": "0xCFC4",
+    "joyIgnoreAddr": "0xCD6B",
+    "statusFlags5Addr": "0xD730",
+    "walkBikeSurfAddr": "0xD700",
+    "mapHeightAddr": "0xD368",
+    "connectionsAddr": "0xD370",
+    "tilesetBankAddr": "0xD52B",
+    "grassTileAddr": "0xD535",
+    "overworldMapAddr": "0xC6E8",
+    "rom": {
+     "playerSprite": "05:4180",
+     "bikeSprite": "05:4000",
+     "surfSprite": "05:76C0",
+     "iconPointers": "1C:57C0",
+     "iconCount": 28,
+     "iconData": "1C:590D"
+    },
+    "source": "pokeblue.sym (pret symbols branch)"
    }
   },
   {
@@ -223,6 +273,33 @@
     "addr": "0xD355",
     "bytes": 1,
     "source": "pokeyellow.sym wObtainedBadges (bit per badge)"
+   },
+   "world": {
+    "family": "rby",
+    "curMapAddr": "0xD35D",
+    "walkCounterAddr": "0xCFC4",
+    "sprite1Addr": "0xC100",
+    "sprite2Addr": "0xC200",
+    "fontLoadedAddr": "0xCFC3",
+    "joyIgnoreAddr": "0xCD6B",
+    "statusFlags5Addr": "0xD72F",
+    "walkBikeSurfAddr": "0xD6FF",
+    "mapHeightAddr": "0xD367",
+    "connectionsAddr": "0xD36F",
+    "tilesetBankAddr": "0xD52A",
+    "grassTileAddr": "0xD534",
+    "overworldMapAddr": "0xC6E8",
+    "pikachuAddr": "0xC1F0",
+    "pikachuMapAddr": "0xC2F4",
+    "rom": {
+     "playerSprite": "05:4571",
+     "bikeSprite": "05:43F1",
+     "surfSprite": "05:7AB1",
+     "iconPointers": "1C:584D",
+     "iconCount": 30,
+     "iconData": "1C:59BA"
+    },
+    "source": "pokeyellow.sym (pret symbols branch)"
    }
   },
   {
@@ -297,6 +374,35 @@
     "addr": "0xD57C",
     "bytes": 2,
     "source": "pokegold.sym wJohtoBadges/wKantoBadges (bit per badge)"
+   },
+   "world": {
+    "family": "gsc",
+    "mapGroupAddr": "0xDA00",
+    "playerStructAddr": "0xD1FD",
+    "bgMapOffsetXAddr": "0xCE81",
+    "playerStateAddr": "0xD682",
+    "scriptRunningAddr": "0xD15F",
+    "mapStatusAddr": "0xD159",
+    "timeOfDayPalAddr": "0xD568",
+    "mapHeightAddr": "0xD087",
+    "connectionsAddr": "0xD091",
+    "tilesetBankAddr": "0xD0C2",
+    "overworldMapAddr": "0xC700",
+    "rom": {
+     "overworldSprites": "05:47DE",
+     "sprites": {
+      "player": 1,
+      "bike": 2,
+      "surf": 83
+     },
+     "iconPointers": "23:6A70",
+     "icons": "23:6ABE",
+     "monMenuIcons": "23:6975",
+     "pokemonPalettes": "02:6D3D",
+     "mapObjectPals": "02:78AE"
+    },
+    "canon": "031D>0325 031E>0326 031F>0327 0320>0328 0321>0329 0322>032A 0323>032B 0324>032C 0325>032D 0326>032E 0327>032F 0328>0330 0329>0331 032A>0332 032B>0333 032C>0334 032D>0335 032E>0336 032F>0337 0330>0338 0331>0339 0332>033A 0333>033B 0334>033C 0335>033D 0336>033E 0337>033F 0338>0340 0339>0341 033A>0342 033B>0343 033C>0344 033D>0345 033E>0346 033F>0347 0340>0348 0341>0349 0342>034A 0343>034B 0344>034C 0345>034D 0346>034E 0347>034F 0348>0350 0349>0351 034A>0353 034B>0354 034C>0355 034D>0356 034E>0357 034F>0358 0350>0359 0351>035A 0352>035B 0402>0000 0B09>0B14 0B0A>0B09 0B0B>0B0A 0B0C>0B0B 0B0D>0B0C 0B0E>0B0D 0B0F>0B0E 0B10>0B0F 0B11>0B10 0B12>0B11 0B14>0B16 0B15>0B17 0B16>0B18",
+    "source": "pokegold.sym (pret symbols branch); canon: Gold/Silver map → Crystal’s number (pret map constants), 0 = a map Crystal doesn’t have"
    }
   },
   {
@@ -371,6 +477,35 @@
     "addr": "0xD57C",
     "bytes": 2,
     "source": "pokesilver.sym wJohtoBadges/wKantoBadges (bit per badge)"
+   },
+   "world": {
+    "family": "gsc",
+    "mapGroupAddr": "0xDA00",
+    "playerStructAddr": "0xD1FD",
+    "bgMapOffsetXAddr": "0xCE81",
+    "playerStateAddr": "0xD682",
+    "scriptRunningAddr": "0xD15F",
+    "mapStatusAddr": "0xD159",
+    "timeOfDayPalAddr": "0xD568",
+    "mapHeightAddr": "0xD087",
+    "connectionsAddr": "0xD091",
+    "tilesetBankAddr": "0xD0C2",
+    "overworldMapAddr": "0xC700",
+    "rom": {
+     "overworldSprites": "05:47DE",
+     "sprites": {
+      "player": 1,
+      "bike": 2,
+      "surf": 83
+     },
+     "iconPointers": "23:6A56",
+     "icons": "23:6AA4",
+     "monMenuIcons": "23:695B",
+     "pokemonPalettes": "02:6D3D",
+     "mapObjectPals": "02:78AE"
+    },
+    "canon": "031D>0325 031E>0326 031F>0327 0320>0328 0321>0329 0322>032A 0323>032B 0324>032C 0325>032D 0326>032E 0327>032F 0328>0330 0329>0331 032A>0332 032B>0333 032C>0334 032D>0335 032E>0336 032F>0337 0330>0338 0331>0339 0332>033A 0333>033B 0334>033C 0335>033D 0336>033E 0337>033F 0338>0340 0339>0341 033A>0342 033B>0343 033C>0344 033D>0345 033E>0346 033F>0347 0340>0348 0341>0349 0342>034A 0343>034B 0344>034C 0345>034D 0346>034E 0347>034F 0348>0350 0349>0351 034A>0353 034B>0354 034C>0355 034D>0356 034E>0357 034F>0358 0350>0359 0351>035A 0352>035B 0402>0000 0B09>0B14 0B0A>0B09 0B0B>0B0A 0B0C>0B0B 0B0D>0B0C 0B0E>0B0D 0B0F>0B0E 0B10>0B0F 0B11>0B10 0B12>0B11 0B14>0B16 0B15>0B17 0B16>0B18",
+    "source": "pokesilver.sym (pret symbols branch); canon: Gold/Silver map → Crystal’s number (pret map constants), 0 = a map Crystal doesn’t have"
    }
   },
   {
@@ -458,6 +593,38 @@
     "addr": "0xD857",
     "bytes": 2,
     "source": "pokecrystal.sym wJohtoBadges/wKantoBadges (bit per badge)"
+   },
+   "world": {
+    "family": "gsc",
+    "mapGroupAddr": "0xDCB5",
+    "playerStructAddr": "0xD4D6",
+    "bgMapOffsetXAddr": "0xD14C",
+    "playerStateAddr": "0xD95D",
+    "scriptRunningAddr": "0xD438",
+    "mapStatusAddr": "0xD432",
+    "timeOfDayPalAddr": "0xD841",
+    "mapHeightAddr": "0xD19E",
+    "connectionsAddr": "0xD1A8",
+    "tilesetBankAddr": "0xD1D9",
+    "overworldMapAddr": "0xC800",
+    "playerGenderAddr": "0xD472",
+    "landmarkSignAddr": "0xC2DA",
+    "rom": {
+     "overworldSprites": "05:4736",
+     "sprites": {
+      "player": 1,
+      "bike": 2,
+      "surf": 83,
+      "kris": 96,
+      "krisBike": 97
+     },
+     "iconPointers": "23:6BBF",
+     "icons": "23:6C0D",
+     "monMenuIcons": "23:6AC4",
+     "pokemonPalettes": "02:68CE",
+     "mapObjectPals": "02:7469"
+    },
+    "source": "pokecrystal.sym (pret symbols branch)"
    }
   },
   {

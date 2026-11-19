@@ -48,6 +48,7 @@ import { initRules, setupHostRules } from './lib/hostrules.mjs';
 import { IS_MAC, IS_WIN, PLATFORM, shortcut } from './lib/platform.mjs';
 import { TrophiesView, TrophyToasts } from './views/trophies.mjs';
 import { syncTrophies, rememberSlots, watchRun, onTrophyUnlock } from './lib/trophies.mjs';
+import { runStarted } from '/shared/trophies.mjs';
 import { FriendsView } from './views/friends.mjs';
 import { ProfileView } from './views/profile.mjs';
 import { PlusView } from './views/plus.mjs';
@@ -623,7 +624,8 @@ function App() {
     syncTrophies();
   }, [ready, boot, runCount, me]);
   useEffect(() => {
-    if (!runDoc) return undefined;
+    // an invite that's open but not built yet isn't this computer's run: nothing it shows counts (shared/trophies.mjs)
+    if (!runDoc || !runStarted(manifest)) return undefined;
     return watchRun(runDoc, manifest, me, (sp) => runData?.types?.(sp, me) || []);
   }, [runDoc, manifest, me, runData]);
   useEffect(() => onTrophyUnlock(({ fresh, backfilled, state }) => {
