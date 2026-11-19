@@ -192,7 +192,8 @@ export function SaveImportDialog({ target, onClose, onDone }) {
     <div class="stack save-import">
       <p class="muted">${isCtr
         ? t('simp.intro3ds', 'A backup from Checkpoint or JKSM – the folder, or a zip of it – goes into this game’s save in souldew’s own 3DS player.')
-        : t('simp.intro', 'A save from another emulator, a flash cart or a cartridge dump (.sav, .srm, .dsv …) replaces the save of {game}.', { game: target.label || '' })}</p>
+        : inRun ? t('simp.introRun', 'A save from another emulator, a flash cart or a cartridge dump (.sav, .srm, .dsv …) replaces your save in the run “{run}”.', { run: target.label || '' })
+          : t('simp.intro', 'A save from another emulator, a flash cart or a cartridge dump (.sav, .srm, .dsv …) replaces the save of {game}.', { game: target.label || '' })}</p>
       ${!allowed.ok && html`<div class="warning" role="alert">${t('simp.hostOnly', 'The host hasn’t allowed importing saves in this run. They can switch it on in the run’s rules.')}</div>`}
       ${allowed.ok && running && html`<div class="warning row nowrap" role="alert"><span class="grow">${check?.running === 'emulator' || (!playingThis && last?.running === 'emulator')
         ? t('simp.emuOpen', 'An emulator is still open. Save in the game, close the emulator, then come back.')

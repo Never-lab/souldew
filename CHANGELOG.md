@@ -182,6 +182,17 @@ Plus a new play view that gives the game the room it deserves.
   rows of pixels at odd sizes. Settings › Play › “Whole pixels only” snaps to exact multiples instead, when that
   costs at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every
   layout and size; the 3DS menu's “Smooth picture” still smooths everything.
+- **Import a save file – and take yours elsewhere** (thanks to a player on Discord). In the library, open a game ›
+  “Import a save file …”; in a run, the board's Files menu. It takes .sav and .srm files from other emulators, flash
+  carts and cartridge dumps (Checkpoint, JKSM), DeSmuME's .dsv (its footer comes off), Game Boy saves with either clock
+  footer and mGBA's clock record, and a zip with one save in it. The size is checked per system, and for the Pokémon
+  games souldew tells whether it is a save of that game at all (Gen 1–5: the save's own checksums and signatures) –
+  a save of another game gets a warning you can go past. The save it replaces is always backed up first, Undo puts it
+  back, and nothing is written while the game runs. In a run it is a big change and asks first: it goes into the log
+  for everyone, a SoulLink needs the host's new rule “Allow importing a save file”, and what the save brings along
+  doesn't count – its Pokémon are set aside, its badges are no news, and the run earns no trophies for winning or level
+  records. 3DS: a Checkpoint or JKSM backup (the folder or a zip) goes into souldew's own 3DS player once the game has
+  saved there. “Save game file” stays a plain .sav that other emulators and flash carts read.
 - **Pokémon Quetzal is read live** (thanks to a player on Discord). The hack keeps Emerald's game code, so souldew used
   to take it for Emerald: “Pokémon Emerald Version”, no team, and the randomizer's check ending in “unreadable”. Now
   it is recognised by its header – the library files it under Pokémon Quetzal, every version of it – and read with its
