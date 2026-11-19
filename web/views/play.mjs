@@ -1012,7 +1012,8 @@ export function GameSession({ session, mode }) {
             // start from the save instead
           }
         }
-        autoTimer = setInterval(() => document.visibilityState === 'visible' && autoWhenQuiet(180000), 120000);
+        // (closed while the state above was loading: the cleanup ran already – no timer it can't clear)
+        if (!stopped) autoTimer = setInterval(() => document.visibilityState === 'visible' && autoWhenQuiet(180000), 120000);
       }
       // battery save → disk every 5 s when it changed
       const saveLoop = async () => {
