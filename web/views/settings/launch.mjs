@@ -14,7 +14,7 @@ import { useCosmetics, PlusMark } from '../../lib/cosmetics/components.mjs';
 import { openPlus } from '../../lib/cosmetics/plus.mjs';
 import { Icon } from '../../lib/icons.mjs';
 import { FavScope } from '../../lib/favourites.mjs';
-import { LAUNCH_LOOKS, CLEAR_TINTS, STICKER_MAX, wrapById, launchLook, playableLookFor } from '/shared/handheld.mjs';
+import { LAUNCH_LOOKS, CLEAR_TINTS, STICKER_MAX, STICKERS, wrapById, launchLook, playableLookFor } from '/shared/handheld.mjs';
 import { useHandheld, launchConfig, CLEAR, useCosmeticsTick, useLaunchRights, ownedLook } from '../../lib/handheld/look.mjs';
 import { placeholderCanvas } from '../../lib/handheld/placeholder.mjs';
 import { CartInsert } from '../cartinsert.mjs';
@@ -149,7 +149,7 @@ function HandheldRow({ cfg, R, sys, setSys, play, onPreview }) {
         ? t('hh.stickerCount', 'one sticker|{count} stickers', { count: n(sys) }) : t('hh.noStickers', 'no stickers yet')}</span>
       ${doc.designs.length > 0 && html`<span class="small faint">${t('hh.designCount', 'one saved design|{count} saved designs', { count: doc.designs.length })}${R.surprise && doc.surprise && doc.designs.length > 1
         ? ` · ${t('hh.surpriseOn', 'Surprise me at start: a different one each launch')}` : active ? ` · ${t('hh.wearing', 'wearing “{name}”', { name: active.name })}` : ''}</span>`}
-      ${!R.plus && R.tier === 'supporter' && html`<span class="small faint">${t('hh.supporterHas', 'With Supporter: the Plain Dusk skin, the 8 free stickers, the earned ones and one saved design.')}</span>`}
+      ${!R.plus && R.tier === 'supporter' && html`<span class="small faint">${t('hh.supporterHas', 'With Supporter: the Plain Dusk skin, the {n} free stickers, the earned ones and one saved design.', { n: STICKERS.filter((s) => s.tier === 'free').length })}</span>`}
       ${kept && !packState().loading && html`<span class="small faint">${t('hh.keptPlus', 'Your souldew+ skin and stickers are kept – they’re back on it as soon as souldew+ is active on this computer again.')}</span>`}
       ${shellOnly && skin && html`<span class="small faint">${t('hh.shellNote2', '{skin} shows with “Your colours” and Holo label; with {shell}, your stickers do.', { skin: skin.name, shell: lookName(V.id) })}</span>`}
       <div class="hhs-btns"><button type="button" class="btn primary" onClick=${() => navigate('handheld', { sys })}>${t('hh.dress', 'Dress your handheld')}</button>
