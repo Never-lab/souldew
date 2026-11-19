@@ -4,7 +4,7 @@
 // same map; B walks around while A's page draws B over A's game – screenshots and a strip of frames go to --out. Then A
 // walks up to B and presses A: the menu opens, A picks Wave, and B sees the bubble.
 //
-//   node scripts/world-e2e.mjs --rom <emerald.gba> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] [--save4 <d.sav>] --data <dir> --out <dir> [--show]
+//   node scripts/world-e2e.mjs --rom <emerald.gba | red.gb | platinum.nds | heartgold.nds> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] [--save4 <d.sav>] --data <dir> --out <dir> [--show]
 //                              [--rom2/--rom3/--rom4 <rom>] (that player's own game – a pair run of Emerald and Sapphire …)
 //                              (Game Boy games too: Red, Blue, Yellow, Gold, Silver, Crystal – a Repel that never runs out
 //                              keeps wild Pokémon away while the players walk)
@@ -29,6 +29,13 @@
 //                                             there (marked on the board) and the tombstone stands for A, A calls B over
 //                                             from Oldale: the arrow on B's picture; screenshots of the new UI in classic
 //                                             and four skins (--skins <design/plus/themes>))
+//                              [--lead <n>]  (--plus: the lead every page shows when live tracking can't read the team)
+//                              [--behind --walk up,left,…] (the DS: B walks those steps, A's picture and the map's
+//                                             depth cut after each)
+//                              [--tgds]      (the DS: playing together's ⚔, catch, tombstone, "come here" and the A menu
+//                                             on A's picture, from data handed to A's overlay)
+//                              [--clip]      (a muted clip of A's picture: B walks away and around, A walks and turns)
+// The DS (Gen 4) is driven frame-exactly through the fast player's step() – a tap turns, six frames walk a tile.
 //                              [--plus]      (followers, emotes and rock-paper-scissors: B walks with A's and B's
 //                                             Pokémon following – a strip and a muted clip; A challenges B from the
 //                                             A menu, both pick in their pictures, the hands show over both heads and
@@ -164,10 +171,50 @@ async function occlusion({ world, hold, shot, log, sleep, until, out, emu }) {
 }
 
 /**
+ * A clip of A's picture (--clip): B walks away and around while A walks and turns – the partner on the ground the
+ * whole time, the camera following A. PNG frames into out/clip-frames, then a muted out/clip.mp4 (ffmpeg).
+ */
+async function clip({ world, log, sleep, out, wins, gameRect, ds, hold }) {
+  const step = ds?.step || (async (i, dir) => { await hold(i, [dir], 150); await sleep(420); });
+  const dir = join(out, 'clip-frames');
+  mkdirSync(dir, { recursive: true });
+  for (const d of ['right', 'right', 'right', 'right', 'down']) await step(1, d);
+  let rec = true;
+  let n = 0;
+  const states = [];
+  const t0 = Date.now();
+  const r = await gameRect(0);
+  const top = { ...r, height: Math.round(r.height / 2) };
+  const recording = (async () => {
+    while (rec) {
+      const img = await wins[0].webContents.capturePage(top);
+      writeFileSync(join(dir, `f${String(n++).padStart(4, '0')}.png`), img.toPNG());
+      if (!(n % 4)) {
+        const w = await world(0);
+        states.push({ n, drawn: w?.drawn, drawable: w?.drawable, field: w?.field, p: Object.fromEntries(Object.entries(w?.partners || {}).map(([k, v]) => [k, { x: v.s?.x, y: v.s?.y, map: v.s?.map, hidden: v.s?.hidden, pos: v.pos }])) });
+      }
+      await sleep(25);
+    }
+  })();
+  const walk = async (i, keys) => { for (const k of keys) await step(i, k); };
+  await Promise.all([
+    walk(1, ['left', 'left', 'up', 'up', 'right', 'right', 'down', 'down', 'left', 'left']),
+    (async () => { await sleep(800); await walk(0, ['left', 'left', 'right', 'right', 'down', 'up']); if (ds) { await ds.turn(0, 'down'); await ds.turn(0, 'right'); } })(),
+  ]);
+  await sleep(1500);
+  rec = false;
+  await recording;
+  const secs = (Date.now() - t0) / 1000;
+  writeFileSync(join(out, 'clip-states.json'), JSON.stringify(states, null, 1));
+  log('clip frames', n, 'in', secs.toFixed(1), 's', JSON.stringify((await world(0))?.drawn || (await world(0))?.partners));
+  await new Promise((res) => spawn('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', String(Math.max(1, Math.round(n / secs))), '-i', join(dir, 'f%04d.png'), '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-pix_fmt', 'yuv420p', '-an', join(out, 'clip.mp4')]).on('exit', res).on('error', res));
+}
+
+/**
  * The followers, emotes and rock-paper-scissors (--plus). A and B play the same game family on the same map.
  */
-async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId }) {
-  const step = async (i, dir) => { await hold(i, [dir], 150); await sleep(420); };
+async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId, ds = null }) {
+  const step = ds?.step || (async (i, dir) => { await hold(i, [dir], 150); await sleep(420); });
   const key = (i, k) => ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); f.contentWindow.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true })); return true; })()`);
   const local = async (i) => (await world(i))?.local;
   // (around what's in the way – a counter, a pillar: the other axis first, else a step to the side; gives up when stuck)
@@ -194,6 +241,13 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   };
   const result = { followers: {}, rps: {}, emote: {}, card: null };
   // 1. who follows whom: the leads as both pages know them
+  // (--lead <dex no.>: saves whose team live tracking can't read – the DS recordings' saves hold cloned Pokémon – get
+  // this lead handed to the play view instead, on every page)
+  if (opt('lead')) {
+    const lead = { species: Number(opt('lead')), shiny: false, form: 0 };
+    await sleep(5000);
+    for (const [i] of profiles.entries()) await ev(i, `(() => { const w = window.__slWorld; if (w && !w.lead) { w.update({ lead: ${JSON.stringify(lead)} }); return 'injected'; } return 'had one'; })()`).then((r) => log('lead', i, r));
+  }
   await until('leads known', async () => {
     const [a, b] = [await world(0), await world(1)];
     return a?.lead && b?.lead && a.partners?.p2?.lead && b.partners?.p1?.lead;
@@ -220,6 +274,8 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   await shot('10-followers-B', 1, true);
 
   // 3. rock-paper-scissors from the A menu: A next to B, facing them, A → down to the game → Enter
+  // (the DS: B two steps on first – A must not come from B's tile, where HGSS's own Pokémon would then stand between)
+  if (ds) for (const d of ['right', 'right']) await ds.step(1, d);
   const b = await local(1);
   // (the tile left of B first; where a wall or a pillar is there – the Ruby/Sapphire Pokémon Center 2F – the right one,
   // above or below)
@@ -229,6 +285,7 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
     if (s?.tx === b.tx + dx && s?.ty === b.ty + dy) { side = { key, dir }; break; }
   }
   side = side || { key: 'right', dir: 4 };
+  if (ds) await ds.turn(0, side.key);
   // turn to face B with a tap – a little longer each time; a tap that became a step (Gen 1 turns only on the shortest
   // ones) walks back first
   const opposite = { right: 'left', left: 'right', up: 'down', down: 'up' };
@@ -242,8 +299,20 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
       await sleep(450);
     }
   }
-  log('next to B', JSON.stringify({ local: (await world(0)).local, B: await local(1), own: (await world(0)).own, drawn: (await world(0)).followers }));
-  await hold(0, ['a'], 120);
+  // (HGSS: A's own Pokémon trails on A's last tile – if A came over B's tile, it now stands there, and A talks to it, as
+  // the game does: a step back and in again moves it behind A)
+  for (let n = 0; ds && n < 3; n++) {
+    const [own, bb] = [(await world(0))?.ownFollower, await local(1)];
+    if (!own || !bb || own.tx !== bb.tx || own.ty !== bb.ty) break;
+    log('own follower on B, stepping out and in', JSON.stringify(own));
+    await ds.step(0, opposite[side.key]);
+    await ds.step(0, side.key);
+  }
+  log('next to B', JSON.stringify({ local: (await world(0)).local, B: await local(1), own: (await world(0)).ownFollower, drawn: (await world(0)).followers }));
+  await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
+  if (ds) log('after A', JSON.stringify(await world(0)));
+  if (ds) log('overlays', await Promise.all([0, 1].map((i) => ev(i, `document.querySelector('.console-screen iframe').contentWindow.document.querySelectorAll('.sw-layer').length`))));
+  if (ds) log('B away log', JSON.stringify((await world(1))?.awayLog), 'A press', JSON.stringify({ lastA: (await world(0))?.lastA, aPress: (await world(0))?.aPress }));
   const m = await until('menu', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && (await world(0))?.menu?.sel !== 'rps'; n++) { await key(0, 'ArrowDown'); await sleep(120); }
   await shot('20-menu-rps-A', 0);
@@ -274,7 +343,11 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
 
   // 4. an emote: A → menu → the heart; B sees it over A
   await sleep(600);
-  await hold(0, ['a'], 120);
+  await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
+  if (ds) log('after A again', JSON.stringify(await world(0)), 'B:', JSON.stringify(await world(1)));
+  if (ds) log('B away log', JSON.stringify((await world(1))?.awayLog), 'A away log', JSON.stringify((await world(0))?.awayLog));
+  if (ds) log('A press again', JSON.stringify({ lastA: (await world(0))?.lastA, aPress: (await world(0))?.aPress }));
+  if (ds) log('B sends', await ev(1, 'JSON.stringify({ sent: window.__slWorld?.sent, local: window.__slWorld?.local })'));
   await until('menu again', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && !String((await world(0))?.menu?.sel || '').startsWith('emote'); n++) { await key(0, 'ArrowDown'); await sleep(120); }
   // (the row starts with Wave since 3.0's playing together: along it to the heart)
@@ -788,7 +861,9 @@ async function main() {
     for (const pr of profiles) for (let i = 0; i < 100; i++) { try { await api(pr, '/api/status'); break; } catch { await sleep(200); } }
     const [A] = profiles;
     const libA = await api(A, '/api/library');
-    const rom = libA.roms[0];
+    // (this profile's own copy – the library may list more games it found elsewhere)
+    const pick = (lib, i) => lib.roms.find((r) => basename(r.file || '') === basename(opt(`rom${i + 1}`) || opt('rom'))) || lib.roms[0];
+    const rom = pick(libA, 0);
     const players = Object.fromEntries(SLOTS.map((s, i) => [s, { name: profiles[i].name }]));
     // (--together marks a death: from the start, not after the first Poké Balls)
     const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players, buildFor: SLOTS, gameId: rom.gameId, name: 'World test', rules: args.includes('--together') ? { startAtBalls: false } : {} });
@@ -799,7 +874,7 @@ async function main() {
       if (!i) continue;
       const lib = await api(pr, '/api/library');
       const imported = await api(pr, '/api/runs/import', { pack });
-      await api(pr, '/api/runs/build', { runId: imported.id, romId: lib.roms[0].id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i], ...SLOTS.filter((s) => s !== SLOTS[i])], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: lib.roms[0].gameId });
+      await api(pr, '/api/runs/build', { runId: imported.id, romId: pick(lib, i).id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i], ...SLOTS.filter((s) => s !== SLOTS[i])], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: pick(lib, i).gameId });
       await api(pr, `/api/runs/${runId}/me`, { slot: SLOTS[i] }).catch(() => null);
     }
     for (const [i, pr] of profiles.entries()) await api(pr, `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(readFileSync(saves[i])), 'PUT');
@@ -809,6 +884,8 @@ async function main() {
     const wins = profiles.map((pr, i) => {
       const w = new BrowserWindow({ width: 1180, height: 780, x: 30 + i * 420, y: 30 + i * 30, show, webPreferences: { partition: `world-e2e-${pr.id}`, backgroundThrottling: false } });
       w.webContents.setAudioMuted(true);
+      // (errors of the pages – the player's iframe too – into the log)
+      w.webContents.on('console-message', (e) => { if (e.level === 'error' || e.level === 'warning') console.log(`[page ${pr.id}] ${e.level}: ${String(e.message).slice(0, 300)}`); });
       w.loadURL(`${pr.base}/#/soullink?run=${runId}`);
       return w;
     });
@@ -860,12 +937,34 @@ async function main() {
     const hold = (i, keys, ms) => setKeys(i, keys, true).then(() => sleep(ms)).then(() => setKeys(i, keys, false));
     const press = async (i, key, after = 600) => { await hold(i, [key], 120); await sleep(after); };
     const world = (i) => emu(i, 'JSON.stringify(w?.state?.() || null)').then((s) => JSON.parse(s || 'null'));
+    // The DS (Gen 4 walks a tile in 16 frames, a tap turns in place): exact frames through the fast player's step(), the
+    // way a slow, loaded machine can't spoil – hold, run n frames, let go, let the step finish, play on.
+    const stepFrames = async (i, keys, n, after) => {
+      await emu(i, `(e.pause(), e.hold(${JSON.stringify(keys)}), true)`);
+      await emu(i, `e.step(${n}).then(() => true)`);
+      await emu(i, 'e.hold([])');
+      await emu(i, `e.step(${after}).then(() => (e.resume(), true))`);
+    };
+    const DIRS = { up: 2, down: 1, left: 3, right: 4 };
+    const ds = {
+      turn: async (i, dir) => { if ((await world(i))?.local?.facing !== DIRS[dir]) await stepFrames(i, [dir], 2, 12); },
+      step: async (i, dir) => { await ds.turn(i, dir); await stepFrames(i, [dir], 6, 34); },
+      press: (i, key) => stepFrames(i, [key], 4, 8),
+    };
     // title → continue → overworld
     for (const [i] of profiles.entries()) {
       await until(`page ${i} in the overworld`, async () => {
         const s = await world(i);
         // (the Game Boy games have no overworld callback: a loaded map, unlocked, is it)
         if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && (s.cam.cb2 || s.gb) && s.cam.fade === 0 && s.drawable !== false) return true;
+        // (the DS: the field runs, nothing holds the player)
+        if (s?.gen === 4 && s.local && s.drawable) return true;
+        if (s?.gen === 4 && s.local) {
+          // (the field is there – A would talk to whoever stands in front: wait, and say what holds it)
+          log(`page ${i}: field not drawable yet`, JSON.stringify({ field: s.field, perFrame: s.perFrame }));
+          await sleep(1500);
+          return false;
+        }
         // (FR/LG replay your last steps after loading – B skips that; it must not count as being there)
         if (s?.cam?.replay) log(`page ${i}: the quest-log replay – skipped`, JSON.stringify({ drawable: s.shown, local: s.local }));
         await press(i, s?.cam?.replay ? 'b' : 'a', 900);
@@ -893,6 +992,7 @@ async function main() {
     }));
     log('overlay draws', JSON.stringify(drawRate));
     const st = await Promise.all(profiles.map((_, i) => world(i)));
+    const isDs = st[0]?.gen === 4;
     log('local states', JSON.stringify(st.map((s) => ({ game: s?.game, perFrame: s?.perFrame, local: s?.local, learned: s?.learned, sprite: s?.sprite, cam: s?.cam }))));
     const gameRect = async (i) => {
       const r = JSON.parse(await ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); const c = (f.contentWindow.document.getElementById('screen') || f.contentWindow.__emu.canvas()).getBoundingClientRect(); const fr = f.getBoundingClientRect(); return JSON.stringify({ x: Math.round(fr.left + c.left), y: Math.round(fr.top + c.top), width: Math.round(c.width), height: Math.round(c.height) }); })()`));
@@ -913,6 +1013,74 @@ async function main() {
       finish(0);
       return;
     }
+    if (args.includes('--tgds')) {
+      // the DS and playing together: B a few steps away; A's overlay gets a catch over B, a tombstone
+      // in front of B, B's "come here" and B in a battle – what A's picture draws (the play view feeds the same data from the run)
+      for (const d of ['right', 'right', 'right']) await ds.step(1, d);
+      await sleep(800);
+      const b = (await world(1)).local;
+      const data = { battles: { p2: true }, pops: [{ slot: 'p2', species: 25, shiny: false, form: 0, age: 0 }],
+        tombs: [{ id: 'tomb:p2:test', slot: 'p2', fam: 0, map: b.map, x: b.x - 32, y: b.y + 16, h: b.h }],
+        ping: null };
+      const fam = await emu(0, 'w?.state?.()?.game');
+      const famNo = { platinum_us: 21, heartgold_us: 22, soulsilver_us: 22 }[fam] || 0;
+      data.tombs[0].fam = famNo;
+      const feed = (d) => emu(0, `(w.together(${JSON.stringify(d)}), true)`);
+      for (let n = 0; n < 6; n++) { await feed(data); await sleep(150); }
+      await shot('tg-battle-pop-tomb', 0, true);
+      const r1 = (await world(0))?.together;
+      log('together drawn', JSON.stringify(r1));
+      // "come here" from far to the right: the arrow at the edge
+      const ping = { slot: 'p2', fam: famNo, map: b.map, x: b.x + 16 * 20, y: b.y, h: b.h };
+      for (let n = 0; n < 6; n++) { await feed({ ...data, pops: [], ping }); await sleep(150); }
+      await shot('tg-ping-edge', 0, true);
+      const r2 = (await world(0))?.together;
+      log('ping drawn', JSON.stringify(r2?.ping));
+      // B in a battle: B leaves the field for a menu screen (X, then A: the first item of the menu – a screen of its own),
+      // which sends "hidden" as a battle does; A's overlay, told B battles, keeps B standing there with the ⚔
+      await ds.press(1, 'x');
+      await sleep(900);
+      await ds.press(1, 'a');
+      await until('B hidden', async () => (await world(0))?.partners?.p2?.s?.hidden, 15000).catch(() => null);
+      for (let n = 0; n < 6; n++) { await feed({ ...data, pops: [], ping: null }); await sleep(200); }
+      const r3 = (await world(0))?.together;
+      log('B away in a battle', JSON.stringify(r3));
+      await shot('tg-battling', 0, true);
+      for (let n = 0; n < 4; n++) { await ds.press(1, 'b'); await sleep(700); }
+      await until('B back', async () => (await world(0))?.partners?.p2?.s && !(await world(0)).partners.p2.s.hidden, 20000).catch(() => null);
+      // the menu with a partner who can be given an item: from B's name tag
+      await ev(0, `(() => { const f = document.querySelector('.console-screen iframe'); const t = [...f.contentWindow.document.querySelectorAll('.sw-tag')].find((e) => e.style.opacity !== '0'); t?.click(); return !!t; })()`);
+      await sleep(500);
+      const menu = (await world(0))?.menu;
+      const items = await ev(0, `(() => { const f = document.querySelector('.console-screen iframe'); return [...f.contentWindow.document.querySelectorAll('.sw-menu button')].map((b) => (b.textContent || b.title) + (b.disabled ? ' (off: ' + (b.title || '') + ')' : '')); })()`);
+      log('menu', JSON.stringify(menu), JSON.stringify(items));
+      await shot('tg-menu', 0);
+      writeFileSync(join(out, 'tgds.json'), JSON.stringify({ popTomb: r1, ping: r2?.ping, battling: r3, menu, items }, null, 1));
+      finish(r1?.pops?.length && r1?.tombs?.length && r2?.ping && r3?.battling?.includes('p2') && items.includes('Give item') ? 0 : 1);
+      return;
+    }
+    if (args.includes('--behind')) {
+      // the DS: B walks the steps of --walk, A stands – after each step A's picture and what of B the map hides there
+      const steps = String(opt('walk', '')).split(',').filter(Boolean);
+      const seen = [];
+      for (const [n, d] of steps.entries()) {
+        if (isDs) await ds.step(1, d);
+        else { await hold(1, [d], 150); await sleep(450); }
+        await sleep(400);
+        const w = await world(0);
+        seen.push({ n, step: d, B: (await world(1))?.local, depth: w?.depth, drawn: w?.drawn?.p2 });
+        log('behind', n, d, JSON.stringify(seen.at(-1)));
+        await shot(`behind-${String(n).padStart(2, '0')}`, 0, true);
+      }
+      writeFileSync(join(out, 'behind.json'), JSON.stringify(seen, null, 1));
+      finish(0);
+      return;
+    }
+    if (args.includes('--clip')) {
+      await clip({ world, shot, log, sleep, out, wins, gameRect, ds: isDs ? ds : null, hold });
+      finish(0);
+      return;
+    }
     if (args.includes('--edge')) {
       const ok = await edge({ world, hold, shot, log, sleep, out, wins, gameRect });
       finish(ok ? 0 : 1);
@@ -924,7 +1092,7 @@ async function main() {
       return;
     }
     if (args.includes('--plus')) {
-      await plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId });
+      await plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId, ds: isDs ? ds : null });
       finish(0);
       return;
     }

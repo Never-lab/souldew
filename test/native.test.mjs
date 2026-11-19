@@ -70,7 +70,8 @@ test('the host\'s arguments: the core, the RAM the live reader needs, souldew\'s
 });
 
 test('the commands a page may send: known types, sane sizes, nothing left over', () => {
-  const ok = Buffer.concat([command(NCMD.INPUT, Buffer.alloc(17)), command(NCMD.SPEED, Buffer.from(new Float32Array([2]).buffer)), command(NCMD.WRITE, Buffer.concat([u32(0x02000000), Buffer.from([1, 2])])), command(NCMD.STEP, u32(10)), command(NCMD.RESYNC)]);
+  const ok = Buffer.concat([command(NCMD.INPUT, Buffer.alloc(17)), command(NCMD.SPEED, Buffer.from(new Float32Array([2]).buffer)), command(NCMD.WRITE, Buffer.concat([u32(0x02000000), Buffer.from([1, 2])])), command(NCMD.STEP, u32(10)), command(NCMD.RESYNC),
+    command(NCMD.DEPTH, Buffer.concat([u32(1), Buffer.alloc(8)])), command(NCMD.DEPTH, u32(0))]); // (the DS's depth for Shared World: rectangles, or none)
   assert.equal(checkNativeCommands(ok), ok);
   const bad = [
     command(99), // unknown
@@ -80,6 +81,7 @@ test('the commands a page may send: known types, sane sizes, nothing left over',
     command(NCMD.WRITE, Buffer.alloc(4 + 65537)), // more than 64 KB
     command(NCMD.SRAM, Buffer.alloc(0)), // an empty save
     command(NCMD.QUIT, Buffer.alloc(1)),
+    command(NCMD.DEPTH, Buffer.alloc(4 + 9 * 8)), // more than 8 rectangles
     Buffer.concat([command(NCMD.RESET), Buffer.from([1, 2, 3])]), // a cut-off message after it
     Buffer.alloc(0),
   ];

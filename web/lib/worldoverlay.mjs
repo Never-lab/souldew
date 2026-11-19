@@ -11,11 +11,11 @@
 import {
   worldTable, watchRanges, rangeReader, chainReaders, readCamera, readPlayer, readLocalSprite, drawable, OverworldLearner,
   Track, unpackState, screenPos, facedPartner, gfxFor, kindFor, animFor, readMapView, blockReader, popupRect, GBA_KEY, TILE,
-  Follower, followerHidden, readConnections, inLocalFrame, APress,
+  Follower, followerHidden, readConnections, inLocalFrame, APress, startOnce,
 } from '/shared/world.mjs';
 import { findMonIcons, monIcon, iconIndex, dexToInternal, NAT } from '/shared/worldicons.mjs';
-import { ART, HAND_ART, artSize, paintArt, artCanvas, INK } from '/lib/worldart.mjs';
-import { rpsLine } from '/shared/rps.mjs';
+import { ART, HAND_ART, artSize } from '/lib/worldart.mjs';
+import { WORLD_CSS, drawBubble, createWorldUi } from '/lib/worldui.mjs';
 import { gen3Avatar, animFrame, liveFrame, avatarPalette } from '/shared/worldsprites.mjs';
 import { mapTop, coverMask, aboveTopLayer } from '/shared/worldmap.mjs';
 import { togetherLayer, standIn, emptyTogether, POP_MS } from '/lib/togetheroverlay.mjs';
@@ -27,39 +27,10 @@ import {
 const STATE_MS = 66; // the local state to the play view (it decides what goes out)
 const WAVE_MS = 2600; // an emote bubble
 const HAND_MS = 2400; // the hands of a rock-paper-scissors round
-const EMOTE_ROW = ['wave', 'heart', 'excl', 'quest', 'gg']; // (Wave sits with the emotes: the menu stays short)
 const A_CONFIRM_MS = 110; // after A: the game's own answer (a sign, a person) takes over first
 const A_CONFIRM_GB_MS = 250; // (the Game Boy games run their overworld every other frame: they answer later)
 const RETRO_A = 1 << 8; // libretro joypad bit of A (nativeplayer's input)
 
-const CSS = `
-.sw-layer{position:fixed;pointer-events:none;overflow:hidden;z-index:5}
-.sw-layer canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;transition:opacity .14s linear}
-.sw-tag{position:absolute;transform:translate(-50%,-100%);padding:1px 6px 2px;border-radius:7px;font:600 11px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;
-  color:var(--c);background:rgba(14,13,18,.74);border:1px solid color-mix(in srgb,var(--c) 55%,transparent);white-space:nowrap;letter-spacing:.01em;
-  pointer-events:auto;cursor:pointer;transition:opacity .14s linear;text-shadow:0 1px 0 #000}
-.sw-tag:hover{background:rgba(14,13,18,.92)}
-.sw-menu{position:fixed;z-index:6;min-width:132px;padding:6px;border-radius:10px;background:#1b1a1f;border:1px solid #4a4855;box-shadow:0 8px 28px #000a,inset 0 1px 0 #ffffff10;
-  font:600 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;color:#ebe6da;animation:sw-in .12s ease-out}
-@keyframes sw-in{from{opacity:0;transform:translateY(4px) scale(.97)}to{opacity:1;transform:none}}
-.sw-menu .sw-who{padding:4px 8px 6px;font-size:12px;color:var(--c);display:flex;gap:6px;align-items:center}
-.sw-menu .sw-who i{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 6px var(--c)}
-.sw-menu button{display:flex;width:100%;align-items:center;gap:8px;padding:7px 10px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.sw-menu button[aria-selected="true"]{background:color-mix(in srgb,var(--c) 22%,#2a2931);box-shadow:inset 2px 0 0 var(--c)}
-.sw-menu button:disabled{opacity:.42;cursor:default}
-.sw-menu .sw-why{padding:2px 10px 4px;font:500 11px/1.35 system-ui,sans-serif;color:#a9a5b3;max-width:220px}
-.sw-menu .sw-keys{padding:5px 10px 2px;font:500 10px/1 system-ui,sans-serif;color:#77757f}
-.sw-menu .sw-row{display:flex;gap:4px;padding:2px 4px}
-.sw-menu .sw-row button{width:auto;flex:1;justify-content:center;padding:6px 0}
-.sw-menu canvas.px-art{image-rendering:pixelated;display:block}
-.sw-rps{min-width:216px}
-.sw-rps .sw-hands{display:flex;gap:6px;padding:4px}
-.sw-rps .sw-hands button{flex-direction:column;gap:5px;padding:8px 4px 6px;justify-content:center;align-items:center;font-size:11px}
-.sw-rps .sw-hands button.picked{background:color-mix(in srgb,var(--c) 30%,#2a2931);opacity:1}
-.sw-rps .sw-time{height:3px;margin:4px 8px 2px;border-radius:2px;background:#2d2c33;overflow:hidden}
-.sw-rps .sw-time i{display:block;height:100%;background:var(--c);transform-origin:left;transition:transform .25s linear}
-.sw-rps .sw-say{padding:6px 8px 2px;font:600 12px/1.35 system-ui,sans-serif;min-height:16px}
-`;
 
 // a little four-point star over a shiny follower (party icons have no shiny colours in Gen 3) – original pixel art
 const SPARKLE = ['..#..', '..#..', '##o##', '..#..', '..#..'];
@@ -71,10 +42,12 @@ const SPARKLE = ['..#..', '..#..', '##o##', '..#..', '..#..'];
  */
 export function installWorld(host) {
   let st = null; // everything once config() turned it on
+  // (one overlay per page: a config() while the first start still runs waits for it – shared/world.mjs startOnce)
+  const begin = startOnce((cfg) => start(host, cfg).catch((e) => (console.warn('shared world', e), null)));
   const api = {
     /** From the play view: { me, players: { slot: { name, color } }, enabled, actions: { slot: { trade, battle, why } }, labels } */
     async config(cfg) {
-      if (!st) st = await start(host, cfg).catch((e) => (console.warn('shared world', e), null));
+      if (!st) st = await begin(cfg);
       st?.setConfig(cfg);
       return !!st?.t;
     },
@@ -91,8 +64,12 @@ export function installWorld(host) {
     together: (data) => st?.together?.(data),
     /** Can this page show a rock-paper-scissors game right now (Shared World on, the overworld on screen)? */
     canPresent: () => !!st?.canPresent?.(),
+    /** Does this game get souldew's follower for you? (HeartGold/SoulSilver walk your Pokémon themselves) */
+    ownFollower: () => st?.ownFollower !== false,
     /** nativeplayer: the WATCHED bytes of the picture that comes next */
     onWatched: (bytes) => st?.onWatched(bytes),
+    /** nativeplayer: the DS's 3D depth in the rectangles named (MSG_DEPTH), for the picture whose bytes come next */
+    onDepth: (bytes) => st?.onDepth?.(bytes),
     /** nativeplayer: the buttons as sent to the game (libretro bits) */
     input: (bits) => st?.input(bits),
     /** nativeplayer: another host runs the game now (a seamless link session began or ended) – WATCH goes out again */
@@ -112,6 +89,7 @@ export function installWorld(host) {
 const UNSUPPORTED = (more = {}) => ({ t: null, setConfig() {}, partner() {}, gone() {}, emote() {}, onWatched() {}, input() {}, debug: () => ({ supported: false, ...more }), stop() {} });
 
 async function start(host, cfg) {
+  if (host.system === 'nds') return (await import('/lib/worldds.mjs')).startDs(host, cfg);
   if (host.system === 'gb' || host.system === 'gbc') return startGb(host);
   if (host.system !== 'gba') return UNSUPPORTED();
   const [{ findEntry }, addresses, rom, dex] = await Promise.all([
@@ -156,7 +134,7 @@ async function startGb(host) {
 
 function world(host, t, rom, dex) {
   const style = document.createElement('style');
-  style.textContent = CSS;
+  style.textContent = WORLD_CSS;
   document.head.append(style);
   const layer = document.createElement('div');
   layer.className = 'sw-layer';
@@ -171,7 +149,6 @@ function world(host, t, rom, dex) {
 
   let cfg = { me: null, players: {}, enabled: false, actions: {}, labels: {}, lead: null, follow: true };
   const tracks = new Map(); // slot → Track
-  const tags = new Map(); // slot → name tag element
   const avatars = new Map(); // gfx id → { w, h, frames: [canvas], anims } | null
   const anim = new Map(); // slot → { time, lastX, lastY }
   const bubbles = new Map(); // slot (or the local one) → { art, start, until, lose, draw }
@@ -186,7 +163,6 @@ function world(host, t, rom, dex) {
   const connCache = new Map();
   let conns = null; // this map's size and connections, this picture
   let fdraw = {}; // diagnostics: the followers drawn this picture
-  let rpsUi = null; // the rock-paper-scissors picker
   let ownLast = null; // diagnostics: your own follower this picture
   const spriteCache = {};
   const frameCache = new Map();
@@ -202,7 +178,6 @@ function world(host, t, rom, dex) {
   let watchKey = '';
   let cam = null;
   let shown = 0; // opacity
-  let menu = null;
   const aPress = new APress(); // walking up to a partner and pressing A
   let aTimer = 0;
   let lastState = 0;
@@ -220,6 +195,18 @@ function world(host, t, rom, dex) {
   let covered = {}; // diagnostics: hidden pixels per partner slot ('me': the local player's redraw)
   const scratch = document.createElement('canvas');
   const sctx = scratch.getContext('2d');
+  // the tags, the A menu and the rock-paper-scissors picker (web/lib/worldui.mjs): over the partner's tile
+  const ui = createWorldUi({
+    host, layer, screen: t.screen, getCfg: () => cfg,
+    anchor: (slot) => {
+      const p = tracks.get(slot)?.sample(performance.now());
+      const pos = p && cam ? screenPos(t, cam, p) : null;
+      return pos ? { x: pos.x + TILE / 2, top: pos.y - 20, bottom: pos.y + TILE + 6 } : null;
+    },
+    canModal: () => drawable(t, cam, learner.cb2),
+    onClosed: () => aPress.swallow(), // (the A that chose doesn't open it again)
+  });
+  const { tags, tagFor, openMenu, closeMenu } = ui;
   // playing together: partners in a battle, catches, tombstones, "come here" (web/lib/togetheroverlay.mjs)
   const tl = togetherLayer(t);
   let tg = emptyTogether();
@@ -368,30 +355,6 @@ function world(host, t, rom, dex) {
     const v = [`${r.left}px`, `${r.top}px`, `${r.width}px`, `${r.height}px`];
     if (s.left !== v[0] || s.top !== v[1] || s.width !== v[2] || s.height !== v[3]) Object.assign(s, { left: v[0], top: v[1], width: v[2], height: v[3] });
     return r;
-  }
-
-  /**
-   * A white speech bubble with pixel art (web/lib/worldart.mjs) in `color`, its tail at (x, y), bobbing once when it
-   * appears. `dim`: drawn faded (the losing hand of a rock-paper-scissors round).
-   */
-  function drawBubble(x, y, color, age, art = 'wave', dim = false) {
-    const [aw, ah] = artSize(art);
-    const w = aw + 6;
-    const h = ah + 5;
-    const bob = age < 160 ? Math.round(-2 * Math.sin((age / 160) * Math.PI)) : 0;
-    const bx = Math.round(x) - (w >> 1);
-    const by = Math.round(y) - h - 2 + bob;
-    ctx.save();
-    if (dim) ctx.globalAlpha = 0.5;
-    ctx.fillStyle = INK;
-    ctx.fillRect(bx + 1, by, w - 2, h);
-    ctx.fillRect(bx, by + 1, w, h - 2);
-    ctx.fillRect(bx + (w >> 1) - 1, by + h, 3, 2);
-    ctx.fillStyle = '#fbf8f1';
-    ctx.fillRect(bx + 1, by + 1, w - 2, h - 2);
-    ctx.fillRect(bx + (w >> 1), by + h - 1, 1, 2);
-    paintArt(ctx, art, bx + 3, by + 3 - (ah > 8 ? 1 : 0), color);
-    ctx.restore();
   }
 
   /** The top layer of the map the game shows now (built on the first picture of a map, then kept). */
@@ -590,7 +553,7 @@ function world(host, t, rom, dex) {
 
   function bubble(slot, b, x, y, now) {
     // (the losing hand fades a moment after both show)
-    drawBubble(x, y, cfg.players[slot]?.color || '#fff', now - b.start, b.art, !!b.lose && now - b.start > 500);
+    drawBubble(ctx, x, y, cfg.players[slot]?.color || '#fff', now - b.start, b.art, !!b.lose && now - b.start > 500);
   }
 
   /** A partner's follower walks their (interpolated) path; it goes back onto them when they're gone or out of frame. */
@@ -687,28 +650,6 @@ function world(host, t, rom, dex) {
     covered.me = drawSprite(frameCache.get(key), px, spr.w, spr.h, spr.x, spr.y, spr.flip, me.elev);
   }
 
-  function tagFor(slot) {
-    const pl = cfg.players[slot];
-    if (!pl) return null;
-    let el = tags.get(slot);
-    if (!el) {
-      el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'sw-tag';
-      el.style.opacity = '0';
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openMenu(slot);
-      });
-      layer.append(el);
-      tags.set(slot, el);
-    }
-    if (el.textContent !== pl.name) el.textContent = pl.name;
-    el.style.setProperty('--c', pl.color || '#ebe6da');
-    el.title = cfg.labels.tagHint || '';
-    return el;
-  }
-
   // ---- the local player for the partners --------------------------------------------------------------------------
   function sendState(read, can) {
     const me = cam ? readPlayer(t, read, cam) : null;
@@ -729,7 +670,7 @@ function world(host, t, rom, dex) {
   function interact(now, read, can, list) {
     aPress.sample(!!((cam?.keys || 0) & GBA_KEY.A), now);
     if (aPress.direct) return;
-    if (menu || !can) {
+    if (ui.menu || !can) {
       aPress.cancel();
       return;
     }
@@ -748,7 +689,7 @@ function world(host, t, rom, dex) {
     const fresh = host.watchedNow?.();
     const read = watched && fresh && fresh.length === 4 + watched.total ? chainReaders(rangeReader(watched.ranges, fresh.subarray(4)), mirror) : reader();
     const c = readCamera(t, read);
-    if (menu || rpsUi?.modal || !cfg.enabled || !host.ready() || !drawable(t, c, learner.cb2)) return;
+    if (ui.modal() || !cfg.enabled || !host.ready() || !drawable(t, c, learner.cb2)) return;
     const list = [...tracks].map(([slot, tr]) => {
       const s = tr.sample(now, conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null);
       return { slot, s, pos: s ? screenPos(t, c, s) : null };
@@ -772,338 +713,12 @@ function world(host, t, rom, dex) {
     if (faced) openMenu(faced);
   }
 
-  // ---- the menu (the partners stay drawn behind it; the game is paused while it is open) ----------------------------
-  // Items: Trade, Battle, Wave, Rock-paper-scissors, a row of emotes (heart, !, ?, GG), Cancel. Up/down between the
-  // items, left/right along the emote row.
-  function openMenu(slot) {
-    if (menu || rpsUi?.modal || !cfg.players[slot]) return;
-    const pl = cfg.players[slot];
-    const L = cfg.labels;
-    const ac = cfg.actions[slot] || {};
-    // (a partner in a battle: Watch instead of Trade / Battle / Give item, which can't be done with them now)
-    const items = [
-      ...(ac.watch ? [{ act: 'watch', label: L.watch || 'Watch', on: true }] : [
-        { act: 'trade', label: L.trade || 'Trade', on: !!ac.trade },
-        { act: 'battle', label: L.battle || 'Battle', on: !!ac.battle },
-        ...(ac.gift !== undefined ? [{ act: 'gift', label: L.gift || 'Give item', on: !!ac.gift, title: ac.giftWhy || '' }] : []),
-      ]),
-      { act: 'rps', label: L.rps || 'Rock-paper-scissors', on: ac.rps !== false },
-      { act: 'emote', row: EMOTE_ROW, on: true },
-      { act: 'close', label: L.cancel || 'Cancel', on: true },
-    ];
-    const el = document.createElement('div');
-    el.className = 'sw-menu';
-    el.setAttribute('role', 'menu');
-    el.setAttribute('aria-label', pl.name);
-    el.style.setProperty('--c', pl.color || '#ebe6da');
-    const who = document.createElement('div');
-    who.className = 'sw-who';
-    who.append(document.createElement('i'), document.createTextNode(pl.name));
-    el.append(who);
-    const buttons = [];
-    items.forEach((it, i) => {
-      const pick = (sub) => (e) => {
-        e.stopPropagation();
-        choose(i, sub);
-      };
-      if (it.row) {
-        const row = document.createElement('div');
-        row.className = 'sw-row';
-        row.setAttribute('role', 'group');
-        row.setAttribute('aria-label', L.emotes || 'Emotes');
-        it.buttons = it.row.map((name, k) => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.setAttribute('role', 'menuitem');
-          b.title = L[`emote_${name}`] || name;
-          b.setAttribute('aria-label', b.title);
-          b.append(artCanvas(name, '#ebe6da', 2));
-          b.addEventListener('click', pick(k));
-          b.addEventListener('pointerenter', () => select(i, k));
-          row.append(b);
-          return b;
-        });
-        el.append(row);
-        buttons.push(row);
-        return;
-      }
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.setAttribute('role', 'menuitem');
-      b.textContent = it.label;
-      b.disabled = !it.on;
-      if (it.title) b.title = it.title;
-      b.addEventListener('click', pick(0));
-      b.addEventListener('pointerenter', () => it.on && select(i));
-      el.append(b);
-      buttons.push(b);
-    });
-    const why = !ac.watch && !ac.trade && !ac.battle ? ac.why || '' : '';
-    if (why) {
-      const w = document.createElement('div');
-      w.className = 'sw-why';
-      w.textContent = why;
-      el.append(w);
-    }
-    if (L.keys) {
-      const k = document.createElement('div');
-      k.className = 'sw-keys';
-      k.textContent = L.keys;
-      el.append(k);
-    }
-    document.body.append(el);
-    const wasPaused = host.paused();
-    if (!wasPaused) host.pause();
-    menu = { el, slot, items, buttons, sel: -1, sub: 0, wasPaused, pad: {} };
-    select(items.findIndex((x) => x.on));
-    positionMenu();
-    addEventListener('keydown', onKey, true);
-    addEventListener('keyup', swallow, true);
-    addEventListener('pointerdown', outside, true);
-  }
-  /**
-   * Over the partner (`slot`), or (null) at the bottom of the picture – the players stand in its middle and their
-   * bubbles show above them; kept inside the picture.
-   */
-  function placeBox(el, slot) {
-    const r = host.rect();
-    if (!r) return;
-    const p = slot ? tracks.get(slot)?.sample(performance.now()) : null;
-    const pos = p && cam ? screenPos(t, cam, p) : null;
-    const k = r.width / t.screen.w;
-    const mw = el.offsetWidth;
-    const mh = el.offsetHeight;
-    let x = pos ? r.left + (pos.x + TILE / 2) * k - mw / 2 : r.left + r.width / 2 - mw / 2;
-    let y = pos ? r.top + (pos.y - 20) * k - mh : r.top + r.height - mh - 8;
-    if (y < r.top + 6) y = pos ? r.top + (pos.y + TILE + 6) * k : r.top + 6;
-    x = Math.max(r.left + 6, Math.min(x, r.left + r.width - mw - 6));
-    y = Math.max(r.top + 6, Math.min(y, r.top + r.height - mh - 6));
-    el.style.left = `${Math.round(x)}px`;
-    el.style.top = `${Math.round(y)}px`;
-  }
-  const positionMenu = () => menu && placeBox(menu.el, menu.slot);
-  function select(i, sub = null) {
-    if (!menu || i < 0) return;
-    menu.sel = i;
-    if (sub !== null) menu.sub = sub;
-    menu.items.forEach((it, j) => {
-      if (it.buttons) it.buttons.forEach((b, k) => b.setAttribute('aria-selected', String(j === i && k === menu.sub)));
-      else menu.buttons[j].setAttribute('aria-selected', String(j === i));
-    });
-  }
-  function move(d) {
-    if (!menu) return;
-    const n = menu.items.length;
-    for (let k = 1; k <= n; k++) {
-      const i = (menu.sel + d * k + n * 4) % n;
-      if (menu.items[i].on) return select(i);
-    }
-  }
-  function side(d) {
-    const it = menu?.items[menu.sel];
-    if (it?.row) select(menu.sel, (menu.sub + d + it.row.length) % it.row.length);
-  }
-  function choose(i, sub = menu?.sub || 0) {
-    if (!menu) return;
-    const it = menu.items[i];
-    if (!it?.on) return;
-    const slot = menu.slot;
-    closeMenu();
-    if (it.act === 'close') return;
-    // (the play view decides – a wave or an emote within the limits shows over you through emote(), a game opens
-    // the picker through rps())
-    if (it.act === 'emote') host.post({ type: 'emu-world-act', act: 'emote', emote: it.row[sub] || it.row[0], slot });
-    else host.post({ type: 'emu-world-act', act: it.act, slot });
-  }
-  function closeMenu() {
-    if (!menu) return;
-    const m = menu;
-    menu = null;
-    m.el.remove();
-    removeEventListener('keydown', onKey, true);
-    removeEventListener('keyup', swallow, true);
-    removeEventListener('pointerdown', outside, true);
-    aPress.swallow(); // the A that chose doesn't open it again
-    if (!m.wasPaused) host.resume();
-  }
-  function swallow(e) {
-    e.stopImmediatePropagation();
-    e.preventDefault();
-  }
-  function onKey(e) {
-    if (!menu) return;
-    swallow(e);
-    const b = host.keyButton?.(e);
-    const k = e.key;
-    if (k === 'ArrowDown' || b === 'down') move(1);
-    else if (k === 'ArrowUp' || b === 'up') move(-1);
-    else if (k === 'ArrowLeft' || b === 'left') side(-1);
-    else if (k === 'ArrowRight' || b === 'right') side(1);
-    else if (k === 'Enter' || k === ' ' || b === 'a') choose(menu.sel);
-    else if (k === 'Escape' || k === 'Backspace' || b === 'b') closeMenu();
-  }
-  function outside(e) {
-    if (menu && !menu.el.contains(e.target)) closeMenu();
-  }
-
-  // ---- rock-paper-scissors: the picker (shared/rps.mjs through the play view) ----------------------------------------
-  // While you pick, the game waits (at most the 10 s of the round) and the keys are the picker's: left/right, A, B
-  // to pass. Once you picked the game runs on; the result shows as the hands over both heads, and here in words.
-  const HANDS_KEYS = ['rock', 'paper', 'scissors'];
-  function rpsView(v) {
-    if (!v) return closeRps();
-    const L = cfg.labels;
-    const pl = cfg.players[v.other] || { name: v.other, color: '#ebe6da' };
-    if (!rpsUi || rpsUi.id !== v.id) {
-      closeRps();
-      closeMenu();
-      const el = document.createElement('div');
-      el.className = 'sw-menu sw-rps';
-      el.setAttribute('role', 'dialog');
-      el.style.setProperty('--c', pl.color || '#ebe6da');
-      const who = document.createElement('div');
-      who.className = 'sw-who';
-      const name = document.createElement('span');
-      who.append(document.createElement('i'), name);
-      const hands = document.createElement('div');
-      hands.className = 'sw-hands';
-      const buttons = HANDS_KEYS.map((h, k) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.append(artCanvas(h, cfg.players[cfg.me]?.color || '#ebe6da', 3), document.createTextNode(L[`hand_${h}`] || h));
-        b.addEventListener('click', (e) => {
-          e.stopPropagation();
-          rpsPick(k);
-        });
-        b.addEventListener('pointerenter', () => rpsSel(k));
-        hands.append(b);
-        return b;
-      });
-      const time = document.createElement('div');
-      time.className = 'sw-time';
-      const bar = document.createElement('i');
-      time.append(bar);
-      const say = document.createElement('div');
-      say.className = 'sw-say';
-      say.setAttribute('aria-live', 'polite');
-      const keys = document.createElement('div');
-      keys.className = 'sw-keys';
-      el.append(who, hands, time, say, keys);
-      document.body.append(el);
-      rpsUi = { id: v.id, el, name, buttons, bar, say, keys, sel: 1, modal: false, wasPaused: false, pad: {}, closeAt: 0 };
-      rpsSel(1);
-    }
-    const u = rpsUi;
-    u.v = v;
-    u.name.textContent = `${L.rpsWith ? L.rpsWith.replace('{name}', pl.name) : `Rock-paper-scissors · ${pl.name}`}${v.bo === 3 ? ` · ${L.bestOf3 || 'best of 3'} ${v.wins.me}–${v.wins.them}` : ''}`;
-    const picking = v.phase === 'pick';
-    u.buttons.forEach((b, k) => {
-      b.disabled = !picking;
-      b.classList.toggle('picked', v.hand === k && !picking);
-    });
-    u.keys.textContent = picking ? L.rpsKeys || '◀ ▶ choose · A pick · B pass' : '';
-    u.bar.parentNode.style.visibility = picking ? '' : 'hidden';
-    u.say.textContent = rpsSay(v, pl.name);
-    // the modal part: the keys and the paused game, only while picking on the overworld
-    const want = picking && drawable(t, cam, learner.cb2);
-    if (want && !u.modal) rpsModal(true);
-    else if (!want && u.modal) rpsModal(false);
-    if (v.phase === 'end') u.closeAt = u.closeAt || performance.now() + 2600;
-    placeBox(u.el, null);
-  }
-  function rpsSay(v, name) {
-    return rpsLine(v, cfg.me, cfg.labels, name, (h) => cfg.labels[`hand_${HANDS_KEYS[h]}`] || HANDS_KEYS[h]);
-  }
-  function rpsModal(on) {
-    const u = rpsUi;
-    if (!u || u.modal === on) return;
-    u.modal = on;
-    if (on) {
-      u.wasPaused = host.paused();
-      if (!u.wasPaused) host.pause();
-      addEventListener('keydown', rpsKey, true);
-      addEventListener('keyup', swallow, true);
-    } else {
-      removeEventListener('keydown', rpsKey, true);
-      removeEventListener('keyup', swallow, true);
-      aPress.swallow();
-      if (!u.wasPaused) host.resume();
-    }
-  }
-  function rpsSel(k) {
-    if (!rpsUi) return;
-    rpsUi.sel = (k + 3) % 3;
-    rpsUi.buttons.forEach((b, j) => b.setAttribute('aria-selected', String(j === rpsUi.sel)));
-  }
-  function rpsPick(k) {
-    const u = rpsUi;
-    if (!u || u.v?.phase !== 'pick') return;
-    rpsSel(k);
-    host.post({ type: 'emu-world-rps', id: u.id, hand: k });
-    rpsModal(false);
-  }
-  function rpsPass() {
-    const u = rpsUi;
-    if (!u) return;
-    host.post({ type: 'emu-world-rps', id: u.id, pass: true });
-    rpsModal(false);
-  }
-  function rpsKey(e) {
-    if (!rpsUi?.modal) return;
-    swallow(e);
-    const b = host.keyButton?.(e);
-    const k = e.key;
-    if (k === 'ArrowLeft' || b === 'left') rpsSel(rpsUi.sel - 1);
-    else if (k === 'ArrowRight' || b === 'right') rpsSel(rpsUi.sel + 1);
-    else if (k === '1' || k === '2' || k === '3') rpsPick(Number(k) - 1);
-    else if (k === 'Enter' || k === ' ' || b === 'a') rpsPick(rpsUi.sel);
-    else if (k === 'Escape' || k === 'Backspace' || b === 'b') rpsPass();
-  }
-  function closeRps() {
-    if (!rpsUi) return;
-    rpsModal(false);
-    rpsUi.el.remove();
-    rpsUi = null;
-  }
-
-  // a controller in the menu and the picker: D-pad, A, B (standard mapping)
-  function pollPad() {
-    const box = menu || (rpsUi?.modal ? rpsUi : null);
-    if (rpsUi?.closeAt && performance.now() > rpsUi.closeAt) closeRps();
-    if (rpsUi && !menu) placeBox(rpsUi.el, null);
-    if (rpsUi?.v?.phase === 'pick') rpsUi.bar.style.transform = `scaleX(${Math.max(0, Math.min(1, (rpsUi.v.untilPage - performance.now()) / 10000))})`;
-    if (!box) return;
-    const pad = [...(navigator.getGamepads?.() || [])].find(Boolean);
-    if (!pad) return;
-    const was = box.pad;
-    const now = {
-      a: pad.buttons[0]?.pressed, b: pad.buttons[1]?.pressed, up: pad.buttons[12]?.pressed || pad.axes[1] < -0.5, down: pad.buttons[13]?.pressed || pad.axes[1] > 0.5,
-      left: pad.buttons[14]?.pressed || pad.axes[0] < -0.5, right: pad.buttons[15]?.pressed || pad.axes[0] > 0.5,
-    };
-    box.pad = now;
-    const edge = (k) => now[k] && !was[k] && was[k] !== undefined;
-    if (box === menu) {
-      if (edge('down')) move(1);
-      if (edge('up')) move(-1);
-      if (edge('left')) side(-1);
-      if (edge('right')) side(1);
-      if (edge('a')) choose(menu.sel);
-      else if (edge('b')) closeMenu();
-    } else {
-      if (edge('left')) rpsSel(rpsUi.sel - 1);
-      if (edge('right')) rpsSel(rpsUi.sel + 1);
-      if (edge('a')) rpsPick(rpsUi.sel);
-      else if (edge('b')) rpsPass();
-    }
-  }
-  const padTimer = setInterval(pollPad, 50);
-
   raf = requestAnimationFrame(frame);
   return {
     t,
     setConfig(c) {
       cfg = { ...cfg, ...c, players: c.players || cfg.players, labels: c.labels || cfg.labels, actions: c.actions || cfg.actions };
-      for (const [slot, el] of tags) if (!cfg.players[slot] || slot === cfg.me) (el.remove(), tags.delete(slot));
+      ui.prune();
       if (!cfg.enabled) closeMenu();
       watchKey = '';
       rewatch();
@@ -1125,9 +740,7 @@ function world(host, t, rom, dex) {
       followers.delete(slot);
       leads.delete(slot);
       sizes.delete(slot);
-      tags.get(slot)?.remove();
-      tags.delete(slot);
-      if (menu?.slot === slot) closeMenu();
+      ui.gone(slot);
     },
     emote(slot, name) {
       if (!ART[name]) return;
@@ -1137,7 +750,7 @@ function world(host, t, rom, dex) {
     rps(v) {
       // (the page's own clock for the countdown: the play view's runs elsewhere)
       if (v && v.phase === 'pick') v = { ...v, untilPage: performance.now() + Math.max(0, v.leftMs ?? 10000) };
-      rpsView(v);
+      ui.rpsView(v);
     },
     together(d) {
       // (a catch's age, from the play view's clock to this page's)
@@ -1177,7 +790,7 @@ function world(host, t, rom, dex) {
       inputBits = bits >>> 0;
       // (A went down: the menu's check runs when the game had time to answer – even if no picture shows the press)
       if (aPress.input(!!(inputBits & RETRO_A), performance.now())) {
-        if (menu || rpsUi?.modal) aPress.cancel();
+        if (ui.modal()) aPress.cancel();
         else armA();
       }
     },
@@ -1186,15 +799,13 @@ function world(host, t, rom, dex) {
       watched = null;
       rewatch();
     },
-    menuOpen: () => !!menu || !!rpsUi?.modal,
+    menuOpen: () => ui.modal(),
     debug() {
       const now = performance.now();
       const me0 = gb && cam ? readPlayer(t, reader(), cam) : null;
-      const it = menu?.items[menu.sel];
       return {
         supported: true, game: t.id, enabled: cfg.enabled, follow: cfg.follow, lead: cfg.lead, cam, shown, drawable: drawable(t, cam, learner.cb2), learned: learner.cb2, perFrame: !!watched?.bytes,
-        menu: menu ? { slot: menu.slot, sel: it?.row ? `emote:${it.row[menu.sub]}` : it?.act } : null,
-        rps: rpsUi ? { id: rpsUi.id, phase: rpsUi.v?.phase, modal: rpsUi.modal, sel: rpsUi.sel, say: rpsUi.say.textContent } : null,
+        ...ui.debug(),
         bubbles: Object.fromEntries([...bubbles].filter(([, b]) => now < b.until).map(([slot, b]) => [slot, b.art])),
         local: cam ? readPlayer(t, reader(), cam) : null, sprite: lastSprite, icons: !!icons,
         followers: fdraw, own: ownLast, conns, together: tgDrawn,
@@ -1213,10 +824,8 @@ function world(host, t, rom, dex) {
     stop() {
       stopped = true;
       cancelAnimationFrame(raf);
-      clearInterval(padTimer);
+      ui.stop();
       clearTimeout(aTimer);
-      closeMenu();
-      closeRps();
       layer.remove();
       style.remove();
       host.watch?.([]);

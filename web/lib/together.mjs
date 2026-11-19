@@ -17,6 +17,7 @@ import {
   TG, packStatus, unpackStatus, statusKey, packPing, unpackPing, pingArrived, GiftDesk, newId,
 } from '/shared/together.mjs';
 import { RateLimit, worldTable, readCamera } from '/shared/world.mjs';
+import { dsWorldTable, dsPointers, dsReadFrame, dsDrawable } from '/shared/worldds.mjs';
 import { bagItems, removeItem, addItem, bagRoom, giftSupported, bagFamily } from '/shared/live/cheats.mjs';
 import { giftList } from '/shared/giftitems.mjs';
 import { feed, feedText, msg, live, encounter, players, rules as getRules, slotsOf, runMode } from './run.mjs';
@@ -262,7 +263,10 @@ export class TogetherHub {
     if (!pos || !pos.fam) return;
     const enc = encounter(this.doc, f.area, this.me);
     const tid = String(id).replace(/[^\w-]/g, '_').slice(0, 40);
-    this.doc.set(`tomb:${this.me}:${tid}`, { fam: pos.fam, map: pos.map, x: Math.round(pos.x / 16) * 16, y: Math.round(pos.y / 16) * 16, ...(pos.size ? { z: pos.size } : {}), species: enc?.species || null, at: Date.now() });
+    // (on the tile: Gen 1–3 coordinates are its corner, the DS's – with a height – its centre)
+    const ds = Number.isFinite(pos.h);
+    const snap = (v) => (ds ? Math.floor(v / 16) * 16 + 8 : Math.round(v / 16) * 16);
+    this.doc.set(`tomb:${this.me}:${tid}`, { fam: pos.fam, map: pos.map, x: snap(pos.x), y: snap(pos.y), ...(ds ? { h: Math.round(pos.h) } : {}), ...(pos.size ? { z: pos.size } : {}), species: enc?.species || null, at: Date.now() });
   }
 
   /** The tombstones still standing: [{ id, slot, fam, map, x, y, size, species, at }]. */
@@ -272,7 +276,7 @@ export class TogetherHub {
     for (const [k, v] of Object.entries(this.doc.scan('tomb:'))) {
       if (!v || !Number.isInteger(v.map) || !Number.isFinite(v.x) || !Number.isFinite(v.y)) continue;
       if (Math.abs(this.now() - (v.at || 0)) > TG.tombMs) continue;
-      out.push({ id: k, slot: k.split(':')[0], fam: v.fam, map: v.map, x: v.x, y: v.y, size: Array.isArray(v.z) ? v.z : null, species: v.species || null, at: v.at });
+      out.push({ id: k, slot: k.split(':')[0], fam: v.fam, map: v.map, x: v.x, y: v.y, ...(Number.isFinite(v.h) ? { h: v.h } : {}), size: Array.isArray(v.z) ? v.z : null, species: v.species || null, at: v.at });
     }
     return out;
   }
@@ -423,15 +427,21 @@ const worldTables = new WeakMap(); // game entry → its Shared World table (or 
 /**
  * Why my game can't give or take an item right now – null when it can. A gift is only written on the overworld:
  * never during a battle (the game keeps its own copy of the bag then), a link, before live tracking found the team,
- * and – where souldew reads the screen state (Shared World's tables: Gen 1–3 today, any generation that gets them) –
+ * and – where souldew reads the screen state (Shared World's tables: Gen 1–4 today, any generation that gets them) –
  * not while a menu, a text, a script or a screen fade holds the player (the bag menu keeps its own list of the bag).
  */
 export function gameWhy({ entry, read, live = false, inBattle = false, link = false }) {
   if (link) return 'link';
   if (!live || !entry) return 'waiting';
   if (inBattle) return 'battle';
-  if (!worldTables.has(entry)) worldTables.set(entry, worldTable(entry) || null);
+  if (!worldTables.has(entry)) worldTables.set(entry, (entry.gen === 4 ? dsWorldTable(entry) : worldTable(entry)) || null);
   const t = worldTables.get(entry);
+  if (t?.gen === 4) {
+    // (the DS: the field runs, nothing on top of it, no script or warp holding the player)
+    const ptr = read ? dsPointers(t, read) : null;
+    const r = ptr ? dsReadFrame(t, read, ptr) : null;
+    return r && !dsDrawable(r) ? 'overworld' : null;
+  }
   const cam = t && read ? readCamera(t, read) : null;
   if (cam && (cam.battle || cam.locked || cam.replay || cam.fade >= 16)) return 'overworld';
   return null;
