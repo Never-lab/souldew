@@ -5,8 +5,17 @@
 // walks up to B and presses A: the menu opens, A picks Wave, and B sees the bubble.
 //
 //   node scripts/world-e2e.mjs --rom <emerald.gba> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] [--save4 <d.sav>] --data <dir> --out <dir> [--show]
-//                              [--rom2/--rom3/--rom4 <gba>] (that player's own game – a pair run of Emerald and Sapphire …)
+//                              [--rom2/--rom3/--rom4 <rom>] (that player's own game – a pair run of Emerald and Sapphire …)
+//                              (Game Boy games too: Red, Blue, Yellow, Gold, Silver, Crystal – a Repel that never runs out
+//                              keeps wild Pokémon away while the players walk)
 //                              [--lang de]   (the app's language on every computer)
+//                              [--look color] (Settings › "Game Boy look" on every computer: original or color)
+//                              [--port 7411] (the first server's port; the others follow – another run on this computer
+//                                             needs other ports)
+//                              [--edge [north|south|west|east]] (B walks over the edge of A's map, A to the last tiles
+//                                             before it: B drawn across the connection; B walks back – a strip)
+//                              [--frames]    (A's game run frame by frame while A walks a step each way: the camera the
+//                                             overlay read against the picture's background, frames.json)
 //                              [--browser]   (A plays in the browser player, EmulatorJS, instead of the fast player)
 //                              [--engine]    (every fast player is the souldew engine – Settings › "souldew engine (beta)")
 //                              [--occlusion] (Emerald, three saves in the Oldale Pokémon Center 2F: instead of the walk and
@@ -220,7 +229,19 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
     if (s?.tx === b.tx + dx && s?.ty === b.ty + dy) { side = { key, dir }; break; }
   }
   side = side || { key: 'right', dir: 4 };
-  for (let n = 0; n < 6 && (await local(0))?.facing !== side.dir; n++) { await hold(0, [side.key], 50 + n * 15); await sleep(400); }
+  // turn to face B with a tap – a little longer each time; a tap that became a step (Gen 1 turns only on the shortest
+  // ones) walks back first
+  const opposite = { right: 'left', left: 'right', up: 'down', down: 'up' };
+  for (let n = 0; n < 8 && (await local(0))?.facing !== side.dir; n++) {
+    const was = await local(0);
+    await hold(0, [side.key], 20 + n * 12);
+    await sleep(400);
+    const now = await local(0);
+    if (was && now && (now.tx !== was.tx || now.ty !== was.ty)) {
+      await hold(0, [opposite[side.key]], 150);
+      await sleep(450);
+    }
+  }
   log('next to B', JSON.stringify({ local: (await world(0)).local, own: (await world(0)).own, drawn: (await world(0)).followers }));
   await hold(0, ['a'], 120);
   const m = await until('menu', async () => (await world(0))?.menu, 6000);
@@ -256,6 +277,8 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   await hold(0, ['a'], 120);
   await until('menu again', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && !String((await world(0))?.menu?.sel || '').startsWith('emote'); n++) { await key(0, 'ArrowDown'); await sleep(120); }
+  // (the row starts with Wave since 3.0's playing together: along it to the heart)
+  for (let n = 0; n < 5 && (await world(0))?.menu?.sel !== 'emote:heart'; n++) { await key(0, 'ArrowRight'); await sleep(120); }
   await key(0, 'Enter');
   await until('B sees the heart', async () => (await world(1))?.bubbles?.p1 === 'heart', 6000).catch(() => null);
   await shot('30-heart-B', 1, true);
@@ -472,8 +495,12 @@ async function together({ world, hold, shot, log, sleep, until, out, ev, profile
   }
   // (into the tall grass at (4, 15) – where the ROM matrix's Emerald plan finds its first wild Pokémon – then up and
   // down in it until one shows)
-  await goto(1, 9, 15);
-  await goto(1, 4, 15);
+  // (again when a busy computer swallowed a step on the way – the ledge jump)
+  for (let k = 0; k < 3; k++) {
+    await goto(1, 9, 15);
+    const at = await goto(1, 4, 15);
+    if (at?.tx === 4 && at?.ty === 15) break;
+  }
   let fight = false;
   for (let n = 0; n < 200 && !fight; n++) {
     const w = await world(1);
@@ -561,6 +588,165 @@ async function together({ world, hold, shot, log, sleep, until, out, ev, profile
   void profiles;
 }
 const count2 = (list, it) => list?.find((x) => x.item === it.item && x.pocket === it.pocket)?.count || 0;
+/**
+ * Frame by frame (--frames): A's game paused and run one frame at a time while A walks a step each way – per picture
+ * the camera the overlay read (from the bytes sent with that picture), the partners' screen positions and the picture
+ * itself (160×144). The background's shift between two pictures must be the camera's change between them: then a
+ * partner standing still stays put on the map while you walk (frames.json; also the RAM at rest, in the START menu,
+ * talking to nobody, for the address checks of docs/MULTIPLAYER.md › 9).
+ */
+async function frames({ emu, log, sleep, out }) {
+  // the picture on A's screen as base64 RGB, 160×144 (the overlay's host keeps the last one)
+  const PIC = `(() => { const p = w.picture(); if (!p) return null; const o = new Uint8Array(p.w * p.h * 3); for (let i = 0; i < p.w * p.h; i++) { if (p.fmt === 0) { o[i * 3] = p.px[i * 4 + 2]; o[i * 3 + 1] = p.px[i * 4 + 1]; o[i * 3 + 2] = p.px[i * 4]; } else { const v = p.px[i * 2] | (p.px[i * 2 + 1] << 8); o[i * 3] = (v >> 11) << 3; o[i * 3 + 1] = ((v >> 5) & 63) << 2; o[i * 3 + 2] = (v & 31) << 3; } } let s = ''; for (let i = 0; i < o.length; i += 8192) s += String.fromCharCode(...o.subarray(i, i + 8192)); return btoa(s); })()`;
+  const seq = [];
+  const ranges = JSON.parse((await emu(0, 'JSON.stringify(w.state().ranges || [])')) || '[]');
+  for (const dir of ['right', 'left', 'down', 'up']) {
+    await emu(0, `(e.hold(${JSON.stringify([dir])}), true)`);
+    // (held for 12 frames: a turn first where the player faced elsewhere, then one step – 16 frames, 8 on the bike)
+    for (let n = 0; n < 30; n++) {
+      await emu(0, 'e.step(1).then(() => true)');
+      if (n === 11) await emu(0, '(e.hold([]), true)');
+      await sleep(60); // (the picture and the bytes sent with it reach the page; the overlay draws for them)
+      const st = JSON.parse((await emu(0, 'JSON.stringify(w.state())')) || 'null');
+      // (and the RAM those come from: the world table's per-picture ranges)
+      const raw = JSON.parse((await emu(0, `JSON.stringify((${JSON.stringify(ranges)}).map(([a, l]) => Array.from(e.read(a, l) || [])))`)) || 'null');
+      seq.push({ dir, n, cam: st?.cam, frames: st?.frames, local: st?.local, partners: st?.partners, raw, pic: await emu(0, PIC) });
+    }
+  }
+  // the START menu holds the player: the partners go (the game's own lock – Gen 1 the font in VRAM, Gen 2 a script);
+  // B closes it again
+  const camNow = async (frames) => {
+    await emu(0, `e.step(${frames}).then(() => true)`);
+    await sleep(80);
+    return JSON.parse((await emu(0, 'JSON.stringify({ cam: w.state().cam, drawable: w.state().drawable })')) || 'null');
+  };
+  const press = async (k, after) => {
+    await emu(0, `(e.hold(${JSON.stringify([k])}), true)`);
+    await emu(0, 'e.step(6).then(() => true)');
+    await emu(0, '(e.hold([]), true)');
+    return camNow(after);
+  };
+  const locks = { menu: await press('start', 50), closed: await press('b', 80) };
+  await emu(0, '(e.resume(), true)');
+  log('locks', JSON.stringify(locks));
+  // the background's shift between two pictures (rows 0–40 and 110–143, away from the sprites in the middle)
+  const decode = (b64) => Uint8Array.from(Buffer.from(b64, 'base64'));
+  const shift = (a, b) => {
+    let best = null;
+    for (let dy = -4; dy <= 4; dy++) {
+      for (let dx = -4; dx <= 4; dx++) {
+        let d = 0;
+        for (const y of [...Array(36).keys(), ...Array.from({ length: 30 }, (_, i) => 110 + i)]) {
+          for (let x = 8; x < 152; x += 2) {
+            const yy = y + dy;
+            if (yy < 0 || yy >= 144) continue;
+            const i = (y * 160 + x) * 3;
+            const j = (yy * 160 + x + dx) * 3;
+            d += Math.abs(a[i] - b[j]) + Math.abs(a[i + 1] - b[j + 1]);
+          }
+        }
+        if (!best || d < best.d) best = { dx, dy, d };
+      }
+    }
+    return best;
+  };
+  const rows = [];
+  for (let i = 1; i < seq.length; i++) {
+    const [p, q] = [seq[i - 1], seq[i]];
+    if (!p.pic || !q.pic || !p.cam || !q.cam || p.dir !== q.dir) continue;
+    const s = shift(decode(q.pic), decode(p.pic));
+    rows.push({ dir: q.dir, n: q.n, camDx: q.cam.cx - p.cam.cx, camDy: q.cam.cy - p.cam.cy, bgDx: s.dx, bgDy: s.dy, ok: s.dx === q.cam.cx - p.cam.cx && s.dy === q.cam.cy - p.cam.cy });
+  }
+  writeFileSync(join(out, 'frames.json'), JSON.stringify({ rows, locks, seq: seq.map(({ pic, ...r }) => r) }, null, 1));
+  const bad = rows.filter((r) => !r.ok);
+  log('frames: camera vs background', rows.length, 'pairs,', bad.length, 'off', JSON.stringify(bad.slice(0, 8)));
+  const lockOk = locks.menu?.drawable === false && locks.closed?.drawable === true;
+  if (!lockOk) log('the START menu didn’t hide the partners (or closing it didn’t bring them back)');
+  return bad.length + (lockOk ? 0 : 1);
+}
+
+/**
+ * Connected maps (--edge [north|south|west|east]): B walks over the edge of A's map onto the map next door, A to the
+ * last tiles before it – A still sees B (and B's Pokémon), drawn across the edge; then B walks back while A's page
+ * records a strip. Without a direction: the first connection of A's map.
+ */
+async function edge({ world, hold, shot, log, sleep, out, wins, gameRect }) {
+  const step = async (i, d) => { await hold(i, [d], 150); await sleep(420); };
+  const local = async (i) => (await world(i))?.local;
+  const conns = (await world(0))?.conns;
+  const want = opt('edge');
+  const names = { [2]: 'north', [1]: 'south', [3]: 'west', [4]: 'east' };
+  const c = conns?.list?.find((x) => !want || names[x.dir] === want) || conns?.list?.[0];
+  if (!c) throw new Error(`no connection on A's map: ${JSON.stringify(conns)}`);
+  const key = { 2: 'up', 1: 'down', 3: 'left', 4: 'right' }[c.dir];
+  const back = { up: 'down', down: 'up', left: 'right', right: 'left' }[key];
+  const side = key === 'up' || key === 'down' ? ['left', 'right'] : ['up', 'down'];
+  // walk in `key` until `done(state)`, around what's in the way: blocked, it goes along the obstacle to one side
+  // (trying forward after each step) and turns to the other side when that side is blocked too
+  const same = (p, q) => p && q && p.tx === q.tx && p.ty === q.ty && p.map === q.map;
+  const walk = async (i, done, max = 90) => {
+    let k = 0;
+    for (let n = 0; n < max; n++) {
+      const s = await local(i);
+      if (s && done(s)) return s;
+      await step(i, key);
+      if (!same(await local(i), s)) continue;
+      // blocked: sideways until forward is free (at most 12 steps), else the other way
+      for (let m = 0; m < 12; m++) {
+        const a = await local(i);
+        await step(i, side[k % 2]);
+        const b = await local(i);
+        if (same(a, b)) {
+          k++;
+          continue;
+        }
+        await step(i, key);
+        if (!same(await local(i), b)) break;
+      }
+    }
+    return local(i);
+  };
+  const map0 = (await local(0)).map;
+  const near = (s) => s.map === map0 && ({ up: s.ty <= 1, down: s.ty >= conns.h - 2, left: s.tx <= 1, right: s.tx >= conns.w - 2 })[key];
+  // A finds its way to the last tiles first; B then goes along A's line (the way A found) and on over the edge
+  const a = await walk(0, near);
+  const lineKey = key === 'up' || key === 'down' ? 'tx' : 'ty';
+  for (let n = 0; n < 40; n++) {
+    const s = await local(1);
+    if (!s || s[lineKey] === a[lineKey] || s.map !== map0) break;
+    await step(1, lineKey === 'tx' ? (s.tx < a.tx ? 'right' : 'left') : s.ty < a.ty ? 'down' : 'up');
+    const t = await local(1);
+    if (same(t, s)) await step(1, key); // (in the way: forward first, then along again)
+  }
+  const b = await walk(1, (s) => s.map !== map0);
+  await step(1, key);
+  await step(1, key);
+  await sleep(1200);
+  const w = await world(0);
+  const seen = { A: a, B: await local(1), conn: c, partner: w.partners?.p2, followers: w.followers };
+  log('across the edge', JSON.stringify(seen));
+  await shot('50-edge-A', 0, true);
+  await shot('50-edge-B', 1, true);
+  // B walks back over the edge while A watches
+  const strip = [];
+  const rec = (async () => {
+    for (let n = 0; n < 20; n++) {
+      strip.push((await wins[0].webContents.capturePage(await gameRect(0))).toPNG());
+      await sleep(120);
+    }
+  })();
+  for (let n = 0; n < 4; n++) await hold(1, [back], 270);
+  await rec;
+  mkdirSync(join(out, 'edge'), { recursive: true });
+  strip.forEach((png, n) => writeFileSync(join(out, 'edge', `f${String(n).padStart(3, '0')}.png`), png));
+  const after = await world(0);
+  seen.back = { B: await local(1), partner: after.partners?.p2 };
+  writeFileSync(join(out, 'edge.json'), JSON.stringify(seen, null, 1));
+  // (only a partner on the other map counts: water or a wall on the way leaves B on A's map)
+  const across = !!seen.partner?.pos && !!seen.B && seen.B.map !== seen.A?.map;
+  if (!across) log('B didn’t get across the edge', JSON.stringify(b));
+  return across;
+}
 
 async function main() {
   const { app, BrowserWindow } = await import('electron');
@@ -581,7 +767,7 @@ async function main() {
     mkdirSync(lib, { recursive: true });
     const romFile = opt(`rom${i + 1}`) || opt('rom');
     copyFileSync(romFile, join(lib, basename(romFile)));
-    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: opt('lang', 'en'), playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: !(id === 'A' && args.includes('--browser')), nativeEngine: args.includes('--engine') }));
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: opt('lang', 'en'), playerName: name, libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: !(id === 'A' && args.includes('--browser')), nativeEngine: args.includes('--engine'), ...(opt('look') ? { gbLook: opt('look') } : {}) }));
     const p = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
     p.stderr.on('data', (d) => process.stderr.write(`[${id}] ${d}`));
     servers.push(p);
@@ -678,12 +864,22 @@ async function main() {
     for (const [i] of profiles.entries()) {
       await until(`page ${i} in the overworld`, async () => {
         const s = await world(i);
-        if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && s.cam.cb2 && s.cam.fade === 0 && s.drawable !== false) return true;
+        // (the Game Boy games have no overworld callback: a loaded map, unlocked, is it)
+        if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && (s.cam.cb2 || s.gb) && s.cam.fade === 0 && s.drawable !== false) return true;
         // (FR/LG replay your last steps after loading – B skips that; it must not count as being there)
         if (s?.cam?.replay) log(`page ${i}: the quest-log replay – skipped`, JSON.stringify({ drawable: s.shown, local: s.local }));
         await press(i, s?.cam?.replay ? 'b' : 'a', 900);
         return false;
       }, 120000);
+    }
+    // the Game Boy saves stand in tall grass (the grass hides the partners' legs like the player's): a Repel that never
+    // runs out keeps wild Pokémon away while the players walk around (test-only – the e2e's own cheat)
+    const REPEL = { red_us: 0xd0db, blue_us: 0xd0db, yellow_us: 0xd0da, gold_us: 0xd9eb, silver_us: 0xd9eb, crystal_us: 0xdca1 };
+    const games = await Promise.all(profiles.map((_, i) => world(i).then((s) => s?.game)));
+    if (games.some((g) => REPEL[g])) {
+      const repel = () => Promise.all(games.map((g, i) => (REPEL[g] ? emu(i, `e.write(${REPEL[g]}, new Uint8Array([200]))`).catch(() => null) : null)));
+      await repel();
+      setInterval(repel, 2000).unref?.();
     }
     await sleep(1500);
     const st = await Promise.all(profiles.map((_, i) => world(i)));
@@ -705,6 +901,16 @@ async function main() {
     if (args.includes('--occlusion')) {
       await occlusion({ world, hold, shot, log, sleep, until, out, emu });
       finish(0);
+      return;
+    }
+    if (args.includes('--edge')) {
+      const ok = await edge({ world, hold, shot, log, sleep, out, wins, gameRect });
+      finish(ok ? 0 : 1);
+      return;
+    }
+    if (args.includes('--frames')) {
+      const bad = await frames({ emu, log, sleep, out });
+      finish(bad ? 1 : 0);
       return;
     }
     if (args.includes('--plus')) {

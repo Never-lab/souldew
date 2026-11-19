@@ -15,8 +15,8 @@ import { t } from './i18n.mjs';
 
 const GONE_MS = 5000; // a partner silent this long is gone from the overlay
 
-/** Systems with a Shared World so far (Gen 3 on the GBA; the player page checks the game itself). */
-export const WORLD_SYSTEMS = ['gba'];
+/** Systems with a Shared World so far (Gen 1/2 on the Game Boy, Gen 3 on the GBA; the player page checks the game itself). */
+export const WORLD_SYSTEMS = ['gb', 'gbc', 'gba'];
 
 /** The per-run "Show partners in my game" switch (this computer only, default on). */
 export const worldPrefKey = (runId) => `sl-world-${runId}`;
@@ -165,6 +165,8 @@ export class SharedWorld {
       this.local = d.st;
       // (where I last stood on the overworld – "come to me", the tombstone of a Pokémon that died in a battle there)
       if (!d.st.hidden) this.shown = { st: d.st, size: Array.isArray(d.size) ? d.size : this.shown?.size || null };
+      // (Yellow: the game's own Pikachu follows – the partners see that one, as you do)
+      this.gameLead = d.gameLead && d.gameLead.species > 0 ? d.gameLead : null;
       if (Array.isArray(d.size)) this.size = d.size;
       this._send(d.st);
       const n = Number(d.near) || 0;
@@ -235,7 +237,7 @@ export class SharedWorld {
     if (s && diff && now - s.at < SEND.minMs) return;
     // standing hidden (a battle, a menu screen): one message says so, then quiet but for the heartbeat
     // (who follows me and my map's size: when they change, and with the heartbeat for whoever came later)
-    const ext = packExt({ follower: this.lead || null, size: this.size });
+    const ext = packExt({ follower: this.gameLead || this.lead || null, size: this.size });
     const ek = JSON.stringify(ext);
     const extDue = ek !== this.extKey || now - this.extAt >= SEND.idleMs;
     const w = packState(st, ++this.seq, now, extDue ? ext : null);

@@ -423,7 +423,7 @@ const worldTables = new WeakMap(); // game entry → its Shared World table (or 
 /**
  * Why my game can't give or take an item right now – null when it can. A gift is only written on the overworld:
  * never during a battle (the game keeps its own copy of the bag then), a link, before live tracking found the team,
- * and – where souldew reads the screen state (Shared World's tables: Gen 3 today, any generation that gets them) –
+ * and – where souldew reads the screen state (Shared World's tables: Gen 1–3 today, any generation that gets them) –
  * not while a menu, a text, a script or a screen fade holds the player (the bag menu keeps its own list of the bag).
  */
 export function gameWhy({ entry, read, live = false, inBattle = false, link = false }) {

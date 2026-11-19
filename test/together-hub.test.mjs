@@ -230,3 +230,17 @@ test('overlay: a partner in a battle stands where it began; the art; the arrow f
   assert.equal(A.arrowFor(Math.PI / 4), A.ARROWS.SE);
   assert.equal(A.arrowFor(-3 * Math.PI / 4), A.ARROWS.NW);
 });
+
+test('overlay on a Game Boy picture (160×144, the player at 64, 64): tombstones and the arrow by the same hooks', () => {
+  const t = { fam: 11, anchor: { x: 64, y: 64 }, screen: { w: 160, h: 144 } };
+  const L = O.togetherLayer(t);
+  const cam = { map: 3, cx: 5 * 16, cy: 4 * 16 };
+  const tombs = [{ id: 'p2:x', slot: 'p2', fam: 11, map: 3, x: 6 * 16, y: 4 * 16 }, { id: 'p2:y', slot: 'p2', fam: 2, map: 3, x: 6 * 16, y: 4 * 16 }];
+  assert.deepEqual(L.tombSprites(cam, null, tombs).map((x) => [x.id, x.pos]), [['p2:x', { x: 80, y: 64 }]], 'only its own game family, on its tile');
+  const drawn = [];
+  const ctx = { fillRect: (x, y) => drawn.push([x, y]), set fillStyle(v) {} };
+  const r = L.drawPing(ctx, cam, null, { fam: 11, map: 3, x: 40 * 16, y: 4 * 16 }, '#fff', 0);
+  assert.equal(r.dir, 'edge');
+  assert.ok(r.x > 140 && r.x <= 160 && drawn.length > 0, JSON.stringify(r));
+  assert.equal(L.drawPing(ctx, cam, null, { fam: 11, map: 9, x: 0, y: 0 }, '#fff', 0), null, 'another map, not connected: none');
+});
