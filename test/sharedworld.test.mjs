@@ -681,3 +681,63 @@ test('the native player’s WATCH command: allowed with up to 16 ranges, nothing
   assert.ok(checkNativeCommands(Buffer.concat([cmd(NCMD.INPUT, Buffer.alloc(17)), watch(16)])));
   assert.throws(() => checkNativeCommands(watch(17)));
 });
+
+test('APress: a tap of A between two pictures still opens the A menu (the fast player tells the button itself)', () => {
+  const a = new W.APress();
+  // down and up again before any picture was drawn: still a press, checked 110 ms later – once
+  assert.equal(a.input(true, 1000), true);
+  assert.equal(a.input(false, 1060), false);
+  assert.equal(a.pending, true);
+  assert.equal(a.due(1100, 110), false);
+  assert.equal(a.due(1110, 110), true);
+  assert.equal(a.due(1300, 110), false);
+  // other buttons changing while A stays down are no new press; a second tap is
+  assert.equal(a.input(true, 2000), true);
+  assert.equal(a.input(true, 2030), false); // (A + a direction)
+  assert.equal(a.input(false, 2050), false);
+  assert.equal(a.input(true, 2100), true);
+  assert.equal(a.due(2210, 110), true);
+});
+
+test('APress: the fast player ignores the game’s held keys – a stale picture with A held is no second press', () => {
+  const a = new W.APress();
+  a.input(true, 0);
+  a.input(false, 50);
+  assert.equal(a.due(200, 110), true);
+  // (the picture drawn now still shows the A of before)
+  assert.equal(a.sample(true, 210), false);
+  assert.equal(a.pending, false);
+});
+
+test('APress: the A that chose in the menu doesn’t open it again; the next one does', () => {
+  // a controller's A chose: it is still held when the menu closes
+  const a = new W.APress();
+  a.input(false, 0);
+  a.swallow();
+  assert.equal(a.input(true, 10), false); // (it reaches the game's buttons only now)
+  assert.equal(a.input(false, 80), false);
+  assert.equal(a.input(true, 300), true);
+  // the keyboard chose (the key never reached the game): the next picture says A isn't held – the next press counts
+  const k = new W.APress();
+  k.input(false, 0);
+  k.swallow();
+  k.sample(false, 16);
+  assert.equal(k.input(true, 500), true);
+  // cancelled (a menu opened, the game took the button): nothing left to check
+  k.cancel();
+  assert.equal(k.due(9999, 110), false);
+});
+
+test('APress: the browser player – the press as the game’s held keys show it, picture by picture', () => {
+  const a = new W.APress();
+  assert.equal(a.sample(false, 0), false);
+  assert.equal(a.sample(true, 16), true);
+  assert.equal(a.sample(true, 33), false); // (held: one press)
+  assert.equal(a.due(100, 110), false);
+  assert.equal(a.due(126, 110), true);
+  a.sample(false, 140);
+  a.swallow();
+  assert.equal(a.sample(true, 160), false); // (still the one that chose)
+  a.sample(false, 180);
+  assert.equal(a.sample(true, 200), true);
+});

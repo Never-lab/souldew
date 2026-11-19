@@ -322,6 +322,68 @@ export function drawable(t, cam, learned = 0) {
 }
 
 /**
+ * Pressing A toward a partner (the Shared World A menu). A press counts from the moment the button goes down – not
+ * from a picture that happens to show it held: a short tap between two drawn pictures (a busy or slow computer draws
+ * fewer of them) is still a press.
+ *
+ * `input(down, now)`: the player's own buttons as the fast player sends them to the game – from the first call on only
+ * these count, and true means a press began. `sample(down, now)`: the game's held keys as read with a picture (the
+ * browser player – nothing else tells it). `swallow()`: the A that chose in a menu doesn't open it again. `due(now, ms)`:
+ * the press is `ms` old – true once.
+ */
+export class APress {
+  constructor() {
+    this.held = false;
+    this.at = 0;
+    this.direct = false; // the buttons come through input()
+    this.inputDown = false;
+  }
+
+  input(down, now) {
+    this.direct = true;
+    this.inputDown = !!down;
+    if (down && !this.held) {
+      this.held = true;
+      this.at = now || 1;
+      return true;
+    }
+    if (!down) this.held = false;
+    return false;
+  }
+
+  sample(down, now) {
+    // (the fast player: the buttons themselves say it – a swallowed A is over once it isn't held any more)
+    if (this.direct) {
+      if (!this.inputDown) this.held = false;
+      return false;
+    }
+    const edge = !!down && !this.held;
+    this.held = !!down;
+    if (edge) this.at = now || 1;
+    return edge;
+  }
+
+  swallow() {
+    this.held = true;
+    this.at = 0;
+  }
+
+  cancel() {
+    this.at = 0;
+  }
+
+  get pending() {
+    return !!this.at;
+  }
+
+  due(now, ms) {
+    if (!this.at || now - this.at < ms) return false;
+    this.at = 0;
+    return true;
+  }
+}
+
+/**
  * Learns the overworld callback of a game whose revision souldew has no address for: the callback that runs while the
  * camera steps one tile on the same map without a fade is the overworld's (a map change or warp never counts).
  */
