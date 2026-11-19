@@ -4148,5 +4148,13 @@
   "wn.togetherText": "Tausche und kämpfe mit deinen Partnern genau da, wo du gerade im Spiel bist – Gen 1 bis 5, ohne Neustart.",
   "wn.togetherTitle": "Zusammen spielen",
   "wn.worldText": "Deine Partner laufen in deinem Spiel herum: wink ihnen zu, schick ein Herz oder spielt Schere-Stein-Papier.",
-  "wn.worldTitle": "Gemeinsame Welt"
+  "wn.worldTitle": "Gemeinsame Welt",
+  "err.backupGone": "Der Backup-Ordner ist weg – er wurde verschoben oder gelöscht.",
+  "feed.olderApp": "{name} nutzt ein älteres souldew – Tauschen, Kämpfen, Raids und die geteilte Welt brauchen souldew 3.0 auf jedem Computer des Runs. Aktualisieren unter Einstellungen › Info.",
+  "linkplay.olderApp": "{name} nutzt ein älteres souldew – Tauschen und Kämpfen brauchen souldew 3.0 auf beiden Computern",
+  "set.backupFailed": "souldew konnte vor 3.0 kein Backup anlegen. Deine Daten sind unverändert.",
+  "set.backupHint": "Der Ordner „{name}“ liegt in „backups“ neben deinen Daten. souldew fasst ihn nie wieder an – lösch ihn, sobald du sicher bist, dass du ihn nicht brauchst.",
+  "set.backupMade": "Vor dem ersten Start hat souldew 3.0 deine Runs, Spielstände, Savestates, Einstellungen und Trophäen gesichert ({size}, {date}) – nicht deine Spiele, die bleiben, wo sie sind.",
+  "set.backupNoSpace": "souldew hat vor 3.0 kein Backup angelegt: Auf der Festplatte waren {free} frei, das Backup braucht {need} und lässt Platz für deine Spiele. Deine Daten sind unverändert – aus Platzmangel wurde nichts geändert.",
+  "set.backupOpen": "Backup-Ordner öffnen"
 }

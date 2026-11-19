@@ -4148,5 +4148,13 @@
   "wn.togetherText": "Intercambia y combate con tus compañeros justo donde estás en tu juego – de la Gen 1 a la 5, sin reiniciar.",
   "wn.togetherTitle": "Jugar juntos",
   "wn.worldText": "Tus compañeros caminan por tu juego: salúdalos, envía un corazón o jugad a piedra, papel o tijera.",
-  "wn.worldTitle": "Mundo compartido"
+  "wn.worldTitle": "Mundo compartido",
+  "err.backupGone": "La carpeta de la copia de seguridad ya no está: se movió o se borró.",
+  "feed.olderApp": "{name} usa un souldew más antiguo: intercambios, combates, raids y el mundo compartido necesitan souldew 3.0 en cada ordenador del run. Actualiza en Ajustes › Acerca de.",
+  "linkplay.olderApp": "{name} usa un souldew más antiguo: intercambiar y combatir necesitan souldew 3.0 en ambos ordenadores",
+  "set.backupFailed": "souldew no pudo hacer una copia de seguridad antes de la 3.0. Tus datos siguen como estaban.",
+  "set.backupHint": "La carpeta «{name}» está en «backups», junto a tus datos. souldew no vuelve a tocarla: bórrala cuando estés seguro de que no la necesitas.",
+  "set.backupMade": "Antes de su primer inicio, souldew 3.0 hizo una copia de seguridad de tus runs, partidas guardadas, estados guardados, ajustes y trofeos ({size}, {date}); no de tus juegos, que siguen donde están.",
+  "set.backupNoSpace": "souldew no hizo una copia de seguridad antes de la 3.0: el disco tenía {free} libres, la copia necesita {need} y deja sitio para tus juegos. Tus datos siguen como estaban: no se cambió nada por falta de espacio.",
+  "set.backupOpen": "Abrir carpeta de la copia"
 }
