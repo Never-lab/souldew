@@ -327,6 +327,20 @@ export function LinkRules({ value: r, onChange, disabled = false }) {
 }
 
 /**
+ * Raids (docs/MULTIPLAYER.md › "Raid"): the players fight the same trainer together with one shared HP pool – set by
+ * the host like every rule. value: the rules; onChange(patch).
+ */
+export function RaidRules({ value: r, onChange, disabled = false }) {
+  const set = (patch) => !disabled && onChange(patch);
+  return html`<div class="stack-s">
+    <${RuleCheck} checked=${r.raids !== 'off'} onChange=${(v) => set({ raids: v ? 'on' : 'off' })} disabled=${disabled}
+      label=${t('rules.raids', 'Raids')} hint=${t('rules.raidsHint', 'Fight the next trainer together: every hit in anybody’s game comes off one shared HP pool, so it’s beaten in everyone’s game at once.')} />
+    ${r.raids !== 'off' && html`<${RuleCheck} checked=${r.raidDeaths !== false} onChange=${(v) => set({ raidDeaths: v })} disabled=${disabled}
+      label=${t('rules.raidDeaths', 'Deaths in a raid count')} hint=${t('rules.raidDeathsHint', 'A raid is a real battle. Off: Pokémon that go down in it don’t count – heal them at a Pokémon Center.')} />`}
+  </div>`;
+}
+
+/**
  * Gifts between the players (web/lib/together.mjs): items from one bag into another's, both confirm – every game with
  * a known bag, set by the host like every rule. value: the rules; onChange(patch).
  */

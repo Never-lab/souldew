@@ -13,6 +13,8 @@ import { detectLayout, resolveHotkeys, accelerator } from './lib/controls.mjs';
 import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, logLinkBattle, rules as getRules, lives as getLives, livesFor, settleLives, revealHeld, startRules, HELD_PREFIX } from './lib/run.mjs';
 import { attachRps } from './lib/worldrps.mjs';
 import { RpsCards } from './views/rps.mjs';
+import { attachRaid, detachRaid, raidFor, raidRules } from './lib/raid.mjs';
+import { RaidCards } from './views/raid.mjs';
 import { attachTogether } from './lib/together.mjs';
 import { TogetherCards } from './views/together.mjs';
 import { sessionsIn, outcomeOf } from './lib/wager.mjs';
@@ -665,6 +667,21 @@ function App() {
     // one fought in a "trade" session: the Colosseum is next door) would count deaths and wipes, a trade screen shuffles
     // the party. Nothing of it is applied; the first and the last team it showed make the trade's log entry, and the run
     // goes on from the session's in-game save. Only "Losing a link battle counts as deaths" applies a battle's team.
+    // A raid (web/lib/raid.mjs) with "Deaths in a raid count" off: while this player's raid battle runs, what the game
+    // shows isn't applied; a Pokémon that went down in it is taken as standing until it's healed (it is at 0 HP in the
+    // game until a Pokémon Center – a raid is a real battle)
+    const rh = raidFor(doc);
+    if (rh && snap.source === 'live' && !raidRules(getRules(doc, manifest)).deaths) {
+      if (rh.inRaidBattle()) {
+        rh.spare(snap.party);
+        return null;
+      }
+      const sp = rh.spared(snap.party, held);
+      if (sp) {
+        snap = { ...snap, party: sp.party };
+        held = sp.held;
+      }
+    }
     const lps = linkPlayRef.current;
     if (lps?.state?.phase === 'running' && snap.source === 'live') {
       if ((snap.party || []).length) {
@@ -725,6 +742,14 @@ function App() {
     // the souldew account: signed in / out, new counters of friend requests and invites (server/lib/accounts)
     account: (p) => accountEvent(p),
   }), [runId]);
+
+  // ---- raids (web/lib/raid.mjs): one hub per run document – the invites, the host's start, the log entry ----
+  useEffect(() => {
+    if (!runDoc || !manifest || !me) return undefined;
+    const hub = attachRaid({ doc: runDoc, manifest, me });
+    if (pref.get('sl-e2e', false)) window.__slRaid = hub; // (scripts/raid-e2e.mjs sets sl-e2e)
+    return () => detachRaid(runDoc);
+  }, [runDoc, manifest?.id, me]);
 
   // ---- link battles every player agreed on: the log entry (each computer writes the same, keyed by the session) ----
   useEffect(() => {
@@ -894,6 +919,7 @@ function App() {
   const others = manifest ? othersOf(me, manifest) : [];
   const onlineSlots = new Set(Object.entries(linkStatus?.partners || {})
     .filter(([s, p]) => others.includes(s) && (p.p2p || Date.now() - p.seen < PARTNER_TTL)).map(([s]) => s));
+  if (runDoc && raidFor(runDoc)) raidFor(runDoc).online = onlineSlots; // (who can be asked to a raid, who is still there)
   const partnerOnline = onlineSlots.size > 0
     || !!(linkStatus?.partner && linkStatus.partnerSeen && Date.now() - linkStatus.partnerSeen < PARTNER_TTL);
   // checks() walks both teams and the rules – only again when the doc (docVersion) or the run changed, not on every
@@ -1030,7 +1056,7 @@ function App() {
         <div class=${`main-inner ${session && showsSession ? 'under-session' : ''}`}><${Boundary} route=${route.route}><${View} /><//></div>
         ${session && html`<${Boundary} route="session"><${GameSession} key=${session.target.key + session.at} session=${session} mode=${showsSession ? 'full' : 'mini'} /><//>`}
         ${externalRun && html`<${Boundary} route="external"><${ExternalFeed} /><//>`}
-        <div class="cards-dock"><${RpsCards} /><${TogetherCards} /></div>
+        <div class="cards-dock"><${RpsCards} /><${TogetherCards} /><${RaidCards} /></div>
       </main>
     </div>
     ${showOnboarding && !boot && html`<${Onboarding} onDone=${() => navigate('library')} />`}
