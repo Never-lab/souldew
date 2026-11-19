@@ -127,6 +127,12 @@ export function itemName(id, gen, lang = currentLang()) {
   return key ? items.names?.[lang]?.[key] || items.names?.en?.[key] || '' : '';
 }
 
+/** An item's name by its PokeAPI identifier ('master-ball') in the app's language – '' when unknown. */
+export function itemNameByKey(key, lang = currentLang()) {
+  const names = P?.items?.names;
+  return (key && (names?.[lang]?.[key] || names?.en?.[key])) || '';
+}
+
 /**
  * An item's name for a gift between players (web/lib/together.mjs): Gen 3–7 as itemName, Gen 1/2 for the items a gift
  * may be (shared/giftitems.mjs – their PokeAPI identifier, the same names). '' when unknown.

@@ -54,8 +54,9 @@ test('item ids per generation (pret constants, PokeAPI game_indices)', () => {
   assert.deepEqual(RARE_CANDY, { 1: 0x28, 2: 0x20, 3: 68, 4: 50, 5: 50, 6: 50, 7: 50 });
   // pokered MAX_REPEL $39, pokecrystal $2B, pokeemerald ITEM_MAX_REPEL 84, pokeheartgold 77 (unchanged up to Gen 7)
   assert.deepEqual(MAX_REPEL, { 1: 0x39, 2: 0x2b, 3: 84, 4: 77, 5: 77, 6: 77, 7: 77 });
-  // the play screen's menu: Rare Candies first, ten Max Repels a use, into the Items pocket
-  assert.deepEqual(Object.keys(CHEATS), ['rareCandy', 'maxRepel']);
+  // the play screen's menu: Rare Candies first, ten Max Repels a use, into the Items pocket – then the cheats of 3.0
+  // (test/cheatmenu.test.mjs)
+  assert.deepEqual(Object.keys(CHEATS).slice(0, 2), ['rareCandy', 'maxRepel']);
   assert.deepEqual([CHEATS.rareCandy.count, CHEATS.maxRepel.count, CHEATS.maxRepel.pocket], [99, 10, 'items']);
 });
 
@@ -83,7 +84,7 @@ test('Max Repels: offered in every game that gets Rare Candies, and nowhere else
   for (const h of headers) {
     const e = entry(h);
     assert.equal(cheatSupported(e, 'maxRepel'), cheatSupported(e), JSON.stringify(h));
-    assert.deepEqual(cheatsFor(e), cheatSupported(e) ? ['rareCandy', 'maxRepel'] : [], JSON.stringify(h));
+    assert.deepEqual(cheatsFor(e).slice(0, 2), cheatSupported(e) ? ['rareCandy', 'maxRepel'] : [], JSON.stringify(h));
   }
   assert.deepEqual(cheatsFor(null), []);
   assert.equal(cheatSupported(entry({ platform: 'gb', title: 'POKEMON RED' }), 'infiniteMoney'), false);
@@ -324,9 +325,9 @@ test('3DS: all four games can get Rare Candies – the bag is watched with the p
   assert.deepEqual(cheatRegions(ctr(SM)).map((r) => [r.addr, r.len]), [[0x330d5934, 0xde0 + 24]]);
   assert.deepEqual(cheatRegions(ctr(USUM)).map((r) => [r.addr, r.len]), [[0x33011934, 0xe28 + 28]]);
   assert.deepEqual(cheatRegions(entry({ platform: 'nds', code: 'IPKE' })), []);
-  // Medicine items only: nothing lands in the wrong pocket
+  // Medicine items only: nothing lands in the wrong pocket (Poké Balls: into Items, asked for as 'balls' or 'items')
   assert.deepEqual(addItem(ctr(SM), sunBag(), {}, 4, 5), { error: 'unsupported' });
-  assert.equal(POKE_BALL[7], undefined);
+  assert.equal(POKE_BALL[7], 4);
 });
 
 test('Sun/Moon: a new Medicine slot as the game files items (NEW, not in Free Space), then the stack grows to 999', () => {
@@ -838,7 +839,7 @@ test('Max Repels in the log: named for everyone, refused while the rules don’t
   R.logCheat(s, SOLO, 'p1', { added: 1, cheat: 'maxRepel' });
   assert.equal(R.feedList(s)[0].text, 'Cheat used: 1 Max Repel');
   // a cheat the log doesn't know isn't written as something it isn't
-  assert.equal(R.logCheat(s, SOLO, 'p1', { added: 5, cheat: 'money' }), false);
+  assert.equal(R.logCheat(s, SOLO, 'p1', { added: 5, cheat: 'infiniteMoney' }), false);
   assert.equal(R.feedList(s).length, 1);
 });
 

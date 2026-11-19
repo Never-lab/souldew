@@ -10,7 +10,8 @@ import { serverErrorText } from '../lib/errors.mjs';
 import { gameById, gameTitle, speciesName, hackById, itemName, moveName } from '../lib/data.mjs';
 import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, logWagerPaid, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
 import { findEntry, readLiveParty, readLiveBattle, playerBattle, withBattleHp, confirmFaints, inBattleFlag, LiveTables, expandedEntry } from '/shared/live/parse.mjs';
-import { applyCheat, cheatsFor, cheatBlock, CHEATS, readBalls, locateCtrBag } from '/shared/live/cheats.mjs';
+import { applyCheat, cheatsFor, cheatBlock, cheatAllowed, bagLayoutKey, CHEATS, readBalls, locateCtrBag } from '/shared/live/cheats.mjs';
+import { CheatMenu, cheatConfirmText, cheatDoneText, cheatFailText } from './cheatmenu.mjs';
 import { DeathReveal, effectiveSpeed } from '../lib/reveal.mjs';
 import { MusicKeyTracker } from '/shared/live/location.mjs';
 import { probeGen67 } from '/shared/live/gen67.mjs';
@@ -166,25 +167,6 @@ function ctrLayoutLabel(id) {
     bt: t('play.l3dsBt', 'Bottom screen above the top one'),
     top: t('play.l3dsTop', 'Top screen only'),
   }[id] || id;
-}
-
-/** A cheat's texts (shared/live/cheats.mjs CHEATS): its row in the cheats menu, the question, the answers. */
-function cheatText(id) {
-  return id === 'maxRepel' ? {
-    icon: 'repel',
-    label: t('cheat.maxRepel', 'Add 10 Max Repels'),
-    confirm: t('cheat.confirmRepel', 'Add 10 Max Repels to your bag?'),
-    done: (n) => t('cheat.doneRepel', '+{n} Max Repel in your bag|+{n} Max Repels in your bag', { n, count: n }),
-    failed: t('cheat.failedRepel', 'No Max Repels added'),
-    max: t('cheat.maxRepelCap', 'You already carry as many Max Repels as the game allows.'),
-  } : {
-    icon: 'candy',
-    label: t('cheat.rareCandy', 'Add 99 Rare Candies'),
-    confirm: t('cheat.confirm', 'Add 99 Rare Candies to your bag?'),
-    done: (n) => t('cheat.done', '+{n} Rare Candy in your bag|+{n} Rare Candies in your bag', { n, count: n }),
-    failed: t('cheat.failed', 'No Rare Candies added'),
-    max: t('cheat.max', 'You already carry as many Rare Candies as the game allows.'),
-  };
 }
 
 /**
@@ -351,7 +333,8 @@ export function GameSession({ session, mode }) {
   const [soundOpen, setSoundOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
   const raidShownNow = useRaidShown(); // a raid to show in the dock (views/raid.mjs)
-  const [confirmCheat, setConfirmCheat] = useState(null); // the cheat (CHEATS id) waiting for its yes
+  const [confirmCheat, setConfirmCheat] = useState(null); // the cheat waiting for its yes: { id (CHEATS), amount }
+  const [cheatAmount, setCheatAmount] = useState(10); // how many of an item the cheats menu adds (CHEAT_AMOUNTS)
   const [slow, setSlow] = useState(null); // { reached, tips } – this computer can't hold full speed (lib/slowdown.mjs)
   // the cheats this game's bag can take (shared/live/cheats.mjs cheatsFor), comma-joined: a string, so setting the same
   // list again on every reading doesn't render anew
@@ -1689,52 +1672,46 @@ export function GameSession({ session, mode }) {
   }, [tgWorldKey, worldOk]);
   const btn = (name, title, onClick, extra = {}) => html`<button class="btn icon" title=${title} aria-label=${title} onClick=${onClick} ...${extra}><${Icon} name=${name} size=${14} /></button>`;
 
-  // Cheats (Rare Candies, Max Repels): written straight into the bag in RAM. In a run only while its rules allow them
-  // (in a SoulLink the host's), and every use goes to the run's log, naming what was added – the partners see it as it
-  // happens.
-  const cheatsAllowed = !isRun || !!(doc && manifest && getRules(doc, manifest).cheats);
-  const cheatIds = cheatGame ? cheatGame.split(',') : [];
+  // Cheats (items into the bag, money – views/cheatmenu.mjs): written straight into the game's memory and read back. In
+  // a run only those its rules allow (in a SoulLink the host's – shared/rules.mjs cheats, cheatSet), and every use goes
+  // to the run's log, naming what was added – the partners see it as it happens.
+  const runRules = isRun && doc && manifest ? getRules(doc, manifest) : null;
+  const cheatIds = cheatGame ? cheatGame.split(',') : []; // this game's (cheatsFor)
+  const allowedHere = (id) => !isRun || (!!runRules && cheatAllowed(runRules, id));
   const cheatWhyOf = (id) => ({
     unsupported: t('cheat.unsupported', 'Not available for this game.'),
     off: t('cheat.off', 'Cheats are off in this run’s rules.'),
+    linked: t('cheat.linked', 'Not during a link session – every player’s game has to stay the same.'),
     waiting: t('cheat.waiting', 'Available once live tracking has found your team.'),
     inBattle: t('cheat.inBattle', 'Not during a battle.'),
-  })[cheatBlock({ supported: cheatIds.includes(id), allowed: cheatsAllowed, live: liveState.status === 'live', inBattle: !!(battle?.enemy || demo) })] || null;
-  // the popover's reason line: the same for every cheat this game has (an unknown bag: none of them)
-  const cheatWhy = cheatWhyOf(cheatIds[0] || 'rareCandy');
-  // one row per cheat this game can take; a game without a known bag still shows them, greyed out with the reason
-  const cheatRows = (cheatIds.length ? cheatIds : Object.keys(CHEATS)).map((id) => ({ id, why: cheatWhyOf(id), ...cheatText(id) }));
+  })[cheatBlock({ supported: cheatIds.includes(id), allowed: allowedHere(id), live: liveState.status === 'live', inBattle: !!(battle?.enemy || demo), linked: !!target.link })] || null;
+  // the menu: this game's cheats that the run allows; the reason line is the same for all of them
+  const cheatShown = cheatIds.filter(allowedHere);
+  const cheatWhy = cheatWhyOf(cheatShown[0] || cheatIds[0] || 'rareCandy');
   const doCheat = async () => {
-    const id = confirmCheat;
+    const pending = confirmCheat;
     setConfirmCheat(null);
+    const id = pending?.id;
     const e = emu();
     const { entry, state } = liveRef.current;
     if (!CHEATS[id] || cheatWhyOf(id) || !e?.write || !entry) return void focusGame();
-    const text = cheatText(id);
     let res;
     try {
       // (the 3DS player answers once its host has written – between two frames)
       // (a 3DS game's bag that isn't where souldew knows it is searched for nearby: the player reads more memory then)
-      res = await applyCheat(id, entry, { read: e.read, write: e.write, ...(entry.platform === '3ds' && e.watch ? { watch: e.watch } : {}) }, state);
+      res = await applyCheat(id, entry, { read: e.read, write: e.write, ...(entry.platform === '3ds' && e.watch ? { watch: e.watch } : {}) }, state, { amount: pending.amount });
     } catch {
       res = { error: 'write' };
     }
     // (a 3DS bag that wasn't found: each address tried and why it wasn't the bag, and how the search went)
-    diag('cheat', { cheat: id, game: entry.id, ...(entry.platform === '3ds' ? { version: entry.partyAddrs?.[state?.g67]?.version || null } : {}), ...res });
+    const where = [entry.id, bagLayoutKey(entry), String(pending.amount)].join(' · ');
+    diag('cheat', { cheat: id, amount: pending.amount, game: entry.id, layout: bagLayoutKey(entry), ...(entry.platform === '3ds' ? { version: entry.partyAddrs?.[state?.g67]?.version || null } : {}), ...res });
     if (res.ok) {
-      if (isRun) logCheat(doc, manifest, me, { added: res.added, cheat: id });
-      flash(text.done(res.added), 2500);
+      if (isRun) logCheat(doc, manifest, me, { added: res.added, cheat: id, gen: entry.gen, ...(CHEATS[id].money ? { after: res.after } : {}) });
+      flash(cheatDoneText(id, res), 2500);
     } else {
-      toast({ kind: 'death', title: text.failed, text: {
-        // (a 3DS game: not where souldew knows it, not nearby either – or, without the game's own pocket table, an
-        // empty bag that can't be told from other memory yet)
-        notFound: entry.gen >= 6 ? (res.why === 'empty' ? t('cheat.notFoundEmpty', 'Your bag looks empty, and souldew can’t tell an empty bag from other memory in this game. Pick up any item in the game, then try again.')
-          : t('cheat.notFoundCtr', 'souldew couldn’t find your bag in the game’s memory – not where this game keeps it, and not nearby. “Save diagnostics” in the sound menu records where it looked; please send it along with a report.'))
-          : t('cheat.notFound', 'Your bag wasn’t found in the game’s memory just now. Try again outside of menus and battles.'),
-        changed: t('cheat.changed', 'The game changed your bag just then – try again.'),
-        full: t('cheat.full', 'The bag pocket is full – make room and try again.'),
-        max: text.max,
-      }[res.error] || t('cheat.writeFailed', 'The game’s memory couldn’t be changed.') });
+      const f = cheatFailText(id, res, { gen: entry.gen, where });
+      toast({ kind: 'death', title: f.title, text: f.text });
     }
     focusGame();
   };
@@ -1788,7 +1765,7 @@ export function GameSession({ session, mode }) {
               <button class="btn small ghost" data-pad-back onClick=${() => { setConfirmReset(false); focusGame(); }}>${t('common.cancel', 'Cancel')}</button>
             </div>`}
             ${confirmCheat && !confirmReset && !pendingLoad && html`<div class="screen-confirm" role="alertdialog" aria-live="assertive">
-              <span class="grow">${cheatText(confirmCheat).confirm} ${isRun && !solo ? t('cheat.confirmRun', 'Everyone in the run sees it in the log.') : isRun ? t('cheat.confirmSolo', 'It goes into the run’s log.') : ''}</span>
+              <span class="grow">${cheatConfirmText(confirmCheat)} ${isRun && !solo ? t('cheat.confirmRun', 'Everyone in the run sees it in the log.') : isRun ? t('cheat.confirmSolo', 'It goes into the run’s log.') : ''}</span>
               <button class="btn small primary" onClick=${doCheat}>${t('cheat.add', 'Add')}</button>
               <button class="btn small ghost" data-pad-back onClick=${() => { setConfirmCheat(null); focusGame(); }}>${t('common.cancel', 'Cancel')}</button>
             </div>`}
@@ -1827,14 +1804,12 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
           ${btn('camera', t('keys.screenshot', 'Screenshot') + hint('screenshot'), actions.screenshot)}
           <span class="cheat-wrap">
             ${btn('candy', t('cheat.title', 'Cheats'), () => setCheatOpen(!cheatOpen), { 'aria-expanded': cheatOpen, 'aria-haspopup': 'dialog' })}
-            ${cheatOpen && html`<div class="cheat-pop" role="dialog" aria-label=${t('cheat.title', 'Cheats')}>
-              <b class="small">${t('cheat.title', 'Cheats')}</b>
-              ${cheatRows.map((c) => html`<button class="btn small" key=${c.id} disabled=${!!c.why} onClick=${() => { setCheatOpen(false); setConfirmCheat(c.id); }}>
-                <${Icon} name=${c.icon} size=${14} />${c.label}</button>`)}
-              <span class="tiny faint">${cheatWhy || (isRun && !solo ? t('cheat.hintRun', 'Everyone in the run sees it in the log. Save in the game to keep them.')
-                : isRun ? t('cheat.hintSolo', 'It goes into the run’s log. Save in the game to keep them.') : t('cheat.hintGame', 'Save in the game to keep them.'))}</span>
-              ${isRun && cheatIds.length > 0 && !cheatsAllowed && html`<button class="btn small ghost" onClick=${() => { setCheatOpen(false); setRulesOpen(true); }}>${t('cheat.openRules', 'Open the rules')}</button>`}
-            </div>`}
+            ${cheatOpen && html`<${CheatMenu} ids=${cheatShown} why=${cheatWhy} amount=${cheatAmount} onAmount=${setCheatAmount}
+              hint=${isRun && !solo ? t('cheat.hintRun', 'Everyone in the run sees it in the log. Save in the game to keep them.')
+                : isRun ? t('cheat.hintSolo', 'It goes into the run’s log. Save in the game to keep them.') : t('cheat.hintGame', 'Save in the game to keep them.')}
+              ruleNote=${cheatShown.length > 0 && cheatShown.length < cheatIds.length}
+              onPick=${(c) => { setCheatOpen(false); setConfirmCheat(c); }}
+              onRules=${isRun && cheatIds.length > 0 && !cheatShown.length ? () => { setCheatOpen(false); setRulesOpen(true); } : null} />`}
           </span>
           <span class="sound-wrap">
             ${btn(muted || volume === 0 ? 'mute' : 'sound', t('play.volume', 'Volume'), () => setSoundOpen(!soundOpen), { 'aria-expanded': soundOpen })}

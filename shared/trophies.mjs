@@ -98,7 +98,8 @@ export function digestRun(manifest, entries, slot, opts = {}) {
   const evolved = [];
   const badgeTimes = [];
   let cheats = 0; // Rare Candies used (Candy Crush)
-  let cheatUses = 0; // any cheat at all – Rare Candies, Max Repels … (Honest Work)
+  let cheatUses = 0; // any cheat at all – Rare Candies, Max Repels, Poké Balls, money … (Honest Work)
+  let masterBallAt = null; // the first Master Ball from the cheats (Route 1 Legend: no catch from then on counts)
   for (const [k, f] of Object.entries(doc)) {
     if (!k.startsWith('feed:') || !f || typeof f !== 'object') continue;
     const at = num(f.at);
@@ -119,6 +120,7 @@ export function digestRun(manifest, entries, slot, opts = {}) {
       // (a rule change is logged as type 'cheat' too, without `cheat`)
       cheatUses++;
       if (f.cheat === 'rareCandy') cheats += Math.max(0, Number(f.count) || 0);
+      if (f.cheat === 'masterBall') masterBallAt = Math.min(masterBallAt ?? Infinity, at ?? 0);
     }
   }
   const firstSpecies = firstOf[me] || {};
@@ -205,7 +207,7 @@ export function digestRun(manifest, entries, slot, opts = {}) {
       // SoulLink's default type clause is 'global', a solo Nuzlocke's 'off' (shared/rules.mjs)
       typeClause: str(rules.typeClause, 10) || (mode === 'soullink' ? 'global' : 'off') },
     capBreaks: Object.keys(doc).filter((k) => k.startsWith(`capbreak:${me}:`)).length,
-    badges, badgeAt, bosses, catches, missed, partners, deaths, evolutions, cheats, cheatUses, lives,
+    badges, badgeAt, bosses, catches, missed, partners, deaths, evolutions, cheats, cheatUses, masterBallAt, lives,
   };
 }
 
@@ -447,7 +449,9 @@ export const ACHIEVEMENTS = [
   { id: 'randoStart', cat: 'randomizer', rarity: 'common', check: (c) => { const r = c.digests.filter((d) => d.randomized); return count(r.length, r.map((d) => d.createdAt), 1); } },
   { id: 'rando10', cat: 'randomizer', rarity: 'rare', target: 10, check: (c) => { const r = c.digests.filter((d) => d.randomized); return count(r.length, r.map((d) => d.createdAt), 10); } },
   { id: 'randoWin', cat: 'randomizer', rarity: 'epic', check: (c) => flag(firstBy(c.digests.filter((d) => won(d) && d.randomized).map((d) => d.status), () => true)) },
-  { id: 'randoLegend', cat: 'randomizer', rarity: 'epic', check: (c) => flag(firstBy(c.catches.filter((x) => x.run.randomized && isLegendary(x.first) && (x.metLevel ?? x.level ?? 99) <= 15), () => true)) },
+  // (a Master Ball from the cheats catches anything: no catch from the first one on counts – one without a time neither)
+  { id: 'randoLegend', cat: 'randomizer', rarity: 'epic', check: (c) => flag(firstBy(c.catches.filter((x) => x.run.randomized && isLegendary(x.first) && (x.metLevel ?? x.level ?? 99) <= 15
+    && (x.run.masterBallAt == null || (x.at != null && x.at < x.run.masterBallAt))), () => true)) },
   { id: 'randoDex', cat: 'randomizer', rarity: 'rare', target: 100, check: (c) => {
     const first = {};
     for (const x of c.catches) if (x.run.randomized && (!(x.first in first) || (x.at && x.at < first[x.first]))) first[x.first] = x.at;
