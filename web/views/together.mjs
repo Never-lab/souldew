@@ -11,6 +11,7 @@ import { players as getPlayers } from '../lib/run.mjs';
 import { useTogether, giftsAllowed } from '../lib/together.mjs';
 import { togetherArtUrl } from '../lib/togetherart.mjs';
 import { Watch, viewInfo, Picture } from './partnerscreen.mjs';
+import { linkedText } from './linkplay.mjs';
 import { GIFT_MAX } from '/shared/giftitems.mjs';
 import { TG } from '/shared/together.mjs';
 
@@ -245,7 +246,7 @@ export function WatchModal({ slot, onClose }) {
 
 /** On a partner's board card: in a battle (Watch), their "come here", Give item. */
 export function PartnerTogether({ slot, onWatch = null }) {
-  const { link, doc, manifest, me, onlineSlots } = useApp();
+  const { link, doc, manifest, me, onlineSlots, linkSessions } = useApp();
   const h = useTogether(link);
   const [gift, setGift] = useState(false);
   const [watch, setWatch] = useState(false);
@@ -253,7 +254,9 @@ export function PartnerTogether({ slot, onWatch = null }) {
   const name = nameOf(doc, manifest, slot);
   const b = h.battleOf(slot);
   const p = h.pingOf(slot);
-  const giftWhy = h.giftWhy(slot);
+  // (linked with other players right now: the board's own words for it – their game can't take a gift there)
+  const away = linkedText(linkSessions, slot, getPlayers(doc, manifest));
+  const giftWhy = away ? 'link' : h.giftWhy(slot);
   // the button only where a gift can happen at all: the rule on, my game running here, their app knows gifts
   const giftable = giftsAllowed(doc, manifest) && !!h.desk.bag && h.can(slot, 'gift') && onlineSlots?.has?.(slot) !== false;
   if (!b && !p && !giftable) return null;
@@ -263,7 +266,7 @@ export function PartnerTogether({ slot, onWatch = null }) {
       <button class="btn small" onClick=${() => (onWatch ? onWatch(slot) : setWatch(true))}><${Icon} name="eye" size=${14} />${t('world.watch', 'Watch')}</button>`}
     ${p && html`<span class="tg-chip ping"><${Icon} name="map" size=${12} /><span class="ellipsis">${p.here?.name ? t('ping.at', '{name} is at {place} – come here', { name, place: p.here.name }) : t('ping.come', '{name} calls you over', { name })}</span>
       <button class="btn icon ghost small" onClick=${() => h.dismissPing(slot)} aria-label=${t('common.close', 'Close')} title=${t('common.close', 'Close')}><${Icon} name="close" size=${10} /></button></span>`}
-    ${giftable && html`<button class="btn small" disabled=${!!giftWhy} title=${giftWhy ? giftWhyText(giftWhy, name) : t('gift.hint', 'Give {name} an item from your bag', { name })} onClick=${() => setGift(true)}>
+    ${giftable && html`<button class="btn small" disabled=${!!giftWhy} title=${away || (giftWhy ? giftWhyText(giftWhy, name) : null) || t('gift.hint', 'Give {name} an item from your bag', { name })} onClick=${() => setGift(true)}>
       ${art('gift', slot, 1)}${t('world.gift', 'Give item')}</button>`}
     ${gift && html`<${GiftDialog} slot=${slot} onClose=${() => setGift(false)} />`}
     ${watch && html`<${WatchModal} slot=${slot} onClose=${() => setWatch(false)} />`}

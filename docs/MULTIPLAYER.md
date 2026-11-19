@@ -552,7 +552,8 @@ catches and deaths) – and, where no picture of the game is needed, for every g
      encrypted stills every ~1.5 s over the relay) – in the play view their window pops out over the play area, from
      the board a panel – with a battle strip from live tracking under it: their Pokémon, its HP and moves, the
      opponent and its HP. So it works even when there is no picture (the partner switched screen sharing off, the
-     game is in a background tab): the strip still shows the battle. Partner tiles in the dock show the one-line strip
+     game is in a background tab, or the video is still connecting – a second or more after the window opens): the
+     strip still shows the battle. Partner tiles in the dock show the one-line strip
      too.
 2. **Catches and deaths in the world** – only what the run records, nothing made up: the hub reads the run log as it
    arrives (entries of the last two minutes, never older ones arriving after a reconnect). A `catch` entry pops the
@@ -571,7 +572,8 @@ catches and deaths) – and, where no picture of the game is needed, for every g
      answer comes, and a receiver that knows nothing of the gift (restarted, "go" never came) decides "not added"
      then and there – a pulled cable can't copy items. A "go" later than 20 s after "yes" is refused (the giver gets
      it back). After a restart the giver's app restores its open gifts from the doc and asks.
-   - **When:** both games running in souldew with live tracking, never during a battle or a link, and – where the
+   - **When:** both games running in souldew with live tracking, never during a battle or a link (a partner linked
+     with others: Give item is greyed with the A menu's "In a link with …", like Trade and Battle), and – where the
      screen state is read (Gen 3 today) – only on the overworld with no menu, text or fade (the bag menu keeps its own
      copy of the list). One gift per pair at a time; offers 3 at once, then one every 10 s, on both ends.
    - **What:** the pockets of ordinary items only (Items, Medicine, Poké Balls, Berries where the game keeps them

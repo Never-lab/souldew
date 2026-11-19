@@ -1610,8 +1610,9 @@ export function GameSession({ session, mode }) {
       worldActions[s] = { trade: can && linkAllowed(doc, manifest, 'trade'), battle: can && linkAllowed(doc, manifest, 'battle'), why: why || (!linkAllowed(doc, manifest, 'trade') && !linkAllowed(doc, manifest, 'battle') ? t('world.linkOff', 'Trades and battles are off in this run’s rules.') : '') };
       // (playing together: Give item while the rule allows it – greyed with the reason; Watch while they battle)
       if (tg && giftsAllowed(doc, manifest)) {
-        const gw = tg.giftWhy(s);
-        Object.assign(worldActions[s], { gift: !gw, giftWhy: gw ? giftWhyText(gw, name) : '' });
+        // (in a link with other players: the same words as Trade / Battle – their game can't take a gift there)
+        const gw = away ? 'link' : tg.giftWhy(s);
+        Object.assign(worldActions[s], { gift: !gw, giftWhy: away || (gw ? giftWhyText(gw, name) : '') });
       }
       if (tg?.battleOf(s)) worldActions[s].watch = true;
     }
