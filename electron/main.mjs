@@ -5,7 +5,8 @@ import { join, dirname, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, mkdirSync } from 'node:fs';
 import { setupUpdater } from './updater.mjs';
-import { appImageFromEnv, appImageRelaunch } from './update-core.mjs';
+import { appImageFromEnv, appImageRelaunch, autoCheckOn } from './update-core.mjs';
+import { applyInstallerChoices } from './installerchoices.mjs';
 import { writeFileAtomic } from '../server/lib/fsutil.mjs';
 import { RENDERER_COOKIE } from '../server/lib/guard.mjs';
 import { randomBytes } from 'node:crypto';
@@ -81,6 +82,14 @@ function patchConfig(patch) {
   } catch (e) {
     console.warn('writing config.json failed:', e.message);
   }
+}
+
+// Windows: what the player ticked on the installer's privacy page ("playing now", automatic update check) – into
+// config.json once, before the update check and the local server read it (electron/installerchoices.mjs). A silent
+// install (the in-app update) leaves no choices, so it changes nothing.
+if (primary) {
+  const applied = applyInstallerChoices({ dir: app.getPath('userData'), readConfig, patchConfig });
+  if (applied) console.log('installer choices applied:', JSON.stringify(applied));
 }
 
 // Graphics backend (Settings › General, shared/gpu.mjs) plus the power-user flags from SOULDEW_CHROMIUM_FLAGS. Only
@@ -604,7 +613,7 @@ app.whenReady().then(async () => {
   if (!primary) return;
   setupPermissions();
   buildMenu();
-  setupUpdater({ send, trusted });
+  setupUpdater({ send, trusted, autoCheck: () => autoCheckOn(readConfig()) });
   try {
     await boot();
   } catch (e) {

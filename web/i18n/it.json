@@ -4326,5 +4326,9 @@
   "thanks.showMine": "Sostieni già? Mostra qui il tuo nome",
   "thanks.since": "dal {date}",
   "thanks.total": "persona sostiene souldew in questo momento|persone sostengono souldew in questo momento",
-  "thanks.who": "Chi sostiene souldew"
+  "thanks.who": "Chi sostiene souldew",
+  "upd.auto": "Cerca aggiornamenti automaticamente",
+  "upd.autoHint": "All’avvio e ogni 4 ore souldew chiede a GitHub se c’è una nuova versione – non viene inviato nulla su di te. Se disattivato, souldew controlla solo quando clicchi su «Cerca aggiornamenti».",
+  "onb.onlineText": "souldew non raccoglie dati personali. Parte da solo soltanto ciò che è spuntato qui – puoi disattivarlo qui o più tardi nelle impostazioni.",
+  "onb.privacyLink": "Informativa sulla privacy"
 }

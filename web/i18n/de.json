@@ -4326,5 +4326,9 @@
   "thanks.showMine": "Du unterstützt schon? Zeig hier deinen Namen",
   "thanks.since": "seit {date}",
   "thanks.total": "Person unterstützt souldew gerade|Menschen unterstützen souldew gerade",
-  "thanks.who": "Wer souldew unterstützt"
+  "thanks.who": "Wer souldew unterstützt",
+  "upd.auto": "Automatisch nach Updates suchen",
+  "upd.autoHint": "Beim Start und alle 4 Stunden fragt souldew bei GitHub nach, ob es eine neue Version gibt – dabei wird nichts über dich gesendet. Ausgeschaltet sucht souldew nur, wenn du auf „Nach Updates suchen“ klickst.",
+  "onb.onlineText": "souldew sammelt keine persönlichen Daten. Von selbst geht nur raus, was hier angehakt ist – abschalten kannst du es hier oder später in den Einstellungen.",
+  "onb.privacyLink": "Datenschutzerklärung"
 }
