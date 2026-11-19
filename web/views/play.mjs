@@ -1538,6 +1538,7 @@ export function GameSession({ session, mode }) {
   const [worldOn, setWorldOnState] = useState(() => worldEnabled(target.runId));
   const [worldNear, setWorldNear] = useState(0);
   const [worldSupported, setWorldSupported] = useState(false); // the player page knows this game's memory
+  const [worldOwnFollow, setWorldOwnFollow] = useState(true); // (HeartGold/SoulSilver walk your Pokémon themselves)
   const worldRef = useRef(null);
   const setWorldOn = (on) => {
     setWorldOnState(on);
@@ -1573,7 +1574,7 @@ export function GameSession({ session, mode }) {
   useEffect(() => {
     if (!worldOk) return undefined;
     const w = new SharedWorld({
-      sync: link, me, frame: () => frame.current, onNear: setWorldNear, onSupported: setWorldSupported, rps: rpsFor(link), lead: worldLead, follow: followOn,
+      sync: link, me, frame: () => frame.current, onNear: setWorldNear, onSupported: (ok, o) => (setWorldSupported(ok), setWorldOwnFollow(o?.follow !== false)), rps: rpsFor(link), lead: worldLead, follow: followOn,
       onAction: async (kind, slot) => {
         if (kind === 'rps-limit') return void toast({ kind: 'soul', title: t('world.rps', 'Rock-paper-scissors'), text: t('rps.limit', 'Not so fast – try again in a few seconds.') });
         if (kind.startsWith('rps-')) return;
@@ -1850,7 +1851,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
   const groups = isRun && names && !solo;
   const teamEl = html`
     <${LiveStatus} status=${liveState.status} phase=${phase} names=${names} me=${me} others=${others}
-      extra=${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} follow=${followOn} onFollow=${setFollowOn} />`} />
+      extra=${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} follow=${followOn} onFollow=${worldOwnFollow ? setFollowOn : null} />`} />
     ${liveState.status === 'unsupported' && html`<span class="small muted">${isRun
       ? t('play.liveUnsupportedRun', 'This ROM isn’t in the memory table (other language or a hack with a changed layout). The run still works – enter catches by hand.')
       : t('play.liveNoneSolo', 'Live tracking reads Pokémon games – this one plays without it.')}</span>`}

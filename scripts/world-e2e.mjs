@@ -4,7 +4,7 @@
 // same map; B walks around while A's page draws B over A's game – screenshots and a strip of frames go to --out. Then A
 // walks up to B and presses A: the menu opens, A picks Wave, and B sees the bubble.
 //
-//   node scripts/world-e2e.mjs --rom <emerald.gba> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] [--save4 <d.sav>] --data <dir> --out <dir> [--show]
+//   node scripts/world-e2e.mjs --rom <emerald.gba | platinum.nds | heartgold.nds> --save1 <a.sav> --save2 <b.sav> [--save3 <c.sav>] [--save4 <d.sav>] --data <dir> --out <dir> [--show]
 //                              [--rom2/--rom3/--rom4 <gba>] (that player's own game – a pair run of Emerald and Sapphire …)
 //                              [--lang de]   (the app's language on every computer)
 //                              [--browser]   (A plays in the browser player, EmulatorJS, instead of the fast player)
@@ -13,6 +13,9 @@
 //                                             the menu, the players line up behind the potted plants, then walk out to a
 //                                             tree top in Oldale Town, then A walks into Route 101 while B stands under
 //                                             the map-name popup – crops of every player's picture side by side)
+//                              [--lead <n>]  (--plus: the lead every page shows when live tracking can't read the team)
+//                              [--clip]      (a muted clip of A's picture: B walks away and around, A walks and turns)
+// The DS (Gen 4) is driven frame-exactly through the fast player's step() – a tap turns, six frames walk a tile.
 //                              [--plus]      (followers, emotes and rock-paper-scissors: B walks with A's and B's
 //                                             Pokémon following – a strip and a muted clip; A challenges B from the
 //                                             A menu, both pick in their pictures, the hands show over both heads and
@@ -148,10 +151,50 @@ async function occlusion({ world, hold, shot, log, sleep, until, out, emu }) {
 }
 
 /**
+ * A clip of A's picture (--clip): B walks away and around while A walks and turns – the partner on the ground the
+ * whole time, the camera following A. PNG frames into out/clip-frames, then a muted out/clip.mp4 (ffmpeg).
+ */
+async function clip({ world, log, sleep, out, wins, gameRect, ds, hold }) {
+  const step = ds?.step || (async (i, dir) => { await hold(i, [dir], 150); await sleep(420); });
+  const dir = join(out, 'clip-frames');
+  mkdirSync(dir, { recursive: true });
+  for (const d of ['right', 'right', 'right', 'right', 'down']) await step(1, d);
+  let rec = true;
+  let n = 0;
+  const states = [];
+  const t0 = Date.now();
+  const r = await gameRect(0);
+  const top = { ...r, height: Math.round(r.height / 2) };
+  const recording = (async () => {
+    while (rec) {
+      const img = await wins[0].webContents.capturePage(top);
+      writeFileSync(join(dir, `f${String(n++).padStart(4, '0')}.png`), img.toPNG());
+      if (!(n % 4)) {
+        const w = await world(0);
+        states.push({ n, drawn: w?.drawn, drawable: w?.drawable, field: w?.field, p: Object.fromEntries(Object.entries(w?.partners || {}).map(([k, v]) => [k, { x: v.s?.x, y: v.s?.y, map: v.s?.map, hidden: v.s?.hidden, pos: v.pos }])) });
+      }
+      await sleep(25);
+    }
+  })();
+  const walk = async (i, keys) => { for (const k of keys) await step(i, k); };
+  await Promise.all([
+    walk(1, ['left', 'left', 'up', 'up', 'right', 'right', 'down', 'down', 'left', 'left']),
+    (async () => { await sleep(800); await walk(0, ['left', 'left', 'right', 'right', 'down', 'up']); if (ds) { await ds.turn(0, 'down'); await ds.turn(0, 'right'); } })(),
+  ]);
+  await sleep(1500);
+  rec = false;
+  await recording;
+  const secs = (Date.now() - t0) / 1000;
+  writeFileSync(join(out, 'clip-states.json'), JSON.stringify(states, null, 1));
+  log('clip frames', n, 'in', secs.toFixed(1), 's', JSON.stringify((await world(0))?.drawn || (await world(0))?.partners));
+  await new Promise((res) => spawn('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', String(Math.max(1, Math.round(n / secs))), '-i', join(dir, 'f%04d.png'), '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-pix_fmt', 'yuv420p', '-an', join(out, 'clip.mp4')]).on('exit', res).on('error', res));
+}
+
+/**
  * The followers, emotes and rock-paper-scissors (--plus). A and B play the same game family on the same map.
  */
-async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId }) {
-  const step = async (i, dir) => { await hold(i, [dir], 150); await sleep(420); };
+async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId, ds = null }) {
+  const step = ds?.step || (async (i, dir) => { await hold(i, [dir], 150); await sleep(420); });
   const key = (i, k) => ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); f.contentWindow.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true })); return true; })()`);
   const local = async (i) => (await world(i))?.local;
   // (around what's in the way – a counter, a pillar: the other axis first, else a step to the side; gives up when stuck)
@@ -178,6 +221,13 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   };
   const result = { followers: {}, rps: {}, emote: {}, card: null };
   // 1. who follows whom: the leads as both pages know them
+  // (--lead <dex no.>: saves whose team live tracking can't read – the DS recordings' saves hold cloned Pokémon – get
+  // this lead handed to the play view instead, on every page)
+  if (opt('lead')) {
+    const lead = { species: Number(opt('lead')), shiny: false, form: 0 };
+    await sleep(5000);
+    for (const [i] of profiles.entries()) await ev(i, `(() => { const w = window.__slWorld; if (w && !w.lead) { w.update({ lead: ${JSON.stringify(lead)} }); return 'injected'; } return 'had one'; })()`).then((r) => log('lead', i, r));
+  }
   await until('leads known', async () => {
     const [a, b] = [await world(0), await world(1)];
     return a?.lead && b?.lead && a.partners?.p2?.lead && b.partners?.p1?.lead;
@@ -213,9 +263,11 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
     if (s?.tx === b.tx + dx && s?.ty === b.ty + dy) { side = { key, dir }; break; }
   }
   side = side || { key: 'right', dir: 4 };
+  if (ds) await ds.turn(0, side.key);
   for (let n = 0; n < 6 && (await local(0))?.facing !== side.dir; n++) { await hold(0, [side.key], 50 + n * 15); await sleep(400); }
   log('next to B', JSON.stringify({ local: (await world(0)).local, own: (await world(0)).own, drawn: (await world(0)).followers }));
-  await hold(0, ['a'], 120);
+  await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
+  if (ds) log('after A', JSON.stringify(await world(0)));
   const m = await until('menu', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && (await world(0))?.menu?.sel !== 'rps'; n++) { await key(0, 'ArrowDown'); await sleep(120); }
   await shot('20-menu-rps-A', 0);
@@ -246,7 +298,7 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
 
   // 4. an emote: A → menu → the heart; B sees it over A
   await sleep(600);
-  await hold(0, ['a'], 120);
+  await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
   await until('menu again', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && !String((await world(0))?.menu?.sel || '').startsWith('emote'); n++) { await key(0, 'ArrowDown'); await sleep(120); }
   await key(0, 'Enter');
@@ -314,7 +366,9 @@ async function main() {
     for (const pr of profiles) for (let i = 0; i < 100; i++) { try { await api(pr, '/api/status'); break; } catch { await sleep(200); } }
     const [A] = profiles;
     const libA = await api(A, '/api/library');
-    const rom = libA.roms[0];
+    // (this profile's own copy – the library may list more games it found elsewhere)
+    const pick = (lib, i) => lib.roms.find((r) => basename(r.file || '') === basename(opt(`rom${i + 1}`) || opt('rom'))) || lib.roms[0];
+    const rom = pick(libA, 0);
     const players = Object.fromEntries(SLOTS.map((s, i) => [s, { name: profiles[i].name }]));
     const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players, buildFor: SLOTS, gameId: rom.gameId, name: 'World test', rules: {} });
     const runId = built.manifest.id;
@@ -324,7 +378,7 @@ async function main() {
       if (!i) continue;
       const lib = await api(pr, '/api/library');
       const imported = await api(pr, '/api/runs/import', { pack });
-      await api(pr, '/api/runs/build', { runId: imported.id, romId: lib.roms[0].id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i], ...SLOTS.filter((s) => s !== SLOTS[i])], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: lib.roms[0].gameId });
+      await api(pr, '/api/runs/build', { runId: imported.id, romId: pick(lib, i).id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i], ...SLOTS.filter((s) => s !== SLOTS[i])], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: pick(lib, i).gameId });
       await api(pr, `/api/runs/${runId}/me`, { slot: SLOTS[i] }).catch(() => null);
     }
     for (const [i, pr] of profiles.entries()) await api(pr, `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(readFileSync(saves[i])), 'PUT');
@@ -334,6 +388,8 @@ async function main() {
     const wins = profiles.map((pr, i) => {
       const w = new BrowserWindow({ width: 1180, height: 780, x: 30 + i * 420, y: 30 + i * 30, show, webPreferences: { partition: `world-e2e-${pr.id}`, backgroundThrottling: false } });
       w.webContents.setAudioMuted(true);
+      // (errors of the pages – the player's iframe too – into the log)
+      w.webContents.on('console-message', (e) => { if (e.level === 'error' || e.level === 'warning') console.log(`[page ${pr.id}] ${e.level}: ${String(e.message).slice(0, 300)}`); });
       w.loadURL(`${pr.base}/#/soullink?run=${runId}`);
       return w;
     });
@@ -385,11 +441,33 @@ async function main() {
     const hold = (i, keys, ms) => setKeys(i, keys, true).then(() => sleep(ms)).then(() => setKeys(i, keys, false));
     const press = async (i, key, after = 600) => { await hold(i, [key], 120); await sleep(after); };
     const world = (i) => emu(i, 'JSON.stringify(w?.state?.() || null)').then((s) => JSON.parse(s || 'null'));
+    // The DS (Gen 4 walks a tile in 16 frames, a tap turns in place): exact frames through the fast player's step(), the
+    // way a slow, loaded machine can't spoil – hold, run n frames, let go, let the step finish, play on.
+    const frames = async (i, keys, n, after) => {
+      await emu(i, `(e.pause(), e.hold(${JSON.stringify(keys)}), true)`);
+      await emu(i, `e.step(${n}).then(() => true)`);
+      await emu(i, 'e.hold([])');
+      await emu(i, `e.step(${after}).then(() => (e.resume(), true))`);
+    };
+    const DIRS = { up: 2, down: 1, left: 3, right: 4 };
+    const ds = {
+      turn: async (i, dir) => { if ((await world(i))?.local?.facing !== DIRS[dir]) await frames(i, [dir], 2, 12); },
+      step: async (i, dir) => { await ds.turn(i, dir); await frames(i, [dir], 6, 34); },
+      press: (i, key) => frames(i, [key], 4, 8),
+    };
     // title → continue → overworld
     for (const [i] of profiles.entries()) {
       await until(`page ${i} in the overworld`, async () => {
         const s = await world(i);
         if (s?.local && s.cam && !s.cam.locked && !s.cam.replay && s.cam.cb2 && s.cam.fade === 0 && s.drawable !== false) return true;
+        // (the DS: the field runs, nothing holds the player)
+        if (s?.gen === 4 && s.local && s.drawable) return true;
+        if (s?.gen === 4 && s.local) {
+          // (the field is there – A would talk to whoever stands in front: wait, and say what holds it)
+          log(`page ${i}: field not drawable yet`, JSON.stringify({ field: s.field, perFrame: s.perFrame }));
+          await sleep(1500);
+          return false;
+        }
         // (FR/LG replay your last steps after loading – B skips that; it must not count as being there)
         if (s?.cam?.replay) log(`page ${i}: the quest-log replay – skipped`, JSON.stringify({ drawable: s.shown, local: s.local }));
         await press(i, s?.cam?.replay ? 'b' : 'a', 900);
@@ -398,6 +476,7 @@ async function main() {
     }
     await sleep(1500);
     const st = await Promise.all(profiles.map((_, i) => world(i)));
+    const isDs = st[0]?.gen === 4;
     log('local states', JSON.stringify(st.map((s) => ({ game: s?.game, perFrame: s?.perFrame, local: s?.local, learned: s?.learned, sprite: s?.sprite, cam: s?.cam }))));
     const gameRect = async (i) => {
       const r = JSON.parse(await ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); const c = (f.contentWindow.document.getElementById('screen') || f.contentWindow.__emu.canvas()).getBoundingClientRect(); const fr = f.getBoundingClientRect(); return JSON.stringify({ x: Math.round(fr.left + c.left), y: Math.round(fr.top + c.top), width: Math.round(c.width), height: Math.round(c.height) }); })()`));
@@ -418,8 +497,13 @@ async function main() {
       finish(0);
       return;
     }
+    if (args.includes('--clip')) {
+      await clip({ world, shot, log, sleep, out, wins, gameRect, ds: isDs ? ds : null, hold });
+      finish(0);
+      return;
+    }
     if (args.includes('--plus')) {
-      await plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId });
+      await plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId, ds: isDs ? ds : null });
       finish(0);
       return;
     }

@@ -1915,6 +1915,42 @@
     "battlers": "0 player, 1 opponent, 2 player's second, 3 opponent's second (double battles)",
     "source": "battleActive − 0x68 (BattleMon.species); layout pokeheartgold include/battle/battle.h BattleMon",
     "verified": "live in DeSmuME, HeartGold US and Definitive HeartGold (IPKE), 2026-10-21: zeroed at battle start, filled when the mons are out, kept after the battle"
+   },
+   "world": {
+    "family": "hgss",
+    "fieldSystem": "0x021D4158",
+    "g3dGlb": "0x021DA49C",
+    "system": "0x021D110C",
+    "off": {
+     "task": "0x10",
+     "location": "0x20",
+     "mapMatrix": "0x30",
+     "playerAvatar": "0x40",
+     "runningFieldMap": "0x6C"
+    },
+    "avatar": {
+     "state": "0x18",
+     "gender": "0x1C",
+     "mapObject": "0x30"
+    },
+    "billboardFoot": 5,
+    "mmodel": "a/0/8/1",
+    "sprites": {
+     "walk": [
+      "hero",
+      "heroine"
+     ],
+     "bike": [
+      "cyclehero",
+      "cycleheroine"
+     ],
+     "surf": [
+      "swimhero",
+      "swimheroine"
+     ]
+    },
+    "followers": "overworld",
+    "source": "pret/pokeheartgold xmap branch heartgoldus.xMAP / soulsilverus.xMAP (the same addresses): sFieldSysPtr 021D4158 (src/field_system.c), NNS_G3dGlb 021DA49C, gSystem 021D110C; layouts from include/field_system.h, include/player_avatar.h, include/map_object.h. Checked in the running HeartGold US (19 Nov 2026): global coordinates outdoors (New Bark Town), the matrices against the picture. Followers: the game's own overworld Pokémon ('tsure_poke' in a/0/8/1) by sModelIndexLUT, found in ARM9 by its shape."
    }
   },
   {
@@ -1999,6 +2035,42 @@
     "battlers": "0 player, 1 opponent, 2 player's second, 3 opponent's second (double battles)",
     "source": "battleActive − 0x68 (BattleMon.species); layout pokeheartgold include/battle/battle.h BattleMon",
     "verified": "live in DeSmuME, HeartGold US and Definitive HeartGold (IPKE), 2026-10-21: zeroed at battle start, filled when the mons are out, kept after the battle"
+   },
+   "world": {
+    "family": "hgss",
+    "fieldSystem": "0x021D4158",
+    "g3dGlb": "0x021DA49C",
+    "system": "0x021D110C",
+    "off": {
+     "task": "0x10",
+     "location": "0x20",
+     "mapMatrix": "0x30",
+     "playerAvatar": "0x40",
+     "runningFieldMap": "0x6C"
+    },
+    "avatar": {
+     "state": "0x18",
+     "gender": "0x1C",
+     "mapObject": "0x30"
+    },
+    "billboardFoot": 5,
+    "mmodel": "a/0/8/1",
+    "sprites": {
+     "walk": [
+      "hero",
+      "heroine"
+     ],
+     "bike": [
+      "cyclehero",
+      "cycleheroine"
+     ],
+     "surf": [
+      "swimhero",
+      "swimheroine"
+     ]
+    },
+    "followers": "overworld",
+    "source": "pret/pokeheartgold xmap branch heartgoldus.xMAP / soulsilverus.xMAP (the same addresses): sFieldSysPtr 021D4158 (src/field_system.c), NNS_G3dGlb 021DA49C, gSystem 021D110C; layouts from include/field_system.h, include/player_avatar.h, include/map_object.h. Checked in the running HeartGold US (19 Nov 2026): global coordinates outdoors (New Bark Town), the matrices against the picture. Followers: the game's own overworld Pokémon ('tsure_poke' in a/0/8/1) by sModelIndexLUT, found in ARM9 by its shape."
    }
   },
   {
@@ -2073,6 +2145,43 @@
     "generalOffsetFromSaveBase": "0x14",
     "trainerOffset": "0x68",
     "source": "save general block in RAM (saveBase+0x14 as for the boxes); PKHeX SAV4Pt Trainer1 0x68: TID +0x10, SID +0x12, badges +0x1A (bit per badge)"
+   },
+   "world": {
+    "family": "dppt",
+    "fieldSystem": "0x021C07DC",
+    "g3dGlb": "0x021C5A8C",
+    "system": "0x021BF67C",
+    "off": {
+     "task": "0x10",
+     "location": "0x1C",
+     "mapMatrix": "0x2C",
+     "playerAvatar": "0x3C",
+     "runningFieldMap": "0x68"
+    },
+    "avatar": {
+     "state": "0x1C",
+     "gender": "0x20",
+     "mapObject": "0x30"
+    },
+    "billboardFoot": 4,
+    "mmodel": "data/mmodel/mmodel.narc",
+    "sprites": {
+     "walk": [
+      "pl_boy01c",
+      "pl_girl01c"
+     ],
+     "bike": [
+      "pl_cyclehero",
+      "pl_cycheroine"
+     ],
+     "surf": [
+      "pl_swimhiro",
+      "pl_swimhiroine"
+     ]
+    },
+    "followers": "icons",
+    "icons": "poketool/icongra/pl_poke_icon.narc",
+    "source": "pret/pokeplatinum xmap branch platinumus.xMAP: sFieldSystem 021C07DC (src/field_system.c), NNS_G3dGlb 021C5A8C (libnnsg3d, size 0x264 – projMtx at +8, cameraMtx at +0x4C, nnsys/g3d/glbstate.h), gSystem 021BF67C (vblankCounter +0x2C, frameCounter +0x30, heldKeysRaw +0x38); FieldSystem/PlayerAvatar/MapObject/Location/MapMatrix layouts from include/field/field_system.h, include/player_avatar.h, src/map_object.c. Every address and offset checked in the running game (US, 19 Nov 2026): the player's MapObject grid/pos while walking, the matrices against the picture (block matching, 0.15 px mean), the map header and matrix in the Sandgem Pokémon Center 2F. Sprites by texture name in data/mmodel/mmodel.narc (any language, randomized or not)."
    }
   },
   {

@@ -15,8 +15,8 @@ import { t } from './i18n.mjs';
 
 const GONE_MS = 5000; // a partner silent this long is gone from the overlay
 
-/** Systems with a Shared World so far (Gen 3 on the GBA; the player page checks the game itself). */
-export const WORLD_SYSTEMS = ['gba'];
+/** Systems with a Shared World so far (Gen 3 on the GBA, Gen 4 on the DS; the player page checks the game itself). */
+export const WORLD_SYSTEMS = ['gba', 'nds'];
 
 /** The per-run "Show partners in my game" switch (this computer only, default on). */
 export const worldPrefKey = (runId) => `sl-world-${runId}`;
@@ -122,7 +122,7 @@ export class SharedWorld {
     this.configured.add(win);
     // (true once the player page found this game's tables – the switch shows only then)
     Promise.resolve(w.config({ me: this.me, players: this.players, enabled: this.enabled, actions: this.actions, labels: this.labels(), lead: this.lead, follow: this.follow }))
-      .then((ok) => this.onSupported(!!ok), () => this.onSupported(false));
+      .then((ok) => this.onSupported(!!ok, { follow: w.ownFollower?.() !== false }), () => this.onSupported(false, {}));
   }
 
   _tick() {

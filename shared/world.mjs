@@ -26,7 +26,7 @@ const STEP = { 1: [0, 1], 2: [0, -1], 3: [-1, 0], 4: [1, 0] };
 /** Avatar kinds (what the player rides or does). Index = the number on the wire. */
 export const KINDS = ['walk', 'mach', 'acro', 'bike', 'surf', 'dive', 'fieldmove', 'fish', 'water', 'vsseeker'];
 /** Families whose maps share ids: a partner is only drawn in a game of the same family (Ruby ↔ Sapphire, FR ↔ LG). */
-export const FAMILIES = { rs: 1, e: 2, frlg: 3, rb: 11, y: 12, gs: 13, c: 14 };
+export const FAMILIES = { rs: 1, e: 2, frlg: 3, rb: 11, y: 12, gs: 13, c: 14, dppt: 21, hgss: 22 };
 
 // GBA key bits (KEYINPUT / gMain.heldKeys)
 export const GBA_KEY = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, UP: 64, DOWN: 128, R: 256, L: 512 };
@@ -341,6 +341,8 @@ export class OverworldLearner {
  *   f: [species (National Dex), flags (bit 0 shiny, bits 1–5 the form: Unown's letter)] – the Pokémon following them,
  *      0 = none (no lead that can walk, or an egg-only team);
  *   z: [w, h] – the size of their map in tiles (a partner on a connected map north or west of yours is placed by it).
+ * `h` (optional, the DS: Gen 4 has heights – stairs, slopes, bridges): the 10th element, world units; a 0 stands in
+ * for a missing ext before it. Builds without the DS overlay never read past the ext.
  */
 export const WIRE_V = 1;
 export function packState(st, seq, t, ext = null) {
@@ -349,6 +351,11 @@ export function packState(st, seq, t, ext = null) {
     : [WIRE_V, seq >>> 0, Math.round(t), st.fam | 0, st.map | 0, Math.round(st.x), Math.round(st.y),
       (st.facing & 7) | (Math.max(0, KINDS.indexOf(st.kind)) << 3) | ((st.gender & 1) << 7) | (st.run ? 1 << 8 : 0) | ((st.elev & 15) << 10)];
   if (ext && (ext.f !== undefined || ext.z)) base.push(ext);
+  // the DS field's height (world units: stairs, slopes, bridges) as a 10th element – after the ext or a 0 in its place
+  if (st && !st.hidden && Number.isFinite(st.h)) {
+    if (base.length === 8) base.push(0);
+    base.push(Math.round(st.h));
+  }
   return base;
 }
 
@@ -379,7 +386,8 @@ export function unpackState(a) {
   const ext = a.length > 8 ? unpackExt(a[8]) : null;
   if (flags & (1 << 9)) return { seq, t, fam, hidden: true, ...(ext ? { ext } : {}) };
   const facing = flags & 7;
-  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), elev: (flags >> 10) & 15, hidden: false, ...(ext ? { ext } : {}) };
+  const h = a.length > 9 && Number.isFinite(a[9]) && Math.abs(a[9]) <= 0x8000 ? a[9] : undefined;
+  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), elev: (flags >> 10) & 15, hidden: false, ...(h !== undefined ? { h } : {}), ...(ext ? { ext } : {}) };
 }
 
 /** How often the sender sends: while something changes up to 15 a second, else a heartbeat once a second. */
@@ -387,7 +395,7 @@ export const SEND = { minMs: 66, idleMs: 1000, relayMs: 2000 };
 /** Is `st` different enough from the last sent one to send now? */
 export function changed(a, b) {
   if (!a || !b) return a !== b;
-  return a.hidden !== b.hidden || a.map !== b.map || a.x !== b.x || a.y !== b.y || a.facing !== b.facing || a.kind !== b.kind || a.run !== b.run || a.gender !== b.gender || (a.elev | 0) !== (b.elev | 0);
+  return a.hidden !== b.hidden || a.map !== b.map || a.x !== b.x || a.y !== b.y || a.facing !== b.facing || a.kind !== b.kind || a.run !== b.run || a.gender !== b.gender || (a.elev | 0) !== (b.elev | 0) || (a.h ?? null) !== (b.h ?? null);
 }
 
 // ---- interpolation -------------------------------------------------------------------------------------------------
@@ -463,7 +471,8 @@ export class Track {
       if (d > this.snapPx) return { ...a, moving: false };
       const k = (rt - a.t) / (n.t - a.t);
       // (speed in pixels per game frame: 1 walking, 2 running or cycling, more on the Mach Bike)
-      return { ...a, x: a.x + (n.x - a.x) * k, y: a.y + (n.y - a.y) * k, facing: d > 0 ? n.facing : k < 0.5 ? a.facing : n.facing, moving: d > 0, speed: d / Math.max(1, (n.t - a.t) / FRAME_MS) };
+      const h = Number.isFinite(a.h) && Number.isFinite(n.h) ? { h: a.h + (n.h - a.h) * k } : {};
+      return { ...a, ...h, x: a.x + (n.x - a.x) * k, y: a.y + (n.y - a.y) * k, facing: d > 0 ? n.facing : k < 0.5 ? a.facing : n.facing, moving: d > 0, speed: d / Math.max(1, (n.t - a.t) / FRAME_MS) };
     }
     if (n) return { ...a, moving: false }; // the next one is on another map / hidden: hold until it's due
     // past the newest: keep going the way it went, for a moment (a held direction keeps walking in the game too)

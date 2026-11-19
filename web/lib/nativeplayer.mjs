@@ -1016,6 +1016,15 @@ if (!LINK_SESSION) {
     romUrl: q.get('rom'),
     read,
     rect: () => (st.ready ? canvas.getBoundingClientRect() : null),
+    /** The picture on screen in game pixels { w, h, fmt (0 BGRA, 2 RGB565), px } – the DS overlay reads the field's light
+     *  off the player's own sprite. */
+    picture: () => (lastFrame ? { w: lastFrame.w, h: lastFrame.h, fmt: lastFrame.fmt, px: lastFrame.px } : null),
+    /** The DS's top screen (where its 3D field is): the upper half, or the left one side by side. */
+    screen() {
+      if (!st.ready) return null;
+      const r = canvas.getBoundingClientRect();
+      return sideBySide() ? { left: r.left, top: r.top, width: r.width / 2, height: r.height } : { left: r.left, top: r.top, width: r.width, height: r.height / 2 };
+    },
     // (hidden while a seamless link session runs on this page: the Cable Club is no place for partners walking about)
     ready: () => st.ready && !st.ended && !LINK_SESSION,
     /** A few RAM bytes with every picture (WATCH): ranges [[addr, len]…], [] stops it. Only retrohost knows WATCH –

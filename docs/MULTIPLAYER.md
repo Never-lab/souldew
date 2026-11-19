@@ -465,7 +465,7 @@ Goal: partners walk visibly in your game, on the same map, and you can walk up t
 
 GBA-PK's approach injects NPC objects into game RAM per ROM revision, which breaks on randomizers and is CC BY-NC. souldew's version is an **overlay drawn by souldew** over the emulator picture, fed by RAM reads. Nothing is written into the game.
 
-**Status (branches `feat/shared-world`, `feat/30-world-plus`): Gen 3 works in the app** – Ruby, Sapphire, Emerald, FireRed and LeafGreen (English and German: Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`). Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
+**Status (branches `feat/shared-world`, `feat/30-world-plus`, `feat/30-world-ds`): Gen 3 and Gen 4 (Platinum, HeartGold/SoulSilver) work in the app** – Ruby, Sapphire, Emerald, FireRed and LeafGreen (English and German: Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`). Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
 
 | Game | Status |
 |---|---|
@@ -481,7 +481,10 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 | LeafGreen US (rev 0–1) | Same as FireRed US, from `pokeleafgreen*.sym` – untested |
 | Radical Red 4.1 (the "FireRed (patched)" here) | The FireRed US RAM still fits (checked by the literal pools and a live probe), the graphics table is found by the search; its expanded species (1375) have no icon table souldew recognises: **no followers**, partners untested |
 | Emerald/Ruby/Sapphire FR/IT/ES, hacks with moved RAM (CFRU/Unbound …) | No overlay (no verified RAM addresses – no such ROM on the test Mac); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM, sprite and icon tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
-| Gen 1/2, Gen 4/5, 3DS | Not yet – see the feasibility notes below |
+| Platinum (US) | **Works** (tested 19 Nov 2026, 2 players, branch `feat/30-world-ds`): partners drawn into the 3D field with their own overworld sprite from the ROM, names, followers (party icons), A → menu, Wave/emotes/rock-paper-scissors both sides – see "Gen 4 (DS)" below |
+| HeartGold / SoulSilver (US) | **Works** (HeartGold tested 19 Nov 2026, 2 players; SoulSilver has the same addresses – xMAP – untested): as Platinum, outdoors with the perspective camera, lit like the field (evening, night, caves), followers are the game's own overworld Pokémon |
+| Diamond / Pearl, other languages of Gen 4 | Not yet: no field addresses verified (pokediamond has no symbol map, and no D/P save on the overworld was at hand). Diamond, Pearl and Platinum are one family (map headers 0–558 are the same), so the rest is ready for them |
+| Gen 1/2, Gen 5, 3DS | Not yet – see the feasibility notes below |
 
 ### How it works
 
@@ -519,6 +522,77 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 10. **Connected maps**: the local map's size (its layout in the ROM) and connections (`gMapHeader.connections` → { direction, offset, map }) place a partner on a neighbouring map in your frame (pokeemerald `Fill*Connection`: south at your height + offset, east at your width, north and west at minus *their* size – which they send in `z`). `Track.sample` interpolates in that frame, so a partner crossing the edge slides on instead of stopping; followers, the A menu and name tags work across it. Partners on older builds (no `z`) show next door only to the south and east.
 11. **FR/LG's quest-log replay** ("Previously on your quest…" after loading) runs with the overworld callback, unlocked, the player walking: `gQuestLogState` (EWRAM 0x0203ADFA in every revision and language; 2/3 = playback, 1 = the recording during normal play) hides the partners and sends you as hidden while it plays (verified live in Feuerrote/Blattgrüne/FireRed).
 
+### Gen 4 (DS): the 3D field
+
+The DS field is 3D: a perspective camera outdoors (pitch and distance per map type – Platinum has 20 camera types, HGSS
+tilts per map), an orthographic one in most houses, and a camera that eases after the player. souldew doesn't model any
+of that: **it reads the two matrices the game hands to its 3D engine** – NitroSystem's `NNS_G3dGlb` (projection 4×4 at
++0x08, camera 4×3 at +0x4C; `nnsys/g3d/glbstate.h`) – and projects a world point exactly as the geometry engine does
+(row vector × camera × projection, then the top screen's viewport). A camera that eases, tilts or zooms is just another
+matrix. `shared/worldds.mjs`, tables in `addresses.json` › `world` (Platinum US, HeartGold/SoulSilver US, from the pret
+xMAPs: `sFieldSystem`, `NNS_G3dGlb`, `gSystem`).
+
+1. **Read** (per picture through `WATCH`, 9 ranges, ~330 bytes): the matrices; `gSystem` (vblank/frame counters, the
+   keys); the `FieldSystem` (heap – its pointers move with every map load, so the overlay reads them from the RAM mirror
+   now and then and watches the new addresses): the field's program and child program (menu screens, the bag, battles),
+   its task (scripts, messages, warps), the location (map header) and the map matrix; the player's `MapObject` (grid
+   x/y/z and the fx32 position: tile × 16 + 8 on the ground plane, y the height) and `PlayerAvatar` (walking, cycling,
+   surfing; gender).
+2. **Which matrices the picture shows**: the field runs at 30 fps and the picture shows the geometry of the *previous*
+   main-loop iteration. `Displayed` keeps one snapshot per iteration (the first reading after `frameCounter` went back
+   to 0 and up again – the VBlank interrupt counts it up, the main loop clears it; a late iteration with 2 replaces its
+   snapshot) and hands out the one before the newest. **Measured** against the picture by block matching while walking,
+   turning and with the camera easing (a harness stepping the fast player frame by frame, 300+ frames each): Platinum interior 0.15 px mean,
+   0.55 px worst; HeartGold outdoors under a pixel (the block matcher's own rounding of the 3D rasteriser's sub-pixels).
+   Taking this frame's matrices instead is off by one step of the camera (2 px) every other frame; without the
+   frame-counter rule, the late iterations at every tile boundary (map streaming) are off by 2 px for one frame.
+3. **Same map**: a matrix of several maps (the overworld, big caves) has coordinates running across all of them, so its
+   id is the key (`0x8000 | id`); a single-map matrix (a house) is keyed by its map header. Partners on the next route
+   are simply there. Families: Diamond/Pearl/Platinum (`dppt`; their map headers 0–558 are the same, Platinum adds
+   559–595 – maps Platinum rebuilt can show a Diamond partner where Platinum has scenery) and HeartGold/SoulSilver.
+4. **On the wire**: the Gen 3 message, `x`/`y` the ground plane in world units, plus the height as a 10th element
+   (after the ext, or a 0 in its place – older builds never read past the ext).
+5. **Drawing** (`web/lib/worldds.mjs`): a 256×192 canvas over the top screen (`host.screen()`: the upper half, or the left
+   one side by side). Partners are billboards like the game's: their 32×32 sheet decoded from **this computer's ROM**
+   (BTX0 in `data/mmodel/mmodel.narc` / `a/0/8/1`, found by texture name – `pl_boy01c`, `hero`, … – so any language or
+   randomized copy works), centred on the projected point, its bottom 4 px (Platinum) / 5 px (HGSS) below it, scaled by
+   the projection's pixels per world unit at that depth (whole pixels at scale 1: crisp like the game's own). The offset
+   was measured by matching the decoded frame against the game's own player in the picture (error 2.7 / 3.0 per colour
+   channel). Frames: four per direction walking, the running half from 1.5 px/frame, bike and surf sheets. Sorted far to
+   near by the feet; a partner behind you loses what your figure covers (your sheet's silhouette for the direction you
+   face).
+6. **Light**: HeartGold/SoulSilver light the field by the time of day, caves are darker – a partner in full colour
+   would glow. souldew measures the light off your own sprite while you stand still (the picture's pixels against your
+   decoded standing frame, least squares per channel; a poor fit – something in front of you – is skipped) and lights
+   everything it draws the same. Measured in New Bark Town in the evening: ×(0.60, 0.60, 0.88); Platinum indoors ×1.
+7. **Followers**: HeartGold/SoulSilver have their own – souldew draws the partners' as **the game's own overworld
+   Pokémon** (`tsure_poke` sheets at the end of `a/0/8/1`, by `sModelIndexLUT`, found in ARM9 by its shape), walking the
+   partner's trail with two frames per direction; your own follower is the game's (the "Show my Pokémon following me"
+   switch isn't offered there). Diamond/Pearl/Platinum: the party icon (`pl_poke_icon.narc`, the palette table found in
+   ARM9 by its first entries), as in Gen 3, its lowest pixel on the feet's line.
+8. **When**: the field runs (its program, no child program) and no task holds the player. The partners see you on the
+   field also while a menu or a message is open on your side; a battle or a menu screen sends "hidden".
+9. **A, the menu, emotes, rock-paper-scissors**: as in Gen 3 (`web/lib/worldui.mjs` – the controls are shared by both
+   overlays now): standing still on a tile's centre, facing a partner's tile at about your height, A (the game's
+   `heldKeysRaw` or the fast player's input), and no script started by the game within 110 ms.
+
+### Limits (Gen 4)
+
+- **No depth against the 3D map**: houses, trees, counters and NPCs never cover a partner (the picture has no depth
+  buffer souldew can read; only your own figure does). A partner behind a house is drawn on its roof.
+- Surfing partners sit without their Pokémon (the surf mount is a field effect, not in their sheet). Field moves,
+  fishing, the Pokétch pose, saving and the like show the walking sheet.
+- HGSS partners' followers: the base form/male sprite (female and form sprites are skipped). A lead your game has no
+  overworld sprite for (a hack) shows none. Platinum's icons ignore forms.
+- The light is measured off your sprite while you stand still: right after a change (entering a cave) partners keep
+  the old light for up to half a second.
+- Diamond/Pearl and other languages: no overlay yet (no verified addresses). The browser player (EmulatorJS, the
+  fallback without the fast player) has no per-picture bytes: no DS overlay there.
+- Verified with two players on one Mac (19 Nov 2026, a loaded machine – the games ran at 20–60 % speed): Platinum in
+  the Sandgem Pokémon Center 2F (the orthographic camera), HeartGold in New Bark Town (perspective, evening light).
+  Clips: `world-e2e.mjs --clip`. The DS recordings' saves hold cloned Pokémon, so live tracking can't read their team:
+  the Platinum follower run used `--lead`.
+
 ### Limits (Gen 3)
 
 - Partners disappear behind the map's top layer exactly where the real player does (tree tops, roofs, the leaves of potted plants, counters). Not covered: tall grass (a field-effect sprite in the game, not the map), animated top-layer tiles (the mask is the ROM's first frame), and other sprites (NPCs) – partners walk through NPCs and walls on your screen if they stand there in their game (their own game decides where they can walk).
@@ -534,7 +608,7 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 ### Feasibility for the other generations
 
 - **Gen 1/2 (≈ 4–6 days):** everything is in WRAM, so the 10 Hz mirror and `WATCH` both reach it. Gen 1: `wCurMap` 0xD35E, `wYCoord`/`wXCoord` 0xD361/2 (16 px steps), `wWalkCounter` 0xCFC5 (8 → 0, 2 px per frame) with `wPlayerMovingDirection` 0xD528 for the sub-step, facing `wSpritePlayerStateData1FacingDirection` 0xC109, bike/surf `wWalkBikeSurfState` 0xD700; the player sits at a fixed spot (sprite at 64, 60). Gen 2 (Crystal): `wMapGroup`/`wMapNumber` 0xDCB5/6, `wYCoord`/`wXCoord` 0xDCB7/8, `wPlayerStruct` 0xD4D6 (facing, step offsets), `wPlayerGender` 0xD472, `wPlayerState` 0xD95D (bike/surf). Sprites: 2bpp 16×16 sheets (`RedSprite` 05:4180, Crystal's Chris/Kris sprites) – trivial to decode. The hard part is the colour: Gen 1 on a Color console is coloured by the boot ROM's palette for the title, Gen 2 by its OBJ palettes in ROM (`PAL_NPC_*`) – both reproducible, but to be checked against what Gambatte shows. `hSCX`/`hSCY` are in HRAM, outside the mirror; not needed with the walk counter.
-- **Gen 4 (Platinum/HGSS, ≈ 2–3 wk):** the field is 3D with a perspective camera at a fixed pitch (Platinum, HGSS tilt differs per map). Position: the player's map object (x/z in tiles + fixed-point sub-tile) under the field system; the camera struct gives target, distance and angle, from which a projection to the top screen can be derived – an overlay is feasible but needs the projection per map type and won't match exactly where the camera eases. Sprites: the player's overworld textures are in the ROM's NARC (`data/mmodel`), BTX0 textures, decodable. Depth against 3D buildings is not possible from outside.
+- **Gen 4:** done for Platinum and HeartGold/SoulSilver – see "Gen 4 (DS)" above. Left: Diamond/Pearl (their `sFieldSystem`, `NNS_G3dGlb` and `gSystem` addresses, verified in a running game – `NNS_G3dGlb` can be found by its first word, `0x17101610`), other languages, depth against the map.
 - **Gen 5 (B/W, B2/W2):** like Gen 4 with a freely tilting camera on many maps: hard; best kept to the board's "Tim is on Route 4".
 - **3DS:** research only.
 
@@ -547,7 +621,7 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 | Surf blob, ledge hop | 1–2 days |
 | More languages (verify RAM per language with pret or community tables) | ½ day per language |
 | Gen 1/2 | 4–6 days |
-| Gen 4 | 2–3 weeks |
+| ~~Gen 4~~ (Platinum, HGSS) | done; Diamond/Pearl ½–1 day once a save on the overworld is at hand |
 
 ## 10. SoulLink rules and UX
 
@@ -625,7 +699,7 @@ What is left for 3.0, with effort:
 | Seamless DS start over slow uplinks: 1.7 MB deflated per DS state (0.8 s on one Mac, 1.4–2.0 s over TURN at 40 ms); a delta against a reference the receiver builds itself (the same game booted from the same save) would cut it further | 1–2 d |
 | Seamless DS session started while both are already inside the Union Room alone (the fast player's firmware MAC is the same for every player – the games may need to leave and re-enter the room so their wireless reads the link host's per-seat MAC); a DS 3–4-player seamless run | 1 d |
 | The souldew engine (§4b) as the default, then retrohost gone: a beta with real players (Windows x64 PCs incl. 96 kHz sound cards and weak laptops, Linux), the first `native.yml` run with melonDS's JIT in the link host, the play view and Settings no longer tied to the libretro cores (`nativeOn`, `status.native.ok`), then retrohost, the libretro cores and the old hand-over path (SEATSTATE → `/api/native/start` with a state) removed | – |
-| Shared World beyond Gen 3 (§9), rollback, spectating | after 3.0 |
+| Shared World beyond Gen 3/4 (§9: Gen 1/2, Diamond/Pearl, Gen 5), rollback, spectating | after 3.0 |
 
 ## 14. Decisions for the owner
 
