@@ -53,7 +53,7 @@ async function main() {
   const lib = join(dir, 'roms');
   mkdirSync(lib, { recursive: true });
   copyFileSync(rom, join(lib, basename(rom)), fsConstants.COPYFILE_FICLONE);
-  writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: 'Marius', libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true, nativeEngine: flag('engine') }));
+  writeFileSync(join(dir, 'config.json'), JSON.stringify({ onboarded: true, lang: 'en', playerName: 'Sam', libraryFolders: [lib], bootAnimation: false, sounds: false, nativeCore: true, nativeEngine: flag('engine') }));
   const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', SLS_DATA_DIR: dir, PORT: String(port), NO_OPEN: '1', SLS_E2E: '1', SOULDEW_LINK_ICE: 'off' };
   const server = spawn(process.execPath, [join(root, 'server', 'index.mjs')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   server.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
@@ -73,7 +73,7 @@ async function main() {
   for (let i = 0; i < 150; i++) { try { await api('/api/status'); break; } catch { await sleep(200); } }
   const libNow = await api('/api/library');
   const own = libNow.roms.find((r) => basename(r.file || '') === basename(rom)) || libNow.roms[0];
-  const built = await api('/api/runs/build', { romId: own.id, randomize: false, mode: 'soullink', players: { p1: { name: 'Marius' }, p2: { name: 'Tim' } }, buildFor: ['p1'], gameId: own.gameId, name: 'Drive', rules: {} });
+  const built = await api('/api/runs/build', { romId: own.id, randomize: false, mode: 'soullink', players: { p1: { name: 'Sam' }, p2: { name: 'Tim' } }, buildFor: ['p1'], gameId: own.gameId, name: 'Drive', rules: {} });
   const runId = built.manifest.id;
   if (opt('save')) await api(`/api/runs/${runId}/save/p1`, new Uint8Array(readFileSync(resolve(opt('save')))), 'PUT');
   const win = new BrowserWindow({ width: 1100, height: 780, show: flag('show'), webPreferences: { partition: 'app-drive', backgroundThrottling: false } });
