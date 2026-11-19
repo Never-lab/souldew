@@ -223,6 +223,9 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
       const r = await raw(API.token, { method: 'POST', json: { grant_type: 'refresh_token', refresh_token: used } });
       if (r.status === 0) return 'offline';
       if (r.status === 200) {
+        // signed out (or in as someone else) while the refresh was on its way: the answer belongs to a session that
+        // is gone – storing it would sign the player back in behind their back
+        if (saved?.refresh !== used) return 'error';
         const next = sessionFrom(r.body);
         if (!next) return 'error';
         keep(next);

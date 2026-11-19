@@ -30,3 +30,31 @@ test('a souldew+ preview that can\'t be had is a 404 answer, never an unhandled 
     process.off('unhandledRejection', onRejection);
   }
 });
+
+test('signing out while a token refresh is on its way: the late answer doesn\'t sign the player back in', async () => {
+  const { createSession } = await import('../server/lib/accounts/session.mjs');
+  let stored = { access: 'a'.repeat(20), accessExp: 0, refresh: 'r'.repeat(20), sid: null, service: 'http://127.0.0.1:9', account: { id: 'u_1' } };
+  const store = { load: () => stored, save: (v) => (stored = v), clear: () => (stored = null), persistent: () => true };
+  let release;
+  const gate = new Promise((res) => (release = res));
+  const json = (status, body) => ({ status, json: async () => body, headers: new Headers() });
+  const fetchImpl = async (url, opts) => {
+    const body = opts.body ? JSON.parse(opts.body) : {};
+    if (url.endsWith('/auth/token') && body.grant_type === 'refresh_token') {
+      await gate;
+      return json(200, { access_token: 'b'.repeat(20), refresh_token: 's'.repeat(20), expires_in: 900 });
+    }
+    if (url.endsWith('/auth/logout')) return json(200, {});
+    return json(200, {});
+  };
+  const s = createSession({ store, port: () => 1, fetchImpl, env: { SLS_ACCOUNTS_URL: 'http://127.0.0.1:9' } });
+  assert.equal(s.signedIn, true);
+  const pending = s.request('/v1/me'); // the access token ran out: a refresh starts
+  await new Promise((res) => setTimeout(res, 10));
+  await s.signOut();
+  assert.equal(s.signedIn, false);
+  release();
+  await pending;
+  assert.equal(s.signedIn, false, 'still signed out');
+  assert.equal(stored, null, 'nothing stored again');
+});
