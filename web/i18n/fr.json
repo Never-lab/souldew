@@ -793,6 +793,8 @@
   "linkplay.preparing": "Préparation du link : vérification des jeux, échange des sauvegardes …",
   "linkplay.saveDiffers": "Une sauvegarde est arrivée endommagée. Réessaie.",
   "linkplay.busy": "{name} est déjà dans une autre liaison.",
+  "linkplay.inLinkWith": "En liaison avec {name}",
+  "linkplay.inBattleWith": "En combat link avec {name}",
   "linkplay.challenge": "Défier",
   "linkplay.challengeFor": "Défier pour {amount}",
   "linkplay.challengeTitle": "Défier {name}",

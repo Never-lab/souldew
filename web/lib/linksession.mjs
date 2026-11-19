@@ -35,6 +35,11 @@
 //   rejoin                                                    a player whose game dropped out comes back …
 //   state  {i, n, data, frame} | state-busy                  … and gets the session as the others have it
 //   bye    {reason}                                           a player left: the session ends for everybody
+//   linked {on, seats, kind}  (no sid)                         to the run's players OUTSIDE the session, from each seat:
+//                                                             "I'm linked with these seats" (every 3 s while it lasts,
+//                                                             on:false when it ends) – their board shows it on the
+//                                                             card and greys out Trade / Battle. Older builds drop it
+//                                                             (no sid of theirs). Only ever about the sender itself.
 import { serverErrorText } from './errors.mjs';
 import { LINK_CMD, linkDelay, sameLinkSystem } from '/shared/link.mjs';
 import { b64, unb64, deflate, inflate, sha1 } from './bytes.mjs';
@@ -53,6 +58,11 @@ const REJOIN_MAX_MS = 30 * 60 * 1000;
 export { linkDelay };
 const INVITE_TIMEOUT_MS = 60 * 1000; // an invite nobody answers ends by itself
 const MAX_SAVE_BYTES = 4 * 1024 * 1024; // (server/lib/native.mjs MAX_SAVE: a partner's save can't be bigger)
+// A session the others are told about ('linked'): from the moment every seat said yes until it ends. While only invited,
+// a player is asked once more – the "in another link" answer covers that short moment.
+const LINKED_PHASES = ['preparing', 'need', 'running', 'rejoining'];
+const LINKED_TTL_MS = 10 * 1000; // a seat that went quiet (crash, closed page) is no longer shown as linked
+const SLOT_RE = /^p[1-4]$/;
 const newSid = () => [...crypto.getRandomValues(new Uint8Array(6))].map((b) => b.toString(16).padStart(2, '0')).join('');
 
 const store = {
@@ -97,6 +107,8 @@ export class LinkSessions {
     Object.assign(this, { sync, runId, me, onChange, openSession, closeSession, emu, ownGame, rules, onResult });
     this.fetch = fetchImpl || ((...a) => fetch(...a)); // (tests give each player's page its own server)
     this.state = { phase: 'idle' };
+    this.elsewhere = {}; // slot → { seats, kind, at }: players of the run linked with others right now (their 'linked')
+    this.announced = null; // what this page last told the players outside its session: { seats, kind } | null
     this.off = sync.onLink((m) => this._in(m));
     this.onWindow = (e) => this._fromPlayer(e);
     addEventListener('message', this.onWindow);
@@ -107,7 +119,11 @@ export class LinkSessions {
     if (old?.sid && Date.now() - (old.at || 0) < REJOIN_MAX_MS && Array.isArray(old.seats) && old.seats.includes(me)) {
       this.state = { phase: 'rejoinable', ...old };
     } else if (old) store.set(REJOIN_KEY(runId), null);
-    this.routeTimer = setInterval(() => this._routes(), 3000);
+    this.routeTimer = setInterval(() => {
+      this._routes();
+      this._announce(true);
+      this._expire();
+    }, 3000);
     this.routeTimer?.unref?.(); // (Node, in tests: no reason to stay alive)
   }
 
@@ -141,6 +157,7 @@ export class LinkSessions {
     clearTimeout(this.rejoinTimer);
     clearTimeout(this.inviteTimer);
     removeEventListener('message', this.onWindow);
+    this.elsewhere = {};
     // (a running session isn't ended by closing the page: the others wait, this player may come back – rejoin)
     if (this.state.phase === 'preparing' || this.state.phase === 'need' || this.state.phase === 'inviting') this.leave('closed');
   }
@@ -148,6 +165,64 @@ export class LinkSessions {
   _set(patch) {
     this.state = { ...this.state, ...patch };
     this.onChange(this.state);
+    this._announce();
+  }
+
+  /**
+   * Tell the run's players outside the session that this player is linked (or no longer is) – `beat`: once more, for
+   * a player who came online meanwhile. Over the direct link only: without one they can't link with us anyway.
+   */
+  _announce(beat = false) {
+    const st = this.state;
+    const now = LINKED_PHASES.includes(st.phase) && Array.isArray(st.seats) && st.seats.length > 1 ? { seats: st.seats, kind: st.kind === 'battle' ? 'battle' : 'trade' } : null;
+    const prev = this.announced;
+    const same = !!now && !!prev && now.kind === prev.kind && now.seats.join() === prev.seats.join();
+    if ((same && !beat) || (!now && !prev)) return;
+    const outside = (seats) => (this.sync.others || []).filter((s) => s !== this.me && !seats.includes(s));
+    this.announced = now;
+    try {
+      if (prev && !same) this.sync.sendLink({ t: 'linked', on: false }, outside(prev.seats));
+      if (now) this.sync.sendLink({ t: 'linked', on: true, seats: now.seats, kind: now.kind }, outside(now.seats));
+    } catch (e) {
+      console.warn('link announcement failed', e);
+    }
+  }
+
+  /** A player of the run says they're linked with others (or not any more) – only ever about themselves. */
+  _linkedIn(m) {
+    const from = m.from;
+    if (!SLOT_RE.test(from)) return;
+    const had = this.elsewhere[from];
+    if (m.on !== true) {
+      if (!had) return;
+      delete this.elsewhere[from];
+      return this.onChange(this.state);
+    }
+    const seats = Array.isArray(m.seats) ? [...new Set(m.seats.filter((s) => typeof s === 'string' && SLOT_RE.test(s)))] : [];
+    // (a session with us in it isn't "elsewhere": we know it ourselves)
+    if (seats.length < 2 || seats.length > 4 || !seats.includes(from) || seats.includes(this.me)) return;
+    const kind = m.kind === 'battle' ? 'battle' : 'trade';
+    this.elsewhere[from] = { seats, kind, at: Date.now() };
+    if (!had || had.kind !== kind || had.seats.join() !== seats.join()) this.onChange(this.state);
+  }
+
+  /** Linked players that went quiet: no longer shown as linked. */
+  _expire() {
+    const now = Date.now();
+    let gone = false;
+    for (const [slot, e] of Object.entries(this.elsewhere)) {
+      if (now - e.at > LINKED_TTL_MS) {
+        delete this.elsewhere[slot];
+        gone = true;
+      }
+    }
+    if (gone) this.onChange(this.state);
+  }
+
+  /** Is `slot` linked with other players right now? { seats, kind } (seats: the session's, `slot` among them) | null. */
+  linkedElsewhere(slot) {
+    const e = this.elsewhere[slot];
+    return e && Date.now() - e.at <= LINKED_TTL_MS ? { seats: e.seats, kind: e.kind } : null;
   }
 
   /** The other seats of the session (their slots). */
@@ -409,6 +484,7 @@ export class LinkSessions {
   // ---- incoming ----------------------------------------------------------------------------------------------------
   async _in(m) {
     const st = this.state;
+    if (m.t === 'linked') return this._linkedIn(m);
     if (m.t === 'invite') {
       if (!Array.isArray(m.seats) || !m.seats.includes(this.me) || m.seats.length > 4) return;
       // (in another session already: say so – the inviter would wait for an answer otherwise)

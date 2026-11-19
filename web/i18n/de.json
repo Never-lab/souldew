@@ -793,6 +793,8 @@
   "linkplay.preparing": "Der Link wird vorbereitet: Spiele prüfen, Spielstände austauschen …",
   "linkplay.saveDiffers": "Ein Spielstand kam beschädigt an. Versuch es noch einmal.",
   "linkplay.busy": "{name} ist gerade in einem anderen Link.",
+  "linkplay.inLinkWith": "Im Link mit {name}",
+  "linkplay.inBattleWith": "Im Link-Kampf mit {name}",
   "linkplay.challenge": "Herausfordern",
   "linkplay.challengeFor": "Um {amount} herausfordern",
   "linkplay.challengeTitle": "{name} herausfordern",
