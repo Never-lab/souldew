@@ -6,7 +6,8 @@
 //
 // The fast player (web/lib/nativeplayer.mjs) sends the bytes this needs with every picture (WATCH); the heap objects
 // they live in move with every map load, so the pointers are read from the RAM mirror now and then and watched anew.
-import { Track, unpackState, Follower, followerHidden, DIR, chainReaders, rangeReader } from '/shared/world.mjs';
+import { Track, unpackState, Follower, followerHidden, DIR, chainReaders, rangeReader, APress } from '/shared/world.mjs';
+import { edgeArrow } from '/shared/together.mjs';
 import {
   dsWorldTable, dsPointers, dsWatchRanges, dsReadFrame, Displayed, billboard, project, dsPlayer, dsDrawable, dsMapKey,
   dsFacedPartner, dsAvatarSheets, dsAvatarFrame, dsFollowerFrame, findFollowerTable, btxSheet,
@@ -14,6 +15,9 @@ import {
 } from '/shared/worldds.mjs';
 import { ART, HAND_ART, artSize } from '/lib/worldart.mjs';
 import { WORLD_CSS, drawBubble, createWorldUi } from '/lib/worldui.mjs';
+import { standIn, emptyTogether, togetherLayer, POP_MS } from '/lib/togetheroverlay.mjs';
+import { TOMB_SIZE, tombPixels, arrowFor, paintRows } from '/lib/togetherart.mjs';
+import { INK } from '/lib/worldart.mjs';
 
 const STATE_MS = 66;
 const WAVE_MS = 2600;
@@ -117,8 +121,12 @@ function worldDs(host, t, gfx) {
   let latest = null; // this picture's reading (what the game is at)
   let shown = null; // the reading the picture was drawn with
   let opacity = 0;
-  let aHeld = false;
-  let aAt = 0;
+  const aPress = new APress(); // walking up to a partner and pressing A
+  let aTimer = 0;
+  // playing together (web/lib/togetheroverlay.mjs): partners in a battle, catches, tombstones, "come here"
+  const tl = togetherLayer({ screen: DS_SCREEN });
+  let tg = emptyTogether();
+  let tgDrawn = {};
   let lastState = 0;
   let raf = 0;
   let stopped = false;
@@ -139,7 +147,7 @@ function worldDs(host, t, gfx) {
     host, layer, screen: DS_SCREEN, getCfg: () => cfg,
     anchor: (slot) => shownAt.get(slot) || null,
     canModal: () => dsDrawable(shown),
-    onClosed: () => (aHeld = true),
+    onClosed: () => aPress.swallow(), // (the A that chose doesn't open it again)
   });
 
   /** A frame as a canvas – lit like the field (`lit`: the tint applies; the masks stay as they are). */
@@ -248,10 +256,12 @@ function worldDs(host, t, gfx) {
     // the partners where the picture is now; their followers walk on even while nothing is drawn
     const list = [];
     for (const [slot, tr] of tracks) {
-      const s = tr.sample(now);
+      const s0 = tr.sample(now);
+      // (a partner in a battle stays where it began, with a ⚔ – their follower is in the battle with them)
+      const s = standIn(s0, tr, null, !!tg.battles[slot]);
       const here = !!s && !s.hidden && s.fam === t.fam && s.map === key;
       list.push({ slot, s, here });
-      followTrail(slot, s, here);
+      followTrail(slot, s0, !!s0 && !s0.hidden && s0.fam === t.fam && s0.map === key);
     }
     const ownOn = cfg.follow && cfg.lead && t.followers !== 'overworld' && me && !followerHidden(me) && dsDrawable(shown);
     const own = ownOn ? ownFollower.update(`L${key}`, me.x, me.y, me.facing) : null;
@@ -288,11 +298,20 @@ function worldDs(host, t, gfx) {
       const fs = followerFor(cfg.lead);
       if (fs) addFollower(sprites, cfg.me, own, fs, cfg.lead, me.h);
     }
+    // tombstones where a partner's Pokémon died (playing together): on their tile, as deep as a sprite there
+    if (can) {
+      for (const tb of tg.tombs || []) {
+        if (tb.fam !== t.fam || tb.map !== key) continue;
+        const bb = billboard(m, tb.x, tb.h ?? me?.h ?? 0, tb.y, tombSheet().w, tombSheet().h, t.foot);
+        if (bb && bb.x < DS_SCREEN.w + 8 && bb.x + bb.w > -8 && bb.y < DS_SCREEN.h + 8 && bb.y + bb.h > -8) sprites.push({ type: 'tomb', slot: tb.slot, id: tb.id, sheet: tombSheet(), bb, at: [tb.x, tb.h ?? me?.h ?? 0, tb.y] });
+      }
+    }
     // the local player: partners behind them lose what the player's figure covers (their own sheet, every frame of
     // the direction they face – the game draws one of those)
     const localBb = me ? billboard(m, me.x, me.h, me.y, 32, 32, t.foot) : null;
     const localMask = me && localBb ? silhouette(sheetFor(me.kind, me.gender), me.facing) : null;
-    sprites.sort((a, b) => a.bb.foot - b.bb.foot);
+    const order = { tomb: 0, follower: 1 };
+    sprites.sort((a, b) => a.bb.foot - b.bb.foot || (order[a.type] ?? 2) - (order[b.type] ?? 2));
     const t0 = performance.now();
     for (const sp of sprites) {
       // the map in front – houses, trees, people, you: the DS's own depth where the host sends it; else only your figure
@@ -319,19 +338,73 @@ function worldDs(host, t, gfx) {
       if (!vis) continue;
       const head = sp.bb.y + sp.sheet.top * sp.bb.k;
       shownAt.set(p.slot, { x: sp.bb.cx, top: head - 20, bottom: sp.bb.foot + 6 });
-      const b = bubbles.get(p.slot);
-      const talking = b && now < b.until;
+      const b0 = bubbles.get(p.slot);
+      // (in a battle: the ⚔ bubble stays while it lasts – an emote shows over it for its moment)
+      const b = b0 && now < b0.until ? b0 : p.s.battling ? { art: 'battle', start: -1e9, until: Infinity } : null;
+      const talking = !!b;
+      const pop = tg.pops.find((x) => x.slot === p.slot);
+      const popIc = pop ? popIcon(pop) : null;
+      const lift = (talking ? 19 + (artSize(b.art)[1] - 8) : 1) + (popIc ? popIc.bottom - popIc.top + 14 : 0);
       el.style.left = `${(sp.bb.cx / DS_SCREEN.w) * 100}%`;
-      el.style.top = `${((head - (talking ? 19 + (artSize(b.art)[1] - 8) : 1)) / DS_SCREEN.h) * 100}%`;
+      el.style.top = `${((head - lift) / DS_SCREEN.h) * 100}%`;
       if (talking) drawBubble(ctx, sp.bb.cx, head - 1, cfg.players[p.slot]?.color || '#fff', now - b.start, b.art, !!b.lose && now - b.start > 500);
+      if (popIc) tl.drawPop(ctx, popIc, sp.bb.cx, head - (talking ? 17 + (artSize(b.art)[1] - 8) : 0), now - pop.atPage);
     }
     const mine = bubbles.get(cfg.me);
     if (can && mine && now < mine.until && localBb) {
       const head = localBb.y + sheetFor(me.kind, me.gender).top * localBb.k;
       drawBubble(ctx, localBb.cx, head - 1, cfg.players[cfg.me]?.color || '#fff', now - mine.start, mine.art, !!mine.lose && now - mine.start > 500);
     }
+    // a partner's "come here": an arrow at the edge toward them (or over the spot when it's on the picture)
+    tgDrawn = { ping: can && cfg.enabled && tg.ping ? drawPing(tg.ping, me, now) : null, tombs: sprites.filter((x) => x.type === 'tomb').map((x) => x.id),
+      battling: list.filter((p) => p.here && p.s?.battling).map((p) => p.slot), pops: tg.pops.filter((x) => list.some((p) => p.here && p.slot === x.slot)).map((x) => `${x.slot}:${x.species}`) };
     interact(now, can, list);
     near = list.filter((p) => p.here).length;
+  }
+
+  let tomb = null;
+  /** The tombstone (original pixel art, web/lib/togetherart.mjs) as a one-frame sheet. */
+  const tombSheet = () => {
+    if (!tomb) {
+      const [w, h] = TOMB_SIZE;
+      tomb = { kind: 'tomb', w, h, top: 0, frames: [{ rgba: new Uint8ClampedArray(tombPixels()), w, h }] };
+    }
+    return tomb;
+  };
+  const pops = new Map();
+  /** A catch's party icon for the pop-up bubble: { frames: [canvas, canvas], left, right, top, bottom } or null. */
+  function popIcon(lead) {
+    const f = gfx.icons;
+    if (!f || !lead) return null;
+    if (!pops.has(lead.species)) {
+      const ic = dsMonIcon(f.files, f.pals, lead.species);
+      pops.set(lead.species, ic ? { ...ic, frames: ic.frames.map((rgba) => canvasOf(rgba, 32, 32, false)) } : null);
+    }
+    return pops.get(lead.species);
+  }
+  /**
+   * "Come here": an arrow at the picture's edge toward the spot (projected with the game's camera) – bobbing over it
+   * when it's on the picture. Same map key and family only. → { x, y, dir } or null.
+   */
+  function drawPing(ping, me, now) {
+    if (!ping || ping.fam !== t.fam || ping.map !== me?.map || !shown) return null;
+    const p = project(shown, ping.x, ping.h ?? me.h, ping.y);
+    if (!p) return null;
+    const pos = { x: p.x - 8, y: p.y - 8 };
+    const a = edgeArrow(pos, DS_SCREEN, 12);
+    const pal = { '#': cfg.players[ping.slot]?.color || '#ebe6da', o: INK };
+    if (a.onScreen) {
+      const rows = arrowFor(Math.PI / 2);
+      const bob = Math.round(Math.sin(now / 220) * 2);
+      paintRows(ctx, rows, Math.round(p.x - rows[0].length), Math.round(p.y - 40 + bob), pal, 2);
+      return { x: Math.round(p.x), y: Math.round(p.y), dir: 'over' };
+    }
+    const rows = arrowFor(a.angle);
+    const w = rows[0].length * 2;
+    const h = rows.length * 2;
+    const nudge = Math.floor(now / 380) & 1 ? 2 : 0;
+    paintRows(ctx, rows, Math.round(a.x - w / 2 + Math.cos(a.angle) * nudge), Math.round(a.y - h / 2 + Math.sin(a.angle) * nudge), pal, 2);
+    return { x: Math.round(a.x), y: Math.round(a.y), dir: 'edge', angle: Math.round((a.angle * 180) / Math.PI) };
   }
 
   /**
@@ -377,7 +450,7 @@ function worldDs(host, t, gfx) {
     const mask = depthMask(depthNow, box, Infinity, limit);
     let n = 0;
     if (mask) for (const v of mask) n += v;
-    depthCost.hidden[sp.type === 'partner' ? sp.slot : `f:${sp.slot}`] = n;
+    depthCost.hidden[sp.type === 'partner' ? sp.slot : sp.type === 'tomb' ? `t:${sp.id}` : `f:${sp.slot}`] = n;
     if (!n) return null;
     const rgba = new Uint8ClampedArray(box.w * box.h * 4);
     for (let i = 0; i < mask.length; i++) if (mask[i]) rgba[i * 4 + 3] = 255;
@@ -436,6 +509,8 @@ function worldDs(host, t, gfx) {
       const i = dsAvatarFrame(sheet, s.facing, s.moving, k.dist, s.speed || 0, s.kind);
       img = canvasOf(sheet.frames[i].rgba, sheet.w, sheet.h);
       drawnDebug[sp.slot] = { x: Math.round(bb.x), y: Math.round(bb.y), k: Math.round(bb.k * 100) / 100, frame: i, cut: !!cut };
+    } else if (sp.type === 'tomb') {
+      img = canvasOf(sheet.frames[0].rgba, sheet.w, sheet.h);
     } else if (sheet.kind === 'overworld') {
       const i = dsFollowerFrame(sheet, sp.f.facing ?? DIR.S, sp.f.moving, sp.f.dist ?? 0);
       img = canvasOf(sheet.frames[i].rgba, sheet.w, sheet.h);
@@ -523,17 +598,31 @@ function worldDs(host, t, gfx) {
   }
 
   // ---- walking up to a partner ------------------------------------------------------------------------------------------
+  // A press counts from the moment the button goes down (shared/world.mjs APress): the fast player tells the buttons
+  // themselves (input → confirmA, however often pictures are drawn); otherwise the game's held keys with each picture.
   function interact(now, can, list) {
-    const a = !!((latest?.keys || 0) & DS_A) || !!(inputBits & RETRO_A);
-    const edge = a && !aHeld;
-    aHeld = a;
+    aPress.sample(!!((latest?.keys || 0) & DS_A), now);
+    if (aPress.direct) return;
     if (ui.menu || !can) {
-      aAt = 0;
+      aPress.cancel();
       return;
     }
-    if (edge) aAt = now;
-    if (!aAt || now - aAt < A_CONFIRM_MS) return;
-    aAt = 0;
+    if (aPress.due(now, A_CONFIRM_MS)) tryMenu(list);
+  }
+  /** A went down A_CONFIRM_MS ago: what the game shows now (the newest reading) decides whether it answered itself. */
+  function confirmA() {
+    aTimer = 0;
+    if (stopped || !aPress.pending) return;
+    aPress.cancel();
+    if (ui.modal() || !cfg.enabled || !host.ready() || !dsDrawable(latest)) return;
+    const now = performance.now();
+    const key = dsMapKey(latest);
+    tryMenu([...tracks].map(([slot, tr]) => {
+      const s = standIn(tr.sample(now), tr, null, !!tg.battles[slot]);
+      return { slot, s, here: !!s && !s.hidden && s.fam === t.fam && s.map === key };
+    }));
+  }
+  function tryMenu(list) {
     if (latest?.task) return; // the game answered the button itself (a sign, someone standing there)
     const me = dsPlayer(t, latest);
     if (!me || me.x !== me.tx * DS_TILE + DS_TILE / 2 || me.y !== me.ty * DS_TILE + DS_TILE / 2) return; // standing still
@@ -594,6 +683,19 @@ function worldDs(host, t, gfx) {
     },
     input(bits) {
       inputBits = bits >>> 0;
+      // (A went down: the menu's check runs when the game had time to answer – even if no picture shows the press)
+      if (aPress.input(!!(inputBits & RETRO_A), performance.now())) {
+        if (ui.modal()) aPress.cancel();
+        else {
+          clearTimeout(aTimer);
+          aTimer = setTimeout(confirmA, A_CONFIRM_MS);
+        }
+      }
+    },
+    together(d) {
+      // (a catch's age, from the play view's clock to this page's)
+      const now = performance.now();
+      tg = { ...emptyTogether(), ...d, pops: (d?.pops || []).map((x) => ({ ...x, atPage: now - Math.max(0, x.age || 0) })).filter((x) => now - x.atPage < POP_MS) };
     },
     rewatch() {
       ptrKey = '';
@@ -609,6 +711,7 @@ function worldDs(host, t, gfx) {
         local: me, shownLocal: dsPlayer(t, shown), map: latest ? dsMapKey(latest) : null, field: latest ? { task: latest.task, running: latest.running, parent: latest.parent, child: latest.child, fc: latest.fc } : null,
         followerKind: gfx.followers?.kind || null, drawn: drawnDebug, tint, tintErr, ...ui.debug(),
         depth: depthNow ? { wbuffer: depthNow.wbuffer, rects: depthNow.rects.map((r) => [r.x, r.y, r.w, r.h]), hidden: depthCost.hidden, msPerPicture: depthCost.n ? Math.round((depthCost.ms / depthCost.n) * 1000) / 1000 : null } : null,
+        together: tgDrawn,
         followers: Object.fromEntries(Object.entries(drawnDebug).filter(([k]) => k.startsWith('f:')).map(([k, v]) => [k.slice(2), v])),
         bubbles: Object.fromEntries([...bubbles].filter(([, b]) => now < b.until).map(([slot, b]) => [slot, b.art])),
         localPos: me && shown ? project(shown, me.x, me.h, me.y) : null,
@@ -622,6 +725,7 @@ function worldDs(host, t, gfx) {
       stopped = true;
       cancelAnimationFrame(raf);
       ui.stop();
+      clearTimeout(aTimer);
       layer.remove();
       style.remove();
       host.watch?.([]);

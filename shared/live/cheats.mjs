@@ -656,6 +656,8 @@ export function addItem(entry, mem, state, item, count = 1, { pocket = null, all
   if (L.kind === 'ctr') {
     // (the Items pocket on request, else Medicine items only – nothing lands in the wrong pocket)
     if (pocket === 'items') return MED67.has(item) || TM67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count, 'items');
+    // (a gift from a partner's Berries pocket – web/lib/together.mjs: into the same pocket here)
+    if (pocket === 'berries') return L.pockets.berries && !MED67.has(item) && !TM67.has(item) ? ctrAdd(L, entry, mem, state, item, count, 'berries') : { error: 'unsupported' };
     return pocket || !MED67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count);
   }
   if (L.kind === 'gb') {
@@ -671,6 +673,146 @@ export function addItem(entry, mem, state, item, count = 1, { pocket = null, all
   const key = L.kind === 'gba' ? bag.q(0) : 0; // q(0) = the key's low half (0 in Ruby/Sapphire)
   return slotAdd(bag, mem, item, count, L.kind === 'ds' ? 999 : 99, (v) => (v ^ key) & 0xffff);
 }
+
+// ---------------------------------------------------------------------------
+// Gifts between the players of a run (web/lib/together.mjs, shared/giftitems.mjs decides what may be given): the
+// ordinary pockets read as a list, and an item taken out again – through the same layouts and checks as addItem. Key
+// items and TMs/HMs are in pockets of their own from Gen 2 on and are never read here.
+
+/** The pockets a gift may come from, per layout ([null]: Gen 1's one bag). */
+function giftPocketsOf(L, entry) {
+  if (L.kind === 'gb') return entry.gen === 1 ? [null] : ['items', 'balls'];
+  if (L.kind === 'gba') return ['items', 'balls'];
+  if (L.kind === 'ds') return Object.keys(L.pockets).filter((p) => ['items', 'medicine', 'balls'].includes(p));
+  return Object.keys(L.pockets).filter((p) => ['items', 'medicine', 'berries'].includes(p));
+}
+
+/** One pocket as the gift code sees it: { slots: [{ item, count }], write info } or null when it isn't a bag. */
+function giftPocket(L, entry, read, state, pocket) {
+  if (L.kind === 'gb') {
+    const B = pocket === 'balls' ? { ...L, addr: L.keyItems + 27, keyItems: null } : L;
+    if (pocket === 'balls' && !gbBag(L, entry.gen, read)) return null; // (the items and key items must read as a bag first)
+    const bag = gbBag(B, entry.gen, read);
+    if (!bag) return null;
+    return { kind: 'gb', L: B, n: bag.n, bytes: bag.bytes, slots: Array.from({ length: bag.n }, (_, i) => ({ item: bag.bytes[1 + i * 2], count: bag.bytes[2 + i * 2] })) };
+  }
+  if (L.kind === 'ctr') {
+    const bag = ctrFind(L, entry, read, state, pocket);
+    if (!bag) return null;
+    return { kind: 'ctr', bag, slots: Array.from({ length: bag.slots }, (_, i) => ({ item: bag.idOf(bag.slot(i)), count: bag.countOf(bag.slot(i)) })) };
+  }
+  let bag = null;
+  if (L.kind === 'gba') {
+    const G = L.found ? (state?.sb1PtrAddr ? { ...L, sb1Ptr: state.sb1PtrAddr, sb2Ptr: state.sb1PtrAddr + 4 } : null) : L;
+    bag = G && gbaBag(G, read, pocket === 'balls' ? 'balls' : 'items');
+  } else {
+    if (!L.pockets[pocket]) return null;
+    bag = dsBag(L, entry, read, state, pocket, !!state?.saveBase);
+  }
+  if (!bag) return null;
+  return { kind: 'slot', bag, slots: Array.from({ length: bag.slots }, (_, i) => ({ item: u16le(bag.bytes, i * 4), count: bag.q(u16le(bag.bytes, i * 4 + 2)) })) };
+}
+
+/**
+ * What the bag holds in the pockets a gift may come from → [{ item, count, pocket }] (pocket null: Gen 1's one bag), or
+ * null when the game has no known bag or none of its pockets reads as one right now. A 3DS bag must have been found at
+ * a known address or by the cheats' search (state.ctrBag). `entry`, `read`, `state` as for addItem.
+ */
+export function bagItems(entry, read, state = null) {
+  const L = layoutOf(entry);
+  if (!L) return null;
+  const out = [];
+  let any = false;
+  for (const pocket of giftPocketsOf(L, entry)) {
+    const p = giftPocket(L, entry, read, state, pocket);
+    if (!p) continue;
+    any = true;
+    for (const s of p.slots) if (s.item && s.count > 0) out.push({ item: s.item, count: s.count, pocket });
+  }
+  return any ? out : null;
+}
+
+/**
+ * Take `count` of `item` out of `pocket` (as bagItems names it): off its stack, and a stack that runs out leaves the
+ * pocket the way the game would – the slots after it move up, the last one is emptied (Gen 1/2: the list shrinks and
+ * keeps its terminator; Gen 3: an empty slot keeps the encrypted 0). One write per pocket, read back like addItem.
+ * → { ok: true, before, after, removed } | { error: 'unsupported'|'notFound'|'missing'|'short'|'changed'|'write' }
+ * ('missing': not in that pocket now, 'short': fewer than `count` there now) – a Promise where the write answers later.
+ */
+export function removeItem(entry, mem, state, item, count = 1, { pocket = null } = {}) {
+  const L = layoutOf(entry);
+  if (!L || !item || !(count > 0)) return { error: 'unsupported' };
+  if (!giftPocketsOf(L, entry).includes(pocket)) return { error: 'unsupported' };
+  const p = giftPocket(L, entry, mem.read, state, pocket);
+  if (!p) return { error: 'notFound' };
+  const i = p.slots.findIndex((s) => s.item === item && s.count > 0);
+  if (i < 0) return { error: 'missing' };
+  const before = p.slots[i].count;
+  if (before < count) return { error: 'short', before };
+  const after = before - count;
+  const done = (r) => (r?.ok ? { ok: true, before, after, removed: count } : r);
+  const then = (r) => (typeof r?.then === 'function' ? r.then(done) : done(r));
+  if (p.kind === 'gb') {
+    const { L: B, n, bytes } = p;
+    if (after > 0) return then(commit(mem, [[B.addr + 2 + i * 2, [after]]], before, after));
+    // the pairs after it move up over it, the terminator follows them, then the count
+    const tail = Array.from(bytes.subarray(1 + (i + 1) * 2, 1 + n * 2));
+    return then(commit(mem, [[B.addr + 1 + i * 2, [...tail, 0xff]], [B.addr, [n - 1]]], before, after));
+  }
+  if (p.kind === 'ctr') {
+    const { bag } = p;
+    const enc = (v) => [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff];
+    const v = bag.slot(i);
+    if (after > 0) {
+      return then(bag.g7 ? commit(mem, [[bag.addr + i * 4, enc(((v & ~(0x3ff << 10)) | (after << 10)) >>> 0)]], before, after)
+        : commit(mem, [[bag.addr + i * 4 + 2, le16(after)]], before, after));
+    }
+    const rest = Array.from(bag.bytes.subarray((i + 1) * 4, bag.slots * 4));
+    return then(commit(mem, [[bag.addr + i * 4, [...rest, 0, 0, 0, 0]]], before, after));
+  }
+  const { bag } = p;
+  const key = L.kind === 'gba' ? bag.q(0) : 0; // the bag key's low half (0: no encryption)
+  const encQ = (v) => le16((v ^ key) & 0xffff);
+  if (after > 0) return then(commit(mem, [[bag.addr + i * 4 + 2, encQ(after)]], before, after));
+  const rest = Array.from(bag.bytes.subarray((i + 1) * 4, bag.slots * 4));
+  return then(commit(mem, [[bag.addr + i * 4, [...rest, 0, 0, ...encQ(0)]]], before, after));
+}
+
+/**
+ * Is there room for `count` of `item` in `pocket` – all of it (on its stack within the game's stack size, else in a
+ * free slot)? A gift is never added in part. null: the bag isn't readable right now.
+ */
+export function bagRoom(entry, read, state, item, count = 1, { pocket = null } = {}) {
+  const L = layoutOf(entry);
+  if (!L || !giftPocketsOf(L, entry).includes(pocket)) return null;
+  const p = giftPocket(L, entry, read, state, pocket);
+  if (!p) return null;
+  const cap = L.kind === 'ds' || L.kind === 'ctr' ? 999 : 99;
+  const s = p.slots.find((x) => x.item === item && x.count > 0);
+  if (s) return s.count + count <= cap;
+  if (count > cap) return false;
+  // Gen 1/2: a list of at most 20 items (Gen 2's ball pocket 12); the others: an empty slot
+  if (p.kind === 'gb') return p.n < (pocket === 'balls' ? 12 : 20);
+  return p.slots.some((x) => !x.item);
+}
+
+/**
+ * The version family of a game for gifts (shared/giftitems.mjs sameItems): the games that number every item alike –
+ * 'rse' / 'frlg', 'dp' / 'platinum' / 'hgss', 'bw' / 'b2w2', 'xy' / 'oras' / 'sm' / 'usum', 'gb1' / 'gb2'; '' unknown.
+ */
+export function bagFamily(entry) {
+  const L = layoutOf(entry);
+  if (!L) return '';
+  const id = String(entry.id || '').replace(/~.*$/, '');
+  if (L.kind === 'gb') return `gb${entry.gen}`;
+  if (L.kind === 'gba') return /^(firered|leafgreen)_/.test(id) ? 'frlg' : 'rse';
+  if (L.kind === 'ctr') return entry.id;
+  if (entry.gen === 5) return /^(black2|white2)_/.test(id) ? 'b2w2' : 'bw';
+  return /^(heartgold|soulsilver)_/.test(id) ? 'hgss' : /^platinum_/.test(id) ? 'platinum' : 'dp';
+}
+
+/** Can this game take part in gifts at all (a known bag layout)? */
+export const giftSupported = (entry) => !!layoutOf(entry);
 
 // ---------------------------------------------------------------------------
 // Poké Balls in the bag – the run rule "nothing counts before your first Poké Balls" (web/lib/run.mjs beforeBalls)

@@ -22,6 +22,13 @@
 //                                             the menu, the players line up behind the potted plants, then walk out to a
 //                                             tree top in Oldale Town, then A walks into Route 101 while B stands under
 //                                             the map-name popup – crops of every player's picture side by side)
+//                              [--together]  (playing together, three players – A and B Emerald, C Sapphire, all three
+//                                             in their Pokémon Center 2F: A gives B an item from the A menu, C gives A one
+//                                             from the board, a catch pops up over B, B walks into the grass of Route 101
+//                                             and battles – A sees the ⚔, watches from the name tag –, B's Pokémon dies
+//                                             there (marked on the board) and the tombstone stands for A, A calls B over
+//                                             from Oldale: the arrow on B's picture; screenshots of the new UI in classic
+//                                             and four skins (--skins <design/plus/themes>))
 //                              [--lead <n>]  (--plus: the lead every page shows when live tracking can't read the team)
 //                              [--behind --walk up,left,…] (the DS: B walks those steps, A's picture and the map's
 //                                             depth cut after each)
@@ -288,7 +295,7 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
       await sleep(450);
     }
   }
-  log('next to B', JSON.stringify({ local: (await world(0)).local, own: (await world(0)).own, drawn: (await world(0)).followers }));
+  log('next to B', JSON.stringify({ local: (await world(0)).local, B: await local(1), own: (await world(0)).own, drawn: (await world(0)).followers }));
   await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
   if (ds) log('after A', JSON.stringify(await world(0)));
   const m = await until('menu', async () => (await world(0))?.menu, 6000);
@@ -324,6 +331,8 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
   await until('menu again', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && !String((await world(0))?.menu?.sel || '').startsWith('emote'); n++) { await key(0, 'ArrowDown'); await sleep(120); }
+  // (the row starts with Wave since 3.0's playing together: along it to the heart)
+  for (let n = 0; n < 5 && (await world(0))?.menu?.sel !== 'emote:heart'; n++) { await key(0, 'ArrowRight'); await sleep(120); }
   await key(0, 'Enter');
   await until('B sees the heart', async () => (await world(1))?.bubbles?.p1 === 'heart', 6000).catch(() => null);
   await shot('30-heart-B', 1, true);
@@ -351,6 +360,288 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   void m;
   void runId;
 }
+/**
+ * Playing together (--together): gifts, a catch, a battle watched, a death's tombstone, "come to me". A and B play
+ * Emerald, C Sapphire (another map numbering: never in A's or B's picture – the board and the cards for C).
+ */
+async function together({ world, hold, shot, log, sleep, until, out, ev, profiles, runId, emu, wins, gameRect }) {
+  // a muted clip of one player's picture while `during` runs: frames into <out>/clip-<name>/ (ffmpeg makes the video)
+  const clip = async (name, i, during, max = 80) => {
+    const frames = [];
+    let done = false;
+    const rec = (async () => { while (!done && frames.length < max) { frames.push((await wins[i].webContents.capturePage(await gameRect(i))).toPNG()); await sleep(60); } })();
+    await during();
+    done = true;
+    await rec;
+    mkdirSync(join(out, `clip-${name}`), { recursive: true });
+    frames.forEach((png, n) => writeFileSync(join(out, `clip-${name}`, `f${String(n).padStart(3, '0')}.png`), png));
+  };
+  // (a step waits until the player is on the next tile – a busy computer runs the games slower)
+  const step = async (i, dir) => {
+    const was = (await world(i))?.local;
+    await hold(i, [dir], 200);
+    for (let n = 0; n < 10; n++) {
+      await sleep(120);
+      const s = (await world(i))?.local;
+      if (s && was && (s.tx !== was.tx || s.ty !== was.ty) && s.x === s.tx * 16 && s.y === s.ty * 16) return;
+    }
+  };
+  const key = (i, k) => ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); f.contentWindow.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(k)}, bubbles: true })); return true; })()`);
+  const local = async (i) => (await world(i))?.local;
+  const hub = (i, expr) => ev(i, `import('/lib/together.mjs').then((m) => { const h = m.togetherFor(window.__slLink.sync); return JSON.stringify(${expr}); })`).then((s) => JSON.parse(s ?? 'null'));
+  const click = (i, sel, text = null) => ev(i, `(() => { const els = [...document.querySelectorAll(${JSON.stringify(sel)})]; const el = ${text ? `els.find((e) => e.textContent.includes(${JSON.stringify(text)}))` : 'els[0]'}; if (!el || el.disabled) return false; el.click(); return true; })()`);
+  const result = { gift: {}, boardGift: {}, catch: {}, battle: {}, tomb: {}, ping: {}, skins: [] };
+  // around what's in the way (as --plus does)
+  const goto = async (i, tx, ty) => {
+    let yFirst = false;
+    let stuck = 0;
+    let side = 0;
+    for (let n = 0; n < 50; n++) {
+      const s = await local(i);
+      if (!s) { await sleep(200); continue; }
+      if (s.tx === tx && s.ty === ty) return s;
+      const wantX = s.tx !== tx ? (s.tx < tx ? 'right' : 'left') : null;
+      const wantY = s.ty !== ty ? (s.ty < ty ? 'down' : 'up') : null;
+      const dir = (yFirst ? wantY || wantX : wantX || wantY) || 'down';
+      const blocked = stuck >= 2 && !(yFirst ? wantX : wantY);
+      await step(i, blocked ? (wantX ? ['up', 'down'] : ['left', 'right'])[side++ % 2] : dir);
+      const t = await local(i);
+      if (t && t.tx === s.tx && t.ty === s.ty) {
+        if (++stuck > 6) return t;
+        yFirst = !yFirst;
+      } else if (!blocked) stuck = 0;
+    }
+    return local(i);
+  };
+  const warp = async (i, dir) => {
+    const before = (await world(i))?.cam?.map;
+    for (let n = 0; n < 6 && (await world(i))?.cam?.map === before; n++) { await hold(i, [dir], 200); await sleep(900); }
+    await until(`warp ${i}`, async () => { const w = await world(i); return w?.cam && w.cam.map !== before && !w.cam.locked && w.cam.fade === 0 && w.local; }, 15000);
+    await sleep(900);
+  };
+  const face = async (i, dir, n) => { for (let k = 0; k < 6 && (await local(i))?.facing !== n; k++) { await hold(i, [dir], 50 + k * 15); await sleep(400); } };
+  const bagOf = (i) => hub(i, 'h.giftable()');
+  const feedOf = (i, type) => ev(i, `JSON.stringify(Object.values(window.__slLink.sync.doc.scan('feed:')).filter((f) => f.type === ${JSON.stringify(type)}).map((f) => f.text))`).then(JSON.parse);
+  // the death notice (and any other dialog) out of the way – as a player would close it
+  const dismiss = async (i) => { for (let n = 0; n < 4; n++) if (!(await ev(i, "(() => { const b = document.querySelector('dialog[open] .modal-foot .btn, dialog[open] .modal-x'); if (!b) return false; b.click(); return true; })()"))) break; else await sleep(300); };
+  const board = async (i) => { await ev(i, `location.hash = '#/soullink?run=${runId}'`); await sleep(1500); };
+  const play = async (i) => { await ev(i, `location.hash = '#/play?run=${runId}'`); await sleep(1500); };
+  await until('statuses known', async () => (await hub(0, "[h.status('p2'), h.status('p3')].every(Boolean)")) && (await hub(1, "!!h.status('p1')")), 30000);
+  await until('bags readable', async () => (await bagOf(0))?.length && (await bagOf(1)) && (await bagOf(2))?.length, 60000);
+
+  // 1. A gives B an item from the A menu: B steps into the open room, A next to B, A → Give item → the picker → B
+  //    accepts on the card
+  await goto(1, 9, 6);
+  await goto(0, 7, 6);
+  await goto(0, 8, 6);
+  await face(0, 'right', 4);
+  log('A and B', JSON.stringify(await local(0)), JSON.stringify(await local(1)));
+  for (let n = 0; n < 3 && !(await world(0))?.menu; n++) {
+    await hold(0, ['a'], 120);
+    await until('menu', async () => (await world(0))?.menu, 3000).catch(() => null);
+  }
+  if (!(await world(0))?.menu) throw new Error(`no menu: ${JSON.stringify(await world(0))}`);
+  for (let n = 0; n < 8 && (await world(0))?.menu?.sel !== 'gift'; n++) { await key(0, 'ArrowDown'); await sleep(120); }
+  result.gift.menu = (await world(0)).menu;
+  await shot('10-menu-give-A', 0);
+  await key(0, 'Enter');
+  await until('the picker', () => ev(0, "!!document.querySelector('.tg-item')"), 8000);
+  const before = { A: await bagOf(0), B: await bagOf(1) };
+  await click(0, '.tg-item');
+  await sleep(300);
+  await shot('11-gift-picker-A', 0);
+  const item = (await bagOf(0))[0];
+  await click(0, '.modal-foot .btn.primary');
+  await until('B is asked', () => ev(1, "!!document.querySelector('.tg-card .btn.primary')"), 10000);
+  await sleep(500); // (the card slides in)
+  await shot('12-gift-offer-B', 1);
+  await click(1, '.tg-card .btn.primary');
+  await until('given', async () => (await hub(0, "h.desk.list().map((g) => g.phase)"))?.includes('done'), 15000);
+  await sleep(600);
+  await shot('13-gift-done-A', 0);
+  await shot('13-gift-done-B', 1);
+  const after = { A: await bagOf(0), B: await bagOf(1) };
+  const count = (list) => list?.find((x) => x.item === item.item && x.pocket === item.pocket)?.count || 0;
+  result.gift = { ...result.gift, item, A: [count(before.A), count(after.A)], B: [count(before.B), count(after.B)], logA: await feedOf(0, 'gift'),
+    logB: await until('B’s log', async () => { const f = await feedOf(1, 'gift'); return f.length ? f : null; }, 10000).catch(() => []) };
+  log('gift A → B', JSON.stringify(result.gift));
+
+  // 2. C (Sapphire) gives A an item from the board's card for A; A accepts
+  await board(2);
+  await until('C’s Give item', () => ev(2, "!!document.querySelector('.player-tag.p1 .tg-line .btn:not([disabled])')"), 20000);
+  await shot('20-board-C', 2);
+  await click(2, '.player-tag.p1 .tg-line .btn', 'Give');
+  await until('C’s picker', () => ev(2, "!!document.querySelector('.tg-item')"), 8000);
+  const cItem = (await bagOf(2))[0];
+  await click(2, '.tg-item');
+  await sleep(200);
+  await shot('21-board-picker-C', 2);
+  const aBefore = await bagOf(0);
+  await click(2, '.modal-foot .btn.primary');
+  await until('A is asked', () => ev(0, "!!document.querySelector('.tg-card .btn.primary')"), 10000);
+  await click(0, '.tg-card .btn.primary');
+  await until('C’s gift arrived', async () => (await hub(2, "h.desk.list().map((g) => g.phase)"))?.includes('done'), 15000);
+  result.boardGift = { item: cItem, A: [count2(aBefore, cItem), count2(await bagOf(0), cItem)] };
+  log('gift C → A', JSON.stringify(result.boardGift));
+  await play(2);
+
+  // 3. a catch of B's (entered on the board – the run's own record): it pops up over B on A's picture
+  // (as the board's Routes tab files one by hand: an area of its own, B's catch in it)
+  const runOp = (i, body) => ev(i, `Promise.all([import('/lib/run.mjs'), fetch('/api/runs/${runId}', { headers: { 'x-soullink': '1' } }).then((r) => r.json())]).then(([R, run]) => { const d = window.__slLink.sync.doc; const m = run.manifest || run; ${body}; return true; })`);
+  let pop = null;
+  await clip('catch-A', 0, async () => {
+    await runOp(1, "d.set('area:custom-tgtest', { name: 'Route 101 (test)', order: Date.now() }); R.setEncounter(d, m, 'custom-tgtest', 'p2', { outcome: 'caught', species: 263, level: 3 })");
+    pop = await until('the pop over B', async () => { const w = await world(0); return w?.together?.pops?.length ? w.together : null; }, 10000).catch(() => null);
+    await sleep(2400);
+  }, 50);
+  await sleep(250);
+  await shot('30-catch-pop-A', 0, true);
+  result.catch = { A: pop };
+  log('catch', JSON.stringify(pop));
+
+  // 4. "come to me": A at the south edge of Oldale Town, B a few tiles into Route 101 (the map south of it, connected):
+  //    A calls, B's picture shows the arrow at its top edge; B walks up to A and the call clears
+  const toOldale = async (i) => {
+    await goto(i, 2, 6);
+    await warp(i, 'left');
+    await goto(i, 6, 7);
+    await warp(i, 'down');
+    await goto(i, 9, 17);
+  };
+  const intoRoute101 = async (i) => {
+    await goto(i, 9, 19);
+    await step(i, 'down');
+    await sleep(600);
+  };
+  await toOldale(1);
+  await intoRoute101(1);
+  await goto(1, 9, 4); // (above the ledge: B can walk back up)
+  await toOldale(0);
+  log('A in Oldale', JSON.stringify(await local(0)), 'B on Route 101', JSON.stringify(await local(1)));
+  await ev(0, "document.querySelector('.tg-ping')?.click(); true");
+  const arrow = await until('the arrow on B’s picture', async () => { const w = await world(1); return w?.together?.ping || null; }, 10000).catch(() => null);
+  await sleep(400);
+  await shot('40-ping-arrow-B', 1, true);
+  await shot('40-ping-button-A', 0);
+  result.ping = { arrow };
+  await board(2);
+  result.ping.boardC = await ev(2, "document.querySelector('.player-tag.p1 .tg-line')?.innerText || null");
+  await shot('41-board-ping-C', 2);
+  await play(2);
+  log('ping', JSON.stringify(result.ping));
+  await clip('ping-arrow-B', 1, async () => {
+    await goto(1, 9, 0);
+    await step(1, 'up');
+    await sleep(500);
+    await goto(1, 9, 18);
+  }, 90);
+  result.ping.cleared = await until('cleared on arrival', async () => !(await hub(1, "h.pingOf('p1')")), 15000).then(() => true).catch(() => false);
+  log('ping cleared', result.ping.cleared);
+
+  // 5. B into the grass of Route 101 until a wild battle; A follows to a few tiles from it
+  await intoRoute101(1);
+  // (the saves come from ROM-matrix plans that may have used a Max Repel – with it, Route 101's wild Pokémon never
+  // show: Emerald's VAR_REPEL_STEP_COUNT, SaveBlock1 vars + 0x21 × 2, set to 0 – a test-only write)
+  const sb1 = (await world(1))?.cam?.sb1;
+  if (sb1) {
+    const repel = await emu(1, `(() => { const b = e.read(${sb1 + 0x139c + 0x42}, 2); return b ? b[0] | (b[1] << 8) : null; })()`);
+    if (repel) await emu(1, `e.write(${sb1 + 0x139c + 0x42}, new Uint8Array([0, 0]))`);
+  }
+  // (into the tall grass at (4, 15) – where the ROM matrix's Emerald plan finds its first wild Pokémon – then up and
+  // down in it until one shows)
+  // (again when a busy computer swallowed a step on the way – the ledge jump)
+  for (let k = 0; k < 3; k++) {
+    await goto(1, 9, 15);
+    const at = await goto(1, 4, 15);
+    if (at?.tx === 4 && at?.ty === 15) break;
+  }
+  let fight = false;
+  for (let n = 0; n < 200 && !fight; n++) {
+    const w = await world(1);
+    if (w?.cam?.battle) { fight = true; break; }
+    await hold(1, [n % 2 ? 'down' : 'up'], 150);
+    await sleep(350);
+  }
+  log('B’s walk ended in a battle:', fight, JSON.stringify((await world(1))?.cam));
+  await until('B in a battle (live)', async () => (await hub(0, "h.battleOf('p2')")), 30000);
+  result.battle.B = await hub(0, "h.battleOf('p2')");
+  log('B battles', JSON.stringify(result.battle.B));
+  await intoRoute101(0);
+  await goto(0, 9, 12); // (on the path, a few tiles from B – B on the picture)
+  await until('A sees B with the battle bubble', async () => (await world(0))?.together?.battling?.includes('p2'), 20000).catch(() => null);
+  await shot('50-battle-bubble-A', 0, true);
+  await board(2);
+  await shot('51-board-in-battle-C', 2);
+  result.battle.boardC = await ev(2, "document.querySelector('.player-tag.p2 .tg-line')?.innerText || null");
+  await play(2);
+  // A clicks B's name tag → the menu (Watch first) → the partner's window with the battle under the picture
+  await ev(0, "(() => { const f = document.querySelector('.console-screen iframe'); const tag = [...f.contentWindow.document.querySelectorAll('.sw-tag')].find((t) => t.textContent === 'Tim'); tag?.click(); return !!tag; })()");
+  await until('menu with Watch', async () => (await world(0))?.menu?.sel === 'watch', 6000).catch(() => null);
+  result.battle.menu = (await world(0))?.menu;
+  await sleep(400);
+  await shot('52-menu-watch-A', 0);
+  await key(0, 'Enter');
+  // (the partner starts sending its picture once someone watches – a moment)
+  await until('B’s picture in the window', () => ev(0, "!!document.querySelector('.ps video, .ps img')"), 20000).catch(() => null);
+  await sleep(1500);
+  await shot('53-watching-A', 0);
+  result.battle.strip = await ev(0, "[...document.querySelectorAll('.tg-strip')].map((e) => e.innerText)");
+  // (what B's screen share says while B battles – diagnostics for the picture in the window)
+  result.battle.share = await ev(1, "JSON.stringify({ hidden: document.hidden, mode: window.__slLink.sync.share?.mode ?? null, watchers: window.__slLink.sync._watching?.() ?? null, paused: document.querySelector('.console-screen iframe')?.contentWindow?.__emu?.paused?.() ?? null, ready: !!document.querySelector('.console-screen iframe')?.contentWindow?.__emu?.ready })").then(JSON.parse).catch(() => null);
+  log('watch', JSON.stringify(result.battle));
+
+  // 6. B's lead dies in this battle (marked on the board): the tombstone where B stood, for A and B
+  await clip('battle-A', 0, () => sleep(2500), 35);
+  await runOp(1, "R.markDead(d, m, 'custom-tgtest', { slot: 'p2', cause: 'test' })");
+  const tomb = await until('the tombstone on A’s picture', async () => { const w = await world(0); return w?.together?.tombs?.length ? w.together.tombs : null; }, 15000).catch(() => null);
+  result.tomb = { A: tomb, doc: await ev(0, "JSON.stringify(window.__slLink.sync.doc.scan('tomb:'))").then(JSON.parse) };
+  await sleep(800);
+  for (const i of [0, 1, 2]) await dismiss(i);
+  await sleep(400);
+  await shot('60-tombstone-A', 0, true);
+  log('tomb', JSON.stringify(result.tomb));
+  // B runs away: A (the start of the battle) … then through the menus to Run; then B steps off the grave
+  for (const k of ['a', 'a', 'a']) { await hold(1, [k], 120); await sleep(900); }
+  for (const k of ['down', 'right', 'a']) { await hold(1, [k], 120); await sleep(500); }
+  await until('B back on the overworld', async () => { const w = await world(1); if (w?.cam && !w.cam.battle && !w.cam.locked && w.cam.fade === 0) return true; await hold(1, ['a'], 100); await sleep(700); return false; }, 40000).catch(() => null);
+  // (two steps on: the follower walks the path one step behind – off the grave too)
+  await clip('tomb-A', 0, async () => {
+    await step(1, 'right');
+    await step(1, 'right');
+    await step(1, 'up');
+    await sleep(1200);
+  }, 70);
+  await shot('61-tombstone-B', 1, true);
+  await shot('62-tombstone-A', 0, true);
+
+  // 7. the new UI in classic and four skins (two light, two dark): the board's card with Give item and a ping, the picker
+  const themes = opt('skins');
+  if (themes) {
+    await ev(2, "document.querySelector('.tg-ping')?.click(); true"); // (C calls: a ping chip on A's board)
+    await board(0);
+    await sleep(1200);
+    await dismiss(0);
+    for (const skin of ['classic', 'soft-light', 'sunbleached', 'ember', 'midnight-ink']) {
+      const css = skin === 'classic' ? '' : readFileSync(join(themes, `${skin}.css`), 'utf8');
+      await ev(0, `(() => { document.querySelector('style[data-tg-skin]')?.remove(); const s = document.createElement('style'); s.dataset.tgSkin = '1'; s.textContent = ${JSON.stringify(css)}; document.head.appendChild(s); document.documentElement.dataset.skin = ${JSON.stringify(skin === 'classic' ? '' : skin)}; return true; })()`);
+      await sleep(500);
+      await shot(`70-board-${skin}`, 0);
+      await click(0, '.player-tag.p2 .tg-line .btn', 'Give');
+      await until('picker', () => ev(0, "!!document.querySelector('.tg-item')"), 6000).catch(() => null);
+      await click(0, '.tg-item');
+      await sleep(300);
+      await shot(`71-picker-${skin}`, 0);
+      await ev(0, "document.querySelector('dialog[open] .modal-x')?.click(); true");
+      await sleep(300);
+      result.skins.push(skin);
+    }
+    await ev(0, "document.querySelector('style[data-tg-skin]')?.remove(); document.documentElement.dataset.skin = ''; true");
+  }
+  writeFileSync(join(out, 'together.json'), JSON.stringify(result, null, 1));
+  void emu;
+  void profiles;
+}
+const count2 = (list, it) => list?.find((x) => x.item === it.item && x.pocket === it.pocket)?.count || 0;
 /**
  * Frame by frame (--frames): A's game paused and run one frame at a time while A walks a step each way – per picture
  * the camera the overlay read (from the bytes sent with that picture), the partners' screen positions and the picture
@@ -555,7 +846,8 @@ async function main() {
     const pick = (lib, i) => lib.roms.find((r) => basename(r.file || '') === basename(opt(`rom${i + 1}`) || opt('rom'))) || lib.roms[0];
     const rom = pick(libA, 0);
     const players = Object.fromEntries(SLOTS.map((s, i) => [s, { name: profiles[i].name }]));
-    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players, buildFor: SLOTS, gameId: rom.gameId, name: 'World test', rules: {} });
+    // (--together marks a death: from the start, not after the first Poké Balls)
+    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players, buildFor: SLOTS, gameId: rom.gameId, name: 'World test', rules: args.includes('--together') ? { startAtBalls: false } : {} });
     const runId = built.manifest.id;
     const run = await api(A, `/api/runs/${runId}`);
     const pack = run.manifest?.pack || run.pack;
@@ -670,6 +962,16 @@ async function main() {
       setInterval(repel, 2000).unref?.();
     }
     await sleep(1500);
+    // how often each page's overlay draws (the pictures it gets and the page's animation frames – a hidden window may
+    // get few of them; an A press must count all the same) and whether the page thinks it's visible
+    const drawRate = await Promise.all(profiles.map(async (_, i) => {
+      const r0 = (await world(i))?.renders;
+      await sleep(1000);
+      const r1 = (await world(i))?.renders;
+      const vis = await ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); return document.visibilityState + '/' + f?.contentWindow?.document.visibilityState; })()`).catch(() => null);
+      return { perSecond: r1 - r0, visible: vis };
+    }));
+    log('overlay draws', JSON.stringify(drawRate));
     const st = await Promise.all(profiles.map((_, i) => world(i)));
     const isDs = st[0]?.gen === 4;
     log('local states', JSON.stringify(st.map((s) => ({ game: s?.game, perFrame: s?.perFrame, local: s?.local, learned: s?.learned, sprite: s?.sprite, cam: s?.cam }))));
@@ -726,6 +1028,11 @@ async function main() {
     }
     if (args.includes('--plus')) {
       await plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameRect, profiles, runId, ds: isDs ? ds : null });
+      finish(0);
+      return;
+    }
+    if (args.includes('--together')) {
+      await together({ world, hold, shot, log, sleep, until, out, ev, profiles, runId, emu, wins, gameRect });
       finish(0);
       return;
     }

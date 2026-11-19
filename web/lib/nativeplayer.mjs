@@ -175,6 +175,7 @@ let pendingFrame = null;
 let lastFrame = null;
 let nextWatched = null; // WATCHED: the bytes the host sends right before a picture (Shared World's camera)
 let nextDepth = null; // DEPTH: the DS's 3D depth in the rectangles the overlay named, for the same picture
+let lastWatched = null; // (the newest of them, drawn or not – Shared World's A press checks what the game shows now)
 // the game's picture in game pixels (the DS side by side: both screens next to each other) and the whole factor it is
 // drawn at (lib/pixelscale.mjs) – the canvas holds pic × pre
 const pic = { w: 0, h: 0, pre: 1 };
@@ -522,7 +523,7 @@ async function pump() {
       else if (type === MSG.SRAM) onSram(p);
       else if (type === MSG.EVENT) onEvent(p);
       else if (type === MSG.LINPUT && LINK_SESSION) post({ type: 'emu-link-input', bytes: p.slice() });
-      else if (type === MSG.WATCHED) nextWatched = p.slice();
+      else if (type === MSG.WATCHED) nextWatched = lastWatched = p.slice();
       else if (type === MSG.DEPTH) nextDepth = p.slice();
       else if (type === MSG.STATE) waiters.state.shift()?.(p.slice());
       else if (type === MSG.SEATSTATE) waiters.seatState.shift()?.(p.length > 4 ? p.slice(4) : null);
@@ -1050,6 +1051,8 @@ if (!LINK_SESSION) {
       cmd(CMD.WATCH, b);
       return true;
     },
+    /** The newest WATCHED bytes from the host (the picture they go with may not be drawn yet). */
+    watchedNow: () => lastWatched,
     paused: () => st.paused,
     pause: () => window.__emu.pause(),
     resume: () => window.__emu.resume(),

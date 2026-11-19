@@ -5,7 +5,7 @@
 import { artSize, paintArt, artCanvas, INK } from '/lib/worldart.mjs';
 import { rpsLine } from '/shared/rps.mjs';
 
-const EMOTE_ROW = ['heart', 'excl', 'quest', 'gg'];
+const EMOTE_ROW = ['wave', 'heart', 'excl', 'quest', 'gg']; // (Wave sits with the emotes: the menu stays short)
 
 export const WORLD_CSS = `
 .sw-layer{position:fixed;pointer-events:none;overflow:hidden;z-index:5}
@@ -96,17 +96,20 @@ export function createWorldUi({ host, layer, screen, getCfg, anchor, canModal, o
   }
 
   // ---- the menu (the partners stay drawn behind it; the game is paused while it is open) ----------------------------
-  // Items: Trade, Battle, Wave, Rock-paper-scissors, a row of emotes (heart, !, ?, GG), Cancel. Up/down between the
-  // items, left/right along the emote row.
+  // Items: Trade, Battle, Give item (or Watch while they battle), Rock-paper-scissors, a row of emotes (wave, heart, !,
+  // ?, GG), Cancel. Up/down between the items, left/right along the emote row.
   function openMenu(slot) {
     if (menu || rpsUi?.modal || !getCfg().players[slot]) return;
     const pl = getCfg().players[slot];
     const L = getCfg().labels;
     const ac = getCfg().actions[slot] || {};
+    // (a partner in a battle: Watch instead of Trade / Battle / Give item, which can't be done with them now)
     const items = [
-      { act: 'trade', label: L.trade || 'Trade', on: !!ac.trade },
-      { act: 'battle', label: L.battle || 'Battle', on: !!ac.battle },
-      { act: 'wave', label: L.wave || 'Wave', on: true },
+      ...(ac.watch ? [{ act: 'watch', label: L.watch || 'Watch', on: true }] : [
+        { act: 'trade', label: L.trade || 'Trade', on: !!ac.trade },
+        { act: 'battle', label: L.battle || 'Battle', on: !!ac.battle },
+        ...(ac.gift !== undefined ? [{ act: 'gift', label: L.gift || 'Give item', on: !!ac.gift, title: ac.giftWhy || '' }] : []),
+      ]),
       { act: 'rps', label: L.rps || 'Rock-paper-scissors', on: ac.rps !== false },
       { act: 'emote', row: EMOTE_ROW, on: true },
       { act: 'close', label: L.cancel || 'Cancel', on: true },
@@ -152,12 +155,13 @@ export function createWorldUi({ host, layer, screen, getCfg, anchor, canModal, o
       b.setAttribute('role', 'menuitem');
       b.textContent = it.label;
       b.disabled = !it.on;
+      if (it.title) b.title = it.title;
       b.addEventListener('click', pick(0));
       b.addEventListener('pointerenter', () => it.on && select(i));
       el.append(b);
       buttons.push(b);
     });
-    const why = !ac.trade && !ac.battle ? ac.why || '' : '';
+    const why = !ac.watch && !ac.trade && !ac.battle ? ac.why || '' : '';
     if (why) {
       const w = document.createElement('div');
       w.className = 'sw-why';

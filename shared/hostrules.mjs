@@ -22,7 +22,7 @@ export const HOST_DOC_KEY = 'run:host';
 /** Every rule of a SoulLink – what the host sets in the wizard and on the board (all of them in the shared `rules`). */
 export const SOULLINK_RULE_KEYS = ['typeClause', 'dupes', 'missedDupes', 'failKillsPair', 'shinyClause', 'gifts', 'levelCaps', 'cheats',
   'lives', 'livesPool', 'typeHelp', 'autoAssign', 'autoDeath', 'startAtBalls', 'linkTrades', 'linkBattles', 'linkBattleDeaths',
-  'linkWagers', 'linkWagerCap'];
+  'linkWagers', 'linkWagerCap', 'itemGifts'];
 
 /** A new SoulLink's rules (the wizard's start): the defaults of every rule – a new run's where they differ (NEW_RUN_RULES). */
 export const soulLinkDefaults = () => Object.fromEntries(SOULLINK_RULE_KEYS.map((k) => [k, k in NEW_RUN_RULES ? NEW_RUN_RULES[k] : DEFAULT_RULES[k]]));
