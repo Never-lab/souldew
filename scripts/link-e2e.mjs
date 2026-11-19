@@ -340,6 +340,13 @@ async function main() {
   const result = { kind, frames, players: seats, rom1: basename(rom1), rom2: basename(rom2), checks: {} };
   const SLOTS = ['p1', 'p2', 'p3', 'p4'].slice(0, people); // (the run's players)
   const SESSION = SLOTS.slice(0, seats); // (the session's seats: the first `seats` players)
+  // (the bystander's view of the players in `slots`: what its link session knows, the card's tag and link buttons)
+  const bystanderCards = (slots) => `JSON.stringify(Object.fromEntries(${JSON.stringify(slots)}.map((s) => {
+    const tag = document.querySelector(\`.link-away[data-linked="\${s}"]\`);
+    const card = [...document.querySelectorAll('.player-tag')].find((x) => x.classList.contains(s));
+    return [s, { known: window.__slLink?.sessions?.linkedElsewhere?.(s) || null, tag: tag?.textContent?.trim() || null,
+      buttons: card ? [...card.querySelectorAll('.link-buttons button')].map((b) => ({ text: b.textContent.trim(), disabled: b.disabled, title: b.title })) : [] }];
+  })))`;
   const APP = { headers: { 'x-soullink': '1' } }; // (2.7.1: the server answers save reads only to the app – server/lib/guard.mjs)
 
   // ---- one server and scratch data folder per player ----------------------------------------------------------------
@@ -707,6 +714,19 @@ async function main() {
     if (bystander) { // the bystander, while the others are linked: still outside; asking A to trade gets "in another link"
       result.bystanderPhases.push(await phase(by));
       const f0 = seamless ? Number(await emu(by, 'e.frames()')) || 0 : 0;
+      // what the bystander's page knows: the linked players' own announcement – on the board, right on their cards
+      // ("In a link with …"), with Trade / Battle greyed out and that as their hint (the play view: the Shared World menu)
+      const cards = await until('the bystander sees who is linked', async () => {
+        const c = JSON.parse(await ev(by, bystanderCards(SESSION)));
+        return SESSION.every((s) => c[s].known) ? c : null;
+      }, 15000).catch(async () => JSON.parse(await ev(by, bystanderCards(SESSION))));
+      result.bystanderCards = cards;
+      const nameOf = (s) => profiles[SLOTS.indexOf(s)].name;
+      result.checks.bystanderKnowsLinked = SESSION.every((s) => JSON.stringify(cards[s].known?.seats) === JSON.stringify(SESSION));
+      if (!seamless) {
+        result.checks.bystanderCardSaysLinked = SESSION.every((s) => SESSION.filter((x) => x !== s).every((x) => cards[s].tag?.includes(nameOf(x)))
+          && cards[s].buttons.length > 0 && cards[s].buttons.every((b) => b.disabled && b.title === cards[s].tag));
+      }
       await shot('04b-bystander-during');
       await ev(by, `window.__slLink.sessions.invite('trade', ['p1']).then(() => true, (e) => String(e?.message || e))`);
       const refused = await until('the bystander hears "busy"', async () => ((await phase(by)) === 'ended' ? JSON.parse(await ev(by, 'JSON.stringify(window.__slLink.sessions.state.ended)')) : null), 30000).catch(() => null);
@@ -863,6 +883,14 @@ async function main() {
     }
     if (bystander) { // after the session: the bystander's page is still fine, and was never part of it
       result.bystanderPhases.push(await phase(by));
+      // …and the linked players' cards are back to normal: no "In a link with …", Trade / Battle open again
+      const after = await until('the bystander sees the link ended', async () => {
+        const c = JSON.parse(await ev(by, bystanderCards(SESSION)));
+        return SESSION.every((s) => !c[s].known && !c[s].tag) ? c : null;
+      }, 20000).catch(async () => JSON.parse(await ev(by, bystanderCards(SESSION))));
+      result.bystanderCardsAfter = after;
+      result.checks.bystanderLinkedCleared = SESSION.every((s) => !after[s].known && !after[s].tag && (seamless || after[s].buttons.some((b) => !b.disabled)));
+      if (!seamless) await shot(`${String(n++).padStart(2, '0')}-bystander-after`);
       result.checks.bystanderNeverLinked = !(await ev(by, 'window.__slLink.sessions.state.seamless')) && (!seamless || Number(await emu(by, 'e.switches().length')) === 0);
       result.bystanderErrors = (result.console || []).filter((x) => x.startsWith(`${profiles[by].id} error:`));
     }

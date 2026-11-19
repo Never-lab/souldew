@@ -29,7 +29,7 @@ import { previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
 import { FavScope, FavFilter, FavEmpty, useFavourites, useFavFilter, isFavourite } from '../lib/favourites.mjs';
 import { filterChips, shownFilter } from '/shared/favourites.mjs';
 import {
-  STICKERS, WRAPS, FINISHES, UNLOCKS, STICKER_MAX, SCALE_MIN, SCALE_MAX, stickerById, wrapById, launchLook, devKey, playableLookFor,
+  STICKERS, WRAPS, FINISHES, UNLOCKS, STICKER_MAX, SCALE_MIN, SCALE_MAX, stickerById, wrapById, sheetItems, sheetCounts, sheetPass, groupStickers, launchLook, devKey, playableLookFor,
   designNotes, designDirty, saveAsNew, overwriteDesign, renameDesign, duplicateDesign, deleteDesign, applyDesign, exportHandheld, importHandheld, NAME_MAX,
 } from '/shared/handheld.mjs';
 import { useHandheld, setHandheld, handheld, launchConfig, poseScene, viewPlan, VIEWS, isFold, useCosmeticsTick, sceneWrap, useLaunchRights } from '../lib/handheld/look.mjs';
@@ -294,7 +294,6 @@ function HandheldEditor({ R }) {
     }
     return -1;
   };
-  const owns = (s) => s.tier === 'free' || (s.tier === 'plus' && member) || (s.tier === 'earned' && has.has(s.trophy));
   const lockedWhy = (s, fin = finish) => {
     if (s.tier === 'plus' && !member) return 'plus';
     if (s.tier === 'earned' && !has.has(s.trophy)) return 'earned';
@@ -526,16 +525,14 @@ function HandheldEditor({ R }) {
   };
 
   // ---- the filter row: All · ★ Favourites · Owned · souldew+ · Earned – over the skins and the stickers together ----
-  const skinItems = WRAPS.map((w) => ({ ...w, kind: 'skin', owned: w.tier === 'free' || member, plus: w.tier === 'plus', earned: false }));
-  const stickerItems = STICKERS.map((s) => ({ ...s, kind: 'sticker', owned: owns(s), plus: s.tier === 'plus', earned: s.tier === 'earned' }));
-  const both = [...skinItems, ...stickerItems];
+  const both = sheetItems(own);
   const isFav = (it) => isFavourite(favs, it.kind, it.id);
-  const counts = { all: both.length, favs: both.filter(isFav).length, owned: both.filter((x) => x.owned).length, plus: both.filter((x) => x.plus).length, earned: both.filter((x) => x.earned).length };
+  const counts = sheetCounts(both, isFav);
   const chips = filterChips(counts);
   const filter = shownFilter(want, chips);
-  const pass = (it) => filter === 'all' || (filter === 'favs' && isFav(it)) || (filter === 'owned' && it.owned) || (filter === 'plus' && it.plus) || (filter === 'earned' && it.earned);
-  const skinsShown = skinItems.filter(pass);
-  const stickersShown = stickerItems.filter(pass);
+  const pass = (it) => sheetPass(it, filter, isFav);
+  const skinsShown = both.filter((x) => x.kind === 'skin' && pass(x));
+  const stickersShown = both.filter((x) => x.kind === 'sticker' && pass(x));
   const knownSkins = WRAPS.map((w) => w.id), knownStickers = STICKERS.map((s) => s.id), knownDesigns = designs.map((d) => d.id);
 
   const st = sel >= 0 ? stickers[sel] : null;
@@ -544,7 +541,8 @@ function HandheldEditor({ R }) {
   const previews = (wrapById(doc.skin)?.tier === 'plus' && !member) || stickers.some((s) => { const m = stickerById(s.id); return m && lockedWhy(m, s.finish) === 'plus'; });
   const curFin = st ? st.finish : finish;
   const finOk = (k) => !st || stickerById(st.id)?.finishes.includes(k);
-  const groups = [['free', t('hh.groupFree', 'Free')], ['plus', t('cos.plus', 'souldew+')], ['earned', t('hh.groupEarned', 'Earned with trophies')]];
+  // the sheet's groups: free, the souldew+ ones in their two sets (cosy · funny and cool – 40 in one block would be a wall), earned
+  const groupName = { free: t('hh.groupFree', 'Free'), 'plus-cosy': t('hh.groupPlusCosy', 'souldew+ · cosy'), 'plus-fun': t('hh.groupPlusFun', 'souldew+ · funny and cool'), earned: t('hh.groupEarned', 'Earned with trophies') };
   const pickSkin = (w) => {
     if (w && w.tier === 'plus' && !wrapReady(w.id)) { plusHint(t('hh.plusSkin', '{name} comes with souldew+.', { name: w.name })); return; }
     commit({ ...doc, skin: w ? w.id : null });
@@ -664,8 +662,8 @@ function HandheldEditor({ R }) {
           ${(stickersShown.length > 0 || filter === 'all') && html`<div class="hh-sec"><span class="pe-kicker">${t('hh.stickers', 'Stickers')}</span><span class=${`tiny ${stickers.length >= STICKER_MAX ? 'hh-full' : 'faint'}`}>${t('hh.nOf', '{n} of {max} on your {device}', { n: stickers.length, max: STICKER_MAX, device: devName(sys) })}</span></div>
           ${!st && html`<p class="tiny faint hh-note">${t('hh.howTo', 'Drag a sticker onto the shell – anywhere, over the edges too, on top of each other. It slides round buttons, screens and the slot. Or pick one and press Enter.')}</p>`}
           ${!st && finishRow}`}
-          ${groups.map(([tier, name]) => { const list = stickersShown.filter((s) => s.tier === tier); return list.length > 0 && html`<div class="hh-tgroup"><span class="tiny faint">${name} · ${list.length}</span></div>
-            <div class="hh-tray">${list.map(tile)}</div>`; })}
+          ${groupStickers(stickersShown).map(({ key, list }) => html`<div class="hh-tgroup" data-group=${key}><span class="tiny faint">${groupName[key]} · ${list.length}</span></div>
+            <div class="hh-tray">${list.map(tile)}</div>`)}
 
           <div class="hh-sec"><span class="pe-kicker">${t('hh.earnedTitle', 'Earned, not bought')}</span><span class="tiny faint">${t('hh.earnedOf', '{n} of {all}', { n: UNLOCKS.filter((u) => has.has(u.trophy)).length, all: UNLOCKS.length })}</span></div>
           <div class="hh-earn">${UNLOCKS.map((u) => { const ok = has.has(u.trophy); const thumb = u.kind === 'sticker' ? stickerThumb(u.id, 4) : null; return html`<div class=${`hh-earn-row ${ok ? 'ok' : 'off'}`}>
