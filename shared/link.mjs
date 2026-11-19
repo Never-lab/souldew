@@ -1,9 +1,22 @@
 // What the server, the pages and the link host agree on for link sessions (docs/MULTIPLAYER.md): the systems, the seats,
 // and the link host's message numbers (native/link-host/linkhost.c – its header is the reference; these must match).
 
+import { isQuetzal, QUETZAL_HACK_ID } from './live/quetzal.mjs';
+
 /** Systems the link host plays: GB/GBC (SameBoy), GBA (mGBA), DS (melonDS). */
 export const LINK_SYSTEMS = ['gba', 'gb', 'gbc', 'nds'];
 export const MAX_LINK_SEATS = 4;
+/**
+ * Can a run's game (manifest.game: { system, code, title, hackId }) link at all? Its system's, unless it is a ROM hack
+ * whose link was never checked and that changed too much to assume it works: Pokémon Quetzal (its own Pokémon, structs
+ * and multiplayer – shared/live/quetzal.mjs). → null (it can) or why not: 'system' | 'hack'.
+ */
+export function linkUnavailable(game) {
+  if (!LINK_SYSTEMS.includes(game?.system)) return 'system';
+  if (game.hackId === QUETZAL_HACK_ID || isQuetzal(game)) return 'hack';
+  return null;
+}
+
 /** Two systems' games can link (Game Boy and Game Boy Color games share the cable). */
 export const sameLinkSystem = (a, b) => a === b || (['gb', 'gbc'].includes(a) && ['gb', 'gbc'].includes(b));
 

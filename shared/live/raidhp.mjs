@@ -337,11 +337,14 @@ function driverOf(entry) {
 }
 
 /**
- * Can this game take part in a raid? { ok: true } or { ok: false, why } – why: 'gen5' | 'ctr' | 'version' | 'unknown'
+ * Can this game take part in a raid? { ok: true } or { ok: false, why } – why: 'gen5' | 'ctr' | 'version' | 'hack' | 'unknown'
  * (the reasons the UI explains: a generation souldew can't write cleanly, another language / revision not checked).
  */
 export function raidSupport(entry) {
   if (!entry) return { ok: false, why: 'unknown' };
+  // a ROM hack with a memory-table entry of its own (Pokémon Quetzal: addresses.json `hack`) – its battles aren't the
+  // base game's: never written to
+  if (entry.hack) return { ok: false, why: 'hack' };
   if (driverOf(entry)) return { ok: true };
   return { ok: false, why: RAID_UNSUPPORTED[entry.gen] || 'version' };
 }

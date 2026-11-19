@@ -99,7 +99,10 @@ async function start(host, cfg) {
     fetch('/shared/data/gen3_index_to_dex.json').then((r) => (r.ok ? r.json() : null)).catch(() => null),
   ]);
   const code = rom && rom.length > 0xc0 ? String.fromCharCode(...rom.subarray(0xac, 0xb0)) : cfg.code || '';
-  const entry = findEntry(addresses, { platform: 'gba', code });
+  // (with the header title: a hack that kept the base game's code – Pokémon Quetzal – has an entry of its own, without
+  // a world table: its overworld isn't Emerald's, so no partners are drawn into it)
+  const title = rom && rom.length > 0xc0 ? String.fromCharCode(...rom.subarray(0xa0, 0xac)).replace(/\0+$/, '') : cfg.title || '';
+  const entry = findEntry(addresses, { platform: 'gba', code, title });
   const t = worldTable(entry, rom ? rom[0xbc] : 0, code);
   if (!t || !rom) return UNSUPPORTED({ code });
   return world(host, t, rom, dex);

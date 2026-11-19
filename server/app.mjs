@@ -34,7 +34,7 @@ import { prepareUpdate, updateStamp } from './lib/ctrupdate.mjs';
 import { pickUpdate } from '../shared/ctr/update.mjs';
 import { pickRenderer, validRenderer, gpuKey, remember, validScale, scaleFor } from './lib/ctrrenderer.mjs';
 import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS } from './lib/native.mjs';
-import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem } from '../shared/link.mjs';
+import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem, linkUnavailable } from '../shared/link.mjs';
 import { cleanFavourites } from '../shared/favourites.mjs';
 import { cleanHandheld, cleanLaunchLook, cleanLaunchPace, cleanClearTint } from '../shared/handheld.mjs';
 import { ownSeat, resolveSeat, pickSeat, extractTarget, partnerBuildRequest } from './lib/linkroms.mjs';
@@ -1749,7 +1749,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       return [s, { rom: !!r.path, sha1: r.sha1, crc: r.crc }];
     }));
     // model: this player's console for a Game Boy game that boots for the link (Settings › "Game Boy look")
-    return { tool: !!linkTool(), system, supported: LINK_SYSTEMS.includes(system), game: manifest.game?.id || null, slots,
+    return { tool: !!linkTool(), system, supported: !linkUnavailable(manifest.game), game: manifest.game?.id || null, slots,
       randomized: needsIdenticalRom(manifest), model: gbModel(system, loadConfig().gbLook) };
   });
   // Which seats' games are here: { seats: { slot: { ok, how } }, missing: [{ slot, canBuild }] }. `seats`: { slot:
@@ -1810,6 +1810,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const manifest = linkManifest(runId);
     const system = manifest.game?.system;
     if (!LINK_SYSTEMS.includes(system)) throw httpError(400, 'Linking isn’t available for this system yet', 'linkSystem');
+    // (a ROM hack whose link was never checked – Pokémon Quetzal: shared/link.mjs linkUnavailable)
+    if (linkUnavailable(manifest.game) === 'hack') throw httpError(400, 'Linking isn’t available for this ROM hack', 'linkHack');
     const runSlots = slotsOf(manifest);
     if (!Array.isArray(seats) || seats.length < 2 || seats.length > MAX_LINK_SEATS) throw httpError(400, 'Invalid seats', 'linkSeats');
     if (new Set(seats.map((s) => s?.slot)).size !== seats.length || !seats.every((s) => runSlots.includes(s?.slot))) throw httpError(400, 'Invalid seats', 'linkSeats');

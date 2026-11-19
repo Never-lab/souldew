@@ -8,19 +8,19 @@ import { t } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
 import { players as getPlayers, rules as getRules, slotsOf } from '../lib/run.mjs';
-import { sameLinkSystem, LINK_SYSTEMS } from '/shared/link.mjs';
+import { sameLinkSystem, LINK_SYSTEMS, linkUnavailable } from '/shared/link.mjs';
 import { wagerGame, battleFormats, moneyText, MONEY_MAX } from '/shared/linkbattle.mjs';
 import { useTogether } from '../lib/together.mjs';
 import { wagerRules, agreedWager, sessionsIn, outcomeOf, headToHead, wagerStatus } from '../lib/wager.mjs';
 import { currentLang } from '../lib/i18n.mjs';
 
-export { LINK_SYSTEMS }; // (the board shows the link buttons for these)
+export { LINK_SYSTEMS, linkUnavailable }; // (the board shows the link buttons for these)
 
 
 /** Does this run allow link sessions of `kind` ('trade' | 'battle')? The run rule (default: allowed). */
 export function linkAllowed(doc, manifest, kind) {
   const r = getRules(doc, manifest) || {};
-  if (!LINK_SYSTEMS.includes(manifest?.game?.system)) return false;
+  if (linkUnavailable(manifest?.game)) return false;
   return kind === 'battle' ? r.linkBattles !== 'off' : r.linkTrades !== 'off';
 }
 
@@ -30,6 +30,7 @@ export const reasonText = (code, name) => ({
   closed: t('linkplay.left', 'The link has ended.'),
   linkMissing: t('linkplay.missing', 'This version of souldew can’t link games yet – update it on both computers.'),
   linkSystem: t('linkplay.system', 'Linking isn’t available for this game yet.'),
+  linkHack: t('linkplay.hack', 'Trades and battles over the link aren’t available for this ROM hack – it changed its Pokémon and its link too much to be sure they work.'),
   linkOwnMissing: t('linkplay.ownMissing', 'Your own game for this run isn’t built on this computer.'),
   linkRomMissing: t('linkplay.romMissing2', 'A player’s game isn’t on one of the computers – the link needs every player’s game on every computer.'),
   linkSaveDiffers: t('linkplay.saveDiffers', 'A save arrived damaged. Try again.'),
@@ -74,7 +75,7 @@ export function LinkButtons({ slot }) {
   const [busy, setBusy] = useState(false);
   const [setup, setSetup] = useState(false);
   const together = useTogether(link);
-  if (!linkSessions || slot === me || !LINK_SYSTEMS.includes(manifest?.game?.system)) return null;
+  if (!linkSessions || slot === me || linkUnavailable(manifest?.game)) return null;
   const online = onlineSlots?.has?.(slot);
   const direct = !!linkStatus?.partners?.[slot]?.p2p;
   const idle = !linkPlay || ['idle', 'ended', 'rejoinable'].includes(linkPlay.phase);
@@ -175,7 +176,7 @@ export function LinkGroupButton() {
   const [setup, setSetup] = useState(false);
   const together = useTogether(link);
   const slots = manifest ? slotsOf(manifest) : [];
-  if (!linkSessions || slots.length < 3 || !LINK_SYSTEMS.includes(manifest?.game?.system) || !linkAllowed(doc, manifest, 'battle')) return null;
+  if (!linkSessions || slots.length < 3 || linkUnavailable(manifest?.game) || !linkAllowed(doc, manifest, 'battle')) return null;
   // (a player linked with others right now waits for the next one; one on an older souldew can't take part)
   const ready = slots.filter((s) => s !== me && onlineSlots?.has?.(s) && linkStatus?.partners?.[s]?.p2p && !linkSessions.linkedElsewhere?.(s) && !together?.olderApp(s));
   const idle = !linkPlay || ['idle', 'ended', 'rejoinable'].includes(linkPlay.phase);

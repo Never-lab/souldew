@@ -20,7 +20,7 @@ import { Board, InviteBody } from './board.mjs';
 import { JoinCode } from './invitecode.mjs';
 import { NuzlockeRules, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, RulesSummary, BallsRule, LinkRules, GiftRule, RaidRules } from './nuzrules.mjs';
 import { RAID_SYSTEMS } from '/shared/live/raidhp.mjs';
-import { LINK_SYSTEMS } from '/shared/link.mjs';
+import { linkUnavailable } from '/shared/link.mjs';
 import { soulLinkRulesFrom, hostSlotOf } from '/shared/hostrules.mjs';
 import { rulesWithDefaults } from '/shared/rules.mjs';
 import { useAccount, useFriends } from '../lib/account.mjs';
@@ -800,6 +800,8 @@ function NewRun({ gameId, hackId, patchPick, romPick, friendPick, from, mode: se
       ${missing && html`<p class="warning">${t('new.hackNoFit', '{hack} doesn’t fit this ROM – its patch needs another copy of the game (CRC32 {crc}). As it is, this run would be the original game.', { hack: missing.hack.name, crc: missing.crc })}</p>`}
       <p class="small muted">${!inspect ? t('new.checking', 'Checking the game …')
         : inspect.failed ? t('new.checkFailed', 'This combination of game and ROM hack doesn’t work – see the message above.')
+        // (a hack with a randomizer of its own – Pokémon Quetzal: its new-game options)
+        : hackNoUpr && hack?.ownRandomizer ? t('new.ownRandomizer', 'souldew can’t randomize {hack} – but the hack has a randomizer of its own: switch it on in the game’s options when you start a new game.', { hack: hack.name })
         : inspect.info?.missingTool === 'java' ? (solo ? t('new.noJavaSolo', 'Java wasn’t found, so the randomizer can’t run. Install Java (e.g. Temurin 21 from adoptium.net) and restart the app – or play the Nuzlocke without the randomizer.')
           : t('new.noJava', 'Java wasn’t found, so the randomizer can’t run. Install Java (e.g. Temurin 21 from adoptium.net) and restart the app – or play a regular SoulLink.'))
         : inspect.info?.missingTool === 'upr' ? (solo ? t('new.noUprSolo', 'The randomizer (Universal Pokémon Randomizer ZX) is missing – you can still play the Nuzlocke without it.')
@@ -873,7 +875,7 @@ function NewRun({ gameId, hackId, patchPick, romPick, friendPick, from, mode: se
         : html`<p class="small muted">${count > 2 ? t('new.rulesHostGroup', 'You’re the host: these rules apply to all of you, and only you can change them later (board › Rules). Every change shows up in the log for everyone.')
           : t('new.rulesHost', 'You’re the host: these rules apply to both of you, and only you can change them later (board › Rules). Every change shows up in the log for both of you.')}</p>
         <${SoulLinkRules} variant="wizard" value=${slRules} onChange=${patchSl} players=${count} />
-        ${LINK_SYSTEMS.includes(inspect?.patched?.system || rom?.system) && html`<div class="rule-sep"><${LinkRules} value=${slRules} onChange=${patchSl} /></div>`}
+        ${!linkUnavailable({ system: inspect?.patched?.system || rom?.system, hackId: hack?.id, code: inspect?.patched?.header?.code ?? rom?.code, title: inspect?.patched?.header?.title ?? rom?.title }) && html`<div class="rule-sep"><${LinkRules} value=${slRules} onChange=${patchSl} /></div>`}
         ${RAID_SYSTEMS.includes(inspect?.patched?.system || rom?.system) && html`<div class="rule-sep"><${RaidRules} value=${slRules} onChange=${patchSl} /></div>`}
         <div class="rule-sep"><${GiftRule} value=${slRules} onChange=${patchSl} /></div>
         <div class="rule-sep"><${BallsRule} value=${slRules.startAtBalls} players=${count} onChange=${(v) => patchSl({ startAtBalls: v })} /></div>
