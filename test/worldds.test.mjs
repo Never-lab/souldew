@@ -420,3 +420,24 @@ test('the map in front: the DS depth of a world point, the host\'s DEPTH message
   assert.ok(r.reduce((n, [, , w, h]) => n + w * h, 0) <= 16384);
   assert.ok(depthRects(Array.from({ length: 20 }, (_, i) => ({ x: (i % 5) * 50, y: Math.floor(i / 5) * 48, w: 8, h: 8 }))).length <= 8);
 });
+
+test('one overlay per page: a config() while the first start still loads waits for it (the HGSS "away" flicker)', async () => {
+  // Captured 19 Nov 2026 (world-e2e --plus, HeartGold, 2 of 5 runs failed): the play view configures the overlay again
+  // when its players, rules or lead change; the DS start fetches and decodes the ROM for seconds, so a second start ran
+  // alongside – two overlays per page (counted: [2, 2]). They took turns at the native player's one WATCH list; the one
+  // left without bytes kept its first reading (field: false) and kept sending "hidden" between the other's states, so
+  // the partner flickered away and the A menu found nobody. With startOnce: one start, one overlay (counted: [1, 1]).
+  const { startOnce } = await import('../shared/world.mjs');
+  let starts = 0;
+  const begin = startOnce(async (cfg) => {
+    starts++;
+    await new Promise((r) => setTimeout(r, 20));
+    return { cfg };
+  });
+  const [a, b] = await Promise.all([begin({ n: 1 }), begin({ n: 2 })]);
+  assert.equal(starts, 1);
+  assert.equal(a, b);
+  assert.deepEqual(a.cfg, { n: 1 });
+  assert.equal(await begin({ n: 3 }), a); // (later calls too)
+  assert.equal(starts, 1);
+});

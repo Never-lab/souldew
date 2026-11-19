@@ -134,6 +134,9 @@ function worldDs(host, t, gfx) {
   let near = 0;
   let ticks = 0;
   let drawnDebug = {};
+  const awayLog = []; // (diagnostics: on the field ⇄ away)
+  let lastA = null; // (diagnostics: the last A press and what came of it)
+  let lastOnField = null;
   let tint = [1, 1, 1]; // the field's light on its billboards (measureTint), applied to everything drawn
   // the map in front (shared/worldds.mjs depthMask): the DS's 3D depth in the rectangles named, with every picture
   let depthNext = null; // (arrived, for the picture whose bytes come next)
@@ -591,6 +594,13 @@ function worldDs(host, t, gfx) {
     // seen wherever we stand in the field – also while a menu or a message is open here; not in a battle or a menu
     // screen (the field's child program), nor while the field isn't running (a map loading)
     const onField = !!me && !!r?.running && !!r.parent && !r.child;
+    // (diagnostics: every switch between on the field and away, with the reading that made it)
+    if (onField !== lastOnField) {
+      lastOnField = onField;
+      awayLog.push({ at: Math.round(performance.now()), onField, me: !!me, field: r?.field, running: r?.running, parent: r?.parent, child: r?.child, task: r?.task, fc: r?.fc,
+        facing: r?.player?.facing, ptr: ptr ? { fs: ptr.fs, obj: ptr.obj, follow: ptr.follow } : null, bytes: !!watched?.bytes });
+      if (awayLog.length > 40) awayLog.shift();
+    }
     // (HGSS: the Pokémon the game walks behind you is what your partners see following you)
     const fm = r?.follow;
     const gameLead = fm?.active && fm.species > 0 && fm.species <= 493 ? { species: fm.species, shiny: fm.shiny, form: fm.form } : null;
@@ -614,7 +624,7 @@ function worldDs(host, t, gfx) {
     aTimer = 0;
     if (stopped || !aPress.pending) return;
     aPress.cancel();
-    if (ui.modal() || !cfg.enabled || !host.ready() || !dsDrawable(latest)) return;
+    if (ui.modal() || !cfg.enabled || !host.ready() || !dsDrawable(latest)) return void (lastA = { at: Math.round(performance.now()), why: 'not now', modal: ui.modal(), drawable: dsDrawable(latest), task: latest?.task });
     const now = performance.now();
     const key = dsMapKey(latest);
     tryMenu([...tracks].map(([slot, tr]) => {
@@ -623,14 +633,16 @@ function worldDs(host, t, gfx) {
     }));
   }
   function tryMenu(list) {
-    if (latest?.task) return; // the game answered the button itself (a sign, someone standing there)
+    lastA = { at: Math.round(performance.now()), task: latest?.task, me: dsPlayer(t, latest), follow: latest?.follow, list: list.map((p) => ({ slot: p.slot, here: p.here, x: p.s?.x, y: p.s?.y, h: p.s?.h, hidden: p.s?.hidden })) };
+    if (latest?.task) return void (lastA.why = 'task'); // the game answered the button itself (a sign, someone standing there)
     const me = dsPlayer(t, latest);
-    if (!me || me.x !== me.tx * DS_TILE + DS_TILE / 2 || me.y !== me.ty * DS_TILE + DS_TILE / 2) return; // standing still
+    if (!me || me.x !== me.tx * DS_TILE + DS_TILE / 2 || me.y !== me.ty * DS_TILE + DS_TILE / 2) return void (lastA.why = 'moving'); // standing still
     // (HGSS: your own Pokémon on that tile – the game talks to it, the partner waits)
     const fm = latest?.follow;
     const step = { [DIR.S]: [0, 1], [DIR.N]: [0, -1], [DIR.W]: [-1, 0], [DIR.E]: [1, 0] }[me.facing] || [0, 0];
-    if (fm?.active && Math.floor(fm.x / DS_TILE) === me.tx + step[0] && Math.floor(fm.z / DS_TILE) === me.ty + step[1]) return;
+    if (fm?.active && Math.floor(fm.x / DS_TILE) === me.tx + step[0] && Math.floor(fm.z / DS_TILE) === me.ty + step[1]) return void (lastA.why = 'own follower');
     const faced = dsFacedPartner(me, list.filter((p) => p.here).map((p) => ({ slot: p.slot, state: p.s })));
+    lastA.why = faced ? `menu ${faced}` : 'nobody faced';
     if (faced) ui.openMenu(faced);
   }
 
@@ -713,7 +725,7 @@ function worldDs(host, t, gfx) {
       return {
         supported: true, game: t.id, gen: 4, enabled: cfg.enabled, follow: cfg.follow, lead: cfg.lead, drawable: dsDrawable(shown), perFrame: !!watched?.bytes,
         local: me, shownLocal: dsPlayer(t, shown), map: latest ? dsMapKey(latest) : null, field: latest ? { field: latest.field, task: latest.task, running: latest.running, parent: latest.parent, child: latest.child, fc: latest.fc } : null,
-        ptr, watching: watched ? { ranges: watched.ranges.length, total: watched.total, bytes: !!watched.bytes } : null,
+        awayLog, lastA, aPress: { held: aPress.held, at: aPress.at, direct: aPress.direct }, ptr, watching: watched ? { ranges: watched.ranges.length, total: watched.total, bytes: !!watched.bytes } : null,
         followerKind: gfx.followers?.kind || null, drawn: drawnDebug, tint, tintErr, ...ui.debug(),
         depth: depthNow ? { wbuffer: depthNow.wbuffer, rects: depthNow.rects.map((r) => [r.x, r.y, r.w, r.h]), hidden: depthCost.hidden, msPerPicture: depthCost.n ? Math.round((depthCost.ms / depthCost.n) * 1000) / 1000 : null } : null,
         together: tgDrawn,

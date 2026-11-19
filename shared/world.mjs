@@ -385,6 +385,17 @@ export class APress {
 }
 
 /**
+ * Starts something once: every call gets the promise of the first – also calls made while it still runs. The Shared
+ * World overlay is configured again whenever the play view's players, rules or lead change; a second start while the
+ * first still loaded its ROM made a second overlay, and the two took turns at the native player's one WATCH list – the
+ * one left without bytes kept its first reading and said "not on the field" (a DS partner flickering away).
+ */
+export function startOnce(fn) {
+  let p = null;
+  return (...args) => (p ||= Promise.resolve().then(() => fn(...args)));
+}
+
+/**
  * Learns the overworld callback of a game whose revision souldew has no address for: the callback that runs while the
  * camera steps one tile on the same map without a fade is the overworld's (a map change or warp never counts).
  */

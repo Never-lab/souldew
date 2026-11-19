@@ -302,6 +302,8 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   log('next to B', JSON.stringify({ local: (await world(0)).local, B: await local(1), own: (await world(0)).own, drawn: (await world(0)).followers }));
   await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
   if (ds) log('after A', JSON.stringify(await world(0)));
+  if (ds) log('overlays', await Promise.all([0, 1].map((i) => ev(i, `document.querySelector('.console-screen iframe').contentWindow.document.querySelectorAll('.sw-layer').length`))));
+  if (ds) log('B away log', JSON.stringify((await world(1))?.awayLog), 'A press', JSON.stringify({ lastA: (await world(0))?.lastA, aPress: (await world(0))?.aPress }));
   const m = await until('menu', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && (await world(0))?.menu?.sel !== 'rps'; n++) { await key(0, 'ArrowDown'); await sleep(120); }
   await shot('20-menu-rps-A', 0);
@@ -334,6 +336,9 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   await sleep(600);
   await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
   if (ds) log('after A again', JSON.stringify(await world(0)), 'B:', JSON.stringify(await world(1)));
+  if (ds) log('B away log', JSON.stringify((await world(1))?.awayLog), 'A away log', JSON.stringify((await world(0))?.awayLog));
+  if (ds) log('A press again', JSON.stringify({ lastA: (await world(0))?.lastA, aPress: (await world(0))?.aPress }));
+  if (ds) log('B sends', await ev(1, 'JSON.stringify({ sent: window.__slWorld?.sent, local: window.__slWorld?.local })'));
   await until('menu again', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && !String((await world(0))?.menu?.sel || '').startsWith('emote'); n++) { await key(0, 'ArrowDown'); await sleep(120); }
   // (the row starts with Wave since 3.0's playing together: along it to the heart)

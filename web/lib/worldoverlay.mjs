@@ -11,7 +11,7 @@
 import {
   worldTable, watchRanges, rangeReader, chainReaders, readCamera, readPlayer, readLocalSprite, drawable, OverworldLearner,
   Track, unpackState, screenPos, facedPartner, gfxFor, kindFor, animFor, readMapView, blockReader, popupRect, GBA_KEY, TILE,
-  Follower, followerHidden, readConnections, inLocalFrame, APress,
+  Follower, followerHidden, readConnections, inLocalFrame, APress, startOnce,
 } from '/shared/world.mjs';
 import { findMonIcons, monIcon, iconIndex, dexToInternal, NAT } from '/shared/worldicons.mjs';
 import { ART, HAND_ART, artSize } from '/lib/worldart.mjs';
@@ -42,10 +42,12 @@ const SPARKLE = ['..#..', '..#..', '##o##', '..#..', '..#..'];
  */
 export function installWorld(host) {
   let st = null; // everything once config() turned it on
+  // (one overlay per page: a config() while the first start still runs waits for it – shared/world.mjs startOnce)
+  const begin = startOnce((cfg) => start(host, cfg).catch((e) => (console.warn('shared world', e), null)));
   const api = {
     /** From the play view: { me, players: { slot: { name, color } }, enabled, actions: { slot: { trade, battle, why } }, labels } */
     async config(cfg) {
-      if (!st) st = await start(host, cfg).catch((e) => (console.warn('shared world', e), null));
+      if (!st) st = await begin(cfg);
       st?.setConfig(cfg);
       return !!st?.t;
     },
