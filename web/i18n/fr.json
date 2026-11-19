@@ -4129,5 +4129,20 @@
   "world.gift": "Offrir un objet",
   "world.tagHint3": "Échanger, combattre, offrir un objet, saluer ou jouer à pierre-feuille-ciseaux",
   "world.watch": "Regarder",
-  "gift.game": "{name} joue à une autre version – cet objet n’y existe peut-être pas."
+  "gift.game": "{name} joue à une autre version – cet objet n’y existe peut-être pas.",
+  "set.uiScale": "Taille de l’interface",
+  "set.uiScaleHint": "La taille à laquelle souldew dessine ses menus, ses panneaux, le tableau et le texte sur cet ordinateur – pour les grands écrans à haute résolution. Le jeu lui-même n’est pas mis à l’échelle : il continue de remplir la place dont il dispose, net au pixel près. {bigger}, {smaller} et {reset} la changent partout.",
+  "set.uiScaleFit": "Cette fenêtre a de la place pour {size} – agrandis-la et l’interface passe à {chosen}.",
+  "set.uiScaleGame": "Tant qu’un jeu remplit la fenêtre, ces touches restent ses raccourcis : {list} (Paramètres › Commandes).",
+  "set.uiScaleBrowser": "Dans le navigateur, c’est son propre zoom qui règle la taille de souldew : {bigger} et {smaller}.",
+  "ui.scaleHintTitle": "L’interface paraît petite sur cet écran – l’agrandir ?",
+  "ui.scaleHintText": "{size} convient à un écran aussi grand. Tu peux la changer quand tu veux – « Taille de l’interface » dans les Paramètres, ou {bigger} et {smaller}.",
+  "ui.scaleHintYes": "Passer à {size}",
+  "ui.scaleLimitTitle": "Cette fenêtre n’a pas la place pour plus grand",
+  "ui.scaleLimitText": "Agrandis la fenêtre et l’interface passe à la taille choisie.",
+  "keys.uiScale": "Interface plus grande · plus petite · 100 % (tant qu’un jeu remplit la fenêtre, ses propres raccourcis sur ces touches passent avant)",
+  "menu.view": "Présentation",
+  "menu.uiBigger": "Agrandir l’interface",
+  "menu.uiSmaller": "Réduire l’interface",
+  "menu.uiReset": "Interface à 100 %"
 }

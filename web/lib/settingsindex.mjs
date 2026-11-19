@@ -26,6 +26,9 @@ export const SETTINGS = [
   // General
   { id: 'language', section: 'general', keys: ['set.language'], kw: 'translation translate locale sprache langue idioma lingua english deutsch français español italiano' },
   { id: 'name', section: 'general', keys: ['set.name'], kw: 'player name nickname username spielername nom pseudo nombre jugador nome giocatore' },
+  { id: 'ui-scale', section: 'general', keys: ['set.uiScale', 'set.uiScaleHint'],
+    kw: 'interface ui size scale scaling zoom bigger smaller larger text font readable small tiny large screen big monitor 4k 1440p high resolution dpi hidpi '
+      + 'oberfläche größe skalierung vergrößern verkleinern schrift text lesbar bildschirm interface taille échelle agrandir texte écran interfaz tamaño escala agrandar texto pantalla dimensione scala ingrandire testo schermo' },
   { id: 'animations', section: 'general', keys: ['set.boot'], kw: 'boot intro start-up startup cartridge animation motion reduce motion' },
   { id: 'sounds', section: 'general', keys: ['set.soundsAll'], kw: 'audio chime ping notification sfx effects töne geräusche klänge sons sonidos suoni' },
   { id: 'tour', section: 'general', keys: ['set.replayOnboarding', 'fs.showAgain'], kw: 'onboarding welcome intro tutorial first start first steps checklist willkommen erste schritte bienvenue premiers pas bienvenida primeros pasos benvenuto primi passi' },

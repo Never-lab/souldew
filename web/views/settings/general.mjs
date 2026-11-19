@@ -1,11 +1,16 @@
-// Settings › General: language, name, start-up animations, app sounds, the welcome tour, the colour scheme and the
-// souldew+ theme.
+// Settings › General: language, name, the interface size, start-up animations, app sounds, the welcome tour, the colour
+// scheme and the souldew+ theme.
 import { html, useState, useEffect } from '/vendor/htm-preact.mjs';
 import { t, LANGS, setLang, currentLang } from '../../lib/i18n.mjs';
 import { applyTheme } from '../../lib/theme.mjs';
 import { Item, Group, Check } from './parts.mjs';
 import { SkinSetting } from './cosmetics.mjs';
 import { ShowFirstStepsButton } from '../firststeps.mjs';
+import { UI_SCALES, uiScaleLabel, uiScaleKey } from '/shared/uiscale.mjs';
+import { useUiScale, setUiScale, uiScaleNative, uiScaleKeys } from '../../lib/uiscale.mjs';
+import { resolveHotkeys, HOTKEY_IDS } from '../../lib/controls.mjs';
+import { IS_MAC } from '../../lib/platform.mjs';
+import { hotkeyLabel } from '../guide.mjs';
 
 const THEMES = () => [
   ['classic', t('theme.classic', 'Classic'), t('theme.classicHint', 'Dark, the original colours')],
@@ -35,6 +40,31 @@ function NameField({ cfg, save }) {
     <button class="btn" disabled=${!changed} onClick=${() => save({ playerName: name.trim() })}>${t('common.save', 'Save')}</button></div></label>`;
 }
 
+/**
+ * Interface size (lib/uiscale.mjs): 80–175 %, applied at once. Says when the window is too small for the size picked
+ * (it shows a smaller one until it grows) and which game shortcuts keep ⌘+ / ⌘− / ⌘0 while a game fills the window.
+ */
+function UiScaleSetting({ cfg }) {
+  const s = useUiScale();
+  const label = t('set.uiScale', 'Interface size');
+  const keys = uiScaleKeys();
+  if (!uiScaleNative()) {
+    return html`<div class="field"><span>${label}</span>
+      <span class="small faint">${t('set.uiScaleBrowser', 'In the browser, its own zoom sizes souldew: {bigger} and {smaller}.', keys)}</span></div>`;
+  }
+  const hot = resolveHotkeys(cfg.controls);
+  const game = HOTKEY_IDS.filter((id) => hot[id].some((c) => uiScaleKey(c, IS_MAC)));
+  return html`<div class="field ui-scale"><span id="ui-scale-label">${label}</span>
+    <div class="seg ui-scale-seg" role="radiogroup" aria-labelledby="ui-scale-label">
+      ${UI_SCALES.map((v) => html`<button type="button" role="radio" aria-checked=${s.chosen === v} class=${s.chosen === v ? 'on' : ''}
+        onClick=${() => setUiScale(v)}>${uiScaleLabel(v)}</button>`)}
+    </div>
+    <span class="small faint">${t('set.uiScaleHint', 'How big souldew draws its menus, panels, the board and text on this computer – for big, sharp screens. The game itself isn’t scaled: it keeps filling the room it has, pixel-sharp. {bigger}, {smaller} and {reset} change it anywhere.', keys)}</span>
+    ${s.applied !== s.chosen && html`<span class="small warn-text">${t('set.uiScaleFit', 'This window has room for {size} – make it larger and it grows to {chosen}.', { size: uiScaleLabel(s.applied), chosen: uiScaleLabel(s.chosen) })}</span>`}
+    ${game.length > 0 && html`<span class="small faint">${t('set.uiScaleGame', 'While a game fills the window, these keys stay its shortcuts: {list} (Settings › Controls).', { list: game.map((id) => hotkeyLabel(id)).join(', ') })}</span>`}
+  </div>`;
+}
+
 export function GeneralSection({ cfg, save }) {
   return html`
     <${Group} title=${t('set.basics', 'Basics')}>
@@ -44,6 +74,7 @@ export function GeneralSection({ cfg, save }) {
             ${LANGS.map((l) => html`<option value=${l.id}>${l.native}</option>`)}</select></label><//>
         <${Item} id="name"><${NameField} cfg=${cfg} save=${save} /><//>
       </div>
+      <${Item} id="ui-scale"><${UiScaleSetting} cfg=${cfg} /><//>
       <${Item} id="animations"><${Check} checked=${cfg.bootAnimation !== false} onChange=${(v) => save({ bootAnimation: v })}
         label=${t('set.boot', 'Play animations (start-up, inserting the cartridge)')} /><//>
       <${Item} id="sounds"><${Check} checked=${cfg.sounds !== false} onChange=${(v) => save({ sounds: v })}

@@ -4129,5 +4129,20 @@
   "world.gift": "Regala strumento",
   "world.tagHint3": "Scambia, lotta, regala uno strumento, saluta o gioca a sasso-carta-forbici",
   "world.watch": "Guarda",
-  "gift.game": "{name} gioca a un’altra versione: questo strumento potrebbe non esistere nel suo gioco."
+  "gift.game": "{name} gioca a un’altra versione: questo strumento potrebbe non esistere nel suo gioco.",
+  "set.uiScale": "Dimensione dell’interfaccia",
+  "set.uiScaleHint": "Quanto grandi souldew disegna menu, pannelli, la bacheca e il testo su questo computer – per schermi grandi e nitidi. Il gioco in sé non viene ridimensionato: continua a riempire lo spazio che ha, nitido al pixel. {bigger}, {smaller} e {reset} la cambiano ovunque.",
+  "set.uiScaleFit": "Questa finestra ha spazio per {size} – ingrandiscila e l’interfaccia cresce fino a {chosen}.",
+  "set.uiScaleGame": "Mentre un gioco riempie la finestra, questi tasti restano le sue scorciatoie: {list} (Impostazioni › Comandi).",
+  "set.uiScaleBrowser": "Nel browser è il suo zoom a regolare la dimensione di souldew: {bigger} e {smaller}.",
+  "ui.scaleHintTitle": "L’interfaccia sembra piccola su questo schermo – ingrandirla?",
+  "ui.scaleHintText": "{size} è adatto a uno schermo così grande. Puoi cambiarla quando vuoi – «Dimensione dell’interfaccia» nelle Impostazioni, oppure {bigger} e {smaller}.",
+  "ui.scaleHintYes": "Portala al {size}",
+  "ui.scaleLimitTitle": "Più grande non entra in questa finestra",
+  "ui.scaleLimitText": "Ingrandisci la finestra e l’interfaccia cresce fino alla dimensione scelta.",
+  "keys.uiScale": "Interfaccia più grande · più piccola · 100 % (mentre un gioco riempie la finestra, le sue scorciatoie su questi tasti hanno la precedenza)",
+  "menu.view": "Vista",
+  "menu.uiBigger": "Interfaccia più grande",
+  "menu.uiSmaller": "Interfaccia più piccola",
+  "menu.uiReset": "Interfaccia al 100 %"
 }

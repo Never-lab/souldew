@@ -4129,5 +4129,20 @@
   "world.gift": "Item schenken",
   "world.tagHint3": "Tauschen, kämpfen, ein Item schenken, winken oder Schere-Stein-Papier spielen",
   "world.watch": "Zuschauen",
-  "gift.game": "{name} spielt eine andere Edition – dieses Item gibt es dort vielleicht nicht."
+  "gift.game": "{name} spielt eine andere Edition – dieses Item gibt es dort vielleicht nicht.",
+  "set.uiScale": "Größe der Oberfläche",
+  "set.uiScaleHint": "Wie groß souldew Menüs, Leisten, das Board und Text auf diesem Computer zeichnet – für große, scharfe Bildschirme. Das Spiel selbst wird nicht skaliert: Es füllt weiter den Platz, den es hat, pixelscharf. {bigger}, {smaller} und {reset} ändern sie überall.",
+  "set.uiScaleFit": "Dieses Fenster hat Platz für {size} – zieh es größer, dann wächst die Oberfläche auf {chosen}.",
+  "set.uiScaleGame": "Solange ein Spiel das Fenster füllt, bleiben diese Tasten seine Kurzbefehle: {list} (Einstellungen › Steuerung).",
+  "set.uiScaleBrowser": "Im Browser stellt dessen eigener Zoom die Größe von souldew ein: {bigger} und {smaller}.",
+  "ui.scaleHintTitle": "Die Oberfläche wirkt auf diesem Bildschirm klein – größer machen?",
+  "ui.scaleHintText": "{size} passt zu einem so großen Bildschirm. Du kannst es jederzeit ändern – „Größe der Oberfläche“ in den Einstellungen, oder {bigger} und {smaller}.",
+  "ui.scaleHintYes": "Auf {size} stellen",
+  "ui.scaleLimitTitle": "Größer passt nicht in dieses Fenster",
+  "ui.scaleLimitText": "Zieh das Fenster größer, dann wächst die Oberfläche auf die gewählte Größe.",
+  "keys.uiScale": "Oberfläche größer · kleiner · 100 % (solange ein Spiel das Fenster füllt, gehen seine eigenen Kurzbefehle auf diesen Tasten vor)",
+  "menu.view": "Darstellung",
+  "menu.uiBigger": "Oberfläche größer",
+  "menu.uiSmaller": "Oberfläche kleiner",
+  "menu.uiReset": "Oberfläche auf 100 %"
 }
