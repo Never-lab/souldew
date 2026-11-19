@@ -406,15 +406,15 @@ test('wager: the money goes into each game once – again only into a game start
   await tick();
   assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000);
   // the winner's game: +₽2,000; a write that didn't land (the money still the old sum) goes in again
-  const marius = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [1] });
+  const sam = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [1] });
   const pay1 = new WagerPay({ doc, me: 'p1' });
-  await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write });
-  assert.equal(L.bcdDecode(marius.read(0xd347, 3)), 5000);
-  marius.put(0xd347, [0x00, 0x30, 0x00]); // (as if the write had gone to where the money was a frame earlier)
+  await pay1.tick({ game: 'redblue', read: sam.read, write: sam.write });
+  assert.equal(L.bcdDecode(sam.read(0xd347, 3)), 5000);
+  sam.put(0xd347, [0x00, 0x30, 0x00]); // (as if the write had gone to where the money was a frame earlier)
   pay1.check.at = 0;
-  assert.deepEqual(await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write }), { retry: true });
-  await pay1.tick({ game: 'redblue', read: marius.read, write: marius.write });
-  assert.equal(L.bcdDecode(marius.read(0xd347, 3)), 5000);
+  assert.deepEqual(await pay1.tick({ game: 'redblue', read: sam.read, write: sam.write }), { retry: true });
+  await pay1.tick({ game: 'redblue', read: sam.read, write: sam.write });
+  assert.equal(L.bcdDecode(sam.read(0xd347, 3)), 5000);
 });
 
 test('wager: the result card says "paid" only once the money went into the game (Gen 1: still in the Colosseum = to pay)', async () => {
