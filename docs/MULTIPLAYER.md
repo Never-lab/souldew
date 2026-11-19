@@ -558,6 +558,82 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 - Not verified: Crystal rev 1, Crystal Legacy in a running game, other languages, Polished Crystal (no ROMs here); Gen 2's bike and surf sprites drawn in a partner's game (taken from the same table as walking, the e2e didn't ride); a Gen 1 partner across a map edge in a running game (see the table).
 - Verified 19 Nov 2026 with `scripts/world-e2e.mjs` (`--plus`, `--frames`, `--edge`, `--look color`, 2 and 4 players) and battery saves made by `scripts/rom-matrix.mjs` plans (to the first Pokémon, then START › SAVE; ROM copies and saves in a scratch folder, never committed). The saves stand in Route 29's tall grass (Gen 2) and south of Oak's lab (Gen 1); the e2e keeps a Repel going so no wild Pokémon interrupt the walking.
 
+### Playing together
+
+Owner's goal: multiplayer should feel like *playing together*, not just seeing each other. Four things, built on hooks
+any generation's Shared World gets once it has its tables (a partner's position and map, "in a battle", the run's
+catches and deaths) – today the Game Boy games and Gen 3 – and, where no picture of the game is needed, for every
+game of a SoulLink.
+
+| Part | Where |
+|---|---|
+| Messages, checks, rate limits, the gift protocol (`GiftDesk`), the "come here" arrow's geometry | `shared/together.mjs` |
+| What may be given (no key items, TMs/HMs, Master Ball; Gen 1/2 by list) | `shared/giftitems.mjs` |
+| The bag: read, take out, room – through the cheats' layouts | `shared/live/cheats.mjs` `bagItems`, `removeItem`, `bagRoom` (and `addItem`) |
+| The hub per run link: statuses, pings, the run log's catches and deaths, the ledger | `web/lib/together.mjs` |
+| Cards, gift picker, watch panel, battle strip, board line, "Come to me" | `web/views/together.mjs`, `web/together.css` |
+| In the picture: ⚔, catch, tombstones, arrow; the art | `web/lib/togetheroverlay.mjs`, `web/lib/togetherart.mjs` (hooked into `worldoverlay.mjs` in a few lines) |
+
+1. **Who is in a battle, and watching it.** Each player's app sends a small status on the world action when its battle
+   or place changes, and every 5 s (`{ t: 'tg', op: 'st', v, b, here, caps }`, ~150 bytes; HP at most twice a second;
+   over the relay every 15 s and whenever a battle begins or ends). `b` is the live battle from tracking: the foe's
+   species, level, HP, shiny/form and the index and HP of the player's Pokémon out there – the partner's own Pokémon
+   (name, moves) come from the run doc's live team. A partner on a build without it: the run doc's `where:<slot>.fight`
+   says "in a battle" too (no HP), while their live data is under 90 s old.
+   - **Board** (every game, no Shared World needed): the partner's card says "In a battle – wild Zigzagoon" with
+     **Watch**.
+   - **Shared World**: a partner in a battle sends "hidden" (they left the overworld); the overlay keeps drawing them
+     where the battle began, standing, with a ⚔ bubble. Walking up and pressing A (or clicking the name tag) opens the
+     menu with **Watch** in place of Trade / Battle / Give item.
+   - **Watch** is the partner screens' live picture (`SyncLink.watchPartnerScreen`: WebRTC video on a direct link,
+     encrypted stills every ~1.5 s over the relay) – in the play view their window pops out over the play area, from
+     the board a panel – with a battle strip from live tracking under it: their Pokémon, its HP and moves, the
+     opponent and its HP. So it works even when there is no picture (the partner switched screen sharing off, the
+     game is in a background tab, or the video is still connecting – a second or more after the window opens): the
+     strip still shows the battle. Partner tiles in the dock show the one-line strip
+     too.
+2. **Catches and deaths in the world** – only what the run records, nothing made up: the hub reads the run log as it
+   arrives (entries of the last two minutes, never older ones arriving after a reconnect). A `catch` entry pops the
+   Pokémon's party icon (this computer's ROM, like the followers) up over the catcher's head in a speech bubble for
+   2.6 s. A `death` entry of *my* Pokémon makes *my* app write `tomb:<slot>:<log id>` with where I last stood on the
+   overworld (where the battle began – `SharedWorld.position()`), and every app draws a tombstone (original pixel art,
+   cut by the map's top layer like the partners) on that tile of that map for five minutes, for everyone – also for a
+   partner who walks onto that map later. A death the dying player's app didn't see (game closed) has no tombstone.
+3. **Gift an item.** "Give item" in the A menu (or on a partner's board card while your game runs here) opens a picker
+   of what your bag may give; the partner gets a card ("Marius wants to give you this – Accept / No thanks", 30 s).
+   - **Order** (shared/together.mjs `GiftDesk`): both confirm → the giver's game gives it up first (written, read
+     back) and records `gift:<id>` in the run doc → "go" → the receiver's game takes it (room checked first – all of it
+     or nothing, read back) and records the outcome once, `giftgot:<id>` → "done" / "fail". On "fail" the giver's game
+     takes it back. The receiver decides each id once and answers repeats from the doc, so a message sent twice, a
+     restart or a lost link never adds it twice. **Silence is never a "fail"**: the giver asks again (`g-q`) until an
+     answer comes, and a receiver that knows nothing of the gift (restarted, "go" never came) decides "not added"
+     then and there – a pulled cable can't copy items. A "go" later than 20 s after "yes" is refused (the giver gets
+     it back). After a restart the giver's app restores its open gifts from the doc and asks.
+   - **When:** both games running in souldew with live tracking, never during a battle or a link (a partner linked
+     with others: Give item is greyed with the A menu's "In a link with …", like Trade and Battle), and – where the
+     screen state is read (Gen 1–3 today) – only on the overworld with no menu, text or fade (the bag menu keeps its own
+     copy of the list). One gift per pair at a time; offers 3 at once, then one every 10 s, on both ends.
+   - **What:** the pockets of ordinary items only (Items, Medicine, Poké Balls, Berries where the game keeps them
+     apart); Gen 1's one bag by a list (no key items, badges, fossils, Safari Balls, TMs/HMs). Never the Master Ball
+     (one per game – passing it on would hand one player two legendaries), never TMs/HMs (one-of-a-kind and used up
+     in Gen 1–4, and in Gen 5+ given away for good), never key items. Only to a game of the same generation, and from
+     Gen 4 on of the same version family (`sameItems`: HeartGold adds items Platinum doesn't have, Black 2 items Black
+     doesn't …; Gen 3's five games share every item up to 348, the rest are key items). Up to 99 at once.
+   - **Rule** "Gifts between us" (`itemGifts`, host-signed like every rule, default on; a strict Nuzlocke can switch it
+     off): checked by both apps. **Log:** "Marius gave Tim a gift: 3 × Potion", written once by the giver
+     (`feed:gift-<id>`), in every player's language.
+4. **"Come to me".** A button next to the Shared World switches (every SoulLink game) sends your position (map and
+   world pixels, your map's size) and place sign to every partner. On the same map – or a connected one – their picture
+   shows an arrow at the edge pointing to you, or bobbing over the spot when it is on screen; otherwise the board's
+   card says "Marius is at Route 110 – come here" (and a card at the bottom of the app for a few seconds). It clears
+   when they get within two tiles, after three minutes, when you take it back or call again. Two at once, then one
+   every 20 s (both ends).
+
+Older builds ignore `t: 'tg'` (Shared World and rock-paper-scissors look only at their own types – `test/together.test.mjs`
+checks both). A partner that never sent a status has no gifts offered ("their souldew needs an update"); their board
+card still says "In a battle" from the run doc. Stream overlay: gifts are ordinary log entries (type `gift`), so the
+overlay's feed shows them; the ⚔, catches and tombstones are drawn in the game picture only.
+
 ### Limits (Gen 3)
 
 - Partners disappear behind the map's top layer exactly where the real player does (tree tops, roofs, the leaves of potted plants, counters). Not covered: tall grass (a field-effect sprite in the game, not the map), animated top-layer tiles (the mask is the ROM's first frame), and other sprites (NPCs) – partners walk through NPCs and walls on your screen if they stand there in their game (their own game decides where they can walk).

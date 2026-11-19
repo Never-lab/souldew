@@ -18,6 +18,7 @@ import { ART, HAND_ART, artSize, paintArt, artCanvas, INK } from '/lib/worldart.
 import { rpsLine } from '/shared/rps.mjs';
 import { gen3Avatar, animFrame, liveFrame, avatarPalette } from '/shared/worldsprites.mjs';
 import { mapTop, coverMask, aboveTopLayer } from '/shared/worldmap.mjs';
+import { togetherLayer, standIn, emptyTogether, POP_MS } from '/lib/togetheroverlay.mjs';
 import {
   gbSheet, sheetFrames, GB_ANIMS, gen1Icon, gen2Icon, gen2MonPalette, gen2ObjPalette, DMG_SHADES, DMG_OBP0, samplePalette, paint, gbMapView,
   grassMask, gameFollower, gameFollowerTile,
@@ -26,7 +27,7 @@ import {
 const STATE_MS = 66; // the local state to the play view (it decides what goes out)
 const WAVE_MS = 2600; // an emote bubble
 const HAND_MS = 2400; // the hands of a rock-paper-scissors round
-const EMOTE_ROW = ['heart', 'excl', 'quest', 'gg'];
+const EMOTE_ROW = ['wave', 'heart', 'excl', 'quest', 'gg']; // (Wave sits with the emotes: the menu stays short)
 const A_CONFIRM_MS = 110; // after A: the game's own answer (a sign, a person) takes over first
 const A_CONFIRM_GB_MS = 250; // (the Game Boy games run their overworld every other frame: they answer later)
 const RETRO_A = 1 << 8; // libretro joypad bit of A (nativeplayer's input)
@@ -85,6 +86,8 @@ export function installWorld(host) {
     rps: (view) => st?.rps?.(view),
     /** A round's hands over both players' heads: { hands: { slot: 0–2 }, winner } */
     rpsRound: (round) => st?.rpsRound?.(round),
+    /** Playing together (web/lib/togetheroverlay.mjs): { battles, pops, tombs, ping } from the play view */
+    together: (data) => st?.together?.(data),
     /** Can this page show a rock-paper-scissors game right now (Shared World on, the overworld on screen)? */
     canPresent: () => !!st?.canPresent?.(),
     /** nativeplayer: the WATCHED bytes of the picture that comes next */
@@ -216,6 +219,10 @@ function world(host, t, rom, dex) {
   let covered = {}; // diagnostics: hidden pixels per partner slot ('me': the local player's redraw)
   const scratch = document.createElement('canvas');
   const sctx = scratch.getContext('2d');
+  // playing together: partners in a battle, catches, tombstones, "come here" (web/lib/togetheroverlay.mjs)
+  const tl = togetherLayer(t);
+  let tg = emptyTogether();
+  let tgDrawn = {};
 
   const toCanvas = (rgba, w, h) => {
     const c = document.createElement('canvas');
@@ -478,10 +485,12 @@ function world(host, t, rom, dex) {
     const list = [];
     for (const [slot, tr] of tracks) {
       const conv = conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null;
-      const s = tr.sample(now, conv);
+      const s0 = tr.sample(now, conv);
+      // (a partner in a battle stays where it began, with a ⚔ – their follower is in the battle with them)
+      const s = standIn(s0, tr, conv, !!tg.battles[slot]);
       const pos = can && cfg.enabled && s ? screenPos(t, cam, s) : null;
       list.push({ slot, s, pos });
-      followTrail(slot, s, conv ? `L${cam?.map}` : s?.map);
+      followTrail(slot, s0, conv ? `L${cam?.map}` : s0?.map);
     }
     // (Yellow's own Pikachu already walks behind you there: no second follower)
     const own = cfg.follow && cfg.lead && me && !followerHidden(me) && !gbOwnFollows ? ownFollower.update(`L${cam.map}`, me.x, me.y, me.facing) : null;
@@ -506,13 +515,16 @@ function world(host, t, rom, dex) {
         if (f && !f.hidden && p.s && !followerHidden(p.s) && (p.s.local || p.s.map === cam.map)) addFollower(sprites, p.slot, f, leads.get(p.slot), p.s.elev);
       }
       if (own && !own.hidden) addFollower(sprites, cfg.me, own, cfg.lead, me.elev);
+      if (cfg.enabled) sprites.push(...tl.tombSprites(cam, conns, tg.tombs));
     }
     // the partners behind the local player first, then the player's own sprite again (only where it covers one of
     // them), then those in front: depth as in the game, by the feet's line
     const spr = can ? readLocalSprite(t, read) : null;
     // (a Game Boy draws your own sprite over every other one – it has the first OAM entries: it goes last)
     const localFeet = gb ? Infinity : spr ? spr.y + spr.h : t.anchor.y + TILE;
-    const drawn = sprites.sort((a, b) => a.pos.y - b.pos.y || (a.kind === 'follower' ? -1 : 1));
+    // (on one line: a tombstone on the ground first, then the followers, then the players)
+    const order = { tomb: 0, follower: 1 };
+    const drawn = sprites.sort((a, b) => a.pos.y - b.pos.y || (order[a.kind] ?? 2) - (order[b.kind] ?? 2));
     occ = can && drawn.length ? readOcclusion(read) : null; // (nobody here: no tilesets to decode either)
     popup = can ? popupRect(t, read, popup) : null;
     covered = {};
@@ -531,6 +543,7 @@ function world(host, t, rom, dex) {
         localDone = true;
       }
       if (p.kind === 'follower') drawFollower(p, now);
+      else if (p.kind === 'tomb') tl.drawTomb(p, drawSprite);
       else drawPartner(p, now);
     }
     if (!localDone) drawLocal(spr, drawn, me);
@@ -542,16 +555,22 @@ function world(host, t, rom, dex) {
       const vis = !!p.pos && can && !underPopup(p.pos.x + TILE / 2, p.pos.y - 8);
       el.style.opacity = vis ? String(Math.round(shown * 100) / 100) : '0';
       el.style.pointerEvents = vis ? 'auto' : 'none';
-      const b = bubbles.get(p.slot);
-      const talking = vis && b && now < b.until;
+      const b0 = bubbles.get(p.slot);
+      // (in a battle: the ⚔ bubble stays while it lasts – an emote shows over it for its moment)
+      const b = vis && b0 && now < b0.until ? b0 : vis && p.s.battling ? { art: 'battle', start: -1e9, until: Infinity } : null;
+      const talking = !!b;
       const a = vis ? avatarFor(gfxFor(t, p.s.kind, p.s.gender)) : null;
       const head = vis ? p.pos.y + TILE - (a?.h || 32) + (a?.vtop || 0) + (t.spriteDy || 0) : 0;
+      const pop = vis ? tg.pops.find((x) => x.slot === p.slot) : null;
+      const popIc = pop ? iconFor(pop) : null;
+      const lift = (talking ? 19 + (artSize(b.art)[1] - 8) : 1) + (popIc ? popIc.bottom - popIc.top + 14 : 0);
       if (vis) {
-        // the name just above the head – above the bubble while there is one
+        // the name just above the head – above the bubble (and a catch) while there is one
         el.style.left = `${((p.pos.x + TILE / 2) / t.screen.w) * 100}%`;
-        el.style.top = `${((head - (talking ? 19 + (artSize(b.art)[1] - 8) : 1)) / t.screen.h) * 100}%`;
+        el.style.top = `${((head - lift) / t.screen.h) * 100}%`;
       }
       if (talking) bubble(p.slot, b, p.pos.x + TILE / 2, head - 1, now);
+      if (popIc) tl.drawPop(ctx, popIc, p.pos.x + TILE / 2, head - (talking ? 17 + (artSize(b.art)[1] - 8) : 0), now - pop.atPage);
     }
     const mine = bubbles.get(cfg.me);
     if (can && mine && now < mine.until) {
@@ -559,6 +578,10 @@ function world(host, t, rom, dex) {
       const head = spr ? spr.y + (la?.vtop || 0) : t.anchor.y - 8;
       bubble(cfg.me, mine, spr ? spr.x + spr.w / 2 : t.anchor.x + 8, head - 1, now);
     }
+    // a partner's "come here": an arrow at the edge toward them (or over the spot when it's on the picture)
+    tgDrawn = { ping: can && cfg.enabled && tg.ping ? tl.drawPing(ctx, cam, conns, tg.ping, cfg.players[tg.ping.slot]?.color || '#ebe6da', now) : null,
+      tombs: drawn.filter((p) => p.kind === 'tomb').map((p) => p.id), battling: list.filter((p) => p.pos && p.s?.battling).map((p) => p.slot),
+      pops: tg.pops.filter((x) => list.some((p) => p.pos && p.slot === x.slot)).map((x) => `${x.slot}:${x.species}`) };
     ctx.restore();
     interact(now, read, can, list);
     near = list.filter((p) => p.pos).length;
@@ -728,10 +751,13 @@ function world(host, t, rom, dex) {
     const pl = cfg.players[slot];
     const L = cfg.labels;
     const ac = cfg.actions[slot] || {};
+    // (a partner in a battle: Watch instead of Trade / Battle / Give item, which can't be done with them now)
     const items = [
-      { act: 'trade', label: L.trade || 'Trade', on: !!ac.trade },
-      { act: 'battle', label: L.battle || 'Battle', on: !!ac.battle },
-      { act: 'wave', label: L.wave || 'Wave', on: true },
+      ...(ac.watch ? [{ act: 'watch', label: L.watch || 'Watch', on: true }] : [
+        { act: 'trade', label: L.trade || 'Trade', on: !!ac.trade },
+        { act: 'battle', label: L.battle || 'Battle', on: !!ac.battle },
+        ...(ac.gift !== undefined ? [{ act: 'gift', label: L.gift || 'Give item', on: !!ac.gift, title: ac.giftWhy || '' }] : []),
+      ]),
       { act: 'rps', label: L.rps || 'Rock-paper-scissors', on: ac.rps !== false },
       { act: 'emote', row: EMOTE_ROW, on: true },
       { act: 'close', label: L.cancel || 'Cancel', on: true },
@@ -777,12 +803,13 @@ function world(host, t, rom, dex) {
       b.setAttribute('role', 'menuitem');
       b.textContent = it.label;
       b.disabled = !it.on;
+      if (it.title) b.title = it.title;
       b.addEventListener('click', pick(0));
       b.addEventListener('pointerenter', () => it.on && select(i));
       el.append(b);
       buttons.push(b);
     });
-    const why = !ac.trade && !ac.battle ? ac.why || '' : '';
+    const why = !ac.watch && !ac.trade && !ac.battle ? ac.why || '' : '';
     if (why) {
       const w = document.createElement('div');
       w.className = 'sw-why';
@@ -1083,6 +1110,11 @@ function world(host, t, rom, dex) {
       if (v && v.phase === 'pick') v = { ...v, untilPage: performance.now() + Math.max(0, v.leftMs ?? 10000) };
       rpsView(v);
     },
+    together(d) {
+      // (a catch's age, from the play view's clock to this page's)
+      const now = performance.now();
+      tg = { ...emptyTogether(), ...d, pops: (d?.pops || []).map((x) => ({ ...x, atPage: now - Math.max(0, x.age || 0) })).filter((x) => now - x.atPage < POP_MS) };
+    },
     rpsRound(r) {
       const now = performance.now();
       for (const [slot, hand] of Object.entries(r?.hands || {})) {
@@ -1131,7 +1163,7 @@ function world(host, t, rom, dex) {
         rps: rpsUi ? { id: rpsUi.id, phase: rpsUi.v?.phase, modal: rpsUi.modal, sel: rpsUi.sel, say: rpsUi.say.textContent } : null,
         bubbles: Object.fromEntries([...bubbles].filter(([, b]) => now < b.until).map(([slot, b]) => [slot, b.art])),
         local: cam ? readPlayer(t, reader(), cam) : null, sprite: lastSprite, icons: !!icons,
-        followers: fdraw, own: ownLast, conns,
+        followers: fdraw, own: ownLast, conns, together: tgDrawn,
         occlusion: occ ? { layout: occ.layout, covered } : null, popup,
         ...(gb ? { gb: { palette: gbObj, ownFollows: gbOwnFollows, grass: me0 && occ?.gb ? occ.grassAt(me0.tx, me0.ty) : null } } : {}),
         ranges: watched?.ranges || null,

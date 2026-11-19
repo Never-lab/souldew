@@ -13,6 +13,8 @@ import { detectLayout, resolveHotkeys, accelerator } from './lib/controls.mjs';
 import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, logLinkBattle, rules as getRules, lives as getLives, livesFor, settleLives, revealHeld, startRules, HELD_PREFIX } from './lib/run.mjs';
 import { attachRps } from './lib/worldrps.mjs';
 import { RpsCards } from './views/rps.mjs';
+import { attachTogether } from './lib/together.mjs';
+import { TogetherCards } from './views/together.mjs';
 import { sessionsIn, outcomeOf } from './lib/wager.mjs';
 import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal } from './lib/ui.mjs';
@@ -763,6 +765,7 @@ function App() {
     });
     linkRef.current = link;
     attachRps(link, { doc, manifest }); // rock-paper-scissors between the players (lib/worldrps.mjs)
+    attachTogether(link, { doc, manifest }); // battles, gifts, catches and deaths, "come to me" (lib/together.mjs)
     linkPlayRef.current?.stop();
     // a link session: the play view shows the local seat (target.link); its end closes it
     // this player's game of this run, running in the fast player right now (a link session starts from it – seamless)
@@ -1027,7 +1030,7 @@ function App() {
         <div class=${`main-inner ${session && showsSession ? 'under-session' : ''}`}><${Boundary} route=${route.route}><${View} /><//></div>
         ${session && html`<${Boundary} route="session"><${GameSession} key=${session.target.key + session.at} session=${session} mode=${showsSession ? 'full' : 'mini'} /><//>`}
         ${externalRun && html`<${Boundary} route="external"><${ExternalFeed} /><//>`}
-        <${RpsCards} />
+        <div class="cards-dock"><${RpsCards} /><${TogetherCards} /></div>
       </main>
     </div>
     ${showOnboarding && !boot && html`<${Onboarding} onDone=${() => navigate('library')} />`}
