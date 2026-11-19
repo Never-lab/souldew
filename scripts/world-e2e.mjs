@@ -333,6 +333,7 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
   // 4. an emote: A → menu → the heart; B sees it over A
   await sleep(600);
   await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
+  if (ds) log('after A again', JSON.stringify(await world(0)), 'B:', JSON.stringify(await world(1)));
   await until('menu again', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && !String((await world(0))?.menu?.sel || '').startsWith('emote'); n++) { await key(0, 'ArrowDown'); await sleep(120); }
   // (the row starts with Wave since 3.0's playing together: along it to the heart)

@@ -712,7 +712,8 @@ function worldDs(host, t, gfx) {
       const me = dsPlayer(t, latest);
       return {
         supported: true, game: t.id, gen: 4, enabled: cfg.enabled, follow: cfg.follow, lead: cfg.lead, drawable: dsDrawable(shown), perFrame: !!watched?.bytes,
-        local: me, shownLocal: dsPlayer(t, shown), map: latest ? dsMapKey(latest) : null, field: latest ? { task: latest.task, running: latest.running, parent: latest.parent, child: latest.child, fc: latest.fc } : null,
+        local: me, shownLocal: dsPlayer(t, shown), map: latest ? dsMapKey(latest) : null, field: latest ? { field: latest.field, task: latest.task, running: latest.running, parent: latest.parent, child: latest.child, fc: latest.fc } : null,
+        ptr, watching: watched ? { ranges: watched.ranges.length, total: watched.total, bytes: !!watched.bytes } : null,
         followerKind: gfx.followers?.kind || null, drawn: drawnDebug, tint, tintErr, ...ui.debug(),
         depth: depthNow ? { wbuffer: depthNow.wbuffer, rects: depthNow.rects.map((r) => [r.x, r.y, r.w, r.h]), hidden: depthCost.hidden, msPerPicture: depthCost.n ? Math.round((depthCost.ms / depthCost.n) * 1000) / 1000 : null } : null,
         together: tgDrawn,
