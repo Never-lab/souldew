@@ -13,6 +13,7 @@ import { IS_MAC, IS_WIN, shortPath } from '../lib/platform.mjs';
 import { addedToLibrary, addedMessage, unpackToast } from '../lib/libadded.mjs';
 import { patchTitle } from '/shared/patchname.mjs';
 import { updateVersionLabel } from '../lib/ctrupdate.mjs';
+import { ImportSaveButton } from './saveimport.mjs';
 
 const SYS = { gb: 'GB', gbc: 'GBC', gba: 'GBA', nds: 'DS', '3ds': '3DS' };
 
@@ -603,9 +604,10 @@ function PlayButtons({ romId, patchId, system, close }) {
 const libDownload = (params) => `/api/library/download?${new URLSearchParams(params)}`;
 const soloSaveUrl = (id) => `/api/saves/solo/download?id=${encodeURIComponent(id)}`;
 
-/** Does the integrated emulator have a save file for this solo game? Returns { modified } or null. */
+/** Does the integrated emulator have a save file for this solo game? Returns { modified, id, refresh } or null. */
 function useSoloSave(id) {
   const [info, setInfo] = useState(null);
+  const [ver, setVer] = useState(0); // (after a save was imported or the import undone)
   useEffect(() => {
     let alive = true;
     setInfo(null);
@@ -615,24 +617,31 @@ function useSoloSave(id) {
         .catch(() => {});
     }
     return () => { alive = false; };
-  }, [id]);
-  return info;
+  }, [id, ver]);
+  return { info, refresh: () => setVer((v) => v + 1) };
 }
 
-function ExportFiles({ links }) {
+/**
+ * "Save as file": copies of the player's own files – and, for a game with a save (`save`: useSoloSave of the game's
+ * library id, `system`, `label`), "Import a save file …" (web/views/saveimport.mjs) next to them.
+ */
+function ExportFiles({ links, save = null, saveId = null, system = null, label = '' }) {
   const shown = links.filter(Boolean);
-  if (!shown.length) return null;
+  const importTarget = saveId && system ? { id: saveId, system, label } : null;
+  if (!shown.length && !importTarget) return null;
   return html`<div class="export-box">
     <div class="export-head"><${Icon} name="download" size=${16} /><b>${t('lib.exportTitle', 'Save as file')}</b></div>
     <div class="row">
       ${shown.map((l) => html`<a class="btn small" href=${l.href} download="" title=${l.title || ''} onClick=${l.onClick}>
         <${Icon} name=${l.icon || 'download'} size=${16} />${l.label}</a>`)}
+      <${ImportSaveButton} target=${importTarget} onDone=${() => save?.refresh?.()} />
     </div>
     <p class="small faint">${t('lib.exportHint', 'Saves a copy of your own files – the originals stay in your library.')}</p>
   </div>`;
 }
 
-function saveLink(id, info) {
+function saveLink(id, save) {
+  const info = save?.info;
   if (!info) return null;
   const when = info.modified ? new Date(info.modified) : null;
   return {
@@ -679,7 +688,7 @@ function GameDetail({ id, onClose, openHack }) {
         ${rom
           ? html`<${PlayButtons} romId=${rom.id} system=${g.system} close=${onClose} />
             <${NewRunButtons} gameId=${g.id} close=${onClose} />
-            <${ExportFiles} links=${[
+            <${ExportFiles} save=${save} saveId=${rom.id} system=${g.system} label=${gameTitle(g)} links=${[
               { href: libDownload({ id: rom.id }), label: t('lib.exportRom', 'Save ROM'), title: rom.name },
               saveLink(rom.id, save),
             ]} />`
@@ -842,7 +851,7 @@ function HackDetail({ id, onClose, openGame }) {
           <${PlayButtons} romId=${baseRom.id} patchId=${patch.id} system=${h.system} close=${onClose} />
         </div>
         <${NewRunButtons} gameId=${h.baseGameId} hackId=${h.id} close=${onClose} />`}
-        ${patch && html`<${ExportFiles} links=${[
+        ${patch && html`<${ExportFiles} save=${save} saveId=${canPatch ? `${baseRom.id}|${patch.id}` : null} system=${h.system} label=${h.name} links=${[
           canPatch && {
             href: libDownload({ romId: baseRom.id, patchId: patch.id }), label: t('lib.exportPatched', 'Save patched game'),
             title: t('lib.exportPatchedHint', '{hack}, built from your {rom}', { hack: h.name, rom: baseRom.name }),
@@ -920,7 +929,7 @@ function PatchDetail({ family, onClose, openGame }) {
         ${!baseRom && patch.expectedCrc && html`<div class="row">
           <button class="btn ghost" onClick=${() => addGamesFlow({ reloadLibrary, toast })}><${Icon} name="plus" size=${16} />${t('lib.addFiles', 'Add files')}</button>
         </div>`}
-        <${ExportFiles} links=${[
+        <${ExportFiles} save=${save} saveId=${canPatch ? `${baseRom.id}|${patch.id}` : null} system=${baseRom?.system} label=${title} links=${[
           canPatch && {
             href: libDownload({ romId: baseRom.id, patchId: patch.id }), label: t('lib.exportPatched', 'Save patched game'),
             title: t('lib.exportPatchedHint', '{hack}, built from your {rom}', { hack: title, rom: baseRom.name }),
@@ -964,7 +973,7 @@ function RomDetail({ id, onClose, openHack }) {
             <${RomHackAction} rom=${r} onLinked=${openHack} />`}
         <${PlayButtons} romId=${r.id} system=${r.system} close=${onClose} />
         ${r.customHack && html`<${NewRunButtons} gameId=${r.gameId} romId=${r.id} close=${onClose} />`}
-        <${ExportFiles} links=${[
+        <${ExportFiles} save=${save} saveId=${r.id} system=${r.system} label=${title} links=${[
           { href: libDownload({ id: r.id }), label: t('lib.exportRom', 'Save ROM'), title: r.name },
           saveLink(r.id, save),
         ]} />

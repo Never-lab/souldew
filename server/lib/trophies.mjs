@@ -71,7 +71,8 @@ function guessSlot(m) {
 // Bump when digestRun (shared/trophies.mjs) or the generation lookup here reads a run differently: every run is
 // digested again (2: a hack's base game's generation, evolutions once per step, the partner's deaths, bonus deaths;
 // 3: every cheat counts against Honest Work, not only Rare Candies – cheatUses).
-const DIGEST_VERSION = 3;
+// 4: a run with an imported battery save – its wins, badges and levels don't count (run.json saveImports).
+const DIGEST_VERSION = 4;
 
 /** The generation of a run's game – or a hack's base game (a hack run's game id can be the hack's). */
 function genOf(m, games) {
@@ -102,7 +103,7 @@ function refreshRuns(state) {
     const p = join(runDir(m.id), 'doc.json');
     try {
       const st = statSync(p);
-      sig = `v${DIGEST_VERSION}:${st.size}:${Math.round(st.mtimeMs)}:${slot}:${m.updatedAt || ''}:${m.name || ''}`;
+      sig = `v${DIGEST_VERSION}:${st.size}:${Math.round(st.mtimeMs)}:${slot}:${m.updatedAt || ''}:${m.name || ''}:${(m.saveImports?.[slot] || []).length}`;
     } catch {
       // no doc yet – a fresh run still counts as started
     }

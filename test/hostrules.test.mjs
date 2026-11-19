@@ -45,6 +45,7 @@ const MINE = {
   typeClause: 'party', dupes: 'both', missedDupes: true, failKillsPair: false, shinyClause: false, gifts: 'free', levelCaps: false,
   cheats: true, lives: 3, livesPool: 'player', typeHelp: false, autoAssign: false, autoDeath: false, startAtBalls: false,
   linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true, linkWagers: 'off', linkWagerCap: 5000, itemGifts: 'off', raids: 'off', raidDeaths: false,
+  saveImports: true,
 };
 
 function mkDoc(by, runId = 't') {
@@ -426,6 +427,7 @@ test('every change of the host goes to the log, in clear words', () => {
     'rule p1 turned off “Gifts between us” for everyone',
     'rule p1 turned off “Shiny clause: shinies may always be caught and stay unlinked” for everyone',
     'rule p1 turned off “Trades between us (link)” for everyone',
+    'rule p1 turned on “Allow importing a save file” for everyone',
     'rule p1 turned on “Fled or knocked-out encounters count as dupes” for everyone',
     'rule p1 turned on “Losing a link battle counts as deaths” for everyone',
     'rule p1 turned the type matchup help off for everyone',

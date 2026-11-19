@@ -17,6 +17,7 @@ import { RunFriendInvites } from './friends.mjs';
 import { HostCode, PackVersionNote } from './invitecode.mjs';
 import { RestartModal } from './restart.mjs';
 import { KeepIntroItem } from './introsave.mjs';
+import { SaveImportDialog } from './saveimport.mjs';
 import { useStreamer } from '../lib/streamer.mjs';
 import { NuzlockeRules, Choice, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, HostRulesNote, BallsRule, LinkRules, GiftRule, RaidRules } from './nuzrules.mjs';
 import { ShareButton, HallOfFame } from './liveshare.mjs';
@@ -242,10 +243,14 @@ function endReason(st) {
   return { blackout: t('end.reasonBlackout', 'blackout'), deathless: t('end.reasonDeathless', 'deathless rule'), wipe: t('end.reasonWipe', 'team wiped'), lives: t('end.reasonLives', 'out of lives') }[st.reason] || '';
 }
 
-/** Export: my ROM, my save (only once one exists), the invite – plain downloads from the server. */
+/**
+ * Export: my ROM, my save (only once one exists), the invite – plain downloads from the server. Import: a save file from
+ * elsewhere into my game (web/views/saveimport.mjs – once the game is built).
+ */
 function FilesMenu() {
   const { manifest, me } = useApp();
   const [open, setOpen] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [hasSave, setHasSave] = useState(false);
   const [intro, setIntro] = useState(null); // can this save become the intro save of the game (KeepIntroItem)
   const base = `/api/runs/${manifest.id}/download`;
@@ -266,9 +271,13 @@ function FilesMenu() {
       ${manifest.outputs?.[me] && html`<a role="menuitem" href=${`${base}?what=rom&slot=${me}`} download>${t('board.fileRom', 'Save my game (ROM)')}</a>`}
       ${hasSave && html`<a role="menuitem" href=${`${base}?what=save&slot=${me}`} download>${t('board.fileSave', 'Save my save file')}</a>`}
       <${KeepIntroItem} manifest=${manifest} me=${me} state=${intro} onDone=${() => setOpen(false)} />
+      ${manifest.outputs?.[me] && html`<button role="menuitem" onClick=${() => { setOpen(false); setImporting(true); }}
+        title=${t('simp.openHint', 'Replace this game’s save with one from another emulator, a flash cart or an older backup – the current one is backed up first.')}>${t('simp.open', 'Import a save file …')}</button>`}
       ${!isNuzlocke(manifest) && html`<a role="menuitem" href=${`${base}?what=pack`} download>${t('board.filePack', 'Save invite')}</a>`}
       ${nothing && html`<span class="small faint" style="padding:7px 10px;white-space:nowrap">${t('board.filesNone', 'Nothing to save yet.')}</span>`}
     </div>`}
+    ${importing && html`<${SaveImportDialog} target=${{ runId: manifest.id, slot: me, system: manifest.game?.system, label: manifest.name }}
+      onClose=${() => setImporting(false)} />`}
   </div>`;
 }
 

@@ -602,6 +602,7 @@ const switchLabels = (n) => ({
   linkBattles: msg('rules.linkBattles', 'Battles between us (link)'),
   linkBattleDeaths: msg('rules.linkBattleDeaths', 'Losing a link battle counts as deaths'),
   itemGifts: msg('rules.itemGifts', 'Gifts between us'),
+  saveImports: msg('rules.saveImports', 'Allow importing a save file'),
 });
 // (the link rules say 'on' / 'off')
 const switchOn = (v) => !!v && v !== 'off';
@@ -1233,6 +1234,48 @@ export function revealHeld(doc, manifest, slot, { keep = null, olderThan = 0, no
   return out;
 }
 
+/** How long after the first look at an imported save its Pokémon are still taken as brought along (the PC is read later). */
+export const IMPORT_WINDOW = 60 * 1000;
+
+/**
+ * A battery save imported into `slot`'s game (the board's Files menu, web/views/saveimport.mjs – `simport:<slot>` in the
+ * doc, written before the save is): the first look at the game afterwards takes what it holds as where the player
+ * stands – its Pokémon are set aside (ignored, reason 'imported': no catch, no encounter, no death), its badges are no
+ * news, tracked Pokémon in it are brought up to date quietly. That lasts until the PC was read too (a snapshot with
+ * boxes) or IMPORT_WINDOW has passed since the first look. → null (nothing to do) or { writes } for this snapshot.
+ */
+export function importBaseline(doc, slot, snap, now = Date.now()) {
+  const imp = doc.get(`simport:${slot}`, null);
+  if (!imp || typeof imp !== 'object' || imp.done || !imp.at) return null;
+  // (an empty look – a title screen, a reset – isn't the save yet: applySnapshot returns before this for those)
+  const since = Number.isFinite(imp.since) ? imp.since : now;
+  const done = Array.isArray(snap?.boxes) || now - since >= IMPORT_WINDOW;
+  return { writes: { [`simport:${slot}`]: { ...imp, since, ...(done ? { done: true } : {}) } } };
+}
+
+/** Can this player import a save into the run? A Nuzlocke: yes. A SoulLink: only where the host allows it (rule `saveImports`). */
+export function canImportSave(doc, manifest) {
+  if (!manifest) return { ok: true };
+  if (runMode(manifest) === 'nuzlocke') return { ok: true };
+  return rules(doc, manifest).saveImports ? { ok: true } : { ok: false, reason: 'host' };
+}
+
+/**
+ * The marker importBaseline reads – written before the save goes to the server, so no look at the game can come first.
+ * `clear`: the import failed – the marker goes.
+ */
+export function markSaveImport(doc, slot, { clear = false } = {}) {
+  doc.set(`simport:${slot}`, clear ? null : { at: Date.now() });
+}
+
+/** The import in the run's log, for everyone (also older partners – the English text goes along). `undo`: it was undone. */
+export function logSaveImport(doc, manifest, slot, { undo = false } = {}) {
+  const solo = slotsOf(manifest).length === 1;
+  feedMsg(doc, manifest, { type: 'saveImport', slot, ...(undo ? { undo: true } : {}), msg: undo
+    ? solo ? msg('feed.saveImportUndoSolo', 'Imported save undone – the save from before is back') : msg('feed.saveImportUndo', 'undid the save import – the save from before is back')
+    : solo ? msg('feed.saveImportSolo', 'Save file imported – its Pokémon and badges don’t count for the run') : msg('feed.saveImport', 'imported a save file – its Pokémon and badges don’t count for the run') });
+}
+
 /**
  * Apply a snapshot of `slot`'s game: { party: [mon], boxes: [mon]|null, badges, trainer, playTime, source }.
  * Mons are normalized: { key, species, nickname, level, hp, maxHp, status, shiny, gender, metLocation, metLevel, isEgg, inParty }.
@@ -1271,6 +1314,8 @@ export function applySnapshot(doc, manifest, gen, slot, snap, { auto = true, rd 
   // the Pokémon of the intro save this player's game started from (server/lib/introsave.mjs – normally none, it's a
   // save from before the starter): no encounter, no catch, no death – they are set aside like ignored ones
   const fromIntro = new Set(Array.isArray(manifest?.intro?.[slot]?.keys) ? manifest.intro[slot].keys : []);
+  // a battery save this player just imported (importBaseline): what it brought along is where the player stands
+  const imp = importBaseline(doc, slot, snap);
   const inbox = [];
   const alerts = [];
   const newCatches = [];
@@ -1350,6 +1395,16 @@ export function applySnapshot(doc, manifest, gen, slot, snap, { auto = true, rd 
     if (seen.has(m.key)) continue;
     seen.add(m.key);
     const k = known.get(m.key);
+    if (k && imp) {
+      // (a tracked Pokémon in the imported save: brought up to date quietly – no evolution in the log, no death; the
+      // trophies don't take a level or a species it may have reached elsewhere – shared/trophies.mjs)
+      const patch = {};
+      if (k.enc.species !== m.species) patch.species = m.species;
+      if (m.level && m.level !== k.enc.level) patch.level = m.level;
+      if (m.nickname && m.nickname !== k.enc.nickname) patch.nickname = m.nickname;
+      if (Object.keys(patch).length) writes[`enc:${k.area}:${slot}`] = { ...k.enc, ...patch };
+      continue;
+    }
     if (k) {
       const patch = {};
       if (k.enc.species !== m.species) {
@@ -1374,8 +1429,8 @@ export function applySnapshot(doc, manifest, gen, slot, snap, { auto = true, rd 
       continue;
     }
     if (ignored[m.key] || extras[m.key]) continue;
-    if (fromIntro.has(m.key)) {
-      writes[`ign:${slot}:${m.key}`] = { species: m.species, nickname: m.nickname || null, level: m.level || null, shiny: !!m.shiny, reason: 'intro', at: Date.now() };
+    if (fromIntro.has(m.key) || imp) {
+      writes[`ign:${slot}:${m.key}`] = { species: m.species, nickname: m.nickname || null, level: m.level || null, shiny: !!m.shiny, reason: imp ? 'imported' : 'intro', at: Date.now() };
       continue;
     }
     // Gen 4 writes a caught Pokémon into the party first and its met data (place, level) a moment later –
@@ -1459,7 +1514,8 @@ export function applySnapshot(doc, manifest, gen, slot, snap, { auto = true, rd 
   // (the first count a game gives after it had none – Gen 3 and Diamond/Pearl/Platinum didn't read badges before – is
   // where the player stands, not badges won just now)
   const firstRead = snap.badges !== undefined && prevLive && !prevLive.badgesRead && snap.source !== 'save';
-  if (prevLive && badges > best && !firstRead) {
+  if (imp) Object.assign(writes, imp.writes);
+  if (prevLive && badges > best && !firstRead && !imp) {
     feedMsg(doc, manifest, { type: 'badge', slot, msg: msg('feed.badge', 'Earned badge #{n}!', { n: badges }) });
     // Nuzlocke: was the boss beaten with a mon over the cap that applied before this badge? (The team as last
     // seen before the badge – levels gained in that very fight are allowed.)

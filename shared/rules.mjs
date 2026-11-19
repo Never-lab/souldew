@@ -44,6 +44,10 @@ export const DEFAULT_RULES = {
   // items given from one player's bag to another's (docs/MULTIPLAYER.md › 9 "Playing together", web/lib/together.mjs):
   // allowed unless the host switched it off ('on' | 'off') – a strict Nuzlocke may want every player on their own
   itemGifts: 'on',
+  // importing a battery save from elsewhere into a player's game (web/views/saveimport.mjs): a big change, so a SoulLink
+  // allows it only when the host switched it on; every import goes to the log, and what the save brings along doesn't
+  // count (no catches, badges or trophies from it). A solo Nuzlocke asks its player instead.
+  saveImports: false,
   // (the Discord webhook is not a rule: it stays on this computer – GET/PUT /api/runs/:id/discord)
 };
 
