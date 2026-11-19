@@ -8,6 +8,7 @@ import { readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const header = new URL('../native/ctr-host/coremsg.h', import.meta.url);
 const cc = ['cc', 'clang', 'gcc'].find((c) => spawnSync(c, ['--version']).status === 0);
@@ -40,7 +41,7 @@ function run(feed) {
     const src = join(dir, 'driver.c');
     const exe = join(dir, 'driver');
     writeFileSync(src, DRIVER);
-    const b = spawnSync(cc, ['-O1', '-Wall', '-Werror', '-I', new URL('.', header).pathname, '-o', exe, src]);
+    const b = spawnSync(cc, ['-O1', '-Wall', '-Werror', '-I', fileURLToPath(new URL('.', header)), '-o', exe, src]);
     assert.equal(b.status, 0, String(b.stderr));
     const r = spawnSync(exe, { input: feed.map(([t, m]) => `${t} ${m}`).join('\n') + '\n' });
     assert.equal(r.status, 0, String(r.stderr));
