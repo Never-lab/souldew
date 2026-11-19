@@ -269,7 +269,7 @@ test('import into a game without a save: Undo removes it again; other saves’ b
   assert.equal(existsSync(path), false);
   // many imports: only this save's oldest import backups go
   for (let i = 0; i < 20; i++) I.replaceSave({ path, bytes: Buffer.from(`v${i}`), backupDir: backups, key: 'p2', now: Date.UTC(2026, 0, 1, 0, i) });
-  assert.ok(I.importBackups(backups, 'p2').length <= I.KEEP_BACKUPS);
+  assert.ok(I.importBackups(backups, 'p2').length <= I.KEEP_BACKUPS + 1, '(+ the save from before the first import)');
   assert.ok(existsSync(join(backups, '2026-01-01.sav')));
   rmSync(dir, { recursive: true, force: true });
 });
@@ -423,4 +423,17 @@ test('trophies: a run with an imported save earns nothing for winning, counts on
   assert.equal(dex[6]?.caught || 0, 0);
   // another player's import in the same run doesn't touch this player's trophies
   assert.equal(Tr.digestRun(run({ saveImports: { p2: [{ at: T0 }] } }), entries, 'p1').imported, undefined);
+});
+
+test('many imports in a row: the save from before the first one is never pruned away', () => {
+  const dir = tmp();
+  const path = join(dir, 'p1.sav');
+  const backups = join(dir, 'backups');
+  writeFileSync(path, 'my real save');
+  for (let i = 0; i < 20; i++) I.replaceSave({ path, bytes: Buffer.from(`try ${i}`), backupDir: backups, key: 'p1', now: Date.UTC(2026, 0, 1, 0, i) });
+  const kept = I.importBackups(backups, 'p1');
+  assert.ok(kept.length <= I.KEEP_BACKUPS + 1);
+  const first = kept.filter((b) => b.kind === 'before').at(-1);
+  assert.equal(readFileSync(join(backups, first.file), 'utf8'), 'my real save');
+  rmSync(dir, { recursive: true, force: true });
 });

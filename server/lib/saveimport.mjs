@@ -106,9 +106,15 @@ export function importBackups(dir, key) {
     .sort((a, b) => b.at - a.at || b.file.localeCompare(a.file));
 }
 
-/** The oldest import backups past KEEP_BACKUPS go (only souldew's own `import-…` files – by their exact names). */
+/**
+ * The oldest import backups past KEEP_BACKUPS go (only souldew's own `import-…` files – by their exact names) – except
+ * the oldest "before": the save the player had before their first import, which a few tries with other files must
+ * never cost them.
+ */
 function prune(dir, key, keep = KEEP_BACKUPS) {
-  for (const b of importBackups(dir, key).slice(keep)) rmSync(join(dir, b.file), { force: true });
+  const all = importBackups(dir, key);
+  const first = all.filter((b) => b.kind === 'before').at(-1)?.file;
+  for (const b of all.slice(keep)) if (b.file !== first) rmSync(join(dir, b.file), { force: true });
 }
 
 const undoPath = (dir, key) => join(dir, `${PREFIX}${key}-${UNDO}`);
