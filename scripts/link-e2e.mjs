@@ -499,6 +499,24 @@ async function main() {
       const sb1 = Buffer.concat([1, 2, 3, 4].map((id) => b.subarray(sec[id], sec[id] + 0xf80)));
       return { money: sb1.readUInt32LE(0x490), key: b.readUInt32LE(sec[0] + 0xac) };
     };
+    /**
+     * DS money in a battery save: Gen 4 – the newer of the two general blocks (0 / 0x40000, by the footer's save
+     * counter; PKHeX SAV4BlockDetection), the trainer block +0x14; Gen 5 – the misc block's first word (BW 0x21200, B2W2
+     * 0x21100; PKHeX Misc5). Both games of a pair write the same layout.
+     */
+    const saveMoneyDS = (b, game) => {
+      const g4 = { platinum: [0xcf2c, 0x14, 0x68], dp: [0xc100, 0x14, 0x64], hgss: [0xf628, 0x10, 0x64] }[game];
+      if (g4) {
+        const [size, foot, trainer] = g4;
+        const count = (o) => b.readUInt32LE(o + size - foot);
+        const c0 = count(0), c1 = count(0x40000);
+        const o = c0 === 0xffffffff ? 0x40000 : c1 === 0xffffffff || c0 >= c1 ? 0 : 0x40000;
+        return b.readUInt32LE(o + trainer + 0x14);
+      }
+      if (game === 'bw') return b.readUInt32LE(0x21200);
+      if (game === 'b2w2') return b.readUInt32LE(0x21100);
+      return null;
+    };
     async function battleChecks() {
       const want = String(opt('winner')).split(',').sort();
       const docs = [];
@@ -562,15 +580,32 @@ async function main() {
       for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/soullink?run=${runId}`)}; true`);
       await sleep(2500);
       await shot(`${String(n++).padStart(2, '0')}-board-record`);
-      result.checks.recordOnBoard = await everyone(async (i) => /1 : 0|0 : 1/.test(String(await ev(i, `document.querySelector('.h2h')?.textContent || ''`))));
+      // (the head-to-head as the session left it: one battle 1 : 0, several "2 : 0" …)
+      const score = per[want[0]] ? `${Math.max(per[want[0]].w, per[want[0]].l)} : ${Math.min(per[want[0]].w, per[want[0]].l)}` : '1 : 0';
+      const [hi, lo] = score.split(' : ');
+      result.checks.recordOnBoard = await everyone(async (i) => new RegExp(`${hi} : ${lo}|${lo} : ${hi}`).test(String(await ev(i, `document.querySelector('.h2h')?.textContent || ''`))));
       for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/play?run=${runId}`)}; true`);
       await sleep(3000);
       if (!flag('save-after')) return;
-      // an in-game save: START, (the menu remembers SAVE), A, YES, YES – then the save file holds the money
+      // an in-game save – Gen 3: START, (the menu remembers SAVE), A, YES, YES; Gen 5: X, SAVE on the touch screen, YES,
+      // YES – then the save file holds the money
       for (const i of all) {
-        for (const [keys, ms] of [[['start'], 120], [[], 900], [['a'], 120], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 6000], [['a'], 120], [[], 1200], [['b'], 120], [[], 600]]) {
+        const g = gameOfRom(romOf(i));
+        const gen5 = ['black', 'white', 'black2', 'white2'].includes(g);
+        const steps = gen5
+          // (a tap may only move the menu's cursor onto SAVE: a second one opens it – on the next screen it lands on the
+          // save summary, where it does nothing)
+          ? [[['x'], 120], [[], 1500], ['touch', 65 / 256, (192 + 141) / 384], [[], 1200], ['touch', 65 / 256, (192 + 141) / 384], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 9000], [['b'], 120], [[], 900]]
+          : [[['start'], 120], [[], 900], [['a'], 120], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 6000], [['a'], 120], [[], 1200], [['b'], 120], [[], 600]];
+        for (const [keys, a, b] of steps) {
+          if (keys === 'touch') { // (the stylus: down for a few frames, then up)
+            await emu(i, `e.touch(${a}, ${b}, true)`);
+            await sleep(300);
+            await emu(i, `e.touch(${a}, ${b}, false)`);
+            continue;
+          }
           await emu(i, `e.hold(${JSON.stringify(keys)})`);
-          await sleep(ms);
+          await sleep(a);
         }
       }
       await sleep(8000); // (the battery save settles, then the play view writes it into the run)
@@ -578,8 +613,13 @@ async function main() {
       for (const i of all) {
         const pr = profiles[i];
         const b = Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer()));
+        const g = gameOfRom(romOf(i));
+        if (/\.nds$/i.test(romOf(i))) {
+          savedMoney.push(saveMoneyDS(b, ['black', 'white'].includes(g) ? 'bw' : ['black2', 'white2'].includes(g) ? 'b2w2' : g));
+          continue;
+        }
         const m = saveMoney3(b);
-        savedMoney.push(gameOfRom(romOf(i)) === 'emerald' ? (m.money ^ m.key) >>> 0 : m.money); // (Emerald XORs it; R/S don't)
+        savedMoney.push(g === 'emerald' ? (m.money ^ m.key) >>> 0 : m.money); // (Emerald XORs it; R/S don't)
       }
       result.moneyInSaves = savedMoney;
       result.checks.wagerInSaves = all.every((i) => savedMoney[i] === after[i]);

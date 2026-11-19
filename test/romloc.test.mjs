@@ -246,7 +246,7 @@ function mainRam() {
 
 test('readLocation with ROM data: Black/White read the copy of the zone header, in every language (Discord: Black City, then nothing)', () => {
   // Black's zone table as the ROM has it (romloc gen5 `zoneHeaders`, 48 bytes a zone: its own id at +0x16, the parent
-  // zone at +0x18, the name at +0x1A): 0 Black City, 150 a zone without a name, 317 Route 1, 389 Nuvema Town, 396
+  // zone at +0x18, the name at +0x1A): 0 Black City, 152 a zone without a name, 317 Route 1, 389 Nuvema Town, 396
   // Juniper's lab (in Nuvema Town), 397 Accumula Town – the headers of 389 and 396 as captured from Black US
   const zones = new Uint8Array(427 * 48);
   for (let z = 0; z < 427; z++) {
@@ -259,8 +259,8 @@ test('readLocation with ROM data: Black/White read the copy of the zone header, 
   const hex = (s) => Uint8Array.from(s.split(' '), (v) => parseInt(v, 16));
   zones.set(hex('00 00 02 00 00 00 0a 03 0b 03 ac 01 fa 03 fa 03 fa 03 fa 03 ff ff 85 01 85 01 04 04 40 00 40 ec 00 00 00 00 0e 03 00 00 00 00 00 00 ee 02 00 00'), 389 * 48);
   zones.set(hex('10 10 d5 00 2a 00 18 03 19 03 b3 01 28 04 28 04 28 04 28 04 ff ff 8c 01 85 01 04 00 00 00 21 49 2a 00 00 00 05 00 00 00 00 00 00 00 04 00 00 00'), 396 * 48);
-  put16(zones, 150 * 48 + 0x18, 397);
-  const name = { 0: 50, 150: 0, 317: 14, 389: 4, 396: 4, 397: 5 };
+  put16(zones, 152 * 48 + 0x18, 397);
+  const name = { 0: 50, 152: 0, 317: 14, 389: 4, 396: 4, 397: 5 };
   for (const [z, n] of Object.entries(name)) zones[z * 48 + 0x1a] = n;
   const mapLoc = Array.from({ length: 427 }, (_, z) => zones[z * 48 + 0x1a]);
   const names = Object.assign(new Array(117).fill('Somewhere'), { 0: '', 4: 'Nuvema Town', 5: 'Accumula Town', 14: 'Route 1', 50: 'Black City' });
@@ -334,9 +334,9 @@ test('readLocation with ROM data: Black/White read the copy of the zone header, 
   assert.equal(readLocation(maps, deEntry, de.read, { rom: german, state: { ...state, bwZoneScan: Date.now() } }), null);
   assert.equal(readLocation(maps, deEntry, de.read, { rom: german, state }), null);
 
-  // a zone without a name of its own: its parent zone's
+  // a zone without a name of its own: its parent zone's (150, 151 and 422 are the link rooms – test/link.test.mjs)
   const room = mainRam();
-  inZone(room, 0x0225929c, 150);
+  inZone(room, 0x0225929c, 152);
   assert.deepEqual(readLocation(maps, entry, room.read, { rom: black }), { gen: 5, id: 5, map: 397, romName: 'Accumula Town' });
 
   // power-on / title screen: zeroed RAM is no zone – not zone 0, Black City; the same for Black 2's pointer

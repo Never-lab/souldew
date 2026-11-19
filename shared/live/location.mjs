@@ -42,8 +42,8 @@ const linkRoom = (room, map) => ({ id: `link:${room}`, link: room, map });
 const GEN1_LINK = { 239: 'trade', 240: 'colosseum' }; // pokered TRADE_CENTER $EF, COLOSSEUM $F0 (Yellow the same)
 const GEN2_LINK = { '20.2': 'trade', '20.3': 'colosseum', '20.4': 'timecapsule' }; // the CableClub map group (G/S/C)
 // Gen 4: the Union Room and the two Colosseums of the Pokémon Center's wireless club (2 and 4 players – pret's
-// MAP_DIRECT2 / MAP_DIRECT4). Platinum's Union Room measured in the link host; the rest from pret's map constants
-// (pokeplatinum map_headers 332/333/466, pokediamond maps.h 332/333/466, pokeheartgold maps.h MAP_UNION 2,
+// MAP_DIRECT2 / MAP_DIRECT4). Platinum's and Diamond/Pearl's Union Room measured in the link host; the rest from
+// pret's map constants (pokeplatinum map_headers 332/333/466, pokediamond maps.h 332/333/466, pokeheartgold maps.h MAP_UNION 2,
 // MAP_DIRECT2 4, MAP_DIRECT4 5 – in HG/SS they sit at the start of the list, where the region tables have no place).
 const GEN4_COLOSSEUM = { 332: 'colosseum', 333: 'colosseum' };
 const GEN4_LINK = { pt: { 466: 'union', ...GEN4_COLOSSEUM }, dp: { 466: 'union', ...GEN4_COLOSSEUM }, hgss: { 2: 'union', 4: 'colosseum', 5: 'colosseum' } };
@@ -339,6 +339,14 @@ function readGen4(m, read, maps, entry, ctx = {}) {
 //    2/White 2's pointer doesn't apply: in Black/White *(0x02000024) moves with the emulator (0x0221B2F0 in melonDS,
 //    0x0221B5F0 in DeSmuME, the zone at the same address in both).
 const GEN5_MAIN_PTR = 0x02000024;
+// Gen 5: the Union Room behind the left counter of the Pokémon Center's upper floor (zone 422) and the Colosseum a
+// battle from it takes both players to (150 "Battles for two"; 151 its twin, the room "Battles for four" goes to) – the
+// three zones the ROM's zone → place table gives no place (0). Measured in Black in the link host (two consoles: the
+// copy below read 422 in the Union Room, 150 in the battle's room); Black 2/White 2's zones 150, 151 and 422 have the
+// same maps and scripts (their zone headers differ from Black's only in the fields every zone of theirs shifts).
+const GEN5_ROOMS = { 150: 'colosseum', 151: 'colosseum', 422: 'union' };
+const GEN5_LINK = { bw: GEN5_ROOMS, b2w2: GEN5_ROOMS };
+const gen5Link = (fam, zones) => (zones && GEN5_LINK[fam]?.[zones[0]] ? linkRoom(GEN5_LINK[fam][zones[0]], zones[0]) : null);
 const BW_HEADER = 48;
 const BW_HEADER_AT = [0x0225929c, 0x022592bc]; // Black US, White US
 // The search for the copy: every BW_SCAN_MS, after BW_SCAN_SLOW_AFTER searches without a hit only every BW_SCAN_SLOW_MS
@@ -483,6 +491,8 @@ function readGen5(m, read, maps, entry, ctx = {}) {
   const rom = ctx.rom;
   if (rom?.gen !== 5 || gen5Family(rom) !== 'bw') return null;
   const zones = bwZones(read, rom, ctx);
+  const link = gen5Link('bw', zones);
+  if (link) return link;
   // the zone itself first, else its parent zone (a building without a name of its own)
   for (const zone of zones || []) {
     const id = Number.isInteger(zone) && zone < rom.mapLoc.length ? rom.mapLoc[zone] : null;
@@ -592,7 +602,10 @@ function b2w2CopyZones(read, rom, ctx) {
 
 /** Black 2/White 2: the place from the copy of the current zone's header – the zone's, else its parent's. */
 function readB2W2(read, rom, ctx) {
-  for (const zone of b2w2CopyZones(read, rom, ctx) || []) {
+  const zones = b2w2CopyZones(read, rom, ctx);
+  const link = gen5Link('b2w2', zones);
+  if (link) return link;
+  for (const zone of zones || []) {
     const id = Number.isInteger(zone) && zone < rom.mapLoc.length ? rom.mapLoc[zone] : null;
     if (Number.isInteger(id) && id > 0 && rom.names[id]) return { id, map: zone };
   }

@@ -13,9 +13,13 @@
 //   Gen 3           gBattleOutcome (1 won, 2 lost, 3 drew; bit 7: the battle was forfeited) at the end of a battle with
 //                   BATTLE_TYPE_LINK in gBattleTypeFlags. Also multi battles (2 vs 2, BATTLE_TYPE_MULTI), which write
 //                   no link battle record into the save.
-//   Gen 4 (Pt)      the game records RECORD_LOCAL_LINK_BATTLE_WINS / _LOSSES (21, 22) in the save data the game keeps
-//                   in RAM – encrypted (pokeplatinum src/game_records.c: an LCRNG keystream seeded with the block's
-//                   byte sum and modifier), checked with that byte sum. Counted before and after. No draw record.
+//   Gen 4           the game records (Platinum RECORD_LOCAL_LINK_BATTLE_WINS / _LOSSES 21, 22; HeartGold/SoulSilver
+//                   GAME_STAT_LOCAL_LINK_BATTLE_WINS / _LOSSES / _DRAWS 22, 23, 24) in the save data the game keeps in
+//                   RAM – Platinum and HG/SS encrypt them (pokeplatinum src/game_records.c, pokeheartgold
+//                   src/game_stats.c: an LCRNG keystream seeded with the block's byte sum and a modifier, checked with
+//                   that byte sum), Diamond/Pearl keep them plain (pokediamond GameStats). Counted before and after.
+//   Gen 5           the trainer card records (PKHeX Record5: 68 u32 + 100 u16, the same LCRNG keystream seeded with
+//                   the block's last word) in the save data in RAM. Counted before and after.
 
 const u16le = (b, o) => b[o] | (b[o + 1] << 8);
 const u16be = (b, o) => (b[o] << 8) | b[o + 1];
@@ -52,7 +56,7 @@ export function gameOf(system, bytes) {
     if (/^BP[RG][DFIS]$/.test(code)) return 'frlgEu';
     return null;
   }
-  if (system === 'nds') return ascii(bytes, 0x0c, 0x10) === 'CPUE' ? 'platinum' : null;
+  if (system === 'nds') return NDS_GAMES[ascii(bytes, 0x0c, 0x10)] || null;
   const title = ascii(bytes, 0, 0x10);
   const maker = ascii(bytes, 0x0b, 0x0f);
   if (title.startsWith('POKEMON RED') || title.startsWith('POKEMON BLUE')) return 'redblue';
@@ -61,6 +65,14 @@ export function gameOf(system, bytes) {
   if (title.startsWith('PM_CRYSTAL')) return ['BYTE', 'BYTU'].includes(maker) ? 'crystal' : null;
   return null;
 }
+
+// Gen 5's link battle records (Record5 u32 ids, measured in the recorded Union Room battle in Black: both players' 12
+// – the link battles – went up by one, the winner's 13, the loser's 14)
+const GEN5_WINS = 13;
+const GEN5_LOSSES = 14;
+
+// The DS games by game code (US/EU English releases: the other languages keep their static data elsewhere)
+const NDS_GAMES = { CPUE: 'platinum', ADAE: 'dp', APAE: 'dp', IPKE: 'hgss', IPGE: 'hgss', IRBO: 'black', IRAO: 'white', IREO: 'black2', IRDO: 'white2' };
 
 /**
  * Per game: how its link battles end (`kind` 'events' – watched while the session runs; 'sram' / 'records' – counted
@@ -82,7 +94,36 @@ export const GAMES = {
   // Platinum (US): the save data through sApplication (addresses.json saveDataPtrAddr); money in the trainer block
   // (general block +0x14, trainer +0x68, money +0x14 – PKHeX SAV4Pt), the game records at +0x61C4 (checked live)
   // (the overworld: the battle flag's overworld value, addresses.json platinum_us inBattle)
-  platinum: { gen: 4, kind: 'records', savePtr: 0x02101d40, records: 0x61c4, trainerName: 0x7c, field: { addr: 0x0224a55a, value: 0x2800 }, money: { savePtr: 0x02101d40, off: 0x90 } },
+  platinum: { gen: 4, kind: 'records', savePtr: 0x02101d40, records: 0x61c4, layout: 'pt', trainerName: 0x7c, field: { addr: 0x0224a55a, value: 0x2800 }, money: { savePtr: 0x02101d40, off: 0x90 } },
+  // Diamond/Pearl and HeartGold/SoulSilver (US) the same way – the save data's general block at +0x214 / +0x10 (the
+  // party offsets of addresses.json), the trainer block +0x64 (money +0x14) and the records (PKHeX SAV4DP / SAV4HGSS
+  // OFS_Record 0x5F08 / 0x4B3C) – Diamond's checked live: the trainer, ₽2,400 and plain records behind 0x02106FC0; the
+  // overworld: anything but the battle flag's battle values (Pearl read 0x2000 on a route, Diamond 0x2800 in a Pokémon
+  // Center)
+  dp: { gen: 4, kind: 'records', savePtr: 0x02106fc0, records: 0x214 + 0x5f08, layout: 'dp', trainerName: 0x214 + 0x64, field: { addr: 0x0223bb38, battle: [0x2100, 0x2101] }, money: { savePtr: 0x02106fc0, off: 0x214 + 0x78 } },
+  hgss: { gen: 4, kind: 'records', savePtr: 0x02111880, records: 0x10 + 0x4b3c, layout: 'hgss', trainerName: 0x10 + 0x64, field: { addr: 0x02246f48, battle: [0x2100, 0x2101] }, money: { savePtr: 0x02111880, off: 0x10 + 0x78 } },
+  // Gen 5 (US/EU): the game's whole save data is in RAM in the battery save's own layout (PKHeX SAV5BW / SAV5B2W2 blocks):
+  // its party block at +0x18E00 – so the save data sits 0x18E08 before the party the live tracker reads (addresses.json:
+  // Black 0x022349B4, White +0x20; Black 2/White 2 behind the main pointer, +0x19728) –, the trainer block +0x19400 (its
+  // name +4), the trainer card records +0x1DA00, the money the misc block's first word (+0x21200 / B2W2 +0x21100).
+  // Found in Black's RAM (melonDS, the link host): the event block of the battery save byte for byte at 0x0223BCAC, the
+  // party at 0x022349B4 – the save data at 0x0221BBAC. The overworld: anything but the battle flag's battle values.
+  black: { gen: 5, kind: 'records', save: { at: 0x0221bbac }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021d0798, battle: [0x2100, 0x2101] }, money: { off: 0x21200 } },
+  white: { gen: 5, kind: 'records', save: { at: 0x0221bbcc }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021d07b8, battle: [0x2100, 0x2101] }, money: { off: 0x21200 } },
+  black2: { gen: 5, kind: 'records', save: { ptr: 0x02000024, add: 0x920 }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021b5138, battle: [0x2100, 0x2101] }, money: { off: 0x21100 } },
+  white2: { gen: 5, kind: 'records', save: { ptr: 0x02000024, add: 0x920 }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021b5178, battle: [0x2100, 0x2101] }, money: { off: 0x21100 } },
+};
+
+/**
+ * Where each game keeps its link battle counts inside its records block: the block's size, the encrypted part
+ * [from, to) with the byte sum at `sum` and the modifier at `sum` + 2 (none: `plain`), and the record ids (u32 each).
+ */
+export const RECORDS = {
+  pt: { size: 0x1bc, from: 4, to: 0x1b8, sum: 0x1b8, wins: 21, losses: 22 },
+  hgss: { size: 0x1c0, from: 8, to: 0x1bc, sum: 0x1bc, wins: 22, losses: 23, draws: 24 },
+  dp: { size: 0xb0, plain: true, wins: 21, losses: 22 }, // (measured: a Diamond ↔ Pearl battle – 20 counts the link battles)
+  // Gen 5: 68 u32 + 100 u16 records encrypted from +4 to +0x1DC with the seed in the block's last word – no sum
+  gen5: { size: 0x1e0, from: 4, to: 0x1dc, seed: 0x1dc, base: 4, wins: GEN5_WINS, losses: GEN5_LOSSES },
 };
 
 /** The entry ids of addresses.json (the live tracker's) → GAMES – for the play view, which knows its game that way. */
@@ -99,6 +140,9 @@ export function gameOfEntry(entry) {
   if (/^(firered|leafgreen)_us$/.test(id)) return 'frlg';
   if (/^(firered|leafgreen)_eu$/.test(id)) return 'frlgEu';
   if (id === 'platinum_us') return 'platinum';
+  if (/^(diamond|pearl)_us$/.test(id)) return 'dp';
+  if (/^(heartgold|soulsilver)_us$/.test(id)) return 'hgss';
+  if (/^(black|white|black2|white2)_us$/.test(id)) return id.slice(0, -3);
   return null;
 }
 
@@ -106,7 +150,7 @@ export function gameOfEntry(entry) {
  * Can a run of this catalog game (manifest.game.id) battle for a wager? The games above in the languages their
  * addresses are known for (Emerald DE and Gen 1/2 in other languages keep their memory elsewhere; Platinum: US only).
  */
-export const wagerGame = (id) => /^pokemon-(red|blue|yellow|gold|silver|crystal|ruby|sapphire|emerald|firered|leafgreen|platinum)$/.test(String(id || ''))
+export const wagerGame = (id) => /^pokemon-(red|blue|yellow|gold|silver|crystal|ruby|sapphire|emerald|firered|leafgreen|diamond|pearl|platinum|heartgold|soulsilver|black|white|black-2|white-2)$/.test(String(id || ''))
   || /^pokemon-(ruby|sapphire|firered|leafgreen)-de$/.test(String(id || ''));
 
 /** The battle formats a link battle can be (picked in the game; the invite names it): per system and seats. */
@@ -121,22 +165,45 @@ export function battleFormats(system, seats) {
 const ewram = (a) => a >= 0x02000000 && a < 0x02040000;
 const mainRam = (a) => a >= 0x02000000 && a < 0x02400000;
 
-/** Gen 4: the game records block (0x1BC bytes) decoded – { wins, losses } or null when its byte sum doesn't match. */
-export function decodeRecords4(block) {
-  if (!block || block.length < 0x1bc) return null;
-  const b = Uint8Array.from(block.subarray(0, 0x1bc));
-  const sum = u16le(b, 0x1b8);
-  let x = (sum + (u16le(b, 0x1ba) << 16)) >>> 0;
-  let check = 0;
-  for (let o = 4; o < 0x1b8; o += 2) {
-    x = (Math.imul(x, 0x41c64e6d) + 0x6073) >>> 0;
-    const v = u16le(b, o) ^ (x >>> 16);
-    b[o] = v & 0xff;
-    b[o + 1] = v >> 8;
-    check += b[o] + b[o + 1];
+/**
+ * A records block (RECORDS[layout]) decoded – { wins, losses, draws } or null when it can't be trusted: an encrypted
+ * block whose byte sum doesn't match, a plain one whose counts are out of the game's range.
+ */
+export function decodeRecords(block, layout = 'pt') {
+  const r = RECORDS[layout];
+  if (!r || !block || block.length < r.size) return null;
+  const b = Uint8Array.from(block.subarray(0, r.size));
+  if (r.seed != null) { // (Gen 5: the keystream from the block's last word, nothing to check it with)
+    let x = u32le(b, r.seed);
+    for (let o = r.from; o < r.to; o += 2) {
+      x = (Math.imul(x, 0x41c64e6d) + 0x6073) >>> 0;
+      const v = u16le(b, o) ^ (x >>> 16);
+      b[o] = v & 0xff;
+      b[o + 1] = v >> 8;
+    }
+  } else if (!r.plain) {
+    const sum = u16le(b, r.sum);
+    let x = (sum + (u16le(b, r.sum + 2) << 16)) >>> 0;
+    let check = 0;
+    for (let o = r.from; o < r.to; o += 2) {
+      x = (Math.imul(x, 0x41c64e6d) + 0x6073) >>> 0;
+      const v = u16le(b, o) ^ (x >>> 16);
+      b[o] = v & 0xff;
+      b[o + 1] = v >> 8;
+      check += b[o] + b[o + 1];
+    }
+    if ((check & 0xffff) !== sum) return null;
   }
-  if ((check & 0xffff) !== sum) return null;
-  return { wins: u32le(b, 21 * 4), losses: u32le(b, 22 * 4) };
+  const at = (id) => (r.base || 0) + id * 4; // (Gen 5's ids count from +4)
+  const out = { wins: u32le(b, at(r.wins)), losses: u32le(b, at(r.losses)), draws: r.draws != null ? u32le(b, at(r.draws)) : 0 };
+  // (the games cap every count at 999,999,999: more is no records block)
+  return Object.values(out).every((v) => v <= 999999999) ? out : null;
+}
+
+/** Gen 4 (Platinum): the game records block (0x1BC bytes) decoded – { wins, losses } or null (decodeRecords). */
+export function decodeRecords4(block) {
+  const r = decodeRecords(block, 'pt');
+  return r && { wins: r.wins, losses: r.losses };
 }
 
 /** Gen 2: the link battle totals from a battery save (wins, losses, draws), or null for a save too small to hold them. */
@@ -154,14 +221,27 @@ export async function totals(game, { read = null, save = null } = {}) {
   const g = GAMES[game];
   if (g?.kind === 'sram') return sramTotals(game, save);
   if (g?.kind !== 'records' || !read) return null;
-  const p = await read(g.savePtr, 4);
-  const base = p && u32le(p, 0);
-  if (!base || !mainRam(base)) return null;
+  const base = await saveBase(g, read);
+  if (!base) return null;
   // (before Continue the save data is still blank – no trainer name yet: not the save's counts)
   const name = await read(base + g.trainerName, 2);
   if (!name || !u16le(name, 0) || u16le(name, 0) === 0xffff) return null;
-  const r = decodeRecords4(await read(base + g.records, 0x1bc));
-  return r ? { w: r.wins, l: r.losses, d: 0 } : null;
+  const r = decodeRecords(await read(base + g.records, RECORDS[g.layout].size), g.layout);
+  return r ? { w: r.wins, l: r.losses, d: r.draws } : null;
+}
+
+/** Where a DS game's save data is in RAM (Gen 4: behind its pointer; Gen 5: fixed, or behind the main pointer), or 0. */
+async function saveBase(g, read) {
+  let base = 0;
+  if (g.savePtr) {
+    const p = await read(g.savePtr, 4);
+    base = p ? u32le(p, 0) : 0;
+  } else if (g.save?.at) base = g.save.at;
+  else if (g.save?.ptr) {
+    const p = await read(g.save.ptr, 4);
+    base = p && u32le(p, 0) ? 0x02000000 + (u32le(p, 0) & 0xffffff) + g.save.add : 0; // (masked like the party pointer)
+  }
+  return base && mainRam(base) ? base : 0;
 }
 
 /** What one seat's counts went up by between two totals – null when they can't be compared (a reset, a missing read). */
@@ -355,11 +435,15 @@ export async function locateMoney(game, read) {
     if (value > MONEY_MAX) return null;
     return { addr: sb1 + m.off, value, key, encode: (v) => xorEncode(v, key) };
   }
-  // Gen 4: the save data's place; its game records must decode (the pointer really is the save data)
-  const p = await read(m.savePtr, 4);
-  const base = p && u32le(p, 0);
-  if (!base || !mainRam(base)) return null;
-  if (g.records && !decodeRecords4(await read(base + g.records, 0x1bc))) return null;
+  // Gen 4/5: the save data's place; its game records must decode (the pointer really is the save data)
+  const base = await saveBase(g, read);
+  if (!base) return null;
+  // (Gen 5's records carry no sum to check: there the trainer alone says it)
+  if (g.records && RECORDS[g.layout].seed == null && !decodeRecords(await read(base + g.records, RECORDS[g.layout].size), g.layout)) return null;
+  if (g.trainerName) { // (and a trainer: Diamond/Pearl's plain records prove nothing about the pointer by themselves)
+    const name = await read(base + g.trainerName, 2);
+    if (!name || !u16le(name, 0) || u16le(name, 0) === 0xffff) return null;
+  }
   const b = await read(base + m.off, 4);
   if (!b) return null;
   const value = u32le(b, 0);
@@ -416,7 +500,9 @@ export async function fieldIdle(game, read, { cam = undefined } = {}) {
   }
   if (g.gen === 3) return !!cam && !cam.battle && !cam.locked && !cam.help && !cam.fade;
   const f = await read(g.field.addr, 2);
-  return !!f && u16le(f, 0) === g.field.value;
+  if (!f) return false;
+  if (g.field.battle) return !g.field.battle.includes(u16le(f, 0)) && !!(await saveBase(g, read)); // (no battle)
+  return u16le(f, 0) === g.field.value;
 }
 
 /**
