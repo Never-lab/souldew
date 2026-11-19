@@ -135,7 +135,7 @@ test('clean: answers become plain shapes – unknown fields, bad avatars, raw co
     entitlement: { tier: 'god', badges: ['plus'] }, stats: { totals: { runs_started: 3, deaths: -1 }, recent_runs: [{ name: 'A', mode: 'x', result: 'won', badges: 99 }] } }, svc);
   assert.equal(me.avatar, `/api/account/avatar?src=${encodeURIComponent(`${svc}/v1/avatars/u_abcdefghijABCD/abc123.png?size=128`)}`);
   assert.ok(!JSON.stringify(me).includes('80351110224678912'), 'the Discord id stays on the server side');
-  assert.deepEqual(me.privacy, { profile: 'friends', presence: 'offline', showLocation: false, showRuns: false, friendRequests: 'everyone' });
+  assert.deepEqual(me.privacy, { profile: 'friends', presence: 'offline', showLocation: false, showRuns: false, friendRequests: 'everyone', showOnThanks: null });
   assert.equal(me.entitlement.tier, 'none');
   assert.equal(me.stats.totals.runsStarted, 3);
   assert.equal(me.stats.totals.deaths, null);

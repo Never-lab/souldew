@@ -291,6 +291,9 @@ function useSignedIn(acct, toast) {
           <${Check} checked=${p.showRuns} onChange=${(v) => patch({ privacy: { showRuns: v } })}
             label=${t('acct.showRuns', 'Show my runs on my profile')}
             hint=${t('acct.showRunsHint', 'Uploads summary numbers only – runs, wins, catches, deaths, badges, play time and your last five runs by name and game. Never saves, ROMs or files. Turning it off deletes them from the service.')} />
+          <${Check} checked=${p.showOnThanks === true} onChange=${(v) => patch({ privacy: { showOnThanks: v } })}
+            label=${t('acct.showOnThanks', 'Show my name on the Thank you page')}
+            hint=${t('acct.showOnThanksHint', 'While you support souldew: your name, Discord picture, banner and frame, with your tier. Off unless you switch it on – you’re counted either way.')} />
           <${Check} checked=${askJoin} disabled=${p.presence !== 'friends'} onChange=${(v) => { setAskToJoin(v); setAskJoinState(v); }}
             label=${t('acct.askToJoin', 'Friends may ask to join my SoulLink when a seat is free')}
             hint=${t('acct.askToJoinHint', 'They see “Ask to join” next to your run. You decide every time.')} />

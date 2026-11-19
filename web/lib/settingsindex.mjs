@@ -73,8 +73,8 @@ export const SETTINGS = [
   // Account
   { id: 'account', section: 'account', keys: ['acct.title', 'acct.signIn', 'acct.handle', 'acct.friendCode', 'acct.signOut', 'acct.signOutAll'],
     kw: 'account sign in login log in discord profile handle friend code sign out log out konto anmelden abmelden compte connexion déconnexion cuenta iniciar sesión account accedi esci' },
-  { id: 'account-privacy', section: 'account', keys: ['acct.privacy', 'acct.profileVis', 'acct.presenceVis', 'acct.showRuns', 'acct.showLocation', 'acct.askToJoin', 'acct.requestsFrom'],
-    kw: 'privacy presence online offline appear offline invisible friends stats runs profile visible privatsphäre datenschutz confidentialité privacidad privacy' },
+  { id: 'account-privacy', section: 'account', keys: ['acct.privacy', 'acct.profileVis', 'acct.presenceVis', 'acct.showRuns', 'acct.showLocation', 'acct.askToJoin', 'acct.requestsFrom', 'acct.showOnThanks'],
+    kw: 'privacy presence online offline appear offline invisible friends stats runs profile visible thank you thanks supporters wall danke unterstützer merci soutiens gracias grazie privatsphäre datenschutz confidentialité privacidad privacy' },
   { id: 'plus-show', section: 'account', keys: ['plusShow.title', 'plusShow.themes'], kw: 'souldew+ plus preview previews look see themes banners frames nameplates launch animations vorschau aperçu vista anteprima' },
   { id: 'plus', section: 'account', keys: ['acct.linkTitle', 'acct.linkEmail', 'acct.claimedDiscord', 'acct.unlink'], kw: 'souldew+ plus supporter membership buy me a coffee bmc donate link unlink email premium cosmetics banner frame mitgliedschaft' },
   { id: 'account-sessions', section: 'account', keys: ['acct.devices', 'acct.devicesText', 'acct.thisDevice'], kw: 'sessions devices signed in computers sign out device geräte sitzungen appareils sessions dispositivos sesiones dispositivi sessioni' },

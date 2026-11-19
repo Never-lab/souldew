@@ -30,6 +30,33 @@ export function avatarRef(url, service) {
   return safe ? `/api/account/avatar?src=${encodeURIComponent(safe)}` : null;
 }
 
+// API.md §13: the wall's tiers, highest first (patron is shown as "Legend")
+export const THANKS_TIERS = ['legend', 'plus', 'supporter', 'coffee'];
+export const THANKS_MAX = 500;
+
+/**
+ * The Thank you wall (§13) → { updated, total, counts: { legend, plus, supporter, coffee }, people: [{ name, tier, since,
+ * avatar, banner, frame }] }: names as plain text, avatars as this server's proxy address, looks as catalog ids, since as
+ * "YYYY-MM". The total never undercounts what is listed. null when it isn't a wall at all.
+ */
+export function cleanThanks(v, service) {
+  const o = obj(v);
+  if (!o || !obj(o.counts) || !Array.isArray(o.people)) return null;
+  const counts = Object.fromEntries(THANKS_TIERS.map((k) => [k, int(o.counts[k], 0, 1e7) ?? 0]));
+  const people = arr(o.people, THANKS_MAX).map((x) => {
+    const q = obj(x);
+    const name = cleanText(q?.name, NAME_MAX);
+    const tier = oneOf(q?.tier, THANKS_TIERS, null);
+    if (!name || !tier) return null;
+    return { name, tier, since: typeof q.since === 'string' && /^20\d\d-(0[1-9]|1[0-2])$/.test(q.since) ? q.since : null,
+      avatar: avatarRef(q.avatar, service), banner: catalogId(q.banner), frame: catalogId(q.frame) };
+  }).filter(Boolean);
+  // a tier never shows fewer supporters than it names
+  for (const k of THANKS_TIERS) counts[k] = Math.max(counts[k], people.filter((p) => p.tier === k).length);
+  const sum = THANKS_TIERS.reduce((n, k) => n + counts[k], 0);
+  return { updated: time(o.updated), total: Math.max(int(o.total, 0, 1e8) ?? 0, sum), counts, people };
+}
+
 const badges = (v) => [...new Set(arr(v, 8).filter((b) => BADGES.includes(b)))];
 
 /** UserCard (§3.1) → { id, handle, name, avatar, frame, nameplate, accent, title, badges }. null without a valid id. */
@@ -120,7 +147,11 @@ export function cleanMe(v, service) {
     privacy: {
       profile: oneOf(p.profile, PROFILE_VISIBILITY, 'friends'), presence: oneOf(p.presence, PRESENCE_VISIBILITY, 'friends'),
       showLocation: p.show_location === true, showRuns: p.show_runs === true, friendRequests: oneOf(p.friend_requests, ['everyone', 'nobody'], 'everyone'),
+      // the Thank you wall (§2.1): null = never answered (off – the app asks a new supporter once), false, true
+      showOnThanks: p.show_on_thanks === true ? true : p.show_on_thanks === false ? false : null,
     },
+    // where the account stands on the Thank you wall right now (null: no live support, or a service before §13)
+    thanksTier: oneOf(o.thanks_tier, THANKS_TIERS, null),
     stats: cleanStats(o.stats),
     entitlement: cleanEntitlementSummary(o.entitlement),
     // the own badges are the entitlement's (§8.0) – shown on the own profile like on everyone else's card

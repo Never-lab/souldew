@@ -124,7 +124,8 @@ export async function startFakeAccounts({ port = 0 } = {}) {
       friend_code: o.friend_code || `SD-${randomBytes(3).toString('hex').toUpperCase().slice(0, 4).replace(/[ILOU]/g, '7')}-${randomBytes(3).toString('hex').toUpperCase().slice(0, 4).replace(/[ILOU]/g, '9')}`,
       banner: o.banner ?? null, frame: o.frame ?? null, nameplate: o.nameplate ?? null, title: o.title ?? null, accent: o.accent || 'moss', status: o.status ?? null,
       showcase: o.showcase || { trophies: [], trusted: null, favorite_game: null }, showcase_layout: o.showcase_layout || 'case',
-      privacy: { profile: 'friends', presence: 'friends', show_location: false, show_runs: false, friend_requests: 'everyone', ...(o.privacy || {}) },
+      privacy: { profile: 'friends', presence: 'friends', show_location: false, show_runs: false, friend_requests: 'everyone', show_on_thanks: null, ...(o.privacy || {}) },
+      thanksSince: o.thanksSince || '2026-11', coffee: o.coffee === true, // the Thank you wall (§13): a one-time supporter, when the support started
       stats: o.stats || null, entitlement: o.entitlement || { tier: 'none', until: null, badges: [] }, created_at: iso(o.createdAt || Date.parse('2026-03-02T10:00:00Z')),
       avatar_hash: o.avatar === false ? null : randomBytes(8).toString('hex'),
     };
@@ -137,6 +138,8 @@ export async function startFakeAccounts({ port = 0 } = {}) {
   const blocked = (a, b) => f.blocks.has(`${a}>${b}`) || f.blocks.has(`${b}>${a}`);
   const avatarUrl = (u) => (u.avatar_hash ? `${base}/v1/avatars/${u.id}/${u.avatar_hash}.png?size=128` : null);
   const packKey = (u) => createHash('sha256').update(`pack|${u.id}|${u.keyEpoch || 1}`).digest('base64url');
+  /** §13: a user's place on the wall – their tier (patron → legend), or coffee for a one-time supporter. */
+  const thanksTier = (u) => ({ patron: 'legend', plus: 'plus', supporter: 'supporter' })[u.entitlement.tier] || (u.coffee ? 'coffee' : null);
   const plusOk = (u) => u.entitlement.tier === 'plus' || u.entitlement.tier === 'patron'; // §8.0: patron = souldew+
   const premium = (kind, id) => CATALOG.cosmetics.find((c) => c.kind === kind && c.id === id)?.tier === 'plus';
   const shown = (u, k) => (u[k] && premium(k, u[k]) && !plusOk(u) ? null : u[k]);
@@ -153,7 +156,7 @@ export async function startFakeAccounts({ port = 0 } = {}) {
     const locked = ['banner', 'frame', 'nameplate'].filter((k) => u[k] && premium(k, u[k]) && !plusOk(u));
     return { id: u.id, handle: u.handle, display_name: u.display_name, display_name_is_custom: u.display_name_is_custom, avatar_url: avatarUrl(u), discord: u.discord, friend_code: u.friend_code,
       banner: u.banner, frame: u.frame, nameplate: u.nameplate, title: u.title, accent: u.accent, status: u.status, showcase: showcaseView(u, true), ...(f.noLayouts ? {} : { showcase_layout: u.showcase_layout }), privacy: u.privacy,
-      stats: u.privacy.show_runs ? u.stats : null, entitlement: u.entitlement, created_at: u.created_at, ...(locked.length ? { locked } : {}) };
+      stats: u.privacy.show_runs ? u.stats : null, entitlement: u.entitlement, ...(f.noThanks ? {} : { thanks_tier: thanksTier(u) }), created_at: u.created_at, ...(locked.length ? { locked } : {}) };
   };
   const relationship = (viewer, u) => (viewer === u.id ? 'self' : areFriends(viewer, u.id) ? 'friend'
     : [...f.requests.values()].some((r) => r.status === 'pending' && r.from === viewer && r.to === u.id) ? 'request_sent'
@@ -297,6 +300,38 @@ export async function startFakeAccounts({ port = 0 } = {}) {
       return json(res, 200, { ok: true, revoked: n });
     }
     if (path === '/v1/catalog' && req.method === 'GET') return json(res, 200, CATALOG);
+    if (path === '/v1/thanks' && req.method === 'GET') {
+      // §13: every user with a tier or a coffee counts (plus f.thanksAnonymous: supports nobody linked); only opted-in
+      // ones are named. f.noThanks: a service before §13 (404); f.thanksDown: unreachable-ish (503).
+      if (f.noThanks) return err(res, 404, 'not_found');
+      if (f.thanksDown) return err(res, 503, 'not_configured');
+      f.thanksHits = (f.thanksHits || 0) + 1;
+      const order = ['legend', 'plus', 'supporter', 'coffee'];
+      const counts = { legend: 0, plus: 0, supporter: 0, coffee: 0, ...(f.thanksAnonymous || {}) };
+      const people = [];
+      for (const x of f.users.values()) {
+        const tier = thanksTier(x);
+        if (!tier) continue;
+        counts[tier]++;
+        if (x.privacy.show_on_thanks !== true) continue;
+        const p = { name: x.display_name, tier, since: x.thanksSince };
+        const av = avatarUrl(x);
+        if (av) p.avatar = av;
+        if (x.banner && (!premium('banner', x.banner) || plusOk(x))) p.banner = x.banner;
+        if (x.frame && (!premium('frame', x.frame) || plusOk(x))) p.frame = x.frame;
+        people.push(p);
+      }
+      people.sort((a, b) => order.indexOf(a.tier) - order.indexOf(b.tier) || a.since.localeCompare(b.since) || a.name.localeCompare(b.name));
+      const total = Object.values(counts).reduce((n, v) => n + v, 0);
+      const bodyText = JSON.stringify({ updated: iso(f.thanksUpdated || Date.now()), total, counts, people });
+      const etag = `"${sha(bodyText).slice(0, 20)}"`;
+      if (req.headers['if-none-match'] === etag) {
+        res.writeHead(304, { ETag: etag, 'Access-Control-Allow-Origin': '*' });
+        return res.end();
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', ETag: etag, 'Cache-Control': 'public, max-age=60', 'Access-Control-Allow-Origin': '*' });
+      return res.end(bodyText);
+    }
     const av = /^\/v1\/avatars\/(u_[A-Za-z0-9_-]+)\/([a-f0-9]+)\.png$/.exec(path);
     if (av && req.method === 'GET') {
       const u = f.users.get(av[1]);
@@ -344,8 +379,9 @@ export async function startFakeAccounts({ port = 0 } = {}) {
         u.showcase_layout = body.showcase_layout;
       }
       if ('privacy' in body) {
-        const bad2 = unknown(body.privacy, ['profile', 'presence', 'show_location', 'show_runs', 'friend_requests']);
+        const bad2 = unknown(body.privacy, f.noThanks ? ['profile', 'presence', 'show_location', 'show_runs', 'friend_requests'] : ['profile', 'presence', 'show_location', 'show_runs', 'friend_requests', 'show_on_thanks']);
         if (bad2) return err(res, 400, 'unknown_field', { field: `privacy.${bad2}` });
+        if ('show_on_thanks' in body.privacy && typeof body.privacy.show_on_thanks !== 'boolean') return err(res, 400, 'invalid_field', { field: 'privacy.show_on_thanks' });
         if (body.privacy.show_runs === false) {
           u.stats = null;
           const tr = (body.showcase || u.showcase)?.trusted; // §2.2: turning it off deletes the line's numbers too

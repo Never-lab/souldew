@@ -56,6 +56,8 @@ import { runStarted } from '/shared/trophies.mjs';
 import { FriendsView } from './views/friends.mjs';
 import { ProfileView } from './views/profile.mjs';
 import { PlusView } from './views/plus.mjs';
+import { ThanksView } from './views/thanks.mjs';
+import { ThanksAsk } from './views/thanksask.mjs';
 import { HandheldView } from './views/handheld.mjs';
 import { railGroups, FOOT_SECTIONS } from './lib/railnav.mjs';
 import { accountEvent } from './lib/account.mjs';
@@ -1012,7 +1014,7 @@ function App() {
     return html`<div class="boot"><div class="boot-screen"></div></div>`;
   }
   const showOnboarding = !!status && !status.config?.onboarded;
-  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView, friends: FriendsView, profile: ProfileView, plus: PlusView, handheld: HandheldView }[route.route] || LibraryView;
+  const View = { library: LibraryView, soullink: SoulLinkView, nuzlocke: NuzlockeView, play: PlayView, link: LinkView, stream: StreamView, trophies: TrophiesView, settings: SettingsView, guide: GuideView, friends: FriendsView, profile: ProfileView, plus: PlusView, thanks: ThanksView, handheld: HandheldView }[route.route] || LibraryView;
   const names = runDoc ? getPlayers(runDoc, manifest) : null;
   // Fullscreen – the window's (macOS: green button, Windows: F11) or the game's (F): the side rail folds away, the game gets the room
   const [winFs, setWinFs] = useState(false);
@@ -1145,6 +1147,7 @@ function App() {
     <//>
     <${LicenseNag} open=${!!nag} launches=${nag?.launches} onClose=${() => setNag(null)} />
     <${WhatsNew} open=${whatsNew} onClose=${closeWhatsNew} />
+    <${ThanksAsk} busy=${boot || playing || showOnboarding || whatsNew} />
     ${manifest && linkPlay && !playFold && html`<${LinkBar} />`}
     <${Toasts} toasts=${toasts} dismiss=${(id) => setToasts((ts) => ts.filter((x) => x.id !== id))} />
     <${TrophyToasts} items=${trophyToasts} navigate=${navigate} dismiss=${(key) => setTrophyToasts((ts) => ts.filter((x) => x.key !== key))} />

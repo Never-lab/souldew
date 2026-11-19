@@ -15,7 +15,7 @@ import { entitlementKeys, verifyEntitlementToken, serviceClock, isPackagedBuild,
 import { currentStats, editorChoices, trustedNumbers } from './stats.mjs';
 import {
   cleanMe, cleanProfile, cleanFriend, cleanRequest, cleanPresence, cleanInvite, cleanJoinRequest, cleanCatalog, cleanEntitlements,
-  catalogId, inviteCode, isPlusTier,
+  cleanThanks, catalogId, inviteCode, isPlusTier,
 } from './clean.mjs';
 import {
   cleanText, withoutFileNames, safeAvatarUrl, parseFriendQuery, normalizeHandle, oneOf, presenceSystem, int,
@@ -34,6 +34,7 @@ const AVATAR_CACHE = 200;
 const ENT_FRESH = 15 * 60000; // the verified entitlement behind the own badges is re-read this often (the token lives 1 hour)
 const OFFLINE_DELETE_MS = 1500; // quitting: how long "I'm offline now" may hold the app up
 const NO_ENT = Object.freeze({ tier: 'none', badges: [], until: null });
+const THANKS_MIN_GAP = 30000; // the service's wall is asked at most this often, however many pages look (it is cached 60 s there)
 
 async function readJson(req) {
   const len = Number(req.headers['content-length']);
@@ -449,6 +450,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     keepPrivacy(me);
     session.rememberAccount(brief(me));
     if (patch.privacy?.show_runs === true) uploadStats(true).catch(() => {});
+    if (typeof patch.privacy?.show_on_thanks === 'boolean') thanks.at = 0; // the wall is read again on the next look
     if (patch.privacy?.presence) startHeartbeat(0);
     return self(body);
   });
@@ -491,6 +493,20 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     catalog = cleanCatalog(r.body);
     catalogAt = now();
     return catalog;
+  });
+  // §13 the Thank you wall – signed in or not: only asked while the Thank you page is open (the page asks this route),
+  // with no token and nothing about the player; the service's ETag spares the body when nothing changed. ?have=<version>
+  // → { unchanged: true } when the page already shows this version. Offline or failing: the last wall this server got,
+  // marked stale (the page keeps its own copy across restarts).
+  route('GET', '/thanks', async (req, m, url) => {
+    const have = url.searchParams.get('have');
+    const out = await readThanks();
+    if (!out.data) {
+      const e = httpError(out.status === 404 ? 404 : 503, out.status === 404 ? 'No Thank you page on this service yet' : 'The account service can’t be reached', out.status === 404 ? 'thanksMissing' : 'acctOffline');
+      throw e;
+    }
+    const head = { version: out.version, fetchedAt: thanks.okAt, stale: out.stale };
+    return have && have === out.version ? { unchanged: true, ...head } : { ...head, thanks: out.data };
   });
   route('GET', '/choices', () => {
     signedIn();
@@ -706,6 +722,53 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     return cleanPreview(await call(API.packPreview(m[1]), { method: 'POST' }), service);
   });
 
+  // ---- the Thank you wall (§13) -----------------------------------------------------------------------------------------
+  const thanks = { data: null, etag: null, version: null, at: 0, okAt: null, stale: false, avatars: new Set(), inflight: null };
+  /** The wall: from the service when the last read is THANKS_MIN_GAP old (If-None-Match), else the one in memory. */
+  function readThanks() {
+    if (thanks.data && now() - thanks.at < THANKS_MIN_GAP) return Promise.resolve({ data: thanks.data, version: thanks.version, stale: thanks.stale });
+    if (thanks.inflight) return thanks.inflight;
+    thanks.inflight = (async () => {
+      let status = 0;
+      try {
+        const headers = { Accept: 'application/json' };
+        if (thanks.etag && thanks.data) headers['If-None-Match'] = thanks.etag;
+        const r = await fetchImpl(`${service}${API.thanks}`, { headers, redirect: 'error', signal: AbortSignal.timeout(15000) });
+        status = r.status;
+        if (r.status === 304 && thanks.data) {
+          thanks.at = now();
+          thanks.okAt = now();
+          thanks.stale = false;
+          return { data: thanks.data, version: thanks.version, stale: false };
+        }
+        if (r.status === 200) {
+          const data = cleanThanks(await r.json().catch(() => null), service);
+          if (data) {
+            const etag = r.headers.get('etag');
+            thanks.etag = etag && etag.length <= 100 ? etag : null;
+            thanks.data = data;
+            thanks.version = createHash('sha256').update(JSON.stringify(data)).digest('base64url').slice(0, 16);
+            thanks.at = now();
+            thanks.okAt = now();
+            thanks.stale = false;
+            // the pictures of this wall may be shown signed out too (the avatar proxy takes only these)
+            thanks.avatars = new Set(data.people.map((p) => p.avatar && new URL(p.avatar, 'http://x').searchParams.get('src')).filter(Boolean));
+            return { data, version: thanks.version, stale: false };
+          }
+          status = 502;
+        }
+      } catch {
+        status = 0;
+      }
+      thanks.at = now() - THANKS_MIN_GAP + 10000; // failing: try again in 10 s at the earliest
+      thanks.stale = true;
+      return { data: thanks.data, version: thanks.version, stale: true, status };
+    })().finally(() => {
+      thanks.inflight = null;
+    });
+    return thanks.inflight;
+  }
+
   /** A no-auth GET of the service (the catalog). */
   async function fetchPublic(path) {
     try {
@@ -788,7 +851,8 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
       res.end();
     };
     if (req.method !== 'GET' || !src || [...url.searchParams.keys()].length !== 1) return fail(400);
-    if (!session.signedIn) return fail(404);
+    // signed out: only the pictures of the Thank you wall the player is looking at
+    if (!session.signedIn && !thanks.avatars.has(src)) return fail(404);
     let hit = avatars.get(src);
     if (!hit) {
       try {
@@ -925,6 +989,7 @@ export function mePatch(b, { numbers = null } = {}) {
     if (typeof p.showLocation === 'boolean') priv.show_location = p.showLocation;
     if (typeof p.showRuns === 'boolean') priv.show_runs = p.showRuns;
     if (['everyone', 'nobody'].includes(p.friendRequests)) priv.friend_requests = p.friendRequests;
+    if (typeof p.showOnThanks === 'boolean') priv.show_on_thanks = p.showOnThanks;
     if (Object.keys(priv).length) out.privacy = priv;
   }
   if (!Object.keys(out).length) throw httpError(400, 'Nothing to change', 'acct', { code: 'bad_request' });

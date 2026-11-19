@@ -22,7 +22,7 @@ app.disableHardwareAcceleration();
 
 const VIEWS = ['library', 'soullink', 'nuzlocke', 'link', 'stream', 'trophies', 'settings?s=general', 'settings?s=play', 'settings?s=controls', 'settings?s=about', 'guide', 'plus'];
 // signed in: the account's own pages, and the library again (the account chip in the sidebar)
-const ACCOUNT_VIEWS = ['friends', 'profile', 'library', 'plus'];
+const ACCOUNT_VIEWS = ['friends', 'profile', 'library', 'plus', 'thanks'];
 // collected in the page: every element of the shell and the view, its box (to 1/4 px) and its generated text.
 // SKIP: subtrees left out of a comparison (the preview bar in Settings is UI that names the skin – not the skin)
 const COLLECT = (skip = '') => `(() => {
@@ -207,7 +207,7 @@ function seed(fake) {
   const D = 86400000;
   const proof = fake.addUser({ handle: 'proof_dew', display_name: 'Proof', title: 'win-nuzlocke', accent: 'amber', status: 'grinding Victory Road', banner: 'lcd-grid', frame: 'plain',
     showcase: { trophies: ['win-nuzlocke', 'win-soul-link'], trusted: 'Breloom line – on 6 teams, fell once (Crystal, to Whitney)', favorite_game: 'Emerald' },
-    privacy: { show_runs: true, profile: 'friends' }, createdAt: Date.parse('2025-03-12'),
+    privacy: { show_runs: true, profile: 'friends', show_on_thanks: true }, createdAt: Date.parse('2025-03-12'), // on the Thank you wall (and never asked)
     // a Supporter: the sidebar's souldew+ entry says "thank you" – its contrast is checked in every skin too
     entitlement: { tier: 'supporter', until: new Date(Date.now() + 30 * D).toISOString(), badges: ['supporter'] },
     stats: { totals: { runs_started: 23, runs_completed: 7, runs_failed: 14, soullink_runs: 13, nuzlocke_runs: 10, badges_earned: 61, pokemon_caught: 412, deaths: 168, playtime_minutes: 12840 },
@@ -401,7 +401,7 @@ app.whenReady().then(async () => {
     await until("import('/lib/cosmetics/index.mjs').then((m) => m.packState().entitled)");
     await sleep(1500);
     await dismissToasts();
-    const READY = { friends: '.fr-list .fr-row', profile: '.profile .pf-stats', library: '.rail-me', plus: '.plus-page .plus-tiers' };
+    const READY = { friends: '.fr-list .fr-row', profile: '.profile .pf-stats', library: '.rail-me', plus: '.plus-page .plus-tiers', thanks: '.ty-page .ty-tier' };
     for (const view of ACCOUNT_VIEWS) {
       await proveView(view, { ready: READY[view], contrast: view === 'library' ? '.rail-me, .nav' : '.rail-me, .nav, main.main' });
     }

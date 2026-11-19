@@ -37,6 +37,8 @@ export const API = {
   sessions: '/v1/me/sessions?limit=50',
   session: (id) => `/v1/me/sessions/${seg(id)}`,
   catalog: '/v1/catalog',
+  // §13 the public Thank you wall (no auth, ETag)
+  thanks: '/v1/thanks',
   // §3 other users
   user: (id) => `/v1/users/${seg(id)}`,
   // §4 friends

@@ -78,9 +78,9 @@ test('skins never change a box or a text on the real app views', { skip, timeout
   assert.equal(res.previewSkins, res.skins, 'the preview pack carries every skin');
   // colour skins are colour only: no fonts travel with the preview (or the full pack)
   assert.deepEqual(res.previewFonts, [], `preview fonts: ${res.previewFonts}`);
-  // 12 views signed out (with the souldew+ page), Friends + profile + library + souldew+ signed in, a friend's card,
-  // 14 views with the preview pack
-  assert.equal(res.views, 31);
+  // 12 views signed out (with the souldew+ page), Friends + profile + library + souldew+ + Thank you signed in, a
+  // friend's card, 14 views with the preview pack
+  assert.equal(res.views, 32);
   assert.deepEqual(res.diffs, [], `${res.diffs.length} differences: ${JSON.stringify(res.diffs.slice(0, 5))}`);
   assert.ok(res.boxes > 10000, `${res.boxes} element boxes compared`);
   // no skin brings a display face any more, so no text may be set narrower anywhere
