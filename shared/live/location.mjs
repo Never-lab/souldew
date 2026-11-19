@@ -339,6 +339,12 @@ function readGen4(m, read, maps, entry, ctx = {}) {
 //    2/White 2's pointer doesn't apply: in Black/White *(0x02000024) moves with the emulator (0x0221B2F0 in melonDS,
 //    0x0221B5F0 in DeSmuME, the zone at the same address in both).
 const GEN5_MAIN_PTR = 0x02000024;
+// Gen 5: the Union Room behind the left counter of the Pokémon Center's upper floor – zone 422, one of the three zones
+// the ROM's zone → place table gives no place (0: 150, 151, 422). Measured in Black in the link host (two consoles in
+// the room, the copy below read zone 422); Black 2/White 2's zone 422 has the same map and script (their zone headers
+// differ from Black's only in the fields every zone of theirs shifts).
+const GEN5_LINK = { bw: { 422: 'union' }, b2w2: { 422: 'union' } };
+const gen5Link = (fam, zones) => (zones && GEN5_LINK[fam]?.[zones[0]] ? linkRoom(GEN5_LINK[fam][zones[0]], zones[0]) : null);
 const BW_HEADER = 48;
 const BW_HEADER_AT = [0x0225929c, 0x022592bc]; // Black US, White US
 // The search for the copy: every BW_SCAN_MS, after BW_SCAN_SLOW_AFTER searches without a hit only every BW_SCAN_SLOW_MS
@@ -483,6 +489,8 @@ function readGen5(m, read, maps, entry, ctx = {}) {
   const rom = ctx.rom;
   if (rom?.gen !== 5 || gen5Family(rom) !== 'bw') return null;
   const zones = bwZones(read, rom, ctx);
+  const link = gen5Link('bw', zones);
+  if (link) return link;
   // the zone itself first, else its parent zone (a building without a name of its own)
   for (const zone of zones || []) {
     const id = Number.isInteger(zone) && zone < rom.mapLoc.length ? rom.mapLoc[zone] : null;
@@ -592,7 +600,10 @@ function b2w2CopyZones(read, rom, ctx) {
 
 /** Black 2/White 2: the place from the copy of the current zone's header – the zone's, else its parent's. */
 function readB2W2(read, rom, ctx) {
-  for (const zone of b2w2CopyZones(read, rom, ctx) || []) {
+  const zones = b2w2CopyZones(read, rom, ctx);
+  const link = gen5Link('b2w2', zones);
+  if (link) return link;
+  for (const zone of zones || []) {
     const id = Number.isInteger(zone) && zone < rom.mapLoc.length ? rom.mapLoc[zone] : null;
     if (Number.isInteger(id) && id > 0 && rom.names[id]) return { id, map: zone };
   }

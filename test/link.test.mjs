@@ -208,6 +208,38 @@ test('location: the link rooms are named as such, not after the place their map 
   }
 });
 
+test('location: the Gen 5 Union Room (zone 422, no place in the ROM\'s table) is named as such – Black/White and Black 2/White 2', () => {
+  const maps = JSON.parse(readFileSync(new URL('../shared/data/maps.json', import.meta.url), 'utf8'));
+  const n = 427;
+  const zones = new Uint8Array(n * 48);
+  for (let z = 0; z < n; z++) {
+    zones[z * 48] = 0x10;
+    zones[z * 48 + 0x08] = z & 0xff; zones[z * 48 + 0x09] = z >> 8;
+    zones[z * 48 + 0x16] = z & 0xff; zones[z * 48 + 0x17] = z >> 8;
+    zones[z * 48 + 0x18] = z & 0xff; zones[z * 48 + 0x19] = z >> 8;
+  }
+  const mapLoc = Array.from({ length: n }, (_, z) => (z === 397 || z === 398 ? 5 : z === 422 || z === 150 || z === 151 ? 0 : 1));
+  const names = Object.assign(new Array(117).fill('Somewhere'), { 0: '', 5: 'Accumula Town' });
+  const hex = Array.from(zones, (v) => v.toString(16).padStart(2, '0')).join('');
+  const ram = new Uint8Array(0x400000);
+  const read = (a, len) => (a >= 0x02000000 && a + len <= 0x02400000 ? ram.subarray(a - 0x02000000, a - 0x02000000 + len) : null);
+  const copy = (a, z) => { ram.set(zones.subarray(z * 48, z * 48 + 48), a - 0x02000000); ram[a - 0x02000000 + 0x30] = z & 0xff; ram[a - 0x02000000 + 0x31] = z >> 8; };
+  const black = { gen: 5, family: 'bw', code: 'IRBO', lang: 'en', mapLoc, names, zoneHeaders: hex };
+  copy(0x0225929c, 422); // (as the link host read it: both consoles in the Union Room)
+  const u = readLocation(maps, { id: 'black_us', gen: 5 }, read, { rom: black });
+  assert.deepEqual([u.id, u.link, u.map], ['link:union', 'union', 422]);
+  copy(0x0225929c, 398); // the Pokémon Center downstairs: Accumula Town as before
+  assert.equal(readLocation(maps, { id: 'black_us', gen: 5 }, read, { rom: black })?.id, 5);
+  copy(0x0225929c, 150); // (another zone without a place: still nothing on the sign)
+  assert.equal(readLocation(maps, { id: 'black_us', gen: 5 }, read, { rom: black }), null);
+  // Black 2: the copy behind the main pointer (+0x41B2C), matched by the zone id after it
+  ram.fill(0);
+  ram.set([0xa0, 0xe1, 0x21, 0x02], 0x24);
+  const b2 = { ...black, family: 'b2w2', code: 'IREO' };
+  copy(0x0221e1a0 + 0x41b2c, 422);
+  assert.equal(readLocation(maps, { id: 'black2_us', gen: 5 }, read, { rom: b2 })?.link, 'union');
+});
+
 // ---- the trade's log entry --------------------------------------------------------------------------------------------
 test('run: a trade in a link session is logged from the team before and after', async () => {
   const { RunDoc } = await import('../web/lib/doc.mjs');

@@ -482,6 +482,24 @@ async function main() {
       const sb1 = Buffer.concat([1, 2, 3, 4].map((id) => b.subarray(sec[id], sec[id] + 0xf80)));
       return { money: sb1.readUInt32LE(0x490), key: b.readUInt32LE(sec[0] + 0xac) };
     };
+    /**
+     * DS money in a battery save: Gen 4 – the newer of the two general blocks (0 / 0x40000, by the footer's save
+     * counter; PKHeX SAV4BlockDetection), the trainer block +0x14; Gen 5 – the misc block's first word (BW 0x21200, B2W2
+     * 0x21100; PKHeX Misc5). Both games of a pair write the same layout.
+     */
+    const saveMoneyDS = (b, game) => {
+      const g4 = { platinum: [0xcf2c, 0x14, 0x68], dp: [0xc100, 0x14, 0x64], hgss: [0xf628, 0x10, 0x64] }[game];
+      if (g4) {
+        const [size, foot, trainer] = g4;
+        const count = (o) => b.readUInt32LE(o + size - foot);
+        const c0 = count(0), c1 = count(0x40000);
+        const o = c0 === 0xffffffff ? 0x40000 : c1 === 0xffffffff || c0 >= c1 ? 0 : 0x40000;
+        return b.readUInt32LE(o + trainer + 0x14);
+      }
+      if (game === 'bw') return b.readUInt32LE(0x21200);
+      if (game === 'b2w2') return b.readUInt32LE(0x21100);
+      return null;
+    };
     async function battleChecks() {
       const want = String(opt('winner')).split(',').sort();
       const docs = [];

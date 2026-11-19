@@ -44,6 +44,25 @@ function records4(wins, losses, modifier = 0x1234) {
   return b;
 }
 
+/** A HeartGold/SoulSilver game stats block (0x1C0 bytes): wins/losses/draws (22–24), encrypted from +8 as the game does. */
+function records4hgss(wins, losses, draws, modifier = 0x2468) {
+  const b = new Uint8Array(0x1c0);
+  b.set(le32(1200), 0); b.set(le32(30), 4); // (steps walked and biked: not encrypted)
+  b.set(le32(9), 8);
+  b.set(le32(wins), 22 * 4); b.set(le32(losses), 23 * 4); b.set(le32(draws), 24 * 4);
+  let sum = 0;
+  for (let o = 8; o < 0x1bc; o++) sum += b[o];
+  sum &= 0xffff;
+  b[0x1bc] = sum & 0xff; b[0x1bd] = sum >> 8; b[0x1be] = modifier & 0xff; b[0x1bf] = modifier >> 8;
+  let x = (sum + (modifier << 16)) >>> 0;
+  for (let o = 8; o < 0x1bc; o += 2) {
+    x = (Math.imul(x, 0x41c64e6d) + 0x6073) >>> 0;
+    const v = (b[o] | (b[o + 1] << 8)) ^ (x >>> 16);
+    b[o] = v & 0xff; b[o + 1] = v >> 8;
+  }
+  return b;
+}
+
 test('money: Gen 1 BCD, Gen 2 big-endian, Gen 3 XOR with the save key – both ways', () => {
   assert.equal(L.bcdDecode([0x00, 0x31, 0x75]), 3175); // (Red's ₽3,175 in the recorded battle)
   assert.deepEqual(L.bcdEncode(3175), [0x00, 0x31, 0x75]);
@@ -86,10 +105,26 @@ test('money: found, changed and read back in every generation; refused where the
   // Gen 4 Platinum: the save data's trainer block, only when its game records decode (the pointer is right)
   const save = 0x0227e148;
   const pt = bus({ 0x02101d40: le32(save), [save + 0x90]: le32(3500), [save + 0x61c4]: records4(0, 0) });
+  assert.equal(await L.readMoney('platinum', pt.read), null, 'no trainer yet: the save isn\'t loaded');
+  pt.put(save + 0x7c, [0x2b, 0x01]);
   assert.equal(await L.readMoney('platinum', pt.read), 3500);
   assert.equal((await L.addMoney('platinum', pt.read, pt.write, -2000)).after, 1500);
-  const ptBad = bus({ 0x02101d40: le32(save), [save + 0x90]: le32(3500) });
+  const ptBad = bus({ 0x02101d40: le32(save), [save + 0x90]: le32(3500), [save + 0x7c]: [0x2b, 0x01] });
   assert.equal(await L.readMoney('platinum', ptBad.read), null);
+  // Diamond/Pearl (general block +0x214, money +0x78) and HeartGold/SoulSilver (+0x10)
+  const dp = bus({ 0x02106fc0: le32(save), [save + 0x28c]: le32(3000), [save + 0x278]: [0x2b, 0x01] });
+  assert.equal((await L.addMoney('dp', dp.read, dp.write, 2000)).after, 5000);
+  const hg = bus({ 0x02111880: le32(save), [save + 0x88]: le32(3000), [save + 0x74]: [0x2b, 0x01], [save + 0x4b4c]: records4hgss(0, 0, 0) });
+  assert.equal((await L.addMoney('hgss', hg.read, hg.write, -2000)).after, 1000);
+  // Gen 5: the save data in RAM in the battery save's layout – Black's at 0x0221BBAC (fixed), Black 2's behind the main
+  // pointer (+0x920); the money is the misc block's first word, read only with a named trainer
+  const bk = bus({ [0x0221bbac + 0x21200]: le32(4000), [0x0221bbac + 0x19404]: [0x41, 0x00] });
+  assert.equal(await L.readMoney('black', bk.read), 4000);
+  assert.equal((await L.addMoney('black', bk.read, bk.write, -1500)).after, 2500);
+  const b2 = bus({ 0x02000024: le32(0x0221e1a0), [0x0221e1a0 + 0x920 + 0x21100]: le32(3000) });
+  assert.equal(await L.readMoney('black2', b2.read), null, 'no trainer yet (the title screen)');
+  b2.put(0x0221e1a0 + 0x920 + 0x19404, [0x42, 0x00]);
+  assert.equal(await L.readMoney('black2', b2.read), 3000);
   // a write that doesn't stick is not a payment
   const stuck = bus({ 0xd347: [0x00, 0x31, 0x75] });
   assert.deepEqual(await L.addMoney('redblue', stuck.read, () => true, 100), { error: 'write' });
@@ -109,10 +144,16 @@ test('games: the seat\'s game from its cartridge header (and the live tracker\'s
   assert.equal(L.gameOf('gbc', gb('POKEMON_SLV', 'AAXD')), null);
   const nds = new Uint8Array(0x10); nds.set([...'CPUE'].map((c) => c.charCodeAt(0)), 0x0c);
   assert.equal(L.gameOf('nds', nds), 'platinum');
+  for (const [code, game] of [['ADAE', 'dp'], ['APAE', 'dp'], ['IPKE', 'hgss'], ['IPGE', 'hgss'], ['CPUD', null], ['IPKD', null]]) {
+    nds.set([...code].map((c) => c.charCodeAt(0)), 0x0c);
+    assert.equal(L.gameOf('nds', nds), game, code);
+  }
+  assert.equal(L.gameOfEntry({ id: 'soulsilver_us' }), 'hgss');
+  assert.equal(L.gameOfEntry({ id: 'pearl_us' }), 'dp');
   assert.equal(L.gameOfEntry({ id: 'emerald_us' }), 'emerald');
   assert.equal(L.gameOfEntry({ id: 'crystal_us', wram: { delta: 11 } }), null, 'a hack whose RAM moved');
   assert.equal(L.gameOfEntry({ id: 'heartgold_us~IPKD', scanOnly: true }), null);
-  assert.ok(L.wagerGame('pokemon-emerald') && L.wagerGame('pokemon-firered-de') && !L.wagerGame('pokemon-emerald-de') && !L.wagerGame('pokemon-heartgold'));
+  assert.ok(L.wagerGame('pokemon-emerald') && L.wagerGame('pokemon-firered-de') && !L.wagerGame('pokemon-emerald-de') && L.wagerGame('pokemon-heartgold') && L.wagerGame('pokemon-diamond') && !L.wagerGame('pokemon-platinum-de'));
   assert.deepEqual(L.battleFormats('gba', 2), ['single', 'double']);
   assert.deepEqual(L.battleFormats('gb', 2), ['single']);
   assert.deepEqual(L.battleFormats('gba', 4), ['multi']);
@@ -180,6 +221,32 @@ test('outcome, Gen 2 and 4: the games\' own counts before and after (Crystal los
   pt.put(save + 0x61c4, records4(1, 0, 0x4321)); // (the game encrypts again with a new seed)
   assert.deepEqual(L.countsBetween(a, await L.totals('platinum', { read: pt.read })), { w: 1, l: 0, d: 0 });
   assert.equal(L.countsBetween({ w: 5, l: 0, d: 0 }, { w: 1, l: 0, d: 0 }), null, 'fewer than before: a reset, not a result');
+});
+
+test('outcome, Diamond/Pearl and HeartGold/SoulSilver: their records, plain and encrypted, before and after', async () => {
+  // HG/SS: wins, losses and draws (22–24), encrypted from +8 with the sum at +0x1BC
+  assert.deepEqual(L.decodeRecords(records4hgss(2, 1, 1), 'hgss'), { wins: 2, losses: 1, draws: 1 });
+  const bad = records4hgss(2, 1, 1); bad[0x40] ^= 4;
+  assert.equal(L.decodeRecords(bad, 'hgss'), null, 'its byte sum doesn\'t match');
+  assert.equal(L.decodeRecords(records4(3, 1), 'hgss'), null, 'a Platinum block isn\'t HG/SS\'s');
+  // D/P: plain u32 records (21, 22)
+  const dp = new Uint8Array(0xb0); dp.set(le32(4), 21 * 4); dp.set(le32(2), 22 * 4);
+  assert.deepEqual(L.decodeRecords(dp, 'dp'), { wins: 4, losses: 2, draws: 0 });
+  const junk = new Uint8Array(0xb0).fill(0xff);
+  assert.equal(L.decodeRecords(junk, 'dp'), null, 'counts beyond the games\' cap: not a records block');
+  // through the save data pointer, with the trainer named (the save is loaded)
+  for (const [game, ptr, off, name, block, block2] of [
+    ['hgss', 0x02111880, 0x4b4c, 0x74, records4hgss(0, 0, 0), records4hgss(0, 1, 0, 0x1357)],
+    ['dp', 0x02106fc0, 0x611c, 0x278, new Uint8Array(0xb0), (() => { const b = new Uint8Array(0xb0); b.set(le32(1), 21 * 4); return b; })()],
+  ]) {
+    const save = 0x0226d300;
+    const g = bus({ [ptr]: le32(save), [save + off]: block });
+    assert.equal(await L.totals(game, { read: g.read }), null, `${game}: no trainer yet`);
+    g.put(save + name, [0x2b, 0x01]);
+    const a = await L.totals(game, { read: g.read });
+    g.put(save + off, block2);
+    assert.deepEqual(L.countsBetween(a, await L.totals(game, { read: g.read })), game === 'hgss' ? { w: 0, l: 1, d: 0 } : { w: 1, l: 0, d: 0 });
+  }
 });
 
 test('result: two seats, a multi battle, several battles, a draw – and counts that don\'t fit are no result', () => {
