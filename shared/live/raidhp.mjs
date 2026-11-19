@@ -328,7 +328,13 @@ const DRIVERS = [
   ...DS_DRIVERS,
 ];
 
+/** A game found by its family or a search, or a hack whose memory moved (Crystal Legacy keeps crystal_us, the Gen 3
+ *  hacks searched for keep their base game's id): the tables' addresses aren't its – the same test as linkbattle's
+ *  gameOfEntry. */
+const movedGame = (entry) => !!(String(entry?.id || '').includes('~') || entry?.scan3 || entry?.scanOnly || entry?.wram?.delta);
+
 function driverOf(entry) {
+  if (movedGame(entry)) return null;
   for (const d of DRIVERS) {
     const T = d.table(entry);
     if (T) return { d, T };
@@ -344,7 +350,7 @@ export function raidSupport(entry) {
   if (!entry) return { ok: false, why: 'unknown' };
   // a ROM hack with a memory-table entry of its own (Pokémon Quetzal: addresses.json `hack`) – its battles aren't the
   // base game's: never written to
-  if (entry.hack) return { ok: false, why: 'hack' };
+  if (entry.hack || movedGame(entry)) return { ok: false, why: 'hack' };
   if (driverOf(entry)) return { ok: true };
   return { ok: false, why: RAID_UNSUPPORTED[entry.gen] || 'version' };
 }

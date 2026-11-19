@@ -113,3 +113,13 @@ test('gifts between 3DS games: a Medicine item goes into the receiver\'s Medicin
   assert.equal(itemFitsPocket(gba, { gen: 3 }, 377, 'items'), false);
   assert.equal(itemFitsPocket({ kind: 'ds', maxId: 536 }, { gen: 4 }, 537, 'medicine'), false);
 });
+
+test('raids: a hack that keeps its base game\'s id but whose memory moved or is searched for is never written to', async () => {
+  const { raidSupport, raidView } = await import('../shared/live/raidhp.mjs');
+  assert.equal(raidSupport({ id: 'crystal_us', gen: 2 }).ok, true);
+  assert.equal(raidSupport({ id: 'emerald_us', gen: 3 }).ok, true);
+  for (const e of [{ id: 'crystal_us', gen: 2, wram: { delta: 0x20 } }, { id: 'emerald_us', gen: 3, scan3: true }, { id: 'firered_us', gen: 3, scanOnly: true }, { id: 'emerald_us~x', gen: 3 }]) {
+    assert.deepEqual(raidSupport(e), { ok: false, why: 'hack' }, JSON.stringify(e));
+    assert.equal(raidView(e, () => new Uint8Array(64)), null);
+  }
+});
