@@ -1016,9 +1016,6 @@ if (!LINK_SESSION) {
     romUrl: q.get('rom'),
     read,
     rect: () => (st.ready ? canvas.getBoundingClientRect() : null),
-    /** The picture on screen in game pixels { w, h, fmt (0 BGRA, 2 RGB565), px } – the DS overlay reads the field's light
-     *  off the player's own sprite. */
-    picture: () => (lastFrame ? { w: lastFrame.w, h: lastFrame.h, fmt: lastFrame.fmt, px: lastFrame.px } : null),
     /** The DS's top screen (where its 3D field is): the upper half, or the left one side by side. */
     screen() {
       if (!st.ready) return null;
@@ -1043,6 +1040,9 @@ if (!LINK_SESSION) {
     resume: () => window.__emu.resume(),
     post,
     keyButton: (e) => keyMap[e.keyCode],
+    /** The picture on screen: { w, h, fmt (0: 32-bit BGRX, else RGB565), px } – the Game Boy overlay takes its colours from
+     *  it, the DS overlay the field's light (off the player's own sprite). */
+    picture: () => lastFrame,
   });
 }
 

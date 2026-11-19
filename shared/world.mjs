@@ -10,6 +10,8 @@
 // Coordinates are world pixels of the current map: tile × 16 (+ the sub-tile offset while walking). Gen 3 map coords
 // are SaveBlock1 `pos` (the camera's tile = the player's tile), the object events' coords carry +7 (MAP_OFFSET).
 
+import { gbWorldTable, gbWatchRanges, gbReadCamera, gbReadPlayer, gbDrawable, gbLocalSprite, gbReadConnections, gbPopupRect } from './worldgb.mjs';
+
 const hex = (v) => (typeof v === 'string' ? parseInt(v, 16) : Number(v));
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
 const s16 = (b, o) => (u16(b, o) << 16) >> 16;
@@ -25,8 +27,12 @@ const STEP = { 1: [0, 1], 2: [0, -1], 3: [-1, 0], 4: [1, 0] };
 
 /** Avatar kinds (what the player rides or does). Index = the number on the wire. */
 export const KINDS = ['walk', 'mach', 'acro', 'bike', 'surf', 'dive', 'fieldmove', 'fish', 'water', 'vsseeker'];
-/** Families whose maps share ids: a partner is only drawn in a game of the same family (Ruby ↔ Sapphire, FR ↔ LG). */
-export const FAMILIES = { rs: 1, e: 2, frlg: 3, rb: 11, y: 12, gs: 13, c: 14, dppt: 21, hgss: 22 };
+/**
+ * Families whose maps share ids: a partner is only drawn in a game of the same family (Ruby ↔ Sapphire, FR ↔ LG; Red,
+ * Blue and Yellow; Gold, Silver and Crystal – Gold/Silver maps go out with Crystal's numbers, shared/worldgb.mjs; Diamond,
+ * Pearl and Platinum; HeartGold and SoulSilver – shared/worldds.mjs).
+ */
+export const FAMILIES = { rs: 1, e: 2, frlg: 3, rby: 11, gsc: 13, dppt: 21, hgss: 22 };
 
 // GBA key bits (KEYINPUT / gMain.heldKeys)
 export const GBA_KEY = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, UP: 64, DOWN: 128, R: 256, L: 512 };
@@ -40,6 +46,7 @@ export const GBA_KEY = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, U
  */
 export function worldTable(entry, rev = 0, code = '') {
   const w = entry?.world;
+  if (w && (entry.gen === 1 || entry.gen === 2)) return gbWorldTable(entry);
   if (!w || entry.gen !== 3) return null;
   const rom = (code && w.rom?.[`${code}:${rev}`]) || w.rom?.[String(rev)] || null;
   const inBattle = entry.inBattle ? { addr: hex(entry.inBattle.addr), mask: hex(entry.inBattle.mask || '0xff') } : null;
@@ -96,6 +103,7 @@ function saveBlock1(t, read) {
  */
 export function watchRanges(t, sb1, spriteId = null) {
   if (!t) return [];
+  if (t.gen <= 2) return gbWatchRanges(t);
   const r = [
     [t.fieldCamera + 0x10, 8], // CameraObject x, y (s32)
     [t.main + 4, 4], // gMain.callback2
@@ -118,6 +126,7 @@ export function watchRanges(t, sb1, spriteId = null) {
  * animNum, cmd, flip } or null. `cam` gives nothing here; the sprite id comes from gPlayerAvatar.
  */
 export function readLocalSprite(t, read) {
+  if (t?.gen <= 2) return gbLocalSprite(t, read);
   if (!t?.sprites) return null;
   const av = read(t.playerAvatar + 4, 2);
   if (!ok(av, 2) || av[0] >= 64) return null;
@@ -164,7 +173,8 @@ export const chainReaders = (...readers) => (addr, len) => {
  * The camera, per picture: { sb1, map, tx, ty (the camera's tile), cx, cy (its world pixels), keys, cb2, locked, fade
  * (0 = clear … 16 = black/white), battle } – or null when SaveBlock1 isn't there yet (title screen, intro).
  */
-export function readCamera(t, read) {
+export function readCamera(t, read, prior = null) {
+  if (t?.gen <= 2) return gbReadCamera(t, read, prior);
   const sb1 = saveBlock1(t, read);
   if (!sb1) return null;
   const pos = read(sb1, 8);
@@ -209,6 +219,7 @@ export function readCamera(t, read) {
  */
 export function readPlayer(t, read, cam = readCamera(t, read)) {
   if (!cam) return null;
+  if (t.gen <= 2) return gbReadPlayer(t, read, cam);
   const av = read(t.playerAvatar, 8);
   if (!ok(av, 8)) return null;
   const id = av[5];
@@ -282,6 +293,7 @@ export function blockReader(view, read) {
  * from the RAM mirror, a few frames late: while the popup grows (`prev`: the last result) 12 rows more are cut away.
  */
 export function popupRect(t, read, prev = null) {
+  if (t?.gen <= 2) return gbPopupRect(t, read);
   const p = t?.popup;
   if (!p) return null;
   const b = read(t.tasks, 16 * 0x28);
@@ -304,6 +316,7 @@ export function popupRect(t, read, prev = null) {
  * learned while the player walked: `learned`), no battle, no menu or script holding the player, no full fade.
  */
 export function drawable(t, cam, learned = 0) {
+  if (t?.gen <= 2) return gbDrawable(t, cam);
   if (!t || !cam || cam.battle || cam.locked || cam.help || cam.replay || cam.fade >= 16) return false;
   const cb2 = t.overworldCb2 || learned;
   return cb2 ? cam.cb2 === cb2 : true;
@@ -565,6 +578,7 @@ export const CONN = { S: 1, N: 2, W: 3, E: 4 };
  * { map, w, h, list: [{ dir, offset, map }] } or null. Cached per connections pointer (`cache`: a Map).
  */
 export function readConnections(t, read, rom, map, cache = null) {
+  if (t?.gen <= 2) return gbReadConnections(t, read, map);
   if (!t?.mapHeader || !rom) return null;
   const h = read(t.mapHeader, 0x10);
   if (!ok(h, 0x10)) return null;
@@ -610,6 +624,8 @@ export function inLocalFrame(conns, st, size = null) {
   if (st.map === conns.map) return { x: st.x, y: st.y };
   const c = conns.list.find((x) => x.map === st.map);
   if (!c) return null;
+  // (the Game Boy games: the offsets from your own RAM – shared/worldgb.mjs gbReadConnections)
+  if (c.ox !== undefined) return { x: st.x + c.ox, y: st.y + c.oy };
   const o = c.offset * TILE;
   if (c.dir === CONN.S) return { x: st.x + o, y: st.y + conns.h * TILE };
   if (c.dir === CONN.E) return { x: st.x + conns.w * TILE, y: st.y + o };

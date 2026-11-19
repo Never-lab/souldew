@@ -10,7 +10,7 @@ import { listRuns, runDir } from './build.mjs';
 import { catalog } from './library.mjs';
 import { PROGRESSION } from '../../shared/routes.mjs';
 import { slotsOf } from '../../shared/slots.mjs';
-import { digestRun, buildDex, dexTotals, context, evaluate, medals, migrate, cleanMoment, momentKey, MAX_MOMENTS, MAX_SPECIES, SCHEMA } from '../../shared/trophies.mjs';
+import { digestRun, runStarted, buildDex, dexTotals, context, evaluate, medals, migrate, cleanMoment, momentKey, MAX_MOMENTS, MAX_SPECIES, SCHEMA } from '../../shared/trophies.mjs';
 
 export const TROPHY_PATH = join(DATA_DIR, DEV ? 'runs/trophies.json' : 'trophies.json');
 
@@ -81,12 +81,22 @@ function genOf(m, games) {
   return game?.generation || null;
 }
 
-/** Re-read the runs whose doc changed since the last digest (by size + mtime + slot + digest version). */
+/**
+ * Re-read the runs whose doc changed since the last digest (by size + mtime + slot + digest version). Returns the ids
+ * of the runs this computer has not started (an invite opened but not built): they count for nothing.
+ */
 function refreshRuns(state) {
   const games = catalog().games || [];
   const present = new Set();
+  const idle = new Set();
   for (const m of listRuns()) {
     present.add(m.id);
+    if (!runStarted(m)) {
+      // (a digest an older version made of it goes – the invite wasn't a run of this computer's yet)
+      idle.add(m.id);
+      delete state.runs[m.id];
+      continue;
+    }
     const slot = slotsOf(m).includes(state.slots[m.id]) ? state.slots[m.id] : guessSlot(m);
     let sig = `v${DIGEST_VERSION}:none:${slot}`;
     const p = join(runDir(m.id), 'doc.json');
@@ -116,6 +126,7 @@ function refreshRuns(state) {
     const digest = gen && r.digest.gen !== gen ? { ...r.digest, gen } : r.digest;
     if (!r.archived || digest !== r.digest) state.runs[id] = { ...r, digest, archived: true };
   }
+  return idle;
 }
 
 /**
@@ -137,21 +148,21 @@ export function syncTrophies({ slots = {}, seen = [], moments = [] } = {}) {
     const n = Number(id);
     if (Number.isInteger(n) && n >= 1 && n <= MAX_SPECIES && !state.seen[n]) state.seen[n] = now;
   }
+  const idle = refreshRuns(state);
   const keys = new Set(state.moments.map(momentKey));
   for (const raw of Array.isArray(moments) ? moments.slice(0, 50) : []) {
     const m = cleanMoment(raw);
-    if (m && !keys.has(momentKey(m))) {
+    if (m && !idle.has(m.runId) && !keys.has(momentKey(m))) {
       keys.add(momentKey(m));
       state.moments.push(m);
     }
   }
   state.moments = state.moments.slice(-MAX_MOMENTS);
-  refreshRuns(state);
 
   const digests = Object.values(state.runs).map((r) => r.digest).filter(Boolean);
   const dex = buildDex(digests, state.seen);
   const totals = dexTotals(dex);
-  const states = evaluate(context(digests, state.moments, { dex, typesOf, isDefaultName }));
+  const states = evaluate(context(digests, state.moments.filter((m) => !idle.has(m.runId)), { dex, typesOf, isDefaultName }));
   const fresh = [];
   for (const s of states) {
     if (!s.ok || state.unlocked[s.id]) continue;

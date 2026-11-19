@@ -56,6 +56,17 @@ function routeText(route) {
   return relayed ? t('linkplay.relayed', 'relayed (TURN)') + ms : t('linkplay.direct', 'direct') + ms;
 }
 
+/**
+ * "In a link with Tim": a partner who is linked with other players of the run right now (what their computer tells the
+ * players outside the session, web/lib/linksession.mjs 'linked') – null when they aren't. `names`: { slot: { name } }.
+ */
+export function linkedText(linkSessions, slot, names) {
+  const away = linkSessions?.linkedElsewhere?.(slot);
+  if (!away) return null;
+  const name = away.seats.filter((s) => s !== slot).map((s) => names?.[s]?.name || s.toUpperCase()).join(', ');
+  return away.kind === 'battle' ? t('linkplay.inBattleWith', 'In a link battle with {name}', { name }) : t('linkplay.inLinkWith', 'In a link with {name}', { name });
+}
+
 /** Trade / Battle on a partner's card (the board): only when both can link right now. */
 export function LinkButtons({ slot }) {
   const { doc, manifest, me, onlineSlots, linkSessions, linkPlay, linkStatus, toast } = useApp();
@@ -65,7 +76,10 @@ export function LinkButtons({ slot }) {
   const online = onlineSlots?.has?.(slot);
   const direct = !!linkStatus?.partners?.[slot]?.p2p;
   const idle = !linkPlay || ['idle', 'ended', 'rejoinable'].includes(linkPlay.phase);
-  const name = getPlayers(doc, manifest)[slot]?.name || slot;
+  const names = getPlayers(doc, manifest);
+  const name = names[slot]?.name || slot;
+  // linked with others right now: said on the card, and the buttons wait until that link ends
+  const away = online ? linkedText(linkSessions, slot, names) : null;
   const start = async (kind) => {
     setBusy(true);
     try {
@@ -76,14 +90,14 @@ export function LinkButtons({ slot }) {
       setBusy(false);
     }
   };
-  const why = !online ? t('linkplay.needOnline', '{name} isn’t online', { name }) : !direct ? t('linkplay.needConnection', 'No connection to {name} yet', { name }) : null;
+  const why = !online ? t('linkplay.needOnline', '{name} isn’t online', { name }) : away || (!direct ? t('linkplay.needConnection', 'No connection to {name} yet', { name }) : null);
   // a battle may be for money (the run's wager rule): first the challenge – format and wager – then the invite
   const challenge = wagerRules(getRules(doc, manifest)).on && wagerGame(manifest?.game?.id);
   if (setup) {
     return html`<${BattleSetup} names=${[name]} seats=${2} onCancel=${() => setSetup(false)}
       onSend=${async (opts) => { setSetup(false); setBusy(true); try { await linkSessions.invite('battle', [slot], opts); } catch (e) { toast({ kind: 'death', title: t('linkplay.title', 'Link'), text: reasonText(e.code, name) }); } finally { setBusy(false); } }} />`;
   }
-  return html`<div class="row link-buttons">
+  return html`${away && html`<span class="link-away tiny" data-linked=${slot}><${Icon} name="link" size=${12} />${away}</span>`}<div class="row link-buttons">
     ${linkAllowed(doc, manifest, 'trade') && html`<button class="btn small" disabled=${busy || !idle || !!why} title=${why || t('linkplay.tradeHint', 'Both games open in the link – meet in the Pokémon Center upstairs, as with a cable')}
       onClick=${() => start('trade')}><${Icon} name="link" size=${14} />${t('linkplay.trade', 'Trade')}</button>`}
     ${linkAllowed(doc, manifest, 'battle') && html`<button class="btn small" disabled=${busy || !idle || !!why} title=${why || t('linkplay.battleHint2', 'A link battle – by the run’s rules, losing there doesn’t count')}
@@ -155,7 +169,8 @@ export function LinkGroupButton() {
   const [setup, setSetup] = useState(false);
   const slots = manifest ? slotsOf(manifest) : [];
   if (!linkSessions || slots.length < 3 || !LINK_SYSTEMS.includes(manifest?.game?.system) || !linkAllowed(doc, manifest, 'battle')) return null;
-  const ready = slots.filter((s) => s !== me && onlineSlots?.has?.(s) && linkStatus?.partners?.[s]?.p2p);
+  // (a player linked with others right now waits for the next one)
+  const ready = slots.filter((s) => s !== me && onlineSlots?.has?.(s) && linkStatus?.partners?.[s]?.p2p && !linkSessions.linkedElsewhere?.(s));
   const idle = !linkPlay || ['idle', 'ended', 'rejoinable'].includes(linkPlay.phase);
   const go = async (opts = {}) => {
     setBusy(true);
