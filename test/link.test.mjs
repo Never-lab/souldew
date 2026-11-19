@@ -740,3 +740,20 @@ test('linksession: out of step – the play view\'s saves on their way land befo
   }
   A.stop(), B.stop();
 });
+
+test('save import: the game running in the browser player is "this save" from either side – the run slot or the library game', async () => {
+  const { playsThisSave } = await import('../web/views/saveimport.mjs');
+  const lib = '/games/Pokemon Emerald.gba';
+  const run = { id: 'abcd1234', mode: 'together', players: { p1: {}, p2: {} }, outputs: { p1: { rom: 'p1.gba', library: lib } } };
+  // the Play together run's game is open (stateId = the library game's): an import into the library game is refused
+  const runGame = { saveUrl: '/api/runs/abcd1234/save/p1', runId: 'abcd1234', key: 'link-x', stateId: lib };
+  assert.equal(playsThisSave(runGame, { id: lib }), true);
+  // the library game is open on its own: an import into the run's slot is refused
+  const freePlay = { saveUrl: `/api/saves/solo?id=${encodeURIComponent(lib)}`, key: lib, stateId: lib };
+  assert.equal(playsThisSave(freePlay, { runId: 'abcd1234', slot: 'p1' }, run), true);
+  // another game: not this save
+  assert.equal(playsThisSave({ saveUrl: '/api/saves/solo?id=other', key: 'other', stateId: 'other' }, { id: lib }), false);
+  assert.equal(playsThisSave(null, { id: lib }), false);
+  // an ordinary run's slot keeps its own save
+  assert.equal(playsThisSave(freePlay, { runId: 'abcd1234', slot: 'p1' }, { ...run, mode: 'soullink' }), false);
+});

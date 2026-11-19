@@ -10,7 +10,7 @@ import { t, ago } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
 import { diag } from '../lib/diag.mjs';
-import { canImportSave, markSaveImport, logSaveImport } from '../lib/run.mjs';
+import { canImportSave, markSaveImport, logSaveImport, runStateId } from '../lib/run.mjs';
 import { slotsOf } from '/shared/slots.mjs';
 
 /** The file picker's types per system (a zip with one save in it works everywhere). */
@@ -91,6 +91,20 @@ const diagLine = (e) => [e?.code || (e?.status ? `HTTP ${e.status}` : 'error'), 
  * "Load a save file …": `target` = { id (library id) | runId + slot, system, label }. Opens the dialog; onDone(result)
  * after an import or its undo.
  */
+/**
+ * Does the play view's game (`playing`: the session's target) run the save an import is for (`target`: { runId, slot }
+ * or { id })? The browser player too – the server can't see that one. Play together: a run slot plays the library
+ * game's own save, so the run's player and the library's free play are the same save (one stateId).
+ */
+export function playsThisSave(playing, target, runManifest = null) {
+  if (!playing || !target) return false;
+  const inRun = !!target.runId;
+  const saveUrl = inRun ? `/api/runs/${target.runId}/save/${target.slot}` : `/api/saves/solo?id=${encodeURIComponent(target.id)}`;
+  if (playing.saveUrl === saveUrl || (inRun && playing.runId === target.runId) || (!inRun && playing.key === target.id)) return true;
+  const stateId = inRun ? (runManifest ? runStateId(runManifest, target.slot) : null) : target.id;
+  return !!stateId && playing.stateId === stateId;
+}
+
 export function SaveImportDialog({ target, onClose, onDone }) {
   const { session, closeSession, toast, doc, manifest } = useApp();
   const inRun = !!target.runId;
@@ -108,8 +122,7 @@ export function SaveImportDialog({ target, onClose, onDone }) {
   const dirRef = useRef(null);
   const q = importQuery(target);
   // the play view runs this very save (the browser player too – the server can't see that one)
-  const saveUrl = inRun ? `/api/runs/${target.runId}/save/${target.slot}` : `/api/saves/solo?id=${encodeURIComponent(target.id)}`;
-  const playingThis = !!session && (session.target.saveUrl === saveUrl || (inRun && session.target.runId === target.runId) || (!inRun && session.target.key === target.id));
+  const playingThis = playsThisSave(session?.target, target, runManifest);
 
   useEffect(() => {
     let off = false;
