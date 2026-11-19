@@ -1,6 +1,6 @@
 // Rock-paper-scissors outside the game picture (docs/MULTIPLAYER.md › 9): the card for a game the Shared World overlay
-// doesn't show (any game that isn't Gen 3, Shared World switched off, a battle or a menu on screen when the challenge
-// came, or no game running at all), and the button on the board's log that starts one. The game itself is
+// doesn't show (Gen 4 and later, Shared World switched off, a battle or a menu on screen when the challenge came, or no
+// game running at all), and the button on the board's log that starts one. The game itself is
 // web/lib/worldrps.mjs (commit–reveal, shared/rps.mjs).
 import { html, useState } from '/vendor/htm-preact.mjs';
 import { useApp } from '../lib/ui.mjs';

@@ -5,7 +5,8 @@
 ## 3.0.0
 
 souldew 3.0 brings multiplayer: the players of a run trade Pokémon and battle each other the way the games meant it –
-in the Cable Club, the Colosseum and the Union Room – and in the Gen 3 games your partners walk around in your game.
+in the Cable Club, the Colosseum and the Union Room – and in the Game Boy and Game Boy Advance games (Gen 1 to 3) your
+partners walk around in your game.
 Plus a new play view that gives the game the room it deserves.
 
 - **Trade and battle with your partners – Gen 1 to Gen 4, no restart.** On the board, each partner's card has Trade
@@ -70,6 +71,14 @@ Plus a new play view that gives the game the room it deserves.
   small card; the log says “Marius beat Tim at rock-paper-scissors”. A draw is played again; best of 3 from the board.
 - **More bubbles next to Wave:** a heart, “!”, “?” and “GG”, from the same A menu – small pixel art over your head on
   every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
+- **Shared World on the Game Boy: Red, Blue, Yellow, Gold, Silver and Crystal.** Your partners walk in your Gen 1 and
+  Gen 2 games too – with their trainer sprite from your ROM, their name tag and the Pokémon at the front of their team
+  following them (its party icon from your ROM: Gen 2 in the Pokémon's own colours, a shiny one in its shiny ones; Gen
+  1 the game's own icon), across the edge to the next map, and the A menu with Trade, Battle, Wave,
+  rock-paper-scissors and the emotes. They look like the game's own people: on the original Game Boy in its greens, in
+  a Game Boy Color's colours, in Yellow's – and the tall grass covers their legs exactly where it covers yours. Red,
+  Blue and Yellow meet each other, so do Gold, Silver and Crystal. In Yellow, Pikachu already walks behind you: your
+  partners see Pikachu follow you, and souldew adds no second one.
 - **Partners next door:** a partner on a map connected to yours (the route beyond the town's edge) now shows across
   the edge and walks over it smoothly, instead of appearing only once you're on the same map.
 - **German Emerald (Smaragd) is read live.** souldew showed nothing for it so far: its memory was taken to be laid out
