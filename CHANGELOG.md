@@ -16,8 +16,8 @@ Plus a new play view that gives the game the room it deserves.
   where the link left it. Every player's computer runs all linked consoles in lockstep and only the buttons travel, so
   it feels like a cable even between two homes; when no direct connection can be made, it goes through a relay server.
   Tested end to end with Red, Crystal with Silver (cartridge clock included), Emerald with Sapphire, Platinum, Diamond
-  with Pearl and Black; different games of a generation link too – souldew finds your partner's game in your library
-  or lets you pick it, checked byte for byte.
+  with Pearl, HeartGold with SoulSilver, and Black with Black, White and Black 2; different games of a generation link
+  too – souldew finds your partner's game in your library or lets you pick it, checked byte for byte.
 - **Up to four players where the game has it:** the Gen 3 Multi Battle (two against two) and the Gen 4 Union Room,
   where all four of you see each other and trade in pairs. “Link all of us” on the board starts it.
 - **Made to be safe for your run.** A trade goes into the run's log. Before the link souldew keeps your save; if the
@@ -33,8 +33,8 @@ Plus a new play view that gives the game the room it deserves.
   your next in-game save – once, even after a reset), and the board keeps the record between you: “Marius 3 : 1 Tim”.
   Games out of step, a game that dropped out of the link or a result that isn't clear: nobody pays. The host decides
   whether wagers are allowed and the highest wager. Works in Red, Blue, Yellow, Gold, Silver, Crystal, Ruby,
-  Sapphire, Emerald, FireRed, LeafGreen, Diamond, Pearl, Platinum, HeartGold, SoulSilver, Black, White, Black 2 and
-  White 2 (English, and the German Gen 3 games except Emerald); stream tools get a `link-battle` event.
+  Sapphire, Emerald, FireRed, LeafGreen, Diamond, Pearl, Platinum, HeartGold, SoulSilver, Black, White and Black 2
+  (English, and the German Gen 3 games except Emerald) – not yet in White 2. Stream tools get a `link-battle` event.
 - **Leaving the link inside a link room can't hurt your run.** A game that's still in the Trade Center or the
   Colosseum when the link ends goes on alone in its link mode – Gold, Silver and Crystal even start the next battle
   against the partner's team they already received. souldew counts nothing of it (no deaths, no catches, no team
@@ -47,9 +47,11 @@ Plus a new play view that gives the game the room it deserves.
   Platinum, HeartGold and SoulSilver.
 - **Gen 5 links too: Black, White, Black 2 and White 2.** Meet in the Union Room – upstairs in the Pokémon Center,
   the left counter, open once you have the C-Gear – and trade, battle or swap Trainer Cards as on real hardware, from
-  where you are in your game, no restart, like Gen 1–4. A trade goes into the log (“traded Lillipup for Patrat with
-  Tim”), a battle's result and wager count as in the other games, and the “You are here” sign says “Union Room” and
-  “Colosseum” there. The C-Gear's infrared features don't link: the emulator has no infrared.
+  where you are in your game, no restart, like Gen 1–4 – Black, White and Black 2 also with each other. A trade goes
+  into the log (“traded Lillipup for Patrat with Tim”), a battle's result and wager count as in the other games, and
+  the “You are here” sign says “Union Room” and “Colosseum” there. White 2 isn't tested through souldew yet: its
+  battles don't count and its sign doesn't name the link rooms until it is. The C-Gear's infrared features don't
+  link: the emulator has no infrared.
 - **Blue or Red with Yellow:** a Game Boy game and a Game Boy Color game link again – Yellow's
   player refused every invite from Red or Blue (“isn't available for this game”), and each seat now runs on its own
   player's console on every computer.
@@ -312,7 +314,6 @@ Good to know:
 - Save states made for Game Boy / Game Boy Color games in the fast player before 3.0 (on the old Gambatte emulator)
   can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the
   other Game Boy look load once you switch back to it.
-- Gen 5 (Black/White) links come later.
 
 ## 2.8.4
 

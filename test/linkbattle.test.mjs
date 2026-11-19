@@ -150,11 +150,14 @@ test('games: the seat\'s game from its cartridge header (and the live tracker\'s
   }
   assert.equal(L.gameOfEntry({ id: 'soulsilver_us' }), 'hgss');
   assert.equal(L.gameOfEntry({ id: 'pearl_us' }), 'dp');
-  for (const [code, game] of [['IRBO', 'black'], ['IRAO', 'white'], ['IREO', 'black2'], ['IRDO', 'white2'], ['IRBD', null]]) {
+  for (const [code, game] of [['IRBO', 'black'], ['IRAO', 'white'], ['IREO', 'black2'], ['IRDO', null], ['IRBD', null]]) {
     nds.set([...code].map((c) => c.charCodeAt(0)), 0x0c);
     assert.equal(L.gameOf('nds', nds), game, code);
   }
-  assert.equal(L.gameOfEntry({ id: 'white2_us' }), 'white2');
+  // (White 2: no link battle of it recorded yet – no results and no wagers until one is)
+  assert.equal(L.gameOfEntry({ id: 'white2_us' }), null);
+  assert.equal(L.gameOfEntry({ id: 'white_us' }), 'white');
+  assert.ok(!L.wagerGame('pokemon-white-2') && L.wagerGame('pokemon-white') && !L.GAMES.white2);
   assert.equal(L.gameOfEntry({ id: 'emerald_us' }), 'emerald');
   assert.equal(L.gameOfEntry({ id: 'crystal_us', wram: { delta: 11 } }), null, 'a hack whose RAM moved');
   assert.equal(L.gameOfEntry({ id: 'heartgold_us~IPKD', scanOnly: true }), null);

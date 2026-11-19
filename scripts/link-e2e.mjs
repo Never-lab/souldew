@@ -587,8 +587,8 @@ async function main() {
       for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/play?run=${runId}`)}; true`);
       await sleep(3000);
       if (!flag('save-after')) return;
-      // an in-game save – Gen 3: START, (the menu remembers SAVE), A, YES, YES; Gen 5: X, SAVE on the touch screen, YES on
-      // the touch screen (after a tap the game's first A only brings the cursor back). Every wait counts the game's own
+      // an in-game save – Gen 3: START, (the menu remembers SAVE), A, YES, YES; HG/SS and Gen 5: SAVE and YES on the
+      // touch screen (after a tap the game's first A only brings the cursor back). Every wait counts the game's own
       // frames: with the computer busy the games run slower than real time, and a press timed by the clock lands while
       // the question is still being written out – then nothing is saved and the run never gets the money
       const waitFrames = async (i, n) => {
@@ -600,7 +600,11 @@ async function main() {
       for (const i of all) {
         const g = gameOfRom(romOf(i));
         const gen5 = ['black', 'white', 'black2', 'white2'].includes(g);
-        const steps = gen5
+        // (HeartGold/SoulSilver: the menu stays on the touch screen – SAVE where the recordings' saves have it, with
+        // Pokémon, Bag and Pokégear and no Pokédex yet; then YES and YES to overwrite)
+        const steps = g === 'hgss'
+          ? [['touch', 124, 76], [[], 240], ['touch', 232, 98], [[], 240], ['touch', 232, 98], [[], 1500]]
+          : gen5
           ? [[['x'], 8], [[], 90], ['touch', 65, 141], [[], 240], ['touch', 225, 60], [[], 900], [['b'], 8], [[], 60]]
           : [[['start'], 8], [[], 54], [['a'], 8], [[], 90], [['a'], 8], [[], 90], [['a'], 8], [[], 360], [['a'], 8], [[], 72], [['b'], 8], [[], 36]];
         for (const [keys, a, b] of steps) {
