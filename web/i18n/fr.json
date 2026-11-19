@@ -617,6 +617,7 @@
   "join.ownRun": "Tu as créé ce run sur cet ordinateur – il est déjà dans tes runs. L’invitation est pour les autres joueurs.",
   "join.paste": "Utiliser l’invitation",
   "join.pastePh": "… ou colle l’invitation copiée",
+  "join.playWith": "Jouer avec",
   "join.patchFound": "Patch trouvé",
   "join.patchMissing": "Ajoute le patch pour {hack} à ta bibliothèque.",
   "join.ready": "Tu es dans la partie !",

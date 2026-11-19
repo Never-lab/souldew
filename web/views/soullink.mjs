@@ -959,7 +959,13 @@ function JoinRun() {
   // (by CRC32 – a 3DS game, which has none, by its game: never just the first 3DS file of the library)
   const cat = catalog();
   const rootOf = (id) => cat.games.find((g) => g.id === id)?.variantOf || id;
-  const rom = pack ? baseRomsFor(pack, library?.roms, rootOf)[0] : undefined;
+  // every library ROM this run can be joined with – the exact release first, then other releases and the pair's other
+  // title (HeartGold for a SoulSilver run). With both editions at hand the player picks one (one per edition).
+  const candidates = pack ? baseRomsFor(pack, library?.roms, rootOf) : [];
+  const editions = [];
+  for (const r of candidates) if (r.gameId && !editions.some((e) => rootOf(e.gameId) === rootOf(r.gameId))) editions.push(r);
+  const [pickedRomId, setPickedRomId] = useState(null);
+  const rom = candidates.find((r) => r.id === pickedRomId) || candidates[0];
   // The release behind a CRC32, e.g. "Pokemon - Platinum Version (USA) (Rev 1)" – for messages a person can act on.
   const releaseOf = (crc) => {
     const c = String(crc || '').toUpperCase();
@@ -1061,6 +1067,11 @@ function JoinRun() {
     </section>
     ${pack && html`<section class="panel stack">
       <h2>${t('join.step2', '2 · Your game')}</h2>
+      ${rom && editions.length > 1 && html`<div class="row small"><span class="muted">${t('join.playWith', 'Play with')}</span>
+        <div class="seg" role="radiogroup" aria-label=${t('join.playWith', 'Play with')}>${editions.map((e) => {
+          const on = rootOf(e.gameId) === rootOf(rom.gameId);
+          return html`<button role="radio" aria-checked=${on} class=${on ? 'on' : ''} onClick=${() => setPickedRomId(e.id)}>${titleOf(rootOf(e.gameId))}</button>`;
+        })}</div></div>`}
       ${rom ? html`<p class="small"><span class="chip ok">${t('join.found', 'Found in your library')}</span> <span class="mono">${rom.name}</span></p>
         ${pair && html`<p class="small"><span class="chip ok">${t('join.pairChip', 'Other edition')}</span> ${t('join.pairTitle', 'You play {yours}, the host plays {host} – that’s fine for a run without randomizer or ROM hack: everyone catches in their own game.', { yours: titleOf(pair.yours), host: titleOf(pair.host) })}</p>`}
         ${otherRelease && !pair && html`<p class="small muted">${t('join.otherRelease', 'Another release than the host’s ({host}) – that’s fine: everyone plays their own copy in this run.', { host: releaseOf(baseCrc) || `CRC32 ${baseCrc}` })}</p>`}`
