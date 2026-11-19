@@ -108,6 +108,7 @@ const TEXTS = {
   nativeSystem: () => t('err.nativeSystem', 'The fast player doesn’t play this system'),
   noNativeSession: () => t('err.noNativeSession', 'No game is running in the fast player'),
   linkSystem: () => t('linkplay.system', 'Linking isn’t available for this game yet.'),
+  linkHack: () => t('linkplay.hack', 'Trades and battles over the link aren’t available for this ROM hack – it changed its Pokémon and its link too much to be sure they work.'),
   linkSeats: () => t('err.linkSeats', 'These players can’t be linked'),
   linkMissing: () => t('linkplay.missing', 'This version of souldew can’t link games yet – update it on both computers.'),
   linkRomMissing: () => t('linkplay.romMissing2', 'A player’s game isn’t on one of the computers – the link needs every player’s game on every computer.'),

@@ -785,6 +785,7 @@ const liveNote = (k) => ({
   cfru: t('lib.liveNote.cfru', 'Team, place, battles and catches are read live, held items by the names the game gives them, types and matchups from the ROM. No level cap is shown – the hack’s leaders can’t be told apart with confidence – and the cheats are off.'),
   rnb: t('lib.liveNote.rnb', 'Team, place, battles and catches are read live. The cheats are off and held items aren’t named – the hack numbers its items its own way.'),
   types: t('lib.liveNote.types', 'Team, place, battles and catches are read live, the hack’s own types and their matchups from the ROM. The cheats are off.'),
+  quetzal: t('lib.liveNote.quetzal', 'Team, place, battles and catches are read live, held items by the names the game gives them, its own Pokémon by their names from the ROM. The PC boxes aren’t read and no level cap is shown (the hack has its own). Off for this hack: the cheats, souldew’s randomizer (use the hack’s own), link trades and battles, Shared World and raids.'),
 }[k] || '');
 
 function HackDetail({ id, onClose, openGame }) {

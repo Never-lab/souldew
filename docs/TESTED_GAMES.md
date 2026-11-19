@@ -68,6 +68,7 @@ read live – "hidden": no cap for that game). "–": the plan doesn't get there
 | Radical Red 4.1 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | hidden |
 | Too Many Types 1.6 (BPS and pre-patched) | ✅ | hidden | ✅ | ✅ | ✅ | ✅ | hidden |
 | Too Many Types 2 1.5.2 / 1.1.1 patch | ✅ | hidden | ✅ | ✅ | ✅ | ✅ | hidden |
+| Quetzal Alpha 9v1 (by hand, not a matrix plan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | hidden |
 | Pearl | ✅ | – | ✅ | ✅ | ✅ | ✅ | ✅ 14 |
 | Platinum | ✅ | – | ✅ | ✅ | ✅ | ✅ | ✅ 14 |
 | Renegade Platinum 1.3.0 | – | – | – | – | – | ✅ | – |
@@ -376,6 +377,18 @@ German FireRed/LeafGreen (2.3.1, issue #16) – the memory table was right, two 
   in White (one Pokémon in the test team).
 - Run & Bun: double battles aren't read as such – the panel follows the left Pokémon of each side, and its partner once the left one is down; both at once aren't shown (no double battle in the test run, checked with a test only).
 - Expanded-engine hacks (Run & Bun, Too Many Types, Unbound, Radical Red …): the Rare Candy cheat is off (other item numbers).
+- **Pokémon Quetzal Alpha 9v1** (Emerald header BPEE, title "PKM QUETZAL", SHA-1 c108cec7…, 3.0): recognised by its header
+  title (it used to be read as Emerald: no team, "Pokémon Emerald Version", the randomizer's check failing with
+  "unreadable"). Checked by hand in a new game (Kanto start): Sprigatito (species 1214 → #906) from Oak, the rival's
+  Squirtle (trainer, 13 → 7 → 0, a forced faint of the starter read as 0 HP), a wild Pidgey on Route 1 caught → "Route 1";
+  Pallet Town / Route 1 / Oak's lab from the ROM's place names (one pointer per language per section); held items by the
+  game's names (Gengarite, Rare Candy – as its summary screen shows them). Its party struct is 104 bytes (HP and status
+  packed in front of an unencrypted data block – shared/live/quetzal.mjs), SaveBlock1's position 0x470 bytes behind
+  gSaveBlock1Ptr 0x030055BC. Not read: the PC boxes (another box struct, unchecked), badges and level caps (the hack has
+  its own), shininess (it has "radiant" Pokémon of its own – unchecked), sprites of its own Pokémon (Browt, Pombon,
+  Gecqua: named, no picture). Off: cheats and gifts (its bag packs item and quantity into one encrypted word), souldew's
+  randomizer (UPR ZX refuses the 32 MB ROM – the hack has its own), link trades and battles, Shared World, raids. Only
+  the Kanto start and its first route were played; Johto/Hoenn starts and double wild battles (a new-game option) weren't.
 - Too Many Types 1/2: only the start of each game was played (to the first catch); double battles weren't met. Their
   moves' types aren't read (pokeemerald-expansion packs gBattleMoves differently): the battle helper shows matchups by
   the Pokémon's types only, not per move.

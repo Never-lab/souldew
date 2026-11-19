@@ -56,6 +56,7 @@ export function raidWhyText(code, name = '') {
     game: t('raid.whyGame', '{name}’s game can’t take part in raids', { name }),
     busy: t('raid.whyBusy', '{name} is in another raid', { name }),
     ctr: t('raid.whyCtr', 'Not in the 3DS games: souldew can’t change the opponent’s HP there cleanly.'),
+    hack: t('raid.whyHack', 'Not in this ROM hack: its battles aren’t laid out like the original game’s, so souldew doesn’t change the opponent’s HP there.'),
     version: t('raid.whyVersion', 'Not in this version of the game yet – raids are checked game by game, in the English versions first.'),
     unknown: t('raid.whyUnknown', 'Only in games souldew reads live.'),
   }[code] || '';

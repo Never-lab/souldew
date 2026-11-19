@@ -182,6 +182,14 @@ Plus a new play view that gives the game the room it deserves.
   rows of pixels at odd sizes. Settings › Play › “Whole pixels only” snaps to exact multiples instead, when that
   costs at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every
   layout and size; the 3DS menu's “Smooth picture” still smooths everything.
+- **Pokémon Quetzal is read live** (thanks to a player on Discord). The hack keeps Emerald's game code, so souldew used
+  to take it for Emerald: “Pokémon Emerald Version”, no team, and the randomizer's check ending in “unreadable”. Now
+  it is recognised by its header – the library files it under Pokémon Quetzal, every version of it – and read with its
+  own memory layout: your team with its own Pokémon (from Sprigatito to the hack's own, named as the game names them),
+  HP, status and held items, the place from the game's own names, battles with the opponent's HP, catches filed under
+  their area and deaths. Checked in a new game from Oak's lab to the first catch on Route 1. What isn't safe for the
+  hack is off and says so: the cheats, souldew's randomizer (the hack has one of its own – the new-run wizard points
+  you there), link trades and battles, Shared World and raids. Its PC boxes and level caps aren't read.
 - **Interface size, for big screens** (thanks to a player on Discord). Settings › General › “Interface size” draws
   souldew's own interface at 80 to 175 % – the sidebar, the dock, the board, partner windows, menus, toasts and the
   names and menus over the game – sharp at every size, because it is laid out again rather than stretched. ⌘+ / ⌘− /
