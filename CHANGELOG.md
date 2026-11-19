@@ -191,6 +191,22 @@ Plus a new play view that gives the game the room it deserves.
   fits and grows back when you make it larger. On a large screen at 100 % (4K, or 1440p without the system's own
   scaling) souldew asks once: “The interface looks small on this screen – make it bigger?”. The size is kept per
   computer, not per account; the stream overlays keep their own size in OBS.
+- **One cheats menu: Poké Balls, healing items and money** (thanks to a player on Discord). The cheats button in the
+  play view's dock now opens one menu instead of single buttons: pick how many (×1, ×10, ×99), then Rare Candy, Max
+  Repel, Master Ball, Ultra Ball, Poké Ball, Full Restore, Revive or Max Revive – each goes into its own pocket of the
+  bag – or add money: +₽1,000, +₽10,000, +₽100,000 or Max (₽999,999). souldew asks first, writes into the game's
+  memory and reads it back; a full pocket, a stack at the game's limit or a bag it can't find says so, with a details
+  line for a report – it never writes blindly. The new cheats show only in the games they were tried in, every item
+  with every amount: Red, Blue, Yellow, Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed and LeafGreen (English
+  and German), Diamond, Pearl, Platinum, HeartGold, SoulSilver, Black, White, Black 2 and White 2 – money included –,
+  Sun/Moon and Ultra Sun/Ultra Moon (the items). X/Y and Omega Ruby/Alpha Sapphire keep Rare Candies and Max Repels
+  for now. A DS game's bag that is still empty (Diamond right after the starter) takes a cheat only where the game's
+  own save data confirms it is the bag – else “Pick up or buy any item first”. In a SoulLink the host picks which
+  cheats the run allows – Rare Candies, Max Repels, Master Balls, Poké Balls and Ultra Balls, Full Restores and
+  Revives, money – in the new-run wizard or on the board; a run from before 3.0 keeps the two it had. Every use goes
+  into the log for everyone (“Marius used a cheat: 10 × Master Ball”, “+₽10,000 money (now ₽13,000)”) – a partner
+  still on 2.x reads it too. Any cheat still costs Honest Work, and a legendary caught after a Master Ball from the
+  cheats doesn't count for Route 1 Legend.
 - **The Game Boy look.** The fast player now runs Game Boy and Game Boy Color games on SameBoy – the emulator the link
   sessions use. New in Settings › Play › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
   original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver

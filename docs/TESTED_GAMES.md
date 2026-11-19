@@ -177,6 +177,37 @@ souldew opens the Azahar app instead.
 
 Not checked: X/Alpha Sapphire/Moon/Ultra Moon (same code as their pairs).
 
+### The cheats menu (3.0)
+
+`node scripts/rom-matrix.mjs <roms> --live --cheats` (macOS, Apple Silicon, the browser player – HeartGold/SoulSilver
+and Black/White on DeSmuME –, hidden and muted, a scratch data folder): each game's plan up to its first team (or a
+check out of battle), then every cheat the play screen's way (`applyCheat`) with the amounts 1, 10, 99, 999 and 1
+again, each checked through a read of its own – exactly that many more, in its pocket, nothing else in the bag
+changed, the stack's cap answered with "max", still there five seconds later – and the money +₽1,000 / +₽10,000 /
++₽100,000 / max / +₽1,000. Then the game's own bag and trainer card where the plan could open them.
+
+| Game (ROM) | Items (8) | Money | In the game | Notes |
+|---|---|---|---|---|
+| Red, Blue (US/EU) | ✅ one bag | ✅ BCD | Blue: bag ×99 each, card ¥999999 | |
+| Yellow (US/EU) | ✅ | ✅ | – | plan: walk to the ball on Oak's table |
+| Gold, Silver (US/EU) | ✅ balls in the Ball pocket | ✅ | Gold: Items and Balls pockets, card ¥999999 | Ball pocket: 12 slots, never past them |
+| Crystal (US) | ✅ | ✅ | Items pocket | |
+| Ruby (US, German), Sapphire (German) | ✅ | ✅ | bag, Poké Ball pocket, card ₽999999 | |
+| Emerald (US) | ✅ | ✅ | bag, Poké Ball pocket, card ₽999999 | |
+| Emerald (German, from the acceptance save) | ✅ | ✅ | in a Pokémon Center: bag, Poké Ball pocket, card ₽999999 | the plan's new game doesn't get past a townsperson |
+| FireRed (US, German) | ✅ | ✅ | – | |
+| Diamond (US) | ✅ from an empty bag | ✅ | – (lakefront scene) | empty bag taken: save pointer + party + trainer block |
+| Platinum (US) | ✅ from an empty bag | ✅ | – | |
+| HeartGold, SoulSilver (US, from a save) | ✅ | ✅ | overworld: Items › Max Repel ×999 | SoulSilver loads the HeartGold save |
+| Black, White, Black 2, White 2 (US/EU) | ✅ from an empty bag; balls with the items | ✅ | – | empty bag taken: the party at its own address, trainer name, money |
+| Sun 1.0 (the app, free play, an Iki Town save) | ✅ through the menu's buttons, amounts ×1/×10/×99 | not offered | Medicine: Rare Candy ×10, Full Restore, Revive, Max Revive (NEW) after Continue | written on the title screen, kept when the game continues |
+| Ultra Moon 1.0 (a new game, player3ds.html) | ✅ after the intro had set the bag up | not offered | – | two writes during the intro's own set-up: refused ("changed") or undone by the game |
+| Y, Omega Ruby Rev 2 (a new game) | written and read back, but 2 of 40 undone by the game during the intro | not offered | – | **not offered** – no save to try them past the intro |
+
+The menu in the app (Sun): before the team is read "Available once live tracking has found your team." on every row;
+then the confirm bar ("Add 10 × Rare Candy to your bag?"), the flash ("+10 × Rare Candy in your bag"), the menu in the
+four colour schemes; Tab reaches ×1/×10/×99 and every item.
+
 ### With players' saves (2.5.0)
 
 Saves other players shared (Project Pokémon's user-contributed saves; the 3DS ones as the `main` file on the
