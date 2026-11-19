@@ -77,8 +77,8 @@ Notes: "prestep 4" – the state is from frame F−4 and those 4 frames run in t
 **3.0 acceptance (18–19 Nov 2026, `test/30-acceptance`, the link host built from the branch):** every row above again,
 2 and 4 players, each also seamless, with `--winner` and a wager per generation (Gen 3 paid and saved; Gen 1/2 after
 switching the game off and on – Gen 1's Colosseum has no exit – found and fixed: the money went in on the title screen;
-Gen 4: see §13), rejoin, disconnect and out of step; a third player standing by while two link (never invited, told
-"in another link", their game untouched, the trade in their log). Games never linked before, from the running games
+Gen 4 paid in the overworld and logged once clones were read, §7), rejoin, disconnect and out of step; a third player standing by while two link (never invited, told
+"in another link" and shown it on the linked players' cards at once, their game untouched, the trade in their log). Games never linked before, from the running games
 (`--seamless --continue`, nothing pressed, 4,800 frames, equal hashes, both back alone): FireRed US ↔ German LeafGreen,
 Ruby ↔ Sapphire, Gold ↔ Silver, Blue ↔ Yellow (also Blue on the original Game Boy – found and fixed: Yellow's player
 refused every invite from Red/Blue), Diamond ↔ Pearl, HeartGold ↔ SoulSilver. Two computers: §6a.
@@ -209,6 +209,8 @@ The page keeps sending retrohost's INPUT message (libretro joypad bits plus poin
 6. **End.** Either player clicks "Leave", or the game is back in the overworld and the players walk out (souldew suggests leaving once both have saved). `bye {reason}` is sent; each host stops where it ran out of buttons (the frames may differ by a few – since §4a each player goes on alone from their own console anyway; `UNTIL`, a common stop frame, is used by the e2e only).
    - Each server takes its **own seat's** battery save (SRAM / SEATSRAM) and writes it into the run (§7). The partner's save copy is discarded.
    - Single-player play resumes from the new save – since §4a without a restart: each player's console goes on alone from where the session left it.
+
+**The others of the run see it.** From the moment every seat said yes until the session ends, each seat tells the run's players *outside* it `linked {on, seats, kind}` over the direct link (no session id; every 3 s, `on:false` at the end; only ever about the sender itself). Their board shows "In a link with Tim" on the linked players' cards, Trade / Battle greyed out with that as the reason, "Link all of us" leaves them out, the Shared World menu says the same; a seat silent for 10 s counts as unlinked. Older 3.0 builds drop the message (it carries no session id of theirs – tested against the build before it). An invite still reaches a linked player as before and gets "in another link" (`refuse busy`).
 
 What if a player quits mid-trade? Gen 3 saves before a trade and again after it. A session cut in between leaves both players with their pre-trade save, which is the cartridge behaviour: nobody loses or duplicates a Pokémon.
 
@@ -357,6 +359,7 @@ the same hash sha256 on both, the route "direct". The real Mac ↔ Windows run i
   - Live tracking reads the local seat's RAM, so a traded-in Pokémon appears in the team at once.
   - The tracker marks it: the OT ID differs from the player's (Gen 3: `otid` in the party struct, `pid ^ otid` key).
   - The log gets "Traded Poochyena ↔ Wurmple with Tim" (session events plus a before/after party diff).
+  - **Clones** (a cloning glitch, Gen 1–4; the Platinum recordings' trade hands a player a copy of a Pokémon they already have): the same PID twice with every lasting detail alike (species, form, met data, IVs/DVs, nature …) is two Pokémon, not a misread (`shared/live/parse.mjs` keyClones). The first keeps the key, the others get `<key>~2`, `~3`; each keeps its key while the team is reordered (matched by HP, level, status, moves, item to the last reading, the slot only breaking ties), so a clone at 0 HP never hands its 0 HP to the other. A clone new in the team counts after a second read (a party-menu swap shows one Pokémon twice for a poll); the same PID with other data is still refused. The battle's party copy goes to the team by PID, n-th with n-th. The clone itself is a new Pokémon for the tracker (inbox: its route is taken).
   - SoulLink rule checks run as usual. For example, if trades are allowed but the traded Pokémon counts as "received", the pair link moves with it, or stays, depending on the rule (§10).
 
 ## 8. Per generation
@@ -617,7 +620,7 @@ What is left for 3.0, with effort:
 | First green `native.yml` run (Linux + Windows link host; the RGBDS step is new) | ½ d |
 | Release packaging: `linkhost` + its licences in the app bundles (`npm run dist` checks it now), signing/notarising one more binary on macOS | ½–1 d |
 | A real two-computer test over the internet, once with TURN forced (relayed) | ½ d |
-| ~~Trade log entry for Gen 2~~ (done: two Pokémon of the recording's saves shared trainer ID and DVs; a Pokémon is now its key and species, counted). Gen 4: the recordings' start saves hold cloned Pokémon – after the trade a player has the same PID twice, which the live reader refuses as a misread – so the e2e can't show the entry (or a Gen 4 wager paid); a recording from clean saves would | ½ d |
+| ~~Trade log entry for Gen 2 and Gen 4~~ (done: Gen 2 – two Pokémon of the recording's saves shared trainer ID and DVs, a Pokémon is now its key and species, counted; Gen 4 – the recordings' trade leaves a clone in the team, which the live reader took for a misread; clones are two Pokémon now, §7) | – |
 | FR/LG, D/P, HG/SS, B/W, B2/W2: a recorded trade + battle each through the e2e (FR ↔ LG, R ↔ S, G ↔ S, Blue ↔ Yellow, D ↔ P and HG ↔ SS link from the running games – 3.0 acceptance, nothing pressed); FR/LG's link rooms on the sign | 3–4 d |
 | Gen 1 ↔ 2 Time Capsule | 1 d |
 | DS rejoin during a wireless exchange (the state can't be taken while a console waits mid-frame): retry until the exchange pauses, or make the wait state serialisable | 2–3 d |
