@@ -40,7 +40,7 @@ Content-Type: application/json
 |----------|---------------------------------------------------------------------------------------------------------|
 | `sid`    | 16 random bytes (base64url), made when the game starts. New for every game, never written to disk, not derived from anything – not from your computer, your name, the run or the game. |
 | `system` | `gb` (Game Boy and Game Boy Color), `gba`, `nds` or `3ds`.                                               |
-| `mode`   | `solo` (a game from the library), `nuzlocke` or `soullink`.                                              |
+| `mode`   | `solo` (a game from the library), `nuzlocke`, `soullink` or `together` (Play together).                  |
 | `v`      | the souldew version, e.g. `2.7.4`.                                                                       |
 
 When the game closes: `{"sid":"…","stop":true}`. If `api.souldew.app` gives no answer at all (some DNS filters), the

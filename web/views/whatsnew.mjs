@@ -10,7 +10,7 @@ import { WHATS_NEW_CARDS, cardMedia, stepCard } from '../lib/whatsnew.mjs';
 /** Each card's title and line (here, so scripts/extract-i18n.mjs finds them). */
 function cardText(id) {
   return {
-    together: [t('wn.togetherTitle', 'Play together'), t('wn.togetherText', 'Trade and battle with your partners right from where you are in your game – Gen 1 to 5, no restart.')],
+    together: [t('wn.togetherTitle', 'Trade & battle'), t('wn.togetherText', 'Trade and battle with your partners right from where you are in your game – Gen 1 to 5, no restart.')],
     world: [t('wn.worldTitle', 'Shared World'), t('wn.worldText', 'Your partners walk around in your game: wave, send a heart or play rock-paper-scissors.')],
     raid: [t('wn.raidTitle', 'Raids'), t('wn.raidText', 'All of you against one trainer – every hit in anybody’s game comes off one shared health bar.')],
     handheld: [t('wn.handheldTitle', 'Your handheld'), t('wn.handheldText', 'Your games start on your own handheld in 3D, with skins and stickers – with Supporter or souldew+.')],
