@@ -286,6 +286,15 @@ static void core_log(enum retro_log_level level, const char *fmt, ...) {
   logf_("[core] %s", buf);
 }
 
+// the core's messages for the player: not the empty ones melonDS DS sends every frame, not the same one over and over
+#include "coremsg.h"
+static void core_message(const char *msg) {
+  unsigned repeats;
+  if (!core_msg_wanted(msg, compat_now(), &repeats)) return;
+  if (repeats) logf_("[core message] (the one before came %u more times)", repeats);
+  logf_("[core message] %s", msg);
+}
+
 static int fastforwarding;
 static bool environment(unsigned cmd, void *data) {
   if (IS(cmd, RETRO_ENVIRONMENT_GET_CAN_DUPE)) { *(bool *)data = true; return true; }
@@ -333,8 +342,8 @@ static bool environment(unsigned cmd, void *data) {
   if (IS(cmd, RETRO_ENVIRONMENT_GET_LANGUAGE)) { *(unsigned *)data = RETRO_LANGUAGE_ENGLISH; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_USERNAME)) { *(const char **)data = "souldew"; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION)) { *(unsigned *)data = 1; return true; }
-  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE)) { logf_("[core message] %s", ((const struct retro_message *)data)->msg); return true; }
-  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE_EXT)) { logf_("[core message] %s", ((const struct retro_message_ext *)data)->msg); return true; }
+  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE)) { core_message(data ? ((const struct retro_message *)data)->msg : NULL); return true; }
+  if (IS(cmd, RETRO_ENVIRONMENT_SET_MESSAGE_EXT)) { core_message(data ? ((const struct retro_message_ext *)data)->msg : NULL); return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_TARGET_REFRESH_RATE)) { *(float *)data = 60.0f; return true; }
   if (IS(cmd, RETRO_ENVIRONMENT_SHUTDOWN)) { fflush(stdout); _exit(0); }
   return false;
