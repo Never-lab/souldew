@@ -18,13 +18,14 @@ import { HostCode, PackVersionNote } from './invitecode.mjs';
 import { RestartModal } from './restart.mjs';
 import { KeepIntroItem } from './introsave.mjs';
 import { useStreamer } from '../lib/streamer.mjs';
-import { NuzlockeRules, Choice, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, HostRulesNote, BallsRule, LinkRules, RaidRules } from './nuzrules.mjs';
+import { NuzlockeRules, Choice, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, HostRulesNote, BallsRule, LinkRules, GiftRule, RaidRules } from './nuzrules.mjs';
 import { ShareButton, HallOfFame } from './liveshare.mjs';
 import { deathEvent } from '../lib/liveshare.mjs';
 import { LinkButtons, LinkGroupButton, HeadToHead, LINK_SYSTEMS } from './linkplay.mjs';
 import { RpsStart } from './rps.mjs';
 import { RaidStart } from './raid.mjs';
 import { RAID_SYSTEMS } from '/shared/live/raidhp.mjs';
+import { PartnerTogether } from './together.mjs';
 
 
 /** Is `slot` connected right now? Per player once the app tracks it (`onlineSlots`), before that "any partner". */
@@ -106,6 +107,7 @@ function PlayerTag({ slot, right }) {
             : online ? t('board.partnerOnline', 'online – no team yet') : linkStatus ? t('board.notPlaying', 'not playing yet') : t('rail.offline', 'Not connected')}</span>
       ${slot !== me && html`<${HeadToHead} slot=${slot} />`}
       ${slot !== me ? html`<${LinkButtons} slot=${slot} />` : html`<${LinkGroupButton} />`}
+      ${slot !== me && html`<${PartnerTogether} slot=${slot} />`}
     </div>
   </div>`;
 }
@@ -952,6 +954,7 @@ export function RulesTab() {
       <${SoulLinkRules} value=${r} onChange=${set} players=${n} disabled=${locked} />
       ${LINK_SYSTEMS.includes(manifest.game?.system) && html`<${LinkRules} value=${r} onChange=${set} disabled=${locked} />`}
       ${RAID_SYSTEMS.includes(manifest.game?.system) && html`<${RaidRules} value=${r} onChange=${set} disabled=${locked} />`}
+      <${GiftRule} value=${r} onChange=${set} disabled=${locked} />
     </section>`}
     <section class="panel stack">
       <h2>${t('rules.ballsTitle', 'When the rules start')}</h2>

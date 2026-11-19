@@ -2,7 +2,7 @@
 // (incl. Definitive HG) use a curated route list with level caps, every other game builds its
 // area list on the fly from the catch locations the players report.
 import { PROGRESSION, VANILLA_CAPS, areaForMetLocation, levelCapFor, gymCapsFamily, vanillaCapFor, romCapFor, prettyTrainer } from '/shared/routes.mjs';
-import { gen4data, speciesName, pokeapi } from './data.mjs';
+import { gen4data, speciesName, pokeapi, giftItemName } from './data.mjs';
 import { t, currentLang } from './i18n.mjs';
 import { ALL_SLOTS, slotsOf, runMode, isNuzlocke, othersOf } from '/shared/slots.mjs';
 import { DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, rulesWithDefaults } from '/shared/rules.mjs';
@@ -252,11 +252,18 @@ function renderMsg(doc, manifest, m) {
   for (const [k, v] of Object.entries(m.vars || {})) {
     vars[k] = v && typeof v === 'object'
       ? v.area !== undefined ? areaName(doc, manifest, v.area) : v.species !== undefined ? speciesName(v.species) : v.money !== undefined ? moneyText(v.money, currentLang())
+        : v.item !== undefined ? itemCount(v)
         : v.key ? renderMsg(doc, manifest, v) : ''
       : v;
   }
   return t(m.key, m.def, vars);
 }
+
+/** An item in a log line ({ item, gen, n } – a gift between players): "Potion", "3 × Potion". */
+const itemCount = (v) => {
+  const name = giftItemName(v.item, v.gen) || `#${v.item}`;
+  return v.n > 1 ? t('feed.itemCount', '{n} × {item}', { n: v.n, item: name }) : name;
+};
 
 export const causeText = (doc, manifest, cause) => (cause && typeof cause === 'object' ? renderMsg(doc, manifest, cause) : cause || '');
 
@@ -594,6 +601,7 @@ const switchLabels = (n) => ({
   linkTrades: msg('rules.linkTrades', 'Trades between us (link)'),
   linkBattles: msg('rules.linkBattles', 'Battles between us (link)'),
   linkBattleDeaths: msg('rules.linkBattleDeaths', 'Losing a link battle counts as deaths'),
+  itemGifts: msg('rules.itemGifts', 'Gifts between us'),
 });
 // (the link rules say 'on' / 'off')
 const switchOn = (v) => !!v && v !== 'off';

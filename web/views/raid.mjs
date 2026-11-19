@@ -33,6 +33,7 @@ const CSS = `
 .raid-res dt{color:var(--ink-3)}
 .raid-res dd{margin:0}
 .raid-cards{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:78;width:min(360px,calc(100vw - 32px))}
+.cards-dock .raid-cards{position:static;transform:none;width:auto}
 .raid-card{padding:10px 12px 12px;box-shadow:0 14px 30px #000a;animation:toast-in .22s cubic-bezier(.2,.8,.2,1)}
 .raid-stage{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:10;width:min(420px,calc(100% - 24px));box-sizing:border-box;padding:10px 12px;border-left:3px solid var(--warn);box-shadow:0 18px 44px #000c}
 .raid-start{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-2px 0 10px}

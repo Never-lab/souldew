@@ -341,6 +341,15 @@ export function RaidRules({ value: r, onChange, disabled = false }) {
 }
 
 /**
+ * Gifts between the players (web/lib/together.mjs): items from one bag into another's, both confirm – every game with
+ * a known bag, set by the host like every rule. value: the rules; onChange(patch).
+ */
+export function GiftRule({ value: r, onChange, disabled = false }) {
+  return html`<${RuleCheck} checked=${r.itemGifts !== 'off'} onChange=${(v) => !disabled && onChange({ itemGifts: v ? 'on' : 'off' })} disabled=${disabled}
+    label=${t('rules.itemGifts', 'Gifts between us')} hint=${t('rules.itemGiftsHint', 'Give each other items from your bags – walk up and press A, or from the board. Never key items, TMs or the Master Ball. Off for a stricter run.')} />`;
+}
+
+/**
  * The automatic switches: new catches entered by where they were caught, and (a SoulLink) a linked Pokémon that faints
  * live killing its pair or group. value: the rules; onChange(patch).
  */

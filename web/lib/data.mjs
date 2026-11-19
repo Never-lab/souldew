@@ -6,6 +6,7 @@ import { slotsOf } from '/shared/slots.mjs';
 import { speciesCeiling } from '/shared/live/romspecies.mjs';
 import { setTypeChart } from '/shared/typechart.mjs';
 import { formTypes, formSpriteId, formKind } from '/shared/forms.mjs';
+import { gbItemKey } from '/shared/giftitems.mjs';
 
 let P = null;
 let CATALOG = { games: [], hacks: [] };
@@ -124,6 +125,17 @@ export function itemName(id, gen, lang = currentLang()) {
   const items = P?.items;
   const key = Number.isInteger(id) && id > 0 && gen >= 3 && gen <= 7 ? items?.[`gen${gen}`]?.[id] : null;
   return key ? items.names?.[lang]?.[key] || items.names?.en?.[key] || '' : '';
+}
+
+/**
+ * An item's name for a gift between players (web/lib/together.mjs): Gen 3–7 as itemName, Gen 1/2 for the items a gift
+ * may be (shared/giftitems.mjs – their PokeAPI identifier, the same names). '' when unknown.
+ */
+export function giftItemName(id, gen, lang = currentLang()) {
+  if (gen >= 3) return itemName(id, gen, lang);
+  const key = gbItemKey(gen, id);
+  const items = P?.items;
+  return key ? items?.names?.[lang]?.[key] || items?.names?.en?.[key] || '' : '';
 }
 
 /**

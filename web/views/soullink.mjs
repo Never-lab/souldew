@@ -18,7 +18,7 @@ import { NEW_RUN_RULES } from '/shared/rules.mjs';
 import { suggestSlot } from '../lib/invitecode.mjs';
 import { Board, InviteBody } from './board.mjs';
 import { JoinCode } from './invitecode.mjs';
-import { NuzlockeRules, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, RulesSummary, BallsRule, LinkRules, RaidRules } from './nuzrules.mjs';
+import { NuzlockeRules, TypeHelpRule, LivesRule, SoulLinkRules, SoulLinkAuto, RulesSummary, BallsRule, LinkRules, GiftRule, RaidRules } from './nuzrules.mjs';
 import { RAID_SYSTEMS } from '/shared/live/raidhp.mjs';
 import { LINK_SYSTEMS } from '/shared/link.mjs';
 import { soulLinkRulesFrom, hostSlotOf } from '/shared/hostrules.mjs';
@@ -875,6 +875,7 @@ function NewRun({ gameId, hackId, patchPick, romPick, friendPick, from, mode: se
         <${SoulLinkRules} variant="wizard" value=${slRules} onChange=${patchSl} players=${count} />
         ${LINK_SYSTEMS.includes(inspect?.patched?.system || rom?.system) && html`<div class="rule-sep"><${LinkRules} value=${slRules} onChange=${patchSl} /></div>`}
         ${RAID_SYSTEMS.includes(inspect?.patched?.system || rom?.system) && html`<div class="rule-sep"><${RaidRules} value=${slRules} onChange=${patchSl} /></div>`}
+        <div class="rule-sep"><${GiftRule} value=${slRules} onChange=${patchSl} /></div>
         <div class="rule-sep"><${BallsRule} value=${slRules.startAtBalls} players=${count} onChange=${(v) => patchSl({ startAtBalls: v })} /></div>
         <div class="rule-sep"><${TypeHelpRule} value=${slRules.typeHelp} onChange=${(v) => patchSl({ typeHelp: v })} /></div>
         <div class="rule-sep"><${LivesRule} variant="wizard" value=${slRules.lives} pool=${slRules.livesPool} players=${count} onChange=${patchSl} /></div>
