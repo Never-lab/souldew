@@ -629,11 +629,15 @@ function readGen3x(m, read, maps, entry, ctx = {}) {
   const t = ctx.rom?.maps3;
   if (!t?.mapsec) return null;
   const st = ctx.state || {};
+  // a hack that put fields of its own in front of SaveBlock1's position (Pokémon Quetzal: 0x470 bytes – addresses.json
+  // `saveBlock1Pos`), and whose gSaveBlock1Ptr the entry names (measured – tried first)
+  const at = entry?.saveBlock1Pos ? hex(entry.saveBlock1Pos) : 0;
+  const own = entry?.saveBlockPtrs?.sb1 ? hex(entry.saveBlockPtrs.sb1) : 0;
   const tryPtr = (a) => {
     const p = read(a, 4);
     const sb1 = ok(p, 4) ? u32le(p, 0) : 0;
-    if (sb1 < 0x02000000 || sb1 >= 0x02040000) return null;
-    const b = read(sb1, 6);
+    if (sb1 < 0x02000000 || sb1 + at >= 0x02040000) return null;
+    const b = read(sb1 + at, 6);
     if (!ok(b, 6)) return null;
     // a SaveBlock1 still empty (title screen, intro: no save loaded yet) reads as map 0.0 at 0,0 – Petalburg City
     if (b.every((v) => v === 0)) return { empty: true };
@@ -647,7 +651,7 @@ function readGen3x(m, read, maps, entry, ctx = {}) {
     if (r?.empty) return null;
     if (r) return r.id < 0xd5 ? r : null;
   }
-  for (const a of t.iwram || []) {
+  for (const a of own ? [own, ...(t.iwram || []).filter((x) => x !== own)] : t.iwram || []) {
     const r = tryPtr(a);
     if (r?.empty) return null; // (no place yet – and no other address is tried and remembered meanwhile)
     if (r) {

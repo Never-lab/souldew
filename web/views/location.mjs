@@ -48,7 +48,7 @@ function applyRomData(src, j) {
   if (ROMLOC.src !== src) return;
   Object.assign(ROMLOC, {
     data: j?.data || null, species: j?.species || null, wram: j?.wram || null, gbMaps: j?.gbMaps || null, pending: false,
-    own: { items: j?.items || null, moves: j?.moves || null, types: j?.types || null, caps: j?.caps || null, capsWhy: j?.capsWhy || null, header: j?.header || null, vanilla: j ? j.vanilla !== false : null },
+    own: { items: j?.items || null, moves: j?.moves || null, types: j?.types || null, caps: j?.caps || null, capsWhy: j?.capsWhy || null, header: j?.header || null, vanilla: j ? j.vanilla !== false : null, layout3: j?.layout3 || null },
   });
   setRomPlaces(ROMLOC.data); // catches made now are named like the sign names their place
   setRomSpecies(ROMLOC.species); // a ROM hack's own Pokémon get the game's names
