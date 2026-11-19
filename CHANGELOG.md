@@ -383,6 +383,18 @@ Plus a new play view that gives the game the room it deserves.
 - **Save states of the old Game Boy player are kept.** The first game after the update no longer replaces the last
   “where you left off” of the previous Game Boy emulator: it moves to the backups, and older ones are set aside in the
   save-state folder instead of being dropped.
+- **A link that falls out of step really goes back – also after a rejoin.** The save from before the session is kept
+  for the whole session, so a player who reloaded and rejoined no longer “goes back” to a save from the middle of it,
+  and a save the play view was still writing can't land after the step back any more.
+- **Gifts between 3DS games:** items from the Medicine pocket now arrive (they used to vanish on the way), and an item
+  number a pocket can't hold is never written into a game.
+- **Importing saves:** the save you had before your first import is never cleaned away, however many files you try;
+  and a Play together game open in the browser player now counts as the same save from the run and from the library.
+- **Signing out sticks:** a token refresh still on its way can no longer sign the account back in.
+- **The backup before the 3.0 update** no longer gives up when a file disappears while it is being copied.
+- **The host's rules win on every computer,** even when a partner's clock runs ahead of the host's.
+- Raids leave alone ROM hacks whose memory isn't where the original game keeps it; “Pick your copy” shows why a step
+  didn't work instead of an empty message.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
