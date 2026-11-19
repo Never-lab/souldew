@@ -54,6 +54,7 @@ import { COFFEE_CORNERS } from '../shared/coffee.mjs';
 import { LINKS } from '../shared/links.mjs';
 import { randomBytes } from 'node:crypto';
 import { syncTrophies } from './lib/trophies.mjs';
+import { checkImport, replaceSave, undoImport, lastImport, unzipSingleSave, readZipFiles, checkCtrImport, replaceCtrSave, undoCtrImport, ctrSaveArchives } from './lib/saveimport.mjs';
 import { listIntroSaves, introFor, introKeyFor, introKeyForLibrary, publicIntro, keepIntroSave, removeIntroSave, applyIntroSave, introState } from './lib/introsave.mjs';
 import * as liveRuns from './lib/liveruns.mjs';
 import { createAccounts } from './lib/accounts/index.mjs';
@@ -153,6 +154,8 @@ async function readRaw(req, limit = 512 * 1024 * 1024) {
 }
 
 const UPLOAD_LIMIT = 600 * 1024 * 1024; // the biggest DS ROMs are 512 MB
+/** An imported save (a zip of a 3DS backup at most – a DS save is 1 MB, a 3DS game's `main` under 0.5 MB). */
+const IMPORT_LIMIT = 24 * 1024 * 1024;
 /** 3DS games (1–4 GB) and zips (which may hold one) may be as big as library.mjs lets a 3DS game be. */
 const uploadLimitFor = (name) => {
   const ext = extname(String(name)).slice(1).toLowerCase();
@@ -587,6 +590,96 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       return p ? { path: p, runId: m[1] } : null;
     }
     return null;
+  };
+  /**
+   * The save an import is for (POST /api/saves/import…): a solo game's (?id=<library id>) or a run player's
+   * (?run=&slot=). → { system, gameId (the catalog id – a hack's: null, it gets the size check only), path (the battery
+   * save), backupDir + key (where its backups go, by which name), archive() (3DS: the game's save folder, or null),
+   * running() ('player': the fast / 3DS player has it open, 'emulator': an external one is open – a run's save is where
+   * melonDS writes too –, false), runId, slot }
+   */
+  const importTarget = (url) => {
+    const q = (k) => url.searchParams.get(k);
+    const sessionOn = (s) => !!s && !s.exit;
+    if (q('run')) {
+      const runId = q('run');
+      if (!/^[a-f0-9]{8}$/.test(runId)) throw httpError(400, 'Invalid run', 'badRequest');
+      const manifest = readManifest(runId);
+      if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
+      const slot = q('slot');
+      if (!slotsOf(manifest).includes(slot)) throw httpError(400, 'Invalid player', 'badPlayer');
+      if (!manifest.outputs?.[slot]) throw httpError(409, 'The ROM for this player hasn’t been built yet', 'romNotBuilt');
+      const system = manifest.game?.system;
+      const hacked = !!(manifest.patch || manifest.game?.hackId || manifest.game?.hackName);
+      const gameId = hacked ? null : manifest.game?.id || manifest.base?.gameId || null;
+      const ctrKey = `run-${runId}-${slot}`;
+      const path = system === '3ds' ? null : defaultSavePath(manifest, slot);
+      if (system !== '3ds' && !path) throw httpError(409, 'No ROM for this player', 'noRomForPlayer');
+      const titles = (catalog().games || []).find((g) => g.id === manifest.game?.id)?.titleIds || null;
+      return {
+        system, gameId, path, runId, slot, manifest, backupDir: join(runDir(runId), 'backups'), key: slot,
+        archive: () => (system === '3ds' ? ctrSaveArchives(join(saveDirFor(ctrKey), 'Azahar', 'sdmc', 'Nintendo 3DS'), titles)[0] || null : null),
+        // the fast player / 3DS player on this save – or an external emulator, which writes the run's save next to its ROM
+        running: () => (system === '3ds' ? (sessionOn(ctr.current) && sameFile(ctr.current.save, saveDirFor(ctrKey)) ? 'player' : false)
+          : sessionOn(native.current) && !!native.current.saveFile && sameFile(native.current.saveFile.path, path) ? 'player' : emulatorRunning() ? 'emulator' : false),
+      };
+    }
+    const id = q('id');
+    if (!id || id.length > 2000) throw httpError(400, 'ID missing', 'idMissing');
+    const [romId, patchId] = id.split('|');
+    const lib = scanLibrary(loadConfig());
+    const rom = lib.roms.find((r) => r.id === romId);
+    if (!rom) throw httpError(404, 'Game not found in the library', 'romNotFound');
+    const system = rom.system;
+    const gameId = patchId || rom.hackId || rom.customHack ? null : rom.gameId || null;
+    const key = keyOf(id);
+    const path = join(SOLO_SAVES, `${key}.sav`);
+    const titles = (catalog().games || []).find((g) => g.id === rom.gameId)?.titleIds || null;
+    return {
+      system, gameId, path, runId: null, slot: null, backupDir: join(SOLO_SAVES, 'backups'), key,
+      archive: () => (system === '3ds' ? ctrSaveArchives(join(saveDirFor(id), 'Azahar', 'sdmc', 'Nintendo 3DS'), titles)[0] || null : null),
+      running: () => ((system === '3ds' ? sessionOn(ctr.current) && sameFile(ctr.current.save, saveDirFor(id))
+        : sessionOn(native.current) && !!native.current.saveFile && sameFile(native.current.saveFile.path, path)) ? 'player' : false),
+    };
+  };
+  /** A 3DS backup's files from the request: a zip, JSON [{ path, data }] (a folder the page read) or `main` alone. */
+  const ctrFilesOf = (body, url) => {
+    const kind = url.searchParams.get('kind');
+    if (kind === 'files') {
+      let list;
+      try {
+        list = JSON.parse(body.toString('utf8'))?.files;
+      } catch {
+        list = null;
+      }
+      if (!Array.isArray(list)) throw httpError(400, 'Invalid save files', 'saveImportFormat', { detail: 'files' });
+      return list.map((f) => ({ path: String(f?.path || ''), bytes: new Uint8Array(Buffer.from(String(f?.data || ''), 'base64')) }));
+    }
+    if (kind === 'zip') return readZipFiles(body, join(CACHE_DIR, 'tmp'));
+    return [{ path: 'main', bytes: new Uint8Array(body) }];
+  };
+  /** Never under a running game: the player (the page closes it first) or an external emulator. */
+  const refuseRunning = (t) => {
+    const r = t.running();
+    if (r === 'emulator') throw httpError(409, 'An emulator is still open – save in the game, close the emulator, then try again', 'emulatorRunning');
+    if (r) throw httpError(409, 'The game is still running – close it first', 'saveGameRunning');
+  };
+  /** What the page may know of the step back: when, from which file, whether there was a save before. */
+  const publicUndo = (u) => (u ? { at: u.at, name: u.name || null, hadSave: !!u.backup } : null);
+  /**
+   * After an import or its undo: a run notes it in run.json (`saveImports` – the trophies leave such a run's wins and
+   * badges out, shared/trophies.mjs) and its save watch reads the new save; nothing else changes.
+   */
+  const afterSaveChange = (t, { import: at = null, undo = null }) => {
+    if (!t.runId) return;
+    const m = readManifest(t.runId);
+    if (!m) return;
+    const list = Array.isArray(m.saveImports?.[t.slot]) ? m.saveImports[t.slot] : [];
+    if (at) list.push({ at });
+    else if (undo && list.length) list[list.length - 1] = { ...list[list.length - 1], undone: undo };
+    m.saveImports = { ...(m.saveImports && typeof m.saveImports === 'object' ? m.saveImports : {}), [t.slot]: list.slice(-50) };
+    writeManifest(m);
+    if (t.path && watcher.paths(t.runId)) watcher.read(t.runId, true);
   };
   const ctrToolsNow = () => ctrTools({ azaharApp: detectEmulator('azahar', loadConfig().emulatorPaths?.azahar).path || null });
   /** The file behind a ROM URL the page has (/api/library/rom?id=… or a run's /api/runs/<id>/file?name=…). */
@@ -1518,6 +1611,71 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if (!manifest) throw httpError(404, 'Run not found', 'runNotFound');
     if (!slotsOf(manifest).includes(m[2])) throw httpError(400, 'Invalid player', 'badPlayer');
     return { intro: publicIntro(keepIntroSave(manifest, m[2], { savePath: defaultSavePath })) };
+  });
+
+  // ---- importing a battery save (server/lib/saveimport.mjs): a .sav from elsewhere, the replaced one backed up first --
+  //   POST /api/saves/import/check?<target>   body: the file → what it is, whether it fits the game, what it replaces
+  //   POST /api/saves/import?<target>&confirm=1&name=   body: the file → written (the old one backed up)
+  //   POST /api/saves/import/undo?<target>     the replaced save goes back (once)
+  //   GET  /api/saves/import/last?<target>     the step back that is kept, or null
+  // <target>: id=<library id> (a solo game) or run=<id>&slot=p1…p4. A 3DS game: kind=zip|files|main (a Checkpoint /
+  // JKSM backup – zipped, its files as JSON [{ path, data (base64) }], or the `main` file alone).
+  route('POST', /^\/api\/saves\/import\/check$/, async (req, m, url) => {
+    const t = importTarget(url);
+    const body = await readRaw(req, IMPORT_LIMIT);
+    if (t.system === '3ds') {
+      const res = checkCtrImport(ctrFilesOf(body, url), { archive: t.archive(), gameId: t.gameId });
+      return { system: '3ds', files: res.files.length, family: res.family, check: { verdict: res.verdict, found: res.family, want: res.want }, missing: res.missing.slice(0, 20),
+        current: { exists: !!t.archive() }, running: t.running(), undo: publicUndo(lastImport(t.backupDir, t.key)) };
+    }
+    const { bytes } = unzipSingleSave(body, join(CACHE_DIR, 'tmp'));
+    const res = checkImport(new Uint8Array(bytes), { system: t.system, gameId: t.gameId });
+    let current = { exists: false };
+    try {
+      const st = statSync(t.path);
+      current = { exists: st.size > 0, size: st.size, at: Math.round(st.mtimeMs) };
+    } catch {
+      // no save yet
+    }
+    return { system: t.system, size: res.size, from: res.from, notes: res.notes, check: res.check, current, running: t.running(), undo: publicUndo(lastImport(t.backupDir, t.key)) };
+  });
+  route('POST', /^\/api\/saves\/import$/, async (req, m, url) => {
+    const t = importTarget(url);
+    // a run's save is a big change: the page asks first, and says so here (a request without it changes nothing)
+    if (t.runId && url.searchParams.get('confirm') !== '1') throw httpError(400, 'Importing a save into a run needs a confirmation', 'saveImportConfirm');
+    refuseRunning(t);
+    const body = await readRaw(req, IMPORT_LIMIT);
+    const name = String(url.searchParams.get('name') || '').slice(0, 120) || null;
+    let result;
+    if (t.system === '3ds') {
+      const res = checkCtrImport(ctrFilesOf(body, url), { archive: t.archive(), gameId: t.gameId });
+      result = { ...replaceCtrSave({ archive: t.archive(), files: res.files, backupDir: t.backupDir, key: t.key }), check: { verdict: res.verdict, found: res.family, want: res.want } };
+    } else {
+      const { bytes, name: inner } = unzipSingleSave(body, join(CACHE_DIR, 'tmp'));
+      const res = checkImport(new Uint8Array(bytes), { system: t.system, gameId: t.gameId });
+      result = { ...replaceSave({ path: t.path, bytes: res.bytes, backupDir: t.backupDir, key: t.key, name: inner || name }), size: res.size, notes: res.notes, check: res.check };
+    }
+    console.log(`[saves] imported ${t.system} save${t.runId ? ` into run ${t.runId} ${t.slot}` : ''} (${result.check?.verdict || '?'}${result.replaced || result.backup ? ', old one backed up' : ''})`);
+    afterSaveChange(t, { import: result.at });
+    return result;
+  });
+  route('POST', /^\/api\/saves\/import\/undo$/, async (req, m, url) => {
+    const t = importTarget(url);
+    refuseRunning(t);
+    const r = t.system === '3ds' ? undoCtrImport({ archive: t.archive(), backupDir: t.backupDir, key: t.key }) : undoImport({ path: t.path, backupDir: t.backupDir, key: t.key });
+    console.log(`[saves] import undone${t.runId ? ` in run ${t.runId} ${t.slot}` : ''}`);
+    afterSaveChange(t, { undo: Date.now() });
+    return r;
+  });
+  route('GET', /^\/api\/saves\/import\/last$/, (req, m, url) => {
+    const t = importTarget(url);
+    let hasSave = false;
+    try {
+      hasSave = t.system === '3ds' ? !!t.archive() : statSync(t.path).size > 0;
+    } catch {
+      // none yet
+    }
+    return { undo: publicUndo(lastImport(t.backupDir, t.key)), running: t.running(), hasSave };
   });
 
   route('POST', /^\/api\/runs\/([a-f0-9]{8})\/watch$/, async (req, m) => {

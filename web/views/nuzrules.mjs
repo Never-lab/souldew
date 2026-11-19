@@ -281,6 +281,9 @@ export function SoulLinkRules({ value: r, onChange, players: n = 2, variant = 'b
     check('cheats', t('rules.cheats', 'Allow cheats (Rare Candies, Max Repels)'), n > 2
       ? t('rules.cheatsHintGroup', 'From the play screen. Every use shows up in the log for all of you.')
       : t('rules.cheatsHint', 'From the play screen. Every use shows up in the log for both of you.')),
+    check('saveImports', t('rules.saveImports', 'Allow importing a save file'), n > 2
+      ? t('rules.saveImportsHintGroup', 'For a lost or old save: load a .sav into your game. It shows up in the log for all of you, and what the save brings along doesn’t count – no catches, badges or trophies from it.')
+      : t('rules.saveImportsHint', 'For a lost or old save: load a .sav into your game. It shows up in the log for both of you, and what the save brings along doesn’t count – no catches, badges or trophies from it.')),
   ];
   const typeRule = html`<${Choice} label=${t('rules.type', 'Type rule')} value=${r.typeClause} onChange=${(v) => set({ typeClause: v })} options=${typeOptions(n)} disabled=${disabled} />`;
   const dupes = html`<${Choice} label=${t('rules.dupes', 'Dupes clause')} value=${r.dupes} onChange=${(v) => set({ dupes: v })} options=${dupesOptions(n)} disabled=${disabled} />`;
@@ -392,6 +395,7 @@ export function RulesSummary({ rules: r, players: n = 2 }) {
     [t('nzr.gifts', 'Gifts & eggs'), pick(giftOptions(), r.gifts === 'free' ? 'free' : 'area')],
     [t('nzr.caps', 'Level caps'), on(r.levelCaps)],
     [t('rules.sumCheats', 'Cheats (Rare Candies, Max Repels)'), r.cheats ? t('rules.sumAllowed', 'Allowed') : t('rules.off', 'Off')],
+    [t('rules.sumSaveImports', 'Importing a save file'), r.saveImports ? t('rules.sumAllowed', 'Allowed') : t('rules.off', 'Off')],
     [t('lives.title', 'Lives'), lives],
     [t('rules.sumTypeHelp', 'Type matchup help'), on(r.typeHelp !== false)],
     [t('rules.sumBalls', 'Nothing counts before the first Poké Balls'), on(!!r.startAtBalls)],
