@@ -284,6 +284,10 @@ Plus a new play view that gives the game the room it deserves.
   often, a short tap could fall between two pictures and nothing opened. Now the press counts the moment you make it,
   and whether the game answered it itself (a sign, someone standing there) is checked on what the game shows right
   then.
+- **A DS run opens right away.** Opening a run waited for souldew to read the game's own data out of the game file
+  (its types, a ROM hack's own Pokémon) – a few seconds for a DS game, much longer on a slower PC the first time.
+  All that time you showed as offline to your partners, nothing synced and no trade or battle could start. The run
+  now opens at once and that data comes in a moment later.
 - **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
   keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
   2.8.2 in the souldew engine too.
