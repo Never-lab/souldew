@@ -107,6 +107,37 @@ const SURFACES = `(() => {
   return out;
 })()`;
 
+/** Two COLLECT reads show the same page: every element, box, generated text, font and the visible text. */
+const sameRead = (a, b) => a.text === b.text && a.hidden === b.hidden && a.boxes.join(';') === b.boxes.join(';')
+  && a.pseudo.join(';') === b.pseudo.join(';') && a.fonts.join(';') === b.fonts.join(';');
+
+/** A skin's read against classic's: { diffs: [{ what, a, b }], glyphRuns: [tag] }. */
+function compareReads(base, got) {
+  const diffs = [];
+  const glyphRuns = [];
+  const diff = (what, a, b) => diffs.push({ what, a: String(a).slice(0, 200), b: String(b).slice(0, 200) });
+  if (got.boxes.length !== base.boxes.length) diff('element count', base.boxes.length, got.boxes.length);
+  else {
+    for (let i = 0; i < base.boxes.length; i++) {
+      if (base.boxes[i] === got.boxes[i]) continue;
+      // a glyph run (themes README › proof): a text element set in the skin's display face may be NARROWER, at the
+      // same place and height – it moves nothing else (every other box is compared as usual)
+      const [ax, ay, aw, ah] = base.boxes[i].split(',').map(Number);
+      const [bx, by, bw, bh] = got.boxes[i].split(',').map(Number);
+      if (got.own[i] && got.fonts[i] !== base.fonts[i] && ax === bx && ay === by && ah === bh && bw <= aw) {
+        glyphRuns.push(base.tags[i]);
+        continue;
+      }
+      diff(`box ${base.tags[i]}`, base.boxes[i], got.boxes[i]);
+      if (diffs.length > 60) break;
+    }
+    for (let i = 0; i < base.pseudo.length; i++) if (base.pseudo[i] !== got.pseudo[i]) diff(`generated text ${base.tags[i]}`, base.pseudo[i], got.pseudo[i]);
+  }
+  if (got.text !== base.text) diff('text', base.text.length, got.text.length);
+  if (got.hidden !== base.hidden) diff('hidden text', base.hidden, got.hidden);
+  return { diffs, glyphRuns };
+}
+
 const lumOf = ([r, g, b]) => [r, g, b].map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
 const ratioOf = (a, b) => { const x = lumOf(a); const y = lumOf(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 
@@ -235,6 +266,13 @@ app.whenReady().then(async () => {
     await until("import('/lib/cosmetics/index.mjs').then((m) => m.packState().entitled)");
     // still frames only: no animation or transition may land between two captures
     await stillFrames();
+    // The coffee button's Pokémon moments (views/coffee.mjs: every 3–8 minutes, ~3 s of pixel art over the sidebar's
+    // souldew+ link – 48 to 178 elements) would land in a capture at random – whenever a run took longer than 3 minutes
+    // they showed up as "element count" differences on whichever view was being proved. A click on the button stops
+    // them for the session (the app's own rule: the button did its job); it opens the souldew+ page, which is fine here.
+    await until("!!document.querySelector('.rail-plus')");
+    await js("document.querySelector('.rail-plus').click(); true");
+    await until("!document.querySelector('.cfx')");
     const skins = await C("m.listSkins().filter((s) => s.id !== 'classic' && s.available).map((s) => s.id)");
     result.skins = skins.length;
     const lightSkins = new Set(await C("m.listSkins().filter((s) => s.group === 'light').map((s) => s.id)"));
@@ -255,12 +293,30 @@ app.whenReady().then(async () => {
       await dismissToasts();
       await sleep(300);
       const set = (id) => (mode === 'preview' ? C(`m.previewSkin(${JSON.stringify(id || 'classic')})`) : C(`m.applySkin(${JSON.stringify(id)})`));
+      /** id = a skin, or null for classic – applied (or previewed), its fonts in, a frame drawn */
+      const show = async (id) => {
+        await set(id);
+        await js('document.fonts.ready');
+        await js(frame);
+      };
       await C('m.applySkin(null)');
       if (mode === 'preview') await set(null);
       await js('document.fonts.ready');
       await js(frame);
       const collect = COLLECT(skip);
-      const baseline = await js(collect);
+      // a SETTLED read: the same elements, boxes and text on two reads a frame apart (a list that is still coming in
+      // – the pack, a friend's profile, a poll – is read once it is in, never half way)
+      const read = async () => {
+        let prev = await js(collect);
+        for (let i = 0; i < 20; i++) {
+          await js(frame);
+          const cur = await js(collect);
+          if (sameRead(prev, cur)) return cur;
+          prev = cur;
+        }
+        return prev;
+      };
+      let baseline = await read();
       result.views++;
       const checkContrast = async (id) => {
         if (!contrast) return;
@@ -304,32 +360,23 @@ app.whenReady().then(async () => {
       };
       await checkContrast('classic');
       for (const id of list) {
-        await set(id);
-        await js('document.fonts.ready');
-        await js(frame);
-        const got = await js(collect);
-        result.boxes += got.boxes.length;
-        const diff = (what, a, b) => result.diffs.push({ view, skin: id, mode, what, a: String(a).slice(0, 200), b: String(b).slice(0, 200) });
-        if (await js('document.documentElement.dataset.skin') !== id) diff('not applied', id, '');
-        if (got.boxes.length !== baseline.boxes.length) diff('element count', baseline.boxes.length, got.boxes.length);
-        else {
-          for (let i = 0; i < baseline.boxes.length; i++) {
-            if (baseline.boxes[i] === got.boxes[i]) continue;
-            // a glyph run (themes README › proof): a text element set in the skin's display face may be NARROWER, at the
-            // same place and height – it moves nothing else (every other box is compared as usual)
-            const [ax, ay, aw, ah] = baseline.boxes[i].split(',').map(Number);
-            const [bx, by, bw, bh] = got.boxes[i].split(',').map(Number);
-            if (got.own[i] && got.fonts[i] !== baseline.fonts[i] && ax === bx && ay === by && ah === bh && bw <= aw) {
-              result.glyphRuns.push(`${id} · ${view} · ${baseline.tags[i]}`);
-              continue;
-            }
-            diff(`box ${baseline.tags[i]}`, baseline.boxes[i], got.boxes[i]);
-            if (result.diffs.length > 60) break;
-          }
-          for (let i = 0; i < baseline.pseudo.length; i++) if (baseline.pseudo[i] !== got.pseudo[i]) diff(`generated text ${baseline.tags[i]}`, baseline.pseudo[i], got.pseudo[i]);
+        await show(id);
+        let got = await read();
+        let cmp = compareReads(baseline, got);
+        // A difference: the skin's – or did the page change under the proof (a late load, a poll, a toast)? Then classic
+        // reads differently now too. Classic and the skin are read again (up to 3 times) and compared with each other;
+        // a difference the skin really makes comes back every time, one the page made goes away.
+        for (let again = 0; cmp.diffs.length && again < 3; again++) {
+          await show(null);
+          baseline = await read();
+          await show(id);
+          got = await read();
+          cmp = compareReads(baseline, got);
         }
-        if (got.text !== baseline.text) diff('text', baseline.text.length, got.text.length);
-        if (got.hidden !== baseline.hidden) diff('hidden text', baseline.hidden, got.hidden);
+        result.boxes += got.boxes.length;
+        if (await js('document.documentElement.dataset.skin') !== id) result.diffs.push({ view, skin: id, mode, what: 'not applied', a: id, b: '' });
+        for (const d of cmp.diffs) result.diffs.push({ view, skin: id, mode, ...d });
+        for (const tag of cmp.glyphRuns) result.glyphRuns.push(`${id} · ${view} · ${tag}`);
         await checkSurfaces(id, view);
         await checkContrast(id);
       }

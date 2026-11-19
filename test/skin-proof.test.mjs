@@ -7,11 +7,13 @@
 //
 // Skins are premium content and not in this repository, so the test needs a pack: SLS_PLUS_PROOF_PACK=<dev pack folder>
 // (scripts/plus-dev-pack.mjs), or the design sources next to the checkout (../design-plus/design/plus), from which it
-// builds one. Without either – or without a display on Linux – it is skipped.
+// builds one – from their last COMMIT (git archive), never the working files another worktree is in the middle of
+// editing. When those sources name other souldew+ stickers or wraps than this checkout (shared/handheld.mjs: the two
+// are from different rounds), it is skipped and says which. Without a pack – or without a display on Linux – skipped.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,11 +24,41 @@ const noDisplay = process.platform === 'linux' && !process.env.DISPLAY && !proce
 const havePack = !!process.env.SLS_PLUS_PROOF_PACK || existsSync(join(DESIGN, 'themes', 'skins.json'));
 const skip = noDisplay ? 'no display' : !havePack ? 'no souldew+ pack (set SLS_PLUS_PROOF_PACK)' : false;
 
-test('skins never change a box or a text on the real app views', { skip, timeout: 1500000 }, async () => {
+const git = (cwd, ...a) => spawnSync('git', ['-C', cwd, ...a], { encoding: 'utf8' });
+
+/**
+ * The design sources as last committed: `dir` exported (git archive) into `into`. Uncommitted edits there are left out.
+ * Not a git checkout: the folder as it is.
+ */
+function committedDesign(dir, into) {
+  const top = git(dir, 'rev-parse', '--show-toplevel');
+  if (top.status !== 0) return { design: dir, rev: null };
+  const prefix = git(dir, 'rev-parse', '--show-prefix').stdout.trim().replace(/\/$/, '');
+  const rev = git(dir, 'rev-parse', '--short', 'HEAD').stdout.trim();
+  const tar = join(into, 'design.tar');
+  const a = git(top.stdout.trim(), 'archive', '--format=tar', '-o', tar, 'HEAD', '--', prefix || '.');
+  assert.equal(a.status, 0, `git archive of the design sources: ${a.stderr}`);
+  const x = spawnSync('tar', ['-xf', tar, '-C', into], { encoding: 'utf8' });
+  assert.equal(x.status, 0, `unpacking the design sources: ${x.stderr}`);
+  const dirty = git(dir, 'status', '--porcelain', '--', '.').stdout.trim();
+  return { design: join(into, prefix), rev, dirty: !!dirty };
+}
+
+test('skins never change a box or a text on the real app views', { skip, timeout: 1500000 }, async (t) => {
   let pack = process.env.SLS_PLUS_PROOF_PACK;
+  const temp = [];
+  t.after(() => { for (const d of temp) rmSync(d, { recursive: true, force: true }); });
   if (!pack) {
+    const src = mkdtempSync(join(tmpdir(), 'souldew-proof-design-'));
     pack = mkdtempSync(join(tmpdir(), 'souldew-proof-pack-'));
-    const b = spawnSync(process.execPath, [join(ROOT, 'scripts', 'plus-dev-pack.mjs'), '--design', DESIGN, '--out', pack, '--no-previews'], { encoding: 'utf8' });
+    temp.push(src, pack);
+    const { design, rev, dirty } = committedDesign(DESIGN, src);
+    if (dirty) t.diagnostic(`design sources: commit ${rev} – their uncommitted edits are left out`);
+    const b = spawnSync(process.execPath, [join(ROOT, 'scripts', 'plus-dev-pack.mjs'), '--design', design, '--out', pack, '--no-previews'], { encoding: 'utf8' });
+    if (b.status === 3) {
+      t.skip(`the design sources${rev ? ` (commit ${rev})` : ''} don't match this checkout – ${b.stderr.trim()}; set SLS_PLUS_PROOF_PACK to a matching pack`);
+      return;
+    }
     assert.equal(b.status, 0, b.stderr);
   }
   const data = mkdtempSync(join(tmpdir(), 'souldew-proof-data-'));
@@ -38,6 +70,9 @@ test('skins never change a box or a text on the real app views', { skip, timeout
   });
   assert.ok(existsSync(out), `the runner wrote no result (exit ${r.status}): ${String(r.stderr).slice(-2000)}`);
   const res = JSON.parse(readFileSync(out, 'utf8'));
+  // the data folder (with proof.json) stays only when something failed – it is the evidence
+  if (res.ok) temp.push(data);
+  else t.diagnostic(`the proof's result: ${out}`);
   assert.equal(res.error, undefined, res.error);
   assert.equal(res.skins, 16, `${res.skins} skins in the pack – the colour skins, no editions`);
   assert.equal(res.previewSkins, res.skins, 'the preview pack carries every skin');
