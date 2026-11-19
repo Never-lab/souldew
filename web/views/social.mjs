@@ -36,7 +36,7 @@ export function presenceText(p) {
   if (p.state === 'library') return t('fr.inLibrary', 'Online · in the library');
   if (p.state === 'playing') return p.game?.title ? t('fr.playing', 'Playing {game}', { game: p.game.title }) : t('fr.online', 'Online');
   if (p.state === 'in_run') {
-    const mode = p.run?.mode === 'nuzlocke' ? t('runs.modeSolo', 'Solo Nuzlocke') : t('nav.soullink', 'SoulLink');
+    const mode = p.run?.mode === 'nuzlocke' ? t('runs.modeSolo', 'Solo Nuzlocke') : p.run?.mode === 'together' ? t('pt.start', 'Play together') : t('nav.soullink', 'SoulLink');
     return [p.game?.title, p.run?.name ? `${mode} · ${p.run.name}` : mode, p.location].filter(Boolean).join(' · ');
   }
   return t('fr.online', 'Online');

@@ -4,7 +4,7 @@
 // is on (config.presence !== false), the local server sends the bot one small JSON every minute:
 //   POST <the bot>/presence  { sid, system, mode, v }   (the bot = LIVE_RUNS_URL, server/lib/liveruns.mjs)
 //   sid    a random id made when the game starts – new for every game, never written to disk, tied to nothing
-//   system gb | gba | nds | 3ds          mode solo | nuzlocke | soullink (Play together: solo)    v the app version
+//   system gb | gba | nds | 3ds          mode solo | nuzlocke | soullink | together    v the app version
 // and { sid, stop: true } when the game closes, the setting is switched off or the app quits. No name, no account,
 // no game title, no run data, no ROM, no file path. When the bot can't be reached nothing happens (no retries, no
 // error, no log line) – the next heartbeat simply tries again.
