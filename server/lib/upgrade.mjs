@@ -104,16 +104,27 @@ export function makeBackup(dataDir, { label, now = Date.now(), free = null, plan
   for (let i = 2; exists(join(root, name)); i++) name = `pre-${label}-${day(now)}-${i}`;
   const tmp = join(root, `.${name}.partial`);
   rmSync(tmp, { recursive: true, force: true });
+  let files = 0;
+  let bytes = 0;
   for (const f of plan.files) {
     const to = join(tmp, ...f.rel.split('/'));
     mkdirSync(join(to, '..'), { recursive: true });
-    copyFileSync(join(dataDir, ...f.rel.split('/')), to, constants.COPYFILE_FICLONE);
+    try {
+      copyFileSync(join(dataDir, ...f.rel.split('/')), to, constants.COPYFILE_FICLONE);
+    } catch (e) {
+      // gone since the plan was made (a journal or lock file another process removed meanwhile): nothing to keep –
+      // one vanished file must not cost the player the whole backup
+      if (e?.code === 'ENOENT') continue;
+      throw e;
+    }
+    files++;
+    bytes += f.size;
     // a private file stays private (live-runs.json, the host keys: 0600)
     if ((f.mode & 0o077) === 0) try { chmodSync(to, f.mode); } catch { /* a file system without modes */ }
   }
   mkdirSync(tmp, { recursive: true });
   renameSync(tmp, join(root, name));
-  return { path: join(root, name), name, bytes: plan.bytes, files: plan.files.length, at: now };
+  return { path: join(root, name), name, bytes, files, at: now };
 }
 
 function exists(p) {

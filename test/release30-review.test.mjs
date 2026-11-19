@@ -58,3 +58,22 @@ test('signing out while a token refresh is on its way: the late answer doesn\'t 
   assert.equal(s.signedIn, false, 'still signed out');
   assert.equal(stored, null, 'nothing stored again');
 });
+
+test('upgrade backup: a file that vanishes between the plan and the copy is skipped, the rest is still backed up', async () => {
+  const { makeBackup, backupPlan } = await import('../server/lib/upgrade.mjs');
+  const { mkdirSync, writeFileSync, readFileSync, existsSync } = await import('node:fs');
+  const dir = mkdtempSync(join(tmpdir(), 'souldew-review30-backup-'));
+  mkdirSync(join(dir, 'runs', 'abcd1234'), { recursive: true });
+  writeFileSync(join(dir, 'runs', 'abcd1234', 'p1.sav'), Buffer.alloc(1024, 7));
+  writeFileSync(join(dir, 'Cookies-journal'), 'x');
+  const plan = backupPlan(dir);
+  assert.equal(plan.files.length, 2);
+  // the journal is gone by the time the copy reaches it
+  const { rmSync } = await import('node:fs');
+  rmSync(join(dir, 'Cookies-journal'));
+  const made = makeBackup(dir, { label: '3.0', plan, free: 1e12 });
+  assert.equal(made.files, 1);
+  assert.equal(made.bytes, 1024);
+  assert.deepEqual(readFileSync(join(made.path, 'runs', 'abcd1234', 'p1.sav')), Buffer.alloc(1024, 7));
+  assert.equal(existsSync(join(made.path, 'Cookies-journal')), false);
+});
