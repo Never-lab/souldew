@@ -129,3 +129,130 @@ export function wrapThumb(id) {
   thumbs.set(key, url);
   return url;
 }
+
+// ---- a souldew+ wrap you don't own, from its public preview picture -------------------------------------------------
+// The souldew+ page lets everyone put every skin on the 3D handheld. A wrap's composition and banner recipe come with
+// the souldew+ pack only; without it the scene prints the wrap's public preview picture (the accounts service's
+// previews: wraps/<id>.png – the skin card's window onto the wrap, shot a few degrees turned, ×2, with a light sheen;
+// scripts/plus-dev-pack.mjs handheldPreviews). Nothing more than that picture is used: it is levelled again, read at
+// its art pixels and continued past its edges (mirrored sideways, the sky above, the ground below) to cover each panel.
+// It never animates, and the page marks it as a souldew+ preview.
+
+/** preview-shot.mjs's seed hash (FNV-1a → 0..0.999): where a picture's sheen crosses */
+export const sheenHash = (str) => {
+  let x = 2166136261;
+  for (const ch of String(str)) x = Math.imul(x ^ ch.charCodeAt(0), 16777619);
+  return ((x >>> 0) % 1000) / 1000;
+};
+
+/** how the preview pictures are shot (scripts/plus-dev-pack.mjs handheldPreviews): the thumb's window, ×2, turned 4° */
+export const PREVIEW_SHOT = { w: 112, h: 74, base: 72, k: 2, angle: 4 };
+
+const clamp8 = (v) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
+
+/**
+ * The preview picture back at its art pixels: { w, h, px (Uint32Array RGBA), base } – the shot turned level and read at
+ * one sample per art pixel (bilinear), cropped to what the turned shot fully covers. `base`: the row of the banner's
+ * last row (may lie below the crop). pic: { w, h, rgba (Uint8ClampedArray | Uint8Array) }; seed: the shot's seed (the
+ * wrap's id) – its sheen is taken off.
+ */
+export function levelPreview(pic, shot = PREVIEW_SHOT, seed = null) {
+  const { w, h, rgba } = pic;
+  // the shot's sheen (preview-shot.mjs: a soft diagonal band of light, placed by the wrap's id) taken off again –
+  // mirrored copies of it would read as streaks across the device
+  const sheenAt = seed == null ? null : 0.25 + sheenHash(seed) * 0.5;
+  const unsheen = (x, y, v) => {
+    if (sheenAt == null) return v;
+    const d = (x / w + y / h) / 2 - sheenAt;
+    const k = 0.16 * Math.exp(-(d * d) / 0.006);
+    return (v - 255 * k) / (1 - k);
+  };
+  const a = (shot.angle * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
+  // the shot zoomed the turned picture until it covered its frame (preview-shot.mjs, opaque): k = |cos| + |sin| · max(w/h, h/w)
+  const zoom = Math.abs(cos) + Math.abs(sin) * Math.max(w / h, h / w);
+  const s = (w / shot.w) * zoom; // shot pixels per art pixel
+  // the largest window of the shot's aspect that stays inside the frame once turned back
+  const lam = Math.min(w / (w * cos + h * sin), h / (w * sin + h * cos));
+  const W = Math.max(8, Math.floor((lam * w) / s)), H = Math.max(8, Math.floor((lam * h) / s));
+  const px = new Uint32Array(W * H);
+  const at = (x, y, c) => {
+    const X = Math.min(w - 1, Math.max(0, x)), Y = Math.min(h - 1, Math.max(0, y));
+    return unsheen(X, Y, rgba[(Y * w + X) * 4 + c]);
+  };
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) {
+      // art pixel centre (relative to the picture's centre) → turned like the shot → shot pixels
+      const ax = (i + 0.5 - W / 2) * s, ay = (j + 0.5 - H / 2) * s;
+      const x = w / 2 + cos * ax - sin * ay - 0.5, y = h / 2 + sin * ax + cos * ay - 0.5;
+      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+      const c = [0, 1, 2].map((k) => (at(x0, y0, k) * (1 - fx) + at(x0 + 1, y0, k) * fx) * (1 - fy) + (at(x0, y0 + 1, k) * (1 - fx) + at(x0 + 1, y0 + 1, k) * fx) * fy);
+      px[j * W + i] = ((255 << 24) | (clamp8(c[2]) << 16) | (clamp8(c[1]) << 8) | clamp8(c[0])) >>> 0;
+    }
+  }
+  return { w: W, h: H, px, base: Math.round(H / 2 + (shot.base - shot.h / 2)) };
+}
+
+const rgbOf = (p) => [p & 255, (p >>> 8) & 255, (p >>> 16) & 255];
+const hexOf = (c) => `#${c.map((v) => clamp8(v).toString(16).padStart(2, '0')).join('')}`;
+const lumOf = (c) => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+
+/**
+ * A wrap "composition" for the scene from a levelled preview: the moulded parts take the picture's own sky colour, as a
+ * real wrap's do (Plain Dusk: zen #121019 → plastic #1c1a26, keys #2a2638, dark #100e16, border #0c0b11).
+ */
+export function previewComp(id, lv, finish = 'satin') {
+  const n = Math.max(1, Math.min(3, lv.h)) * lv.w;
+  const sum = [0, 0, 0];
+  for (let i = 0; i < n; i++) { const c = rgbOf(lv.px[i]); sum[0] += c[0]; sum[1] += c[1]; sum[2] += c[2]; }
+  const zen = sum.map((v) => v / n);
+  const toward = (c, k) => c.map((v) => v + ((k > 0 ? 255 : 0) - v) * Math.abs(k));
+  const light = lumOf(zen) > 140; // a pale sky: the plastic goes a little darker instead of lighter
+  return { id, preview: true, finish, cx: 200, zen: hexOf(zen), plastic: hexOf(toward(zen, light ? -0.08 : 0.05)), keys: hexOf(toward(zen, light ? -0.18 : 0.12)),
+    dark: hexOf(toward(zen, -0.15)), border: hexOf(toward(zen, -0.35)) };
+}
+
+/** a ping-pong index: 0 … n-1, then back (mirrored copies – no seam at the picture's edges) */
+const mirror = (i, n) => { const p = 2 * n; const m = ((i % p) + p) % p; return m < n ? m : p - 1 - m; };
+
+/**
+ * The art for the scene's panels from a levelled preview – the same shape as wrapArt's ({ px, w, h, rects, update,
+ * animated }), never animated. Sideways the picture repeats mirrored from the panel's centre; above it the sky fades into
+ * its own top colour; below the banner's last row its bottom 4 rows repeat (the ground), like wrapArt.
+ */
+export function previewArt(lv, panels) {
+  if (!lv || !panels?.length) return null;
+  let y = 0;
+  const W = Math.max(...panels.map((p) => p.w)) + 4;
+  const rects = {};
+  for (const p of panels) { rects[p.key] = { x: 2, y: y + 2, w: p.w, h: p.h, p }; y += p.h + 4; }
+  const H = y;
+  const px = new Uint32Array(W * H);
+  const sky = Math.max(4, Math.min(lv.h, Math.round(lv.h * 0.35))); // the rows that are sky, mirrored upwards
+  const groundAt = Math.min(lv.base, lv.h) - 4; // the 4 rows repeated below the banner's last row (or the crop's)
+  const zen = [0, 0, 0]; // the picture's top row, averaged: the sky's own colour
+  for (let i = 0; i < lv.w; i++) { const c = rgbOf(lv.px[i]); zen[0] += c[0] / lv.w; zen[1] += c[1] / lv.w; zen[2] += c[2] / lv.w; }
+  const ink = lumOf(zen) < 128 ? zen.map((v) => v + (255 - v) * 0.35) : zen.map((v) => v * 0.6);
+  const ink32 = ((255 << 24) | (clamp8(ink[2]) << 16) | (clamp8(ink[1]) << 8) | clamp8(ink[0])) >>> 0;
+  for (const p of panels) {
+    const r = rects[p.key];
+    for (let j = 0; j < p.h; j++) {
+      const row = j - (p.base - lv.base); // the preview's row for this panel row
+      const sy = row < 0 ? mirror(row, sky) : row < groundAt + 4 && row < lv.h ? row : groundAt + (((row - groundAt) % 4) + 4) % 4;
+      // above the picture the mirrored sky fades into its own top colour within a few rows (mirrored again and again, an
+      // aurora or a cloud bank would stack up into stripes)
+      const fade = row < 0 ? Math.min(1, -row / 10) : 0;
+      for (let i = 0; i < p.w; i++) {
+        const sx = mirror(i - Math.round(p.w / 2) + Math.floor(lv.w / 2), lv.w);
+        const v = lv.px[Math.min(lv.h - 1, Math.max(0, sy)) * lv.w + sx];
+        if (!fade) { px[(r.y + j) * W + r.x + i] = v; continue; }
+        const c = rgbOf(v).map((x, k) => x + (zen[k] - x) * fade);
+        px[(r.y + j) * W + r.x + i] = ((255 << 24) | (clamp8(c[2]) << 16) | (clamp8(c[1]) << 8) | clamp8(c[0])) >>> 0;
+      }
+    }
+    if (p.word) {
+      const [wx, wy] = p.word;
+      WORD_S.forEach((rw, j) => [...rw].forEach((ch, i) => { if (ch === 'a') px[(r.y + wy + j) * W + r.x + wx + i] = ink32; }));
+    }
+  }
+  return { px, w: W, h: H, rects, update: () => false, animated: false };
+}

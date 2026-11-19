@@ -21,7 +21,7 @@ import { placeholderCanvas } from './placeholder.mjs';
 import { LAYOUTS } from './layouts.mjs';
 import { withSurface, NSTK } from './surface.mjs';
 import { DEVICES, PX, partsOf, surfacesOf, unfold } from './geometry.mjs';
-import { wrapArt } from './wrap.mjs';
+import { wrapArt, previewArt } from './wrap.mjs';
 import { effectiveLook, effectiveCart, finishIndex } from './looks.mjs';
 
 export { DEVICES };
@@ -360,7 +360,7 @@ const EMPTY_ATLAS = { w: 1, h: 1, rgba: new Uint8Array(4), sw: 1, sh: 1, sdf: ne
  * looks (the souldew+ pack's looks, looks.mjs cleanLooks – without them a souldew+ look draws "Your colours"),
  * cover (url), title, pulse, glow, warm (Rare start), plan (t → state), picture ('placeholder' | a live canvas | null),
  * keep (preserveDrawingBuffer, for a still), atlas (web/lib/handheld/stickers.mjs), hh: { skin (wrap composition +
- * finish) | null, recipe, reduced, stickers } }.
+ * finish) | null, recipe, reduced, stickers, preview (wrap.mjs levelPreview – drawn instead of the recipe) } }.
  */
 export async function createScene(canvas, o) {
   ARC = !!o.hh;
@@ -710,7 +710,8 @@ export async function createScene(canvas, o) {
         panels.push({ key: `${k}:${face}`, w: pw, h: ph, cx, base, word });
       }
     }
-    const art = skin ? wrapArt(skin, o.hh.recipe, panels, { reduced: !!o.hh.reduced }) : null;
+    // a souldew+ wrap without the pack (the souldew+ page's preview): its public preview picture (wrap.mjs previewArt)
+    const art = !skin ? null : o.hh.preview ? previewArt(o.hh.preview, panels) : wrapArt(skin, o.hh.recipe, panels, { reduced: !!o.hh.reduced });
     HH.art = art;
     const tex = (t) => { t.flipY = false; t.magFilter = THREE.LinearFilter; t.minFilter = THREE.LinearFilter; t.generateMipmaps = false; t.needsUpdate = true; HH.tex.push(t); return t; };
     const artTex = art ? tex(Object.assign(new THREE.DataTexture(new Uint8Array(art.px.buffer), art.w, art.h, THREE.RGBAFormat), { colorSpace: THREE.SRGBColorSpace }))

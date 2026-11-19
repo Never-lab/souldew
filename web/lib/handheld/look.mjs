@@ -11,7 +11,8 @@ import { content } from '../cosmetics/state.mjs';
 import { earnedTrophies } from '../trophies.mjs';
 import { favourites } from '../favourites.mjs';
 import { loadAtlas } from './stickers.mjs';
-import { wrapComp, recipeOf } from './wrap.mjs';
+import { wrapComp, recipeOf, levelPreview, previewComp } from './wrap.mjs';
+import { previewSrc } from '../cosmetics/previews.mjs';
 import { hasLook } from './looks.mjs';
 import { placeLayout } from './geometry.mjs';
 
@@ -141,6 +142,35 @@ export function sceneWrap(id) {
   return comp && recipe ? { skin: { ...comp, finish: meta.finish }, recipe } : null;
 }
 
+const previewWraps = new Map();
+/**
+ * A souldew+ wrap this account can't draw (no pack) as its public preview picture, for the souldew+ page's showcase:
+ * { comp (wrap.mjs previewComp), lv (levelPreview) } – null when there is no picture (the previews aren't in yet, or
+ * none for this wrap). Cached per picture while the app runs.
+ */
+export function previewWrap(id) {
+  const meta = wrapById(id);
+  const src = meta && previewSrc('wraps', id);
+  if (!src) return Promise.resolve(null);
+  if (previewWraps.has(src)) return previewWraps.get(src);
+  const p = (async () => {
+    const r = await fetch(src, { headers: { 'x-soullink': '1' } });
+    if (!r.ok) return null;
+    const bmp = await createImageBitmap(await r.blob());
+    const c = document.createElement('canvas');
+    c.width = bmp.width;
+    c.height = bmp.height;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(bmp, 0, 0);
+    bmp.close?.();
+    const lv = levelPreview({ w: c.width, h: c.height, rgba: g.getImageData(0, 0, c.width, c.height).data }, undefined, id);
+    return { comp: previewComp(id, lv, meta.finish), lv };
+  })().catch(() => null);
+  previewWraps.set(src, p);
+  p.then((v) => { if (!v) previewWraps.delete(src); });
+  return p;
+}
+
 /** a CSS colour (any syntax, incl. color-mix and variables) → #rrggbb, resolved inside `el` */
 export function cssColor(el, css) {
   const p = document.createElement('span');
@@ -191,20 +221,23 @@ export const viewPlan = (sys, view, orbit = { yaw: 0, tilt: 0, zoom: 1 }) => {
 
 /**
  * The launch scene posed still (the editor's stage, a still of your handheld): o = { sys, look ('theme' | 'clear' |
- * 'gold'), skin (wrap id | null), plan () → pose, w, h, el (where the theme's colours are read), reduced, keep, cover,
+ * 'gold'), cartLook ('holo' for the Holo label; Gold's cartridge follows the look), clear (CLEAR_TINTS key), skin (wrap id | null),
+ * preview (previewWrap – used when that skin can't be drawn here), plan () → pose, w, h, el (where the theme's colours are read), reduced, keep, cover,
  * cartColor }. Resolves to the scene (scene.mjs) and the atlas.
  */
 export async function poseScene(canvas, o) {
   const { S, atlas } = await loadScene();
   const fold = isFold(o.sys);
-  const wrap = o.look === 'clear' || o.look === 'gold' ? null : sceneWrap(o.skin);
+  // o.preview (previewWrap): a souldew+ skin shown from its preview picture – only when the real one can't be drawn here
+  const shell = o.look === 'clear' || o.look === 'gold';
+  const wrap = shell ? null : sceneWrap(o.skin) || (o.preview ? { skin: o.preview.comp, recipe: null, preview: o.preview.lv } : null);
   const w = o.w, h = o.h;
   const scene = await S.createScene(canvas, {
     sys: o.sys, lk: layoutKey(o.sys, 'tb', 'tb'), w, h, final: { x: w * 0.3, y: h * 0.2, w: w * 0.4, h: h * 0.6 }, dark: true,
-    look: o.look || 'theme', looks: paidLooks(), shell: shellColor(o.el), clearTint: CLEAR[o.clear] || CLEAR.ice, cartLook: o.look === 'gold' ? 'gold' : undefined,
+    look: o.look || 'theme', looks: paidLooks(), shell: shellColor(o.el), clearTint: CLEAR[o.clear] || CLEAR.ice, cartLook: o.look === 'gold' ? 'gold' : o.cartLook === 'holo' && paidLooks()?.holo ? 'holo' : undefined,
     cartColor: o.cartColor, cover: o.cover, title: '', pulse: '#fff4e0', glow: '#dfe8ff', picture: 'placeholder', keep: !!o.keep, atlas,
     plan: () => ({ ...o.plan(), cart: fold ? 999 : 0, power: [-2000, -2000], led: 1, shadow: 1, clean: 0, canvasO: 1, glassOff: 0.35 }),
-    hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, reduced: !!o.reduced },
+    hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, preview: wrap?.preview || null, reduced: !!o.reduced },
   });
   return { scene, atlas };
 }
@@ -212,10 +245,10 @@ export async function poseScene(canvas, o) {
 const stills = new Map();
 /**
  * One still of your handheld as a data: URL (rendered once, then the GPU is let go) – cached per look while the app runs.
- * o = { sys, look, skin, stickers, w, h, el, view }
+ * o = { sys, look, skin, stickers, w, h, el, view, cartLook ('holo': the Holo label), clear (the Clear shell's colour) }
  */
 export async function handheldStill(o) {
-  const key = JSON.stringify([o.sys, o.look, o.skin, o.stickers, o.w, o.h, o.view, content.banners.size, packState().entitled, !!paidLooks(), shellColor(o.el)]);
+  const key = JSON.stringify([o.sys, o.look, o.skin, o.stickers, o.w, o.h, o.view, o.cartLook || '', o.clear || '', content.banners.size, packState().entitled, !!paidLooks(), shellColor(o.el)]);
   if (stills.has(key)) return stills.get(key);
   const p = (async () => {
     const cv = document.createElement('canvas');

@@ -148,6 +148,12 @@ a sticker IS its pixel art, so a clean ×6 copy would be the sticker itself) –
 §10.6, a pack of kind `previews`). The local server (`server/lib/pluspreviews.mjs`) fetches the manifest (no account
 needed), checks its signature against the pinned pack key and every picture's SHA-256, and serves them at
 `/api/plus/previews/file?path=<kind>/<id>.<png|webp>`. In the page: `previewSrc(kind, id, { loop })`, `<PreviewPicture>`.
+The launch looks of "Your handheld" ("Your colours", Gold, Holo label, the Clear shell in each of its four colours) are
+a still and a 3-second loop each (`launch/<name>.png|webp`), drawn by the real launch scene with the pack's looks data
+(`scripts/handheld/launch-shots.mjs`, run by `plus-dev-pack.mjs --previews-source`) – the souldew+ page's launch cards
+(`views/launchlooks.mjs`). The souldew+ wraps' pictures also dress the 3D handheld on the souldew+ page for anyone without
+the pack (`web/lib/handheld/wrap.mjs previewArt`: the picture levelled, read at its art pixels and continued past its
+edges – marked as a preview, never put on the account's handheld).
 Where: a locked card in `<CosmeticPicker>` (the loop while hovered / focused / chosen, never with reduced motion), a
 locked theme for someone who can't try it live (signed out: a still of the app in it – signed-in non-members keep the
 15-minute live preview), and `PlusShowcase` ("What souldew+ holds", Settings › Account, signed in or out).

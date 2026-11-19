@@ -108,7 +108,7 @@
 .plus-banners { display: grid; grid-template-columns: 1.6fr 1fr; grid-template-rows: repeat(2, 132px); gap: 16px; }
 .plus-banner { position: relative; margin: 0; overflow: hidden; border-radius: var(--r-l); box-shadow: inset 0 0 0 1px #ffffff0d, 0 6px 16px -6px #0009; }
 .plus-banner.big { grid-row: span 2; }
-.plus-banner:focus-visible, .plus-frame:focus-visible, .plus-plate-item:focus-visible, .plus-launch:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.plus-banner:focus-visible, .plus-frame:focus-visible, .plus-plate-item:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .plus-banner-art, .plus-banner-art > .cos-banner { position: absolute; inset: 0; height: 100%; }
 /* its own layer: a preview picture's z-index stays inside it, under the caption */
 .plus-banner-art { z-index: 0; }
@@ -129,13 +129,45 @@
 .plus-plates { display: flex; flex-direction: column; gap: 10px; }
 .plus-plate-item { border-radius: var(--r-m); }
 
-/* ---- launch animations ---- */
-.plus-launches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.plus-launch { margin: 0; display: flex; flex-direction: column; gap: 10px; border-radius: var(--r-l); }
-.plus-launch-art { position: relative; aspect-ratio: 3 / 2; overflow: hidden; border-radius: var(--r-l); background: #0b0a0e; box-shadow: 0 0 0 1px #000, 0 8px 18px -8px #000a; }
-.plus-launch-art > .cos-preview, .plus-launch-art > .launch-screen { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.plus-launch figcaption { display: flex; align-items: baseline; gap: 8px; }
-.plus-launch figcaption b { font-weight: 600; }
+/* ---- launch animations (views/launchlooks.mjs): one row, each card shows its animation, one selected ---- */
+.plus-looks-wrap { display: flex; flex-direction: column; gap: 12px; }
+.plus-looks { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.plus-look { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.plus-look-pick { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  border-radius: var(--r-l); }
+.plus-look-pick:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.plus-look-art { position: relative; display: block; aspect-ratio: 16 / 10; overflow: hidden; border-radius: var(--r-l); background: #0b0a0e;
+  box-shadow: 0 0 0 1px var(--edge, #2f2e36); transition: box-shadow .12s; }
+.plus-look-pick:hover .plus-look-art { box-shadow: 0 0 0 1px color-mix(in srgb, var(--focus) 60%, var(--edge, #2f2e36)); }
+/* the one selected: a clear ring and a tick – there is only ever one */
+.plus-look.on .plus-look-art { box-shadow: 0 0 0 2px var(--shell-2), 0 0 0 4px var(--focus); }
+.plus-look-check { position: absolute; top: 7px; right: 7px; z-index: 3; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--focus); color: #0d0c12;
+  box-shadow: 0 1px 4px #0008; }
+.plus-look-check svg { display: block; }
+.plus-look-art > .plus-look-media, .plus-look-art > .hh-still, .plus-look-art > .launch-screen { position: absolute; inset: 0; width: 100%; height: 100%; }
+.plus-look-media { object-fit: cover; display: block; }
+.plus-look-art > .hh-still img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.plus-look-art > .launch-screen { aspect-ratio: auto; border-radius: 0; }
+.plus-look-art .launch-screen .ci-stage { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(.26); } /* (a box bigger than the card: grid centring would pin it to the start) */
+.plus-look-cart.still .cart-insert, .plus-look-cart.still .cart-insert * { animation-play-state: paused !important; animation-delay: -0.62s !important; }
+.plus-look-art > .hhs-prev { z-index: 1; }
+.plus-look-none { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 10px; text-align: center;
+  color: #b9b4c4; background: radial-gradient(90% 80% at 50% 40%, #1d1b24 0, #0b0a0e 80%); }
+.plus-look-cap { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 2px; }
+.plus-look-cap b { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.plus-look-tier { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .02em; color: var(--ink-3); border: 1px solid var(--edge, #2f2e36); }
+.plus-look-tier.t-plus { color: #2b1f05; background: linear-gradient(160deg, #f3cf7a, #c9952e); border-color: transparent; }
+.plus-look-tier svg { display: block; }
+.plus-look-tints { display: flex; gap: 8px; padding: 0 2px; }
+.plus-look-tints .hhs-tint { padding: 0; border: 0; }
+.plus-look-line { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 10px; row-gap: 6px; min-height: 30px; padding: 2px 2px 0; }
+.plus-look-line b { font-size: 14px; }
+.plus-look-line .btn { align-self: center; }
+.plus-look-use { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; color: var(--ok-ink, #8fd6a8); }
+.plus-look-rare { margin: 0; display: flex; align-items: center; gap: 6px; }
+@media (max-width: 1180px) { .plus-looks { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (prefers-reduced-motion: reduce) { .plus-look-art { transition: none; } }
 
 /* ---- the three tiers ---- */
 .plus-tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; align-items: stretch; }
@@ -192,17 +224,11 @@
   .plus-tchip i { right: 5px; bottom: 5px; width: 8px; height: 8px; }
 }
 @media (max-width: 860px) {
-  .plus-hero, .plus-tbox, .plus-tiers, .plus-launches { grid-template-columns: minmax(0, 1fr); }
+  .plus-hero, .plus-tbox, .plus-tiers { grid-template-columns: minmax(0, 1fr); }
+  .plus-looks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .plus-banners { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: 120px; }
   .plus-banner.big { grid-row: auto; }
   .plus-frames { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .plus-cancel { grid-template-columns: minmax(0, 1fr); }
 }
 
-/* favourites (lib/favourites.mjs): the star sits on each look's picture */
-.plus-banners > .plus-fav.big { grid-row: span 2; }
-.plus-banners > .plus-fav > .plus-banner { height: 100%; }
-.plus-fav .fav-star { top: 10px; left: 10px; }
-.plus-frames > .plus-fav .fav-star { top: 8px; left: 8px; }
-.plus-fav-plate .fav-star { top: 50%; left: auto; right: 10px; margin-top: -11px; }
-.plus-tfav { display: block; }

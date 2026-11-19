@@ -61,7 +61,7 @@ import { ThanksView } from './views/thanks.mjs';
 import { ThanksAsk } from './views/thanksask.mjs';
 import { HandheldView } from './views/handheld.mjs';
 import { railGroups, FOOT_SECTIONS } from './lib/railnav.mjs';
-import { accountEvent } from './lib/account.mjs';
+import { accountEvent, useAccount, signIn, cancelSignIn } from './lib/account.mjs';
 import { useSocial } from './lib/socialapp.mjs';
 import { Avatar } from './views/social.mjs';
 import { initUiScale, watchUiScaleKeys, useUiScale, setUiScale, stepUi, suggestUiScale, uiScaleKeys } from './lib/uiscale.mjs';
@@ -174,6 +174,36 @@ function RailPlus({ thanks = false, here = false, float = false, fx = null, onOp
     <span class="rail-plus-mark" aria-hidden="true"><${Icon} name="plus" size=${float ? 12 : 10} /></span>
     ${!float && html`<span class="rail-plus-text"><b>${t('rail.plus', 'souldew+')}</b>${thanks && html`<span class="rail-plus-thanks">${t('rail.thanks', 'thank you')}</span>`}</span>`}
     <${CoffeeFx} fx=${fx} /></a>`;
+}
+
+/**
+ * Signed out: "Sign in" with the Discord mark at the rail's foot – where the profile picture sits once signed in (the
+ * same chip, so every skin styles both alike). It starts the same sign-in as Settings › Account (the system browser);
+ * while the browser is open it says so, a click opens the browser again and the small × stops waiting.
+ */
+function RailSignIn({ toast }) {
+  const acct = useAccount();
+  const [busy, setBusy] = useState(false);
+  if (!acct.loaded || acct.session?.signedIn) return null;
+  const pending = !!acct.session?.pending;
+  const go = async () => {
+    setBusy(true);
+    try {
+      await signIn();
+    } catch (e) {
+      toast({ kind: 'death', title: t('acct.signInFailed', 'Signing in didn’t start'), text: e.message });
+    }
+    setBusy(false);
+  };
+  const label = pending ? t('rail.signInPending', 'Finish signing in in your browser – click to open it again') : t('rail.signInHint', 'Sign in with Discord – opens your browser. Everything works without an account.');
+  return html`<div class=${`rail-signin-wrap ${pending ? 'pending' : ''}`}>
+    <button type="button" class="rail-me rail-signin" disabled=${busy} onClick=${go} title=${label} aria-label=${label}>
+      <span class="rail-signin-mark" aria-hidden="true"><${Icon} name="discord" size=${18} /></span>
+      <span class="stack-s" style="gap:0"><b class="ellipsis">${pending ? t('rail.signInWaiting', 'Waiting …') : t('rail.signIn', 'Sign in')}</b>
+        <span class="tiny ellipsis">${pending ? t('rail.signInBrowser', 'in your browser') : t('rail.withDiscord', 'with Discord')}</span></span>
+    </button>
+    ${pending && html`<button type="button" class="rail-signin-x" onClick=${() => cancelSignIn()} title=${t('common.cancel', 'Cancel')} aria-label=${t('rail.signInCancel', 'Stop signing in')}><${Icon} name="close" size=${12} /></button>`}
+  </div>`;
 }
 
 /** One section of the rail: its line icon, its label and what it shows on the right (playing, friends online, counts). */
@@ -1125,6 +1155,7 @@ function App() {
           ${manifest && names && html`<${RailRun} manifest=${manifest} names=${names} me=${me} onlineSlots=${onlineSlots} linkStatus=${linkStatus} session=${session} navigate=${navigate} />`}
           ${social.signedIn && social.me && html`<a class="rail-me" href="#/profile" aria-current=${route.route === 'profile' && !route.params.id ? 'page' : undefined} title=${t('pf.yours', 'Your profile')}>
             <${Avatar} user=${social.me} size=${30} /><span class="stack-s" style="gap:0"><b class="ellipsis">${social.me.name}</b><span class="tiny ellipsis">${social.me.status || `@${social.me.handle || ''}`}</span></span></a>`}
+          ${!social.signedIn && html`<${RailSignIn} toast=${toast} />`}
           <div class="nav rail-tools" onPointerOver=${navLight} onPointerMove=${navLight}>
             <${RailPlus} thanks=${thanks} here=${here === 'plus'} fx=${!folded || peek ? coffee.fx : null} onOpen=${coffee.clicked} />
             ${FOOT_SECTIONS.map((id) => NAV.find((n) => n.id === id)).map((n) => html`<a key=${n.id} href=${`#/${n.id}`} class=${`rail-icon ${here === n.id ? 'active' : ''}`}

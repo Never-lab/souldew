@@ -45,7 +45,7 @@ function SignedOut({ acct, toast }) {
           ${s.pending ? html`<div class="row"><span class="small">${t('acct.pending', 'Finish signing in in your browser …')}</span>
               <button class="btn small ghost" onClick=${() => cancelSignIn()}>${t('common.cancel', 'Cancel')}</button>
               <button class="btn small ghost" onClick=${go}>${t('acct.openAgain', 'Open the browser again')}</button></div>`
-            : html`<div><button class="btn primary big acct-discord" disabled=${busy} onClick=${go}><${Icon} name="external" size=${16} />${t('acct.signIn', 'Sign in with Discord')}</button></div>`}
+            : html`<div><button class="btn primary big acct-discord" disabled=${busy} onClick=${go}><${Icon} name="discord" size=${16} />${t('acct.signIn', 'Sign in with Discord')}</button></div>`}
           <p class="small muted">${t('acct.signInNote', 'Opens your browser. souldew only gets your Discord name and picture – no email, no servers, no messages. You never type your Discord password into souldew.')}</p>
         </div>`;
 }

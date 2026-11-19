@@ -28,11 +28,12 @@ export function loadPreviews(force = false) {
   return loading;
 }
 
-// stickers / wraps: "Your handheld"'s souldew+ stickers and skins – a still each (scripts/plus-dev-pack.mjs handheldPreviews)
-const KINDS = { banners: 'banners', nameplates: 'nameplates', frames: 'frames', skins: 'skins', stickers: 'stickers', wraps: 'wraps' };
+// stickers / wraps: "Your handheld"'s souldew+ stickers and skins – a still each (scripts/plus-dev-pack.mjs handheldPreviews);
+// launch: the 3D launch looks – a still and a loop each, the Clear shell once per colour (scripts/handheld/launch-shots.mjs)
+const KINDS = { banners: 'banners', nameplates: 'nameplates', frames: 'frames', skins: 'skins', stickers: 'stickers', wraps: 'wraps', launch: 'launch' };
 const STILL_ONLY = new Set(['skins', 'stickers', 'wraps']);
 
-/** kind: banners | nameplates | frames | skins | stickers | wraps. loop: the animated WebP (skins, stickers and wraps have a still only). */
+/** kind: banners | nameplates | frames | skins | stickers | wraps | launch. loop: the animated WebP (skins, stickers and wraps have a still only). */
 export function previewSrc(kind, id, { loop = false } = {}) {
   if (!list?.files || !KINDS[kind] || typeof id !== 'string') return null;
   const path = `${KINDS[kind]}/${id}.${kind === 'skins' || (loop && !STILL_ONLY.has(kind)) ? 'webp' : 'png'}`;

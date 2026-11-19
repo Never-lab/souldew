@@ -51,6 +51,46 @@ function loopWebp(frames, w, h, encodePNG, file) {
 }
 
 /**
+ * The launch looks of "Your handheld" (launch/<name>.png – a 640×400 still – and launch/<name>.webp – a 3 s loop at
+ * 288×180, 10 fps): "Your colours", Gold, Holo label and the Clear shell in each of its four colours, drawn by the real launch
+ * scene in Electron (scripts/handheld/launch-shots.mjs) with the souldew+ looks' data `looks` (the design source's
+ * handheld/looks.mjs LOOKS). The souldew+ page shows them on its launch cards to everyone (views/launchlooks.mjs).
+ */
+export function renderLaunchPreviews({ looks, out, log = console.log }) {
+  const dir = mkdtempSync(join(tmpdir(), 'souldew-launchshots-'));
+  try {
+    writeFileSync(join(dir, 'looks.json'), JSON.stringify(looks));
+    const electron = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron');
+    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'ELECTRON_RUN_AS_NODE'));
+    const r = spawnSync(electron, [join(ROOT, 'scripts', 'handheld', 'launch-shots.mjs'), dir], { stdio: ['ignore', 'inherit', 'inherit'], timeout: 600000, env });
+    if (r.status !== 0 || !existsSync(join(dir, 'shots.json'))) throw new Error('could not render the launch previews');
+    const files = [];
+    mkdirSync(join(out, 'launch'), { recursive: true });
+    for (const name of JSON.parse(readFileSync(join(dir, 'shots.json'), 'utf8'))) {
+      const still = join(out, 'launch', `${name}.png`);
+      writeFileSync(still, readFileSync(join(dir, `${name}.png`)));
+      files.push({ path: `launch/${name}.png`, bytes: new Uint8Array(readFileSync(still)) });
+      const fdir = join(dir, name);
+      const frames = readdirSync(fdir).filter((f) => f.endsWith('.png')).sort().map((f) => join(fdir, f));
+      const loop = join(out, 'launch', `${name}.webp`);
+      let fits = false;
+      for (const q of ['78', '62', '48']) { // rendered 3D (smooth light, not pixel art): lossy from the start
+        const e = spawnSync('img2webp', ['-loop', '0', '-d', '100', '-lossy', '-q', q, '-m', '4', ...frames, '-o', loop], { encoding: 'utf8' });
+        if (e.error) throw new Error('img2webp is needed for the preview loops (brew install webp)');
+        if (e.status !== 0) throw new Error(`img2webp failed: ${e.stderr}`);
+        if (statSync(loop).size <= LOOP_MAX_BYTES) { fits = true; break; }
+      }
+      if (!fits) throw new Error(`launch/${name}.webp stays over ${LOOP_MAX_BYTES} bytes`);
+      files.push({ path: `launch/${name}.webp`, bytes: new Uint8Array(readFileSync(loop)) });
+    }
+    log(`previews: ${files.length / 2} launch looks`);
+    return files;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
  * Renders every premium banner, nameplate and frame into `out` (<kind>/<id>.png + .webp) and returns the file list
  * [{ path, bytes }]. design: the design/plus folder; banners / frames: the premium items.
  */
