@@ -13,7 +13,7 @@ const U = await import('../server/lib/upgrade.mjs');
 
 const MB = 1048576;
 /** A data folder as 2.8.3 leaves it: settings, a run with its built game and save, states, the browser's storage, caches. */
-function data283(dir, config = { onboarded: true, playerName: 'Marius', lang: 'de', theme: 'deutan', ctrRenderer: 'compat' }) {
+function data283(dir, config = { onboarded: true, playerName: 'Sam', lang: 'de', theme: 'deutan', ctrRenderer: 'compat' }) {
   const put = (rel, body, mode) => {
     mkdirSync(join(dir, ...rel.split('/').slice(0, -1)), { recursive: true });
     writeFileSync(join(dir, ...rel.split('/')), body, mode ? { mode } : undefined);
@@ -24,8 +24,8 @@ function data283(dir, config = { onboarded: true, playerName: 'Marius', lang: 'd
   put('runs/abcd1234/run.json', '{"id":"abcd1234"}');
   put('runs/abcd1234/doc.json', '{}');
   put('runs/abcd1234/host-key.pem', 'KEY', 0o600);
-  put('runs/abcd1234/Marius - Red Version.gb', Buffer.alloc(1 * MB));
-  put('runs/abcd1234/Marius - Red Version.sav', Buffer.alloc(32768, 1));
+  put('runs/abcd1234/Sam - Red Version.gb', Buffer.alloc(1 * MB));
+  put('runs/abcd1234/Sam - Red Version.sav', Buffer.alloc(32768, 1));
   put('runs/.trash/dead0000-x/run.json', '{}');
   put('Saves/states/0123456789abcdef-1.state', Buffer.alloc(60000, 2));
   put('Saves/states/0123456789abcdef-1.json', '{"core":"gambatte-native"}');
@@ -91,13 +91,13 @@ test('backup: runs, saves, states, settings, trophies and the browser storage â€
     'config.json',
     'ctr/saves/e966/Azahar/sdmc/Nintendo 3DS/0/0/title/00040000/00164800/data/00000001/main',
     'live-runs.json',
-    'runs/abcd1234/Marius - Red Version.sav',
+    'runs/abcd1234/Sam - Red Version.sav',
     'runs/abcd1234/doc.json',
     'runs/abcd1234/host-key.pem',
     'runs/abcd1234/run.json',
     'trophies.json',
   ]);
-  assert.deepEqual(readFileSync(join(made.path, 'runs/abcd1234/Marius - Red Version.sav')), Buffer.alloc(32768, 1), 'byte for byte');
+  assert.deepEqual(readFileSync(join(made.path, 'runs/abcd1234/Sam - Red Version.sav')), Buffer.alloc(32768, 1), 'byte for byte');
   if (process.platform !== 'win32') {
     assert.equal(statSync(join(made.path, 'live-runs.json')).mode & 0o777, 0o600, 'a private file stays private');
     assert.equal(statSync(join(made.path, 'runs/abcd1234/host-key.pem')).mode & 0o777, 0o600);
@@ -175,7 +175,7 @@ test('the server: the first start on 2.8.3 data makes the backup before migratin
     assert.equal(backups.length, 1);
     // the backup holds the config as 2.8.3 left it â€“ before 3.0 added anything (the stream migration, the version)
     const before = JSON.parse(readFileSync(join(dir, 'backups', backups[0], 'config.json'), 'utf8'));
-    assert.deepEqual(before, { onboarded: true, playerName: 'Marius', lang: 'de', theme: 'deutan', ctrRenderer: 'compat' });
+    assert.deepEqual(before, { onboarded: true, playerName: 'Sam', lang: 'de', theme: 'deutan', ctrRenderer: 'compat' });
     const st = await fetch(`${url}/api/status`, { headers: { 'x-soullink': '1' } }).then((r) => r.json());
     assert.ok(st.config, JSON.stringify(st).slice(0, 300));
     assert.equal(st.config.whatsNew, '3.0');

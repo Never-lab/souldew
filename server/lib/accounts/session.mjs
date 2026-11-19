@@ -77,7 +77,7 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
   let condition = null;
   let lastTier = null;
   // what the session list of the account shows for this computer: the kind of computer, never its name (a host name
-  // is often the owner's own name – "Marius' MacBook")
+  // is often the owner's own name – "Sam's MacBook")
   const platformName = () => ({ darwin: 'mac', win32: 'win', linux: 'linux' }[platform] || undefined);
   const deviceName = () => ({ darwin: 'souldew on a Mac', win32: 'souldew on Windows', linux: 'souldew on Linux' }[platform] || 'souldew');
 

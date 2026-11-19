@@ -28,9 +28,9 @@ Plus a new play view that gives the game the room it deserves.
 - **Battle for money, and keep score.** A challenge can be for in-game money: pick single or double battle (two
   against two with four Game Boy Advances), set a wager up to what you have, and your partner sees it in the invite –
   joining for less if they have less. When the battle is over, every player's souldew reads the result from the games
-  themselves, the results are compared, and only one everybody agrees on counts: the log says “Marius won a link
+  themselves, the results are compared, and only one everybody agrees on counts: the log says “Sam won a link
   battle against Tim”, the loser's game pays the winner's as soon as both stand in the overworld again (saved with
-  your next in-game save – once, even after a reset), and the board keeps the record between you: “Marius 3 : 1 Tim”.
+  your next in-game save – once, even after a reset), and the board keeps the record between you: “Sam 3 : 1 Tim”.
   Games out of step, a game that dropped out of the link or a result that isn't clear: nobody pays. The host decides
   whether wagers are allowed and the highest wager. Works in Red, Blue, Yellow, Gold, Silver, Crystal, Ruby,
   Sapphire, Emerald, FireRed, LeafGreen, Diamond, Pearl, Platinum, HeartGold, SoulSilver, Black, White, Black 2 and
@@ -62,7 +62,7 @@ Plus a new play view that gives the game the room it deserves.
   that went down in one game never comes out in the others. Your own team fights normally; whoever's team goes
   down is out and watches the others in the raid panel and the partner screens. The raid panel in the play view
   shows the pool per opponent Pokémon and everybody's team; afterwards the result – won or lost, who did the most
-  damage, who's still standing, the time – and one line in the log (“Marius, Tim & Lena won a raid together
+  damage, who's still standing, the time – and one line in the log (“Sam, Tim & Lena won a raid together
   (1:38 · most damage: Tim)”). Works in Red, Blue, Crystal, FireRed, LeafGreen, Emerald, Platinum, HeartGold and
   Black 2 (English); not in the 3DS games yet, and the app says why for every other game. A partner on an older 3.0
   build isn't asked.
@@ -108,7 +108,7 @@ Plus a new play view that gives the game the room it deserves.
   just the Gen 3 ones. Both pick within 10 seconds; souldew only swaps the hands once both have picked (each side first
   sends a sealed fingerprint of its hand), so nobody can wait and counter, a changed hand is refused and walking away
   after seeing the other hand counts as a loss. In the game the hands pop up over both heads, everywhere else in a
-  small card; the log says “Marius beat Tim at rock-paper-scissors”. A draw is played again; best of 3 from the board.
+  small card; the log says “Sam beat Tim at rock-paper-scissors”. A draw is played again; best of 3 from the board.
 - **More bubbles next to Wave:** a heart, “!”, “?” and “GG”, from the same A menu – small pixel art over your head on
   every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
 - **Shared World on the Game Boy: Red, Blue, Yellow, Gold, Silver and Crystal.** Your partners walk in your Gen 1 and
@@ -133,11 +133,11 @@ Plus a new play view that gives the game the room it deserves.
   you pick from your bag; your partner accepts, and it leaves your game and arrives in theirs – checked on both sides,
   never in part, never twice, and back in your bag if their game can't take it. Only while you walk around – not in a
   battle or a link (in the Game Boy and Gen 3 games not with a menu or a text open either). Key items, TMs/HMs and the
-  Master Ball stay with you. The log says “Marius gave Tim a gift: 3 × Potion”; the host's new rule “Gifts between us”
+  Master Ball stay with you. The log says “Sam gave Tim a gift: 3 × Potion”; the host's new rule “Gifts between us”
   (on by default) switches it off for a stricter run. Works in the games whose bag souldew knows – the same as the
   cheats'.
 - **“Come to me”.** One button in the play view marks where you are for all your partners: in their game an arrow at
-  the edge of the picture points to you when they're on the same map or next door, otherwise their board says “Marius
+  the edge of the picture points to you when they're on the same map or next door, otherwise their board says “Sam
   is at Route 110 – come here”. It clears when they arrive, or after a few minutes.
 - **German Emerald (Smaragd) is read live.** souldew showed nothing for it so far: its memory was taken to be laid out
   differently from the English game's. It isn't – every address souldew reads is the same – so the team, the place,
@@ -215,6 +215,22 @@ Plus a new play view that gives the game the room it deserves.
   sound). When fast-forward stays below 70 % of it for about 10 seconds, a small note in the dock says how fast it
   really runs and opens Settings › Play › 3DS resolution – once per start of souldew, with “Don't show again” and a
   switch next to the resolution to bring it back. souldew never lowers the resolution by itself.
+- **One cheats menu: Poké Balls, healing items and money** (thanks to a player on Discord). The cheats button in the
+  play view's dock now opens one menu instead of single buttons: pick how many (×1, ×10, ×99), then Rare Candy, Max
+  Repel, Master Ball, Ultra Ball, Poké Ball, Full Restore, Revive or Max Revive – each goes into its own pocket of the
+  bag – or add money: +₽1,000, +₽10,000, +₽100,000 or Max (₽999,999). souldew asks first, writes into the game's
+  memory and reads it back; a full pocket, a stack at the game's limit or a bag it can't find says so, with a details
+  line for a report – it never writes blindly. The new cheats show only in the games they were tried in, every item
+  with every amount: Red, Blue, Yellow, Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed and LeafGreen (English
+  and German), Diamond, Pearl, Platinum, HeartGold, SoulSilver, Black, White, Black 2 and White 2 – money included –,
+  Sun/Moon and Ultra Sun/Ultra Moon (the items). X/Y and Omega Ruby/Alpha Sapphire keep Rare Candies and Max Repels
+  for now. A DS game's bag that is still empty (Diamond right after the starter) takes a cheat only where the game's
+  own save data confirms it is the bag – else “Pick up or buy any item first”. In a SoulLink the host picks which
+  cheats the run allows – Rare Candies, Max Repels, Master Balls, Poké Balls and Ultra Balls, Full Restores and
+  Revives, money – in the new-run wizard or on the board; a run from before 3.0 keeps the two it had. Every use goes
+  into the log for everyone (“Lena used a cheat: 10 × Master Ball”, “+₽10,000 money (now ₽13,000)”) – a partner
+  still on 2.x reads it too. Any cheat still costs Honest Work, and a legendary caught after a Master Ball from the
+  cheats doesn't count for Route 1 Legend.
 - **The Game Boy look.** The fast player now runs Game Boy and Game Boy Color games on SameBoy – the emulator the link
   sessions use. New in Settings › Play › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
   original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver

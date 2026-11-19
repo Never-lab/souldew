@@ -81,7 +81,7 @@ test('states: a backup of a retired core that falls off the end is kept aside; t
 });
 
 // ---- a partner still on 2.x -------------------------------------------------------------------------------------------
-const PAIR = { id: 'run1', mode: 'soullink', game: { code: 'CPUE', system: 'nds' }, players: { p1: { name: 'Marius' }, p2: { name: 'Tim' } } };
+const PAIR = { id: 'run1', mode: 'soullink', game: { code: 'CPUE', system: 'nds' }, players: { p1: { name: 'Sam' }, p2: { name: 'Tim' } } };
 function mkDoc() {
   const d = new RunDoc('t');
   d.by = 'a';
@@ -146,7 +146,7 @@ test('older partner: one log line for them (shown as a notice in their 2.x app),
   a.tick(30000);
   assert.equal(R.feedList(doc).filter((f) => f.about === 'p2').length, 1);
   // a solo Nuzlocke has nobody to tell (and no partner to begin with)
-  const solo = hubWith({ talks: false, manifest: { ...PAIR, mode: 'nuzlocke', players: { p1: { name: 'Marius' } } } });
+  const solo = hubWith({ talks: false, manifest: { ...PAIR, mode: 'nuzlocke', players: { p1: { name: 'Sam' } } } });
   solo.tick(0);
   solo.tick(H.OLDER_APP_MS);
   assert.equal(R.feedList(solo.doc).length, 0);

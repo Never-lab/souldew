@@ -362,7 +362,7 @@ async function main() {
   // ---- one server and scratch data folder per player ----------------------------------------------------------------
   const servers = [];
   const portBase = Number(opt('port-base', '7401')); // (another --port-base: two runs side by side)
-  const profiles = [['A', 'Marius', portBase], ['B', 'Tim', portBase + 1], ['C', 'Robin', portBase + 2], ['D', 'Kim', portBase + 3]].slice(0, people).map(([id, name, port], i) => [id, name, port, romOf(i)]).map(([id, name, port, rom]) => {
+  const profiles = [['A', 'Sam', portBase], ['B', 'Tim', portBase + 1], ['C', 'Robin', portBase + 2], ['D', 'Kim', portBase + 3]].slice(0, people).map(([id, name, port], i) => [id, name, port, romOf(i)]).map(([id, name, port, rom]) => {
     const dir = join(data, id);
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });

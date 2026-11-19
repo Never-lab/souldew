@@ -20,7 +20,7 @@ const TG = await import('../shared/together.mjs');
 const O = await import('../web/lib/togetheroverlay.mjs');
 const A = await import('../web/lib/togetherart.mjs');
 
-const PAIR = { id: 'run1', game: { code: 'BPEE', system: 'gba' }, players: { p1: { name: 'Marius' }, p2: { name: 'Tim' } } };
+const PAIR = { id: 'run1', game: { code: 'BPEE', system: 'gba' }, players: { p1: { name: 'Sam' }, p2: { name: 'Tim' } } };
 function mkDoc() {
   const d = new RunDoc('t');
   d.by = 'a';

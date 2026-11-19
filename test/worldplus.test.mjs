@@ -318,7 +318,7 @@ test('rps: best of 1 – both pick, both see the same hands and the same winner;
   assert.ok(rounds.every((e) => e.result.hands.p1 === 0 && e.result.hands.p2 === 2 && e.result.winner === 'p1'));
   const v = hubs.p2.list()[0];
   assert.deepEqual([v.phase, v.last.mine, v.last.theirs, v.end.why], ['end', 2, 0, 'won']);
-  assert.equal(R.rpsLine(v, 'p2', {}, 'Marius'), 'Marius wins');
+  assert.equal(R.rpsLine(v, 'p2', {}, 'Sam'), 'Sam wins');
 });
 
 test('rps: a draw is played again; best of 3 goes to two wins', async () => {

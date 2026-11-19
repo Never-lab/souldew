@@ -334,7 +334,7 @@ export class TogetherHub {
     this._emit({ type: `gift-${e.type}`, gift: e.gift });
   }
 
-  /** "Marius gave Tim a gift: Potion" – one line, by the giver's app (a fixed key: written twice, it stays one line). */
+  /** "Sam gave Tim a gift: Potion" – one line, by the giver's app (a fixed key: written twice, it stays one line). */
   _logGift(g) {
     if (!this.doc || !this.manifest) return;
     const entry = { type: 'gift', slot: g.from, partner: g.to, item: g.item, gen: g.gen, count: g.n,

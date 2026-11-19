@@ -43,7 +43,7 @@ const build = (o = {}) => buildRun({ romId: ROM, randomize: false, config: {}, p
 /** The host's own rules – every rule off its default. */
 const MINE = {
   typeClause: 'party', dupes: 'both', missedDupes: true, failKillsPair: false, shinyClause: false, gifts: 'free', levelCaps: false,
-  cheats: true, lives: 3, livesPool: 'player', typeHelp: false, autoAssign: false, autoDeath: false, startAtBalls: false,
+  cheats: true, cheatSet: 'balls,money', lives: 3, livesPool: 'player', typeHelp: false, autoAssign: false, autoDeath: false, startAtBalls: false,
   linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true, linkWagers: 'off', linkWagerCap: 5000, itemGifts: 'off', raids: 'off', raidDeaths: false,
   saveImports: true,
 };
@@ -100,11 +100,11 @@ test('every SoulLink rule: the list is the defaults’ (no rule missed), the wiz
   assert.equal(DEFAULT_RULES.startAtBalls, false, 'a run from before keeps counting from the start');
   assert.deepEqual(Object.keys(H.soulLinkRulesFrom(null)), H.SOULLINK_RULE_KEYS);
   for (const n of [2, 3, 4]) {
-    const keys = patchKeys(slEditors({ ...H.soulLinkDefaults(), lives: 3 }, n, false));
+    const keys = patchKeys(slEditors({ ...H.soulLinkDefaults(), lives: 3, cheats: true }, n, false));
     assert.deepEqual([...keys].sort(), [...H.SOULLINK_RULE_KEYS].sort(), `${n} players: a control for every rule`);
     // read-only (a player who isn't the host): nothing is sent, every control is disabled
-    assert.equal(patchKeys(slEditors({ ...H.soulLinkDefaults(), lives: 3 }, n, true)).size, 0);
-    const controls = elements(slEditors({ ...H.soulLinkDefaults(), lives: 3 }, n, true)(() => {})).filter((el) => ['button', 'input'].includes(el.type));
+    assert.equal(patchKeys(slEditors({ ...H.soulLinkDefaults(), lives: 3, cheats: true }, n, true)).size, 0);
+    const controls = elements(slEditors({ ...H.soulLinkDefaults(), lives: 3, cheats: true }, n, true)(() => {})).filter((el) => ['button', 'input'].includes(el.type));
     assert.ok(controls.length > 15 && controls.every((el) => el.props.disabled), 'every control is disabled');
   }
 });
@@ -183,7 +183,10 @@ test('the join page shows the run’s rules before joining', () => {
   assert.ok(join.slice(at).includes("<${RulesSummary} rules=${rulesWithDefaults(pack.rules, 'soullink')} players=${slots.length} />"));
   const shown = text(UI.RulesSummary({ rules: rulesWithDefaults(MINE, 'soullink'), players: 2 }));
   for (const s of ['Type rule', 'Per player', 'Dupes clause', 'For both · fled ones count too', 'Missed encounter costs the pair', 'Shiny clause',
-    'Gifts & eggs', 'Free extra', 'Level caps', 'Cheats (Rare Candies, Max Repels)', 'Allowed', 'Lives', '3 per player', 'Type matchup help']) assert.ok(shown.includes(s), s);
+    'Gifts & eggs', 'Free extra', 'Level caps', 'Cheats', 'Poké Balls and Ultra Balls, Money', 'Lives', '3 per player', 'Type matchup help']) assert.ok(shown.includes(s), s);
+  // every cheat: "Allowed"; a run from before 3.0: its two
+  assert.ok(text(UI.RulesSummary({ rules: rulesWithDefaults({ ...MINE, cheatSet: 'all' }, 'soullink'), players: 2 })).includes('Allowed'));
+  assert.ok(text(UI.RulesSummary({ rules: rulesWithDefaults({ ...MINE, cheatSet: undefined }, 'soullink'), players: 2 })).includes('Rare Candies, Max Repels'));
   const plain = text(UI.RulesSummary({ rules: rulesWithDefaults({}, 'soullink'), players: 4 }));
   for (const s of ['Across all teams', 'Missed encounter costs the group', 'Count as the area']) assert.ok(plain.includes(s), s);
 });
@@ -416,6 +419,7 @@ test('every change of the host goes to the log, in clear words', () => {
   R.logRulesChange(d, PAIR, 'p1', before, rulesWithDefaults(MINE, 'soullink'));
   assert.deepEqual(R.feedList(d).map((f) => `${f.type} ${f.slot} ${f.text}`).sort(), [
     'cheat p1 allowed cheats for this run',
+    'cheat p1 set the cheats allowed for this run: Poké Balls and Ultra Balls, Money',
     'rule p1 set the lives to 3 per player',
     'rule p1 set “Dupes clause” to For both for everyone',
     'rule p1 set “Gifts & eggs” to Free extra for everyone',

@@ -155,7 +155,7 @@ export function BattleSetup({ names, seats, onSend, onCancel }) {
   </div>`;
 }
 
-/** "Marius 3 : 1 Tim" – the link battles of this run between you and `slot` (only once there are any). */
+/** "Sam 3 : 1 Tim" – the link battles of this run between you and `slot` (only once there are any). */
 export function HeadToHead({ slot }) {
   const { doc, manifest, me } = useApp();
   if (!doc || !manifest || !slot || slot === me) return null;
@@ -270,7 +270,7 @@ function wagerNote(st, names) {
   return t('linkplay.forAmount', 'for {amount}', { amount: moneyText(agreed || w.offer, lang) });
 }
 
-/** "Marius challenges you: single battle for ₽2,000" – Join (with less, when you have less) or Not now. */
+/** "Sam challenges you: single battle for ₽2,000" – Join (with less, when you have less) or Not now. */
 function BattleInvite({ st, host }) {
   const { linkSessions, wagerRef } = useApp();
   const [money, setMoney] = useState(undefined);

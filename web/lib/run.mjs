@@ -2,10 +2,11 @@
 // (incl. Definitive HG) use a curated route list with level caps, every other game builds its
 // area list on the fly from the catch locations the players report.
 import { PROGRESSION, VANILLA_CAPS, areaForMetLocation, levelCapFor, gymCapsFamily, vanillaCapFor, romCapFor, prettyTrainer } from '/shared/routes.mjs';
-import { gen4data, speciesName, pokeapi, giftItemName } from './data.mjs';
+import { gen4data, speciesName, pokeapi, giftItemName, itemNameByKey } from './data.mjs';
 import { t, currentLang } from './i18n.mjs';
 import { ALL_SLOTS, slotsOf, runMode, isNuzlocke, othersOf } from '/shared/slots.mjs';
-import { DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, rulesWithDefaults } from '/shared/rules.mjs';
+import { DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, rulesWithDefaults, cheatGroups } from '/shared/rules.mjs';
+import { CHEATS, cheatAllowed } from '/shared/live/cheats.mjs';
 import { placeName } from '/shared/live/location.mjs';
 import { moneyText } from '/shared/linkbattle.mjs';
 import { livesLeft, livesOf, deathsIn, poolOf } from '/shared/lives.mjs';
@@ -259,9 +260,12 @@ function renderMsg(doc, manifest, m) {
   return t(m.key, m.def, vars);
 }
 
-/** An item in a log line ({ item, gen, n } – a gift between players): "Potion", "3 × Potion". */
+/**
+ * An item in a log line ({ item, gen, n } – a gift between players; a cheat's adds `itemKey`, its PokeAPI identifier:
+ * Gen 1/2 items the gifts don't name, the Master Ball): "Potion", "3 × Potion".
+ */
 const itemCount = (v) => {
-  const name = giftItemName(v.item, v.gen) || `#${v.item}`;
+  const name = (v.itemKey && itemNameByKey(String(v.itemKey))) || giftItemName(v.item, v.gen) || `#${v.item}`;
   return v.n > 1 ? t('feed.itemCount', '{n} × {item}', { n: v.n, item: name }) : name;
 };
 
@@ -420,19 +424,54 @@ export function settleLives(doc, manifest) {
 }
 
 /**
- * `slot` used a cheat: `added` of its item went into the bag (`cheat`: 'rareCandy' or 'maxRepel' – shared/live/cheats.mjs
- * CHEATS). Everyone in the run sees it in the log, naming what was added – that is the deal for allowing cheats at all.
- * Refused (false) while the run's rules don't allow cheats, and for a cheat it doesn't know.
+ * A value of a log line that a 3.0 app renders in each player's language (renderMsg: `v.item`, `v.money`) and an older
+ * one as the plain English `def` (it only knows nested messages: { key, def }).
  */
-export function logCheat(doc, manifest, slot, { added, cheat = 'rareCandy' }) {
-  if (!rules(doc, manifest).cheats) return false;
+const withFallback = (v, def) => ({ ...v, key: 'cheat.legacy', def: String(def), vars: {} });
+
+/**
+ * `slot` used a cheat (`cheat`: an id of shared/live/cheats.mjs CHEATS): `added` of its item went into the bag (`gen`:
+ * the game's generation – the item's number in it), or – the money – `added` ₽ more, `after` now. Everyone in the run
+ * sees it in the log, naming what was added – that is the deal for allowing cheats at all. Refused (false) while the
+ * run's rules don't allow this cheat (shared/rules.mjs cheats, cheatSet), and for a cheat it doesn't know. Rare Candies
+ * and Max Repels keep the lines older apps know.
+ */
+export function logCheat(doc, manifest, slot, { added, cheat = 'rareCandy', gen = null, after = null }) {
+  const c = CHEATS[cheat];
+  if (!c || !cheatAllowed(rules(doc, manifest), cheat) || !(added > 0)) return false;
+  const money = (v) => withFallback({ money: v }, moneyText(v, 'en'));
   const what = cheat === 'rareCandy' ? msg('cheat.rareCandies', '{n} Rare Candy|{n} Rare Candies', { n: added, count: added })
-    : cheat === 'maxRepel' ? msg('cheat.maxRepels', '{n} Max Repel|{n} Max Repels', { n: added, count: added }) : null;
-  if (!what) return false;
+    : cheat === 'maxRepel' ? msg('cheat.maxRepels', '{n} Max Repel|{n} Max Repels', { n: added, count: added })
+      : c.money ? (after !== null ? msg('cheat.moneyNow', '+{money} money (now {total})', { money: money(added), total: money(after) }) : msg('cheat.money', '+{money} money', { money: money(added) }))
+        : withFallback({ item: c.items[gen] || 0, gen, n: added, itemKey: c.key }, added > 1 ? `${added} × ${c.en}` : c.en);
   feedMsg(doc, manifest, { type: 'cheat', slot, cheat, count: added, msg: slotsOf(manifest).length === 1
     ? msg('feed.cheatSolo', 'Cheat used: {what}', { what })
     : msg('feed.cheat', 'used a cheat: {what}', { what }) });
   return true;
+}
+
+/**
+ * Which cheats the run allows changed (`groups`: shared/rules.mjs cheatGroups, cheats on both before and after) – logged
+ * like the cheats themselves, naming them (each a message of its own: every player reads them in their language).
+ */
+export function logCheatSet(doc, manifest, by, groups) {
+  const solo = slotsOf(manifest).length === 1;
+  const names = groups.map((g) => cheatGroupMsg(g));
+  const list = { key: 'cheat.list', def: names.map((_, i) => `{g${i}}`).join(', '), vars: Object.fromEntries(names.map((m, i) => [`g${i}`, m])) };
+  feedMsg(doc, manifest, { type: 'cheat', slot: by, msg: solo ? msg('feed.cheatSetSolo', 'Cheats allowed for this run: {list}', { list })
+    : msg('feed.cheatSet', 'set the cheats allowed for this run: {list}', { list }) });
+}
+
+/** A cheat group's name for the log and the rule editors (shared/rules.mjs CHEAT_GROUPS). */
+export function cheatGroupMsg(g) {
+  return {
+    rareCandy: msg('cheat.gRareCandy', 'Rare Candies'),
+    maxRepel: msg('cheat.gMaxRepel', 'Max Repels'),
+    masterBall: msg('cheat.gMasterBall', 'Master Balls'),
+    balls: msg('cheat.gBalls', 'Poké Balls and Ultra Balls'),
+    healing: msg('cheat.gHealing', 'Full Restores and Revives'),
+    money: msg('cheat.gMoney', 'Money'),
+  }[g] || msg('cheat.gOther', '{g}', { g });
 }
 
 /** The run's cheat rule was switched (`by` = slot) – logged like the cheats themselves. */
@@ -471,8 +510,8 @@ export function logLinkTrade(doc, manifest, slot, partner, before, after) {
 }
 
 /**
- * A link battle every player of the session agreed on (web/lib/wager.mjs outcomeOf) into the log: "Marius won a link
- * battle against Tim", "… won 2 : 1 in link battles against Tim", "… drew a link battle with Tim", "Marius & Lena beat
+ * A link battle every player of the session agreed on (web/lib/wager.mjs outcomeOf) into the log: "Sam won a link
+ * battle against Tim", "… won 2 : 1 in link battles against Tim", "… drew a link battle with Tim", "Sam & Lena beat
  * Tim & Robin in a multi battle". Keyed by the session, so every player's computer writes the same entry once.
  */
 export function logLinkBattle(doc, manifest, sid, o) {
@@ -500,7 +539,7 @@ export function logLinkBattle(doc, manifest, sid, o) {
 }
 
 /**
- * A raid that is over (web/lib/raid.mjs): "Marius, Tim & Kim won a raid (1:23 · most damage: Tim)" / "… lost a raid".
+ * A raid that is over (web/lib/raid.mjs): "Sam, Tim & Kim won a raid (1:23 · most damage: Tim)" / "… lost a raid".
  * Every computer that was in it writes the same entry, keyed by the raid (shared/raid.mjs raidFeedEntry).
  */
 export function logRaid(doc, manifest, entry) {
@@ -519,7 +558,7 @@ export function logRaid(doc, manifest, entry) {
   return true;
 }
 
-/** `slot`'s game paid a lost wager: "Tim paid Marius ₽2,000 (link battle)" – once per session and payer. */
+/** `slot`'s game paid a lost wager: "Tim paid Sam ₽2,000 (link battle)" – once per session and payer. */
 export function logWagerPaid(doc, manifest, sid, slot, to, amount) {
   const key = `feed:lbp-${sid}-${slot}`;
   if (doc.get(key)) return false;
@@ -623,6 +662,10 @@ const choiceLabels = (n) => ({
  */
 export function logRulesChange(doc, manifest, by, before, after) {
   if (!!after.cheats !== !!before.cheats) logCheatRule(doc, manifest, by, !!after.cheats);
+  // which cheats: switched on with only some of them, or changed while on – the list
+  const groups = cheatGroups(after);
+  const some = typeof after.cheatSet === 'string' && after.cheatSet !== 'all';
+  if (after.cheats && (before.cheats ? groups.join() !== cheatGroups(before).join() : some)) logCheatSet(doc, manifest, by, groups);
   if ((after.typeHelp !== false) !== (before.typeHelp !== false)) logTypeHelpRule(doc, manifest, by, after.typeHelp !== false);
   if ((after.lives || 0) !== (before.lives || 0) || (after.lives > 0 && after.livesPool !== before.livesPool)) logLivesRule(doc, manifest, by, after);
   if (isNuzlocke(manifest)) return;

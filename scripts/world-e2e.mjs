@@ -834,7 +834,7 @@ async function main() {
   const servers = [];
   // (--port: the first server's port, the others after it – two e2e runs on one computer must not share servers)
   const port0 = Number(opt('port', 7411));
-  const profiles = [['A', 'Marius', port0], ['B', 'Tim', port0 + 1], ['C', 'Kim', port0 + 2], ['D', 'Lena', port0 + 3]].slice(0, saves.length).map(([id, name, port], i) => {
+  const profiles = [['A', 'Sam', port0], ['B', 'Tim', port0 + 1], ['C', 'Kim', port0 + 2], ['D', 'Lena', port0 + 3]].slice(0, saves.length).map(([id, name, port], i) => {
     const dir = join(data, id);
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });

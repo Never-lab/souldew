@@ -70,9 +70,10 @@ function guessSlot(m) {
 
 // Bump when digestRun (shared/trophies.mjs) or the generation lookup here reads a run differently: every run is
 // digested again (2: a hack's base game's generation, evolutions once per step, the partner's deaths, bonus deaths;
-// 3: every cheat counts against Honest Work, not only Rare Candies – cheatUses).
-// 4: a run with an imported battery save – its wins, badges and levels don't count (run.json saveImports).
-const DIGEST_VERSION = 4;
+// 3: every cheat counts against Honest Work, not only Rare Candies – cheatUses;
+// 4: a run with an imported battery save – its wins, badges and levels don't count (run.json saveImports);
+// 5: the first Master Ball from the cheats – masterBallAt).
+const DIGEST_VERSION = 5;
 
 /** The generation of a run's game – or a hack's base game (a hack run's game id can be the hack's). */
 function genOf(m, games) {

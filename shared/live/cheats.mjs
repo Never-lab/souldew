@@ -1,4 +1,5 @@
-// Cheats that write into the running game's memory – today two: Rare Candies and Max Repels into the bag.
+// Cheats that write into the running game's memory: items into the bag (Rare Candies, Max Repels, Poké Balls, healing
+// items – CHEATS) and money.
 //
 // Why RAM and not cheat codes: Action Replay / GameShark codes are made for one version and region each, and the
 // cores in this build differ in what they accept. Writing the item where the game keeps its bag works the same for
@@ -7,6 +8,11 @@
 // nothing is written. Layouts: research/live_ram.md §7 (pret disassemblies, PKHeX, checked against a HeartGold RAM
 // image). Works on any memory source with read(addr, len) / write(addr, bytes) on console bus addresses – the 3DS
 // player's write answers later (a Promise: the native host writes between two frames), the others right away.
+
+import { GAMES, gameOfEntry, locateMoney } from '../linkbattle.mjs';
+import { cheatGroups } from '../rules.mjs';
+
+export { CHEAT_GROUPS } from '../rules.mjs';
 
 const u16le = (b, o) => b[o] | (b[o + 1] << 8);
 const u32le = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
@@ -21,15 +27,51 @@ export const RARE_CANDY = { 1: 0x28, 2: 0x20, 3: 68, 4: 50, 5: 50, 6: 50, 7: 50 
  */
 export const MAX_REPEL = { 1: 0x39, 2: 0x2b, 3: 84, 4: 77, 5: 77, 6: 77, 7: 77 };
 
+/** Poké Ball's item id per generation (pret item constants: Gen 1 POKE_BALL 0x04, Gen 2 0x05, Gen 3–7 4). */
+export const POKE_BALL = { 1: 0x04, 2: 0x05, 3: 4, 4: 4, 5: 4, 6: 4, 7: 4 };
+/** Master Ball and Ultra Ball: items 1 and 2 in every generation (pret, PokeAPI game_indices). */
+export const MASTER_BALL = { 1: 0x01, 2: 0x01, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1 };
+export const ULTRA_BALL = { 1: 0x02, 2: 0x02, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2 };
 /**
- * The cheats the play screen offers: the item per generation, the pocket it goes into where the game has several, and
- * how many one use adds (Rare Candies: enough for any level cap; Max Repels: ten, 2500 steps without wild Pokémon –
- * used again when they run out, each time in the log).
+ * Full Restore, Revive and Max Revive: pokered $10 / $35 / $36, pokecrystal $0E / $27 / $28, pokeemerald 19 / 24 / 25,
+ * Gen 4–7 23 / 28 / 29 (PokeAPI game_indices agree; Gen 1/2 as shared/giftitems.mjs GB_GIFT_ITEMS). Medicine from Gen 4 on.
+ */
+export const FULL_RESTORE = { 1: 0x10, 2: 0x0e, 3: 19, 4: 23, 5: 23, 6: 23, 7: 23 };
+export const REVIVE = { 1: 0x35, 2: 0x27, 3: 24, 4: 28, 5: 28, 6: 28, 7: 28 };
+export const MAX_REVIVE = { 1: 0x36, 2: 0x28, 3: 25, 4: 29, 5: 29, 6: 29, 7: 29 };
+
+/**
+ * The cheats the play screen offers, in its order: the item per generation, the pocket it goes into where the game has
+ * several ('balls': the Poké Ball pocket where there is one – Gen 2–4 –, else with the items; null: Medicine from Gen 4
+ * on, else the Items pocket), how many one use adds unless the player picks an amount (CHEAT_AMOUNTS), the item's
+ * PokeAPI identifier (its name in the app's language: web/lib/data.mjs itemNameByKey; `en`: the English one, for an
+ * app that can't look it up – an older partner's log), and the group a run's rules
+ * allow or not (shared/rules.mjs cheatSet). Rare Candies (99: enough for any level cap) and Max Repels (ten: 2500
+ * steps) came first and are offered wherever souldew knows the bag; every other cheat (`checked`) only in the games
+ * where it was checked in the running game (checkedLive) – elsewhere it is left out rather than written untried.
+ * `money`: the money, added or set to the most the game holds (moneyCheat).
  */
 export const CHEATS = {
-  rareCandy: { items: RARE_CANDY, pocket: null, count: 99 },
-  maxRepel: { items: MAX_REPEL, pocket: 'items', count: 10 },
+  rareCandy: { items: RARE_CANDY, pocket: null, count: 99, key: 'rare-candy', en: 'Rare Candy', group: 'rareCandy' },
+  maxRepel: { items: MAX_REPEL, pocket: 'items', count: 10, key: 'max-repel', en: 'Max Repel', group: 'maxRepel' },
+  masterBall: { items: MASTER_BALL, pocket: 'balls', count: 1, key: 'master-ball', en: 'Master Ball', group: 'masterBall', checked: true },
+  ultraBall: { items: ULTRA_BALL, pocket: 'balls', count: 10, key: 'ultra-ball', en: 'Ultra Ball', group: 'balls', checked: true },
+  pokeBall: { items: POKE_BALL, pocket: 'balls', count: 10, key: 'poke-ball', en: 'Poké Ball', group: 'balls', checked: true },
+  fullRestore: { items: FULL_RESTORE, pocket: null, count: 10, key: 'full-restore', en: 'Full Restore', group: 'healing', checked: true },
+  revive: { items: REVIVE, pocket: null, count: 10, key: 'revive', en: 'Revive', group: 'healing', checked: true },
+  maxRevive: { items: MAX_REVIVE, pocket: null, count: 10, key: 'max-revive', en: 'Max Revive', group: 'healing', checked: true },
+  money: { money: true, group: 'money', checked: true },
 };
+
+/** Does a run with these rules (shared/rules.mjs cheats, cheatSet) allow this cheat? */
+export const cheatAllowed = (rules, id) => !!CHEATS[id] && cheatGroups(rules).includes(CHEATS[id].group);
+
+/** How many of an item one use adds – the play screen's choice. */
+export const CHEAT_AMOUNTS = [1, 10, 99];
+
+/** The money cheat's steps (₽ added) – and 'max', the most any of these games holds. */
+export const MONEY_STEPS = [1000, 10000, 100000, 'max'];
+export const MONEY_MAX = 999999;
 
 // Gen 1/2: a count byte, then (id, quantity) pairs closed by 0xFF. Bag 20 slots, 99 per slot (pokered
 // constants/menu_constants.asm BAG_ITEM_CAPACITY, pokecrystal constants/item_data_constants.asm MAX_ITEMS / MAX_ITEM_STACK).
@@ -60,9 +102,9 @@ const GBA = {
 const TM4 = (id) => id >= 328 && id <= 427;
 const TM5 = (id) => TM4(id) || (id >= 618 && id <= 620);
 const DS = {
-  hgss: { gen: 4, general: 0x10, bag: 0x644, maxId: 536, tm: TM4, pockets: { items: [0x000, 165], key: [0x294, 50], tm: [0x35c, 101], medicine: [0x520, 40], balls: [0x6c0, 24] } },
-  platinum: { gen: 4, general: 0x14, bag: 0x630, maxId: 536, tm: TM4, pockets: { items: [0x000, 165], key: [0x294, 50], tm: [0x35c, 100], medicine: [0x51c, 40], balls: [0x6bc, 15] } },
-  dp: { gen: 4, general: 0x214, bag: 0x624, maxId: 536, tm: TM4, pockets: { items: [0x000, 165], key: [0x294, 50], tm: [0x35c, 100], medicine: [0x51c, 40], balls: [0x6bc, 15] } },
+  hgss: { gen: 4, general: 0x10, trainer: [0x64, 0x78], bag: 0x644, maxId: 536, tm: TM4, pockets: { items: [0x000, 165], key: [0x294, 50], tm: [0x35c, 101], medicine: [0x520, 40], balls: [0x6c0, 24] } },
+  platinum: { gen: 4, general: 0x14, trainer: [0x68, 0x7c], bag: 0x630, maxId: 536, tm: TM4, pockets: { items: [0x000, 165], key: [0x294, 50], tm: [0x35c, 100], medicine: [0x51c, 40], balls: [0x6bc, 15] } },
+  dp: { gen: 4, general: 0x214, trainer: [0x64, 0x78], bag: 0x624, maxId: 536, tm: TM4, pockets: { items: [0x000, 165], key: [0x294, 50], tm: [0x35c, 100], medicine: [0x51c, 40], balls: [0x6bc, 15] } },
   bw: { gen: 5, fromParty: -0xa00, maxId: 638, tm: TM5, pockets: { items: [0x000, 310], key: [0x4d8, 83], tm: [0x624, 109], medicine: [0x7d8, 48] } },
 };
 
@@ -137,8 +179,52 @@ function layoutOf(entry) {
   return key ? { kind: 'ds', ...DS[key] } : null;
 }
 
-/** Can this game get this cheat's item (default: Rare Candies) at all? (The bag still has to be found when it is used.) */
-export const cheatSupported = (entry, cheat = 'rareCandy') => !!layoutOf(entry) && !!CHEATS[cheat]?.items[entry.gen];
+/**
+ * The bag layouts the `checked` cheats were tried in, in the running game (scripts/rom-matrix.mjs --cheats: every item
+ * with the amounts 1, 10, 99, 999 written the play screen's way, read back through the bag – that many more, in its
+ * pocket, nothing else changed, the stack's cap –, in most games also seen in the game's own bag): Red, Blue, Yellow,
+ * Gold, Silver, Crystal, Ruby (US, German) and Sapphire (German) – one layout –, Emerald (US, and German from a save),
+ * FireRed (US; LeafGreen the same) and the German FireRed (the other-language pointers), Diamond (Pearl the same),
+ * Platinum, HeartGold, SoulSilver, Black, White, Black 2, White 2 (the bag found from the party), Sun (in the app, the
+ * game's own bag after Continue) and Ultra Moon (a new game). Not here: X/Y and Omega Ruby/Alpha Sapphire – only tried
+ * in a new game's intro, where the game itself wrote over a few of the writes; nor a hack that moved the bag (a Game Boy
+ * hack's shifted RAM, a found GBA build) or a DS game in another language (found through its own party search). Those
+ * keep Rare Candies and Max Repels only.
+ */
+const CHECKED = new Set(['gb:red_us', 'gb:blue_us', 'gb:yellow_us', 'gb:gold_us', 'gb:silver_us', 'gb:crystal_us', 'gba:ruby', 'gba:emerald', 'gba:firered',
+  'gba:firered-eu', 'ds:dp', 'ds:platinum', 'ds:hgss', 'ds:bw', 'ctr:sm', 'ctr:usum']);
+
+/** This game's bag layout, as CHECKED names it ('' unknown; a moved or other-language bag gets a suffix of its own). */
+export function bagLayoutKey(entry) {
+  const L = layoutOf(entry);
+  if (!L) return '';
+  const id = String(entry.id || '');
+  if (L.kind === 'ctr') return `ctr:${entry.id}`;
+  if (L.kind === 'gb') return `gb:${id.replace(/~.*$/, '')}${entry.wram?.delta ? '~moved' : ''}`;
+  if (L.kind === 'gba') {
+    const key = Object.keys(GBA).find((k) => GBA[k].items === L.items && GBA[k].money === L.money);
+    return `gba:${key}${L.found ? '~found' : entry.saveBlockPtrs ? '-eu' : ''}`;
+  }
+  const key = Object.keys(DS).find((k) => DS[k].pockets === L.pockets);
+  return `ds:${key}${id.includes('~') ? '~lang' : ''}`;
+}
+
+/** Were the `checked` cheats tried in this game's bag layout (CHECKED)? */
+export const checkedLive = (entry) => CHECKED.has(bagLayoutKey(entry));
+
+/**
+ * Can this game get this cheat (default: Rare Candies) at all? An item: a known bag that has the item, and for every
+ * cheat but the first two a layout it was checked in; the money: moneySupported. (The bag or the money still has to be
+ * found when it is used.) `untried`: whether it could be tried at all, checked or not – only for the ROM test matrix,
+ * which is how a game gets onto the checked lists.
+ */
+export function cheatSupported(entry, cheat = 'rareCandy', { untried = false } = {}) {
+  const c = CHEATS[cheat];
+  if (!c || !entry) return false;
+  if (c.money) return moneySupported(entry, { untried });
+  if (!layoutOf(entry) || !c.items[entry.gen]) return false;
+  return untried || !c.checked || checkedLive(entry);
+}
 
 /** The cheats this game can get, in the order the play screen lists them. */
 export const cheatsFor = (entry) => Object.keys(CHEATS).filter((id) => cheatSupported(entry, id));
@@ -147,12 +233,14 @@ export const cheatsFor = (entry) => Object.keys(CHEATS).filter((id) => cheatSupp
  * Why a cheat can't be used right now – null when it can. The order is the one the player can do something about
  * last: a game without a known bag, a run whose rules don't allow cheats (host-set in a SoulLink), live tracking that
  * hasn't found the team (the DS games find the bag through it), a battle (the game keeps a copy of the bag then).
- * @param {{supported:boolean, allowed:boolean, live:boolean, inBattle:boolean}} s
- * @returns {null|'unsupported'|'off'|'waiting'|'inBattle'}
+ * @param {{supported:boolean, allowed:boolean, live:boolean, inBattle:boolean, linked?:boolean}} s
+ * @returns {null|'unsupported'|'off'|'linked'|'waiting'|'inBattle'}
  */
-export function cheatBlock({ supported, allowed, live, inBattle }) {
+export function cheatBlock({ supported, allowed, live, inBattle, linked = false }) {
   if (!supported) return 'unsupported';
   if (!allowed) return 'off';
+  // (a link session: every player's copy of the console must stay the same – the players' games never take a cheat then)
+  if (linked) return 'linked';
   if (!live) return 'waiting';
   return inBattle ? 'inBattle' : null;
 }
@@ -167,7 +255,7 @@ function gbBag(L, gen, read) {
   const b = read(L.addr, 42);
   if (!b) return null;
   const n = b[0];
-  if (n > 20 || b[1 + n * 2] !== 0xff) return null;
+  if (n > (L.cap || 20) || b[1 + n * 2] !== 0xff) return null;
   for (let i = 0; i < n; i++) if (!gbItemOk(gen, b[1 + i * 2]) || b[2 + i * 2] < 1 || b[2 + i * 2] > 99) return null;
   if (L.money) {
     const m = read(L.money, 3);
@@ -180,6 +268,9 @@ function gbBag(L, gen, read) {
   return { n, bytes: b };
 }
 
+/** Gen 2's ball pocket: behind the key items (wNumKeyItems, 25 ids + 0xFF), 12 slots (pokecrystal wram.asm wNumBalls). */
+const gbBalls = (L) => ({ ...L, addr: L.keyItems + 27, keyItems: null, money: null, cap: 12 });
+
 function gbAdd(L, gen, mem, item, count) {
   const bag = gbBag(L, gen, mem.read);
   if (!bag) return { error: 'notFound' };
@@ -191,7 +282,7 @@ function gbAdd(L, gen, mem, item, count) {
     if (after === before) return { error: 'max', before };
     return commit(mem, [[L.addr + 2 + i * 2, [after]]], before, after);
   }
-  if (n >= 20) return { error: 'full' };
+  if (n >= (L.cap || 20)) return { error: 'full' };
   const after = Math.min(99, count);
   // the new pair over the old terminator, a new terminator behind it, then the count
   return commit(mem, [[L.addr + 1 + n * 2, [item, after, 0xff]], [L.addr, [n + 1]]], 0, after);
@@ -236,7 +327,8 @@ function gbaBag(L, read, pocketName = 'items') {
   const balls = pocket(L.balls[0], L.balls[1], (id) => id <= 12); // Master Ball … Premier Ball
   if (!items || !balls) return null;
   const [off, n] = L[pocketName];
-  return { addr: sb1 + off, slots: n, bytes: pocketName === 'balls' ? balls : items, q };
+  // (`money`: where the money is and the whole key it is XORed with – the money cheat)
+  return { addr: sb1 + off, slots: n, bytes: pocketName === 'balls' ? balls : items, q, money: { addr: sb1 + L.money, key } };
 }
 
 /**
@@ -315,6 +407,33 @@ function dsBag(L, entry, read, state, pocketName = 'medicine', allowEmpty = fals
   const name = L.pockets[pocketName] ? pocketName : 'items'; // (Gen 5 keeps the Poké Balls with the items)
   const [off, n] = L.pockets[name];
   return { addr: bag + off, slots: n, bytes: out[name], q: (v) => v };
+}
+
+/**
+ * May a DS bag with nothing in it yet be taken as the bag (a new game: Diamond right after the starter, Black until the
+ * Town Map)? All zeros look like an empty bag anywhere, so only where the place is confirmed another way: the save data
+ * found through the game's own pointer (Gen 4: state.saveBase) or the party at the game's own address (Gen 5 – not an
+ * other-language entry `~`, whose party is searched for), the party the live reader checked (its checksums) exactly
+ * where that save data keeps it, and the trainer block of the same save data at its offset – a name, money of at most
+ * ₽999,999. Anything else: no (addItem answers notFound, why 'empty' – pick up or buy any item first).
+ */
+function emptyBagOk(L, entry, state, read) {
+  if (L.gen === 4) {
+    const save = state?.saveBase;
+    if (!save || !entry.partyMonsOffset || state.partyAddr !== save + parseInt(entry.partyMonsOffset, 16) - 8) return false;
+    return trainerOk(read, save + L.general + L.trainer[0], save + L.general + L.trainer[1]);
+  }
+  if (L.gen !== 5 || !state?.partyAddr || String(entry?.id || '').includes('~')) return false;
+  // (Gen 5: the party block at +0x18E00 of the save data, the trainer's name at +0x19404, the money in the misc block –
+  // +0x21200, Black 2/White 2 +0x21100: PKHeX SAV5BW / SAV5B2W2)
+  const save = state.partyAddr - 0x18e00;
+  return trainerOk(read, save + 0x19404, save + (/^(black2|white2)_/.test(String(entry.id)) ? 0x21100 : 0x21200));
+}
+/** A trainer block's name (its first character: not 0, not the 0xFFFF terminator) and money (at most ₽999,999). */
+function trainerOk(read, nameAt, moneyAt) {
+  const n = read(nameAt, 2);
+  const m = read(moneyAt, 4);
+  return !!n && !!m && u16le(n, 0) !== 0 && u16le(n, 0) !== 0xffff && u32le(m, 0) <= 999999;
 }
 
 // ---------------------------------------------------------------------------
@@ -632,15 +751,112 @@ export function addMaxRepels(entry, mem, state, count = 10) {
   return addItem(entry, mem, state, MAX_REPEL[entry?.gen], count, { pocket: 'items' });
 }
 
-/** Use one of CHEATS by its id – its item, pocket and count. */
-export function applyCheat(id, entry, mem, state) {
+/**
+ * Use one of CHEATS by its id: its item into its pocket – `amount` of it (default: the cheat's own count) –, or the
+ * money (`amount`: ₽ to add, or 'max'; moneyCheat). Only a cheat this game can get (cheatSupported): one that wasn't
+ * checked in this game's bag isn't written at all.
+ */
+export function applyCheat(id, entry, mem, state, { amount, untried = false } = {}) {
   const c = CHEATS[id];
-  if (!c) return { error: 'unsupported' };
-  return addItem(entry, mem, state, c.items[entry?.gen], c.count, c.pocket ? { pocket: c.pocket } : {});
+  if (!c || !cheatSupported(entry, id, { untried })) return { error: 'unsupported' };
+  if (c.money) return moneyCheat(entry, mem, state, amount ?? MONEY_STEPS[0], { untried });
+  const n = Number.isInteger(amount) && amount > 0 ? Math.min(999, amount) : c.count;
+  // (a DS bag with nothing in it yet – Diamond right after the starter, Black before the Town Map – where it can only be
+  // the bag: emptyBagOk)
+  return addItem(entry, mem, state, c.items[entry.gen], n, { ...(c.pocket ? { pocket: c.pocket } : {}), allowEmpty: true });
 }
 
-/** Poké Ball's item id per generation (pret item constants: Gen 1 POKE_BALL 0x04, Gen 2 0x05, Gen 3–5 4). */
-export const POKE_BALL = { 1: 0x04, 2: 0x05, 3: 4, 4: 4, 5: 4 };
+// ---------------------------------------------------------------------------
+// Money: where each game keeps it (the Gen 1/2 and Gen 4/5 addresses: shared/linkbattle.mjs GAMES, which pays link
+// battle wagers the same way; Gen 3: SaveBlock1 + money, XORed with the whole encryption key in Emerald and
+// FireRed/LeafGreen – found and checked together with the bag). Every game here holds at most ₽999,999.
+
+/**
+ * The games whose money the cheat was checked in, in the running game (scripts/rom-matrix.mjs --cheats): read, added,
+ * set to the most and read back. By the addresses.json entry (Pearl, LeafGreen, the other-language FireRed/LeafGreen:
+ * the same addresses as the game tried). Not here: the 3DS games (their money isn't known), and any game found
+ * through a search or with moved RAM (a hack, another-language DS game).
+ */
+const MONEY_CHECKED = new Set(['red_us', 'blue_us', 'yellow_us', 'gold_us', 'silver_us', 'crystal_us', 'ruby_us', 'sapphire_us', 'ruby_de', 'sapphire_de',
+  'emerald_us', 'emerald_de', 'firered_us', 'leafgreen_us', 'firered_eu', 'leafgreen_eu', 'diamond_us', 'pearl_us', 'platinum_us', 'heartgold_us', 'soulsilver_us',
+  'black_us', 'white_us', 'black2_us', 'white2_us']);
+
+/** Can this game's money be changed (MONEY_CHECKED – `untried`: see cheatSupported –, and the game's own memory)? */
+export function moneySupported(entry, { untried = false } = {}) {
+  const L = layoutOf(entry);
+  if (!L || (!untried && !MONEY_CHECKED.has(String(entry.id || '')))) return false;
+  if (L.kind === 'gba') return !L.found;
+  if (L.kind === 'gb' || L.kind === 'ds') return !!gameOfEntry(entry);
+  return false;
+}
+
+/**
+ * Gen 5: the money word sits this far past the party block the live reader found (state.partyAddr – the block, its
+ * Pokémon 8 bytes in: the save data's party block at +0x18E00, the misc block +0x21200, B2W2 +0x21100 – PKHeX SAV5BW /
+ * SAV5B2W2): the money shared/linkbattle.mjs finds has to be exactly there, or it isn't this game's.
+ */
+const MONEY_FROM_PARTY5 = { black: 0x21200 - 0x18e00, white: 0x21200 - 0x18e00, black2: 0x21100 - 0x18e00, white2: 0x21100 - 0x18e00 };
+
+/**
+ * Where this game's money is right now → { addr, value, encode(v) → bytes } | null (not found, or the memory around it
+ * doesn't look like the game's: the bag has to read as a bag first). May answer with a Promise.
+ */
+async function locateMoneyFor(entry, read, state) {
+  const L = layoutOf(entry);
+  if (!L) return null;
+  if (L.kind === 'gba') {
+    const G = L.found ? null : L;
+    const bag = G && gbaBag(G, read);
+    if (!bag) return null;
+    const { addr, key } = bag.money;
+    const b = read(addr, 4);
+    const value = b ? (u32le(b, 0) ^ key) >>> 0 : MONEY_MAX + 1;
+    if (value > MONEY_MAX) return null;
+    return { addr, value, encode: (v) => { const x = (v ^ key) >>> 0; return [x & 0xff, (x >>> 8) & 0xff, (x >>> 16) & 0xff, x >>> 24]; } };
+  }
+  const game = gameOfEntry(entry);
+  if (!game) return null;
+  // (the bag has to read as a bag first: the game's memory is where souldew expects it)
+  if (L.kind === 'gb' && !gbBag(L, entry.gen, read)) return null;
+  if (L.kind === 'ds' && !dsBag(L, entry, read, state, 'items', emptyBagOk(L, entry, state, read))) return null;
+  const at = await locateMoney(game, read);
+  if (!at) return null;
+  // the save data the party reader follows (Gen 4) or the party itself (Gen 5): the money has to be at its place there
+  if (L.gen === 4 && state?.saveBase && at.addr !== state.saveBase + GAMES[game].money.off) return null;
+  if (L.gen === 5 && (!state?.partyAddr || at.addr !== state.partyAddr + MONEY_FROM_PARTY5[game])) return null;
+  return at;
+}
+
+/**
+ * The money cheat: `amount` ₽ more (capped at ₽999,999), or 'max' – set to ₽999,999. Written and read back like the
+ * items (commit). → a Promise of { ok: true, before, after, added } | { error: 'unsupported' | 'notFound' | 'max' |
+ * 'changed' | 'write', why? }. `entry`, `mem`, `state` as for addItem.
+ */
+export async function moneyCheat(entry, mem, state, amount, { untried = false } = {}) {
+  if (!moneySupported(entry, { untried })) return { error: 'unsupported' };
+  const max = amount === 'max';
+  if (!max && !(Number.isInteger(amount) && amount > 0)) return { error: 'unsupported' };
+  let at;
+  try {
+    at = await locateMoneyFor(entry, mem.read, state);
+  } catch {
+    at = null;
+  }
+  if (!at) return { error: 'notFound' };
+  const after = max ? MONEY_MAX : Math.min(MONEY_MAX, at.value + amount);
+  if (after <= at.value) return { error: 'max', before: at.value };
+  return commit(mem, [[at.addr, at.encode(after)]], at.value, after);
+}
+
+/** The money this game holds now (null: not found) – the play screen's money cheat says it. */
+export async function readMoneyFor(entry, read, state, { untried = false } = {}) {
+  if (!moneySupported(entry, { untried })) return null;
+  try {
+    return (await locateMoneyFor(entry, read, state))?.value ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Put `count` of an item into the bag – the same checks as addRareCandies. `pocket` 'balls' puts it into the Poké Ball
@@ -654,22 +870,25 @@ export function addItem(entry, mem, state, item, count = 1, { pocket = null, all
   const L = layoutOf(entry);
   if (!L || !item) return { error: 'unsupported' };
   if (L.kind === 'ctr') {
-    // (the Items pocket on request, else Medicine items only – nothing lands in the wrong pocket)
-    if (pocket === 'items') return MED67.has(item) || TM67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count, 'items');
+    // (the Items pocket on request – the balls too: the 3DS games keep them with the items –, else Medicine items only;
+    // nothing lands in the wrong pocket)
+    if (pocket === 'items' || pocket === 'balls') return MED67.has(item) || TM67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count, 'items');
     // (a gift from a partner's Berries pocket – web/lib/together.mjs: into the same pocket here)
     if (pocket === 'berries') return L.pockets.berries && !MED67.has(item) && !TM67.has(item) ? ctrAdd(L, entry, mem, state, item, count, 'berries') : { error: 'unsupported' };
     return pocket || !MED67.has(item) ? { error: 'unsupported' } : ctrAdd(L, entry, mem, state, item, count);
   }
   if (L.kind === 'gb') {
     // Gen 2's ball pocket follows the key items: wNumKeyItems, 25 ids + 0xFF, then wNumBalls (pokecrystal wram.asm)
-    const B = pocket === 'balls' && entry.gen === 2 ? { ...L, addr: L.keyItems + 27, keyItems: null } : L;
+    // (12 slots there: MAX_BALLS – the PC's items follow right behind them)
+    const B = pocket === 'balls' && entry.gen === 2 ? gbBalls(L) : L;
     return gbAdd(B, entry.gen, mem, item, count);
   }
   // (a found build's save block pointers: where the place reader found them – none yet, no bag)
   const G = L.found ? (state?.sb1PtrAddr ? { ...L, sb1Ptr: state.sb1PtrAddr, sb2Ptr: state.sb1PtrAddr + 4 } : null) : L;
   if (!G) return { error: 'notFound' };
-  const bag = L.kind === 'gba' ? gbaBag(G, mem.read, pocket === 'balls' ? 'balls' : 'items') : dsBag(L, entry, mem.read, state, pocket || 'medicine', allowEmpty && !!state?.saveBase);
-  if (!bag) return { error: 'notFound' };
+  const bag = L.kind === 'gba' ? gbaBag(G, mem.read, pocket === 'balls' ? 'balls' : 'items') : dsBag(L, entry, mem.read, state, pocket || 'medicine', allowEmpty && emptyBagOk(L, entry, state, mem.read));
+  // (a DS bag that would read as an empty one, but whose place nothing else confirms: say so – pick up an item first)
+  if (!bag) return L.kind === 'ds' && allowEmpty && dsBag(L, entry, mem.read, state, pocket || 'medicine', true) ? { error: 'notFound', why: 'empty' } : { error: 'notFound' };
   const key = L.kind === 'gba' ? bag.q(0) : 0; // q(0) = the key's low half (0 in Ruby/Sapphire)
   return slotAdd(bag, mem, item, count, L.kind === 'ds' ? 999 : 99, (v) => (v ^ key) & 0xffff);
 }
@@ -690,7 +909,7 @@ function giftPocketsOf(L, entry) {
 /** One pocket as the gift code sees it: { slots: [{ item, count }], write info } or null when it isn't a bag. */
 function giftPocket(L, entry, read, state, pocket) {
   if (L.kind === 'gb') {
-    const B = pocket === 'balls' ? { ...L, addr: L.keyItems + 27, keyItems: null } : L;
+    const B = pocket === 'balls' ? gbBalls(L) : L;
     if (pocket === 'balls' && !gbBag(L, entry.gen, read)) return null; // (the items and key items must read as a bag first)
     const bag = gbBag(B, entry.gen, read);
     if (!bag) return null;
@@ -845,7 +1064,7 @@ export function readBalls(entry, read, state = null) {
     }
     // Gen 2: the bag must read as a bag (items, key items), then the ball pocket behind the key items
     if (!gbBag(L, 2, read)) return null;
-    const bag = gbBag({ ...L, addr: L.keyItems + 27, keyItems: null }, 2, read);
+    const bag = gbBag(gbBalls(L), 2, read);
     if (!bag) return null;
     let n = 0;
     for (let i = 0; i < bag.n; i++) n += bag.bytes[2 + i * 2];

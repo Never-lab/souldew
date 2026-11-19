@@ -15,7 +15,11 @@ export const DEFAULT_RULES = {
   autoAssign: true,
   autoDeath: true,
   sounds: true,
-  cheats: false, // the play screen's cheats (Rare Candies, Max Repels) – off until the run allows them; every use goes to the log
+  cheats: false, // the play screen's cheats (items into the bag, money) – off until the run allows them; every use goes to the log
+  // which of them (cheatGroups): 'all', or the groups allowed, comma-separated – the host's in a SoulLink. null: a run
+  // from before 3.0 (none stored), which keeps what its cheats rule said then – Rare Candies and Max Repels. A new run
+  // starts with all of them (NEW_RUN_RULES).
+  cheatSet: null,
   // the battle helper's type matchups (move effectiveness, what hits you, weaknesses) in the play view. The host
   // sets it when creating the run; runs from before it have no `typeHelp` and keep the help (true).
   typeHelp: true,
@@ -51,8 +55,40 @@ export const DEFAULT_RULES = {
   // (the Discord webhook is not a rule: it stays on this computer – GET/PUT /api/runs/:id/discord)
 };
 
+/**
+ * The cheats a run's rules allow one by one (shared/live/cheats.mjs CHEATS names each cheat's group): Rare Candies, Max
+ * Repels, the Master Ball, the other Poké Balls (Poké Ball, Ultra Ball), healing items (Full Restore, Revive, Max
+ * Revive), money.
+ */
+export const CHEAT_GROUPS = ['rareCandy', 'maxRepel', 'masterBall', 'balls', 'healing', 'money'];
+
+/**
+ * What a run from before 3.0 allowed with its cheats rule – the two cheats there were ("Allow cheats (Rare Candies, Max
+ * Repels)"): a host on 2.x can't pick, so a partner on 3.0 offers no more than the host's own app does.
+ */
+export const LEGACY_CHEAT_GROUPS = ['rareCandy', 'maxRepel'];
+
+/**
+ * The cheat groups `rules` allow: none while cheats are off, else `cheatSet` – 'all', the groups comma-separated, or
+ * none stored (a run from before 3.0): LEGACY_CHEAT_GROUPS.
+ */
+export function cheatGroups(rules) {
+  if (!rules?.cheats) return [];
+  const set = rules.cheatSet;
+  if (set === undefined || set === null) return [...LEGACY_CHEAT_GROUPS];
+  if (set === 'all') return [...CHEAT_GROUPS];
+  const list = String(set).split(',');
+  return CHEAT_GROUPS.filter((g) => list.includes(g));
+}
+
+/** The `cheatSet` value for these groups: 'all' when it is every one of them. */
+export function cheatSetOf(groups) {
+  const g = CHEAT_GROUPS.filter((x) => groups.includes(x));
+  return g.length === CHEAT_GROUPS.length ? 'all' : g.join(',');
+}
+
 /** What a new run starts with where it differs from DEFAULT_RULES (which older runs fall back to). */
-export const NEW_RUN_RULES = { startAtBalls: true };
+export const NEW_RUN_RULES = { startAtBalls: true, cheatSet: 'all' };
 
 // Solo Nuzlocke rules. A preset only sets the rule toggles; tool settings (autoAssign, sounds) stay as they are.
 const CLASSIC = {

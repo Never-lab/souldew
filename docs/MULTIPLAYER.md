@@ -203,7 +203,7 @@ The page keeps sending retrohost's INPUT message (libretro joypad bits plus poin
 
 ## 4. Session lifecycle
 
-1. **Invite.** On the board, Marius clicks "Trade with Tim" (or "Battle"). His page sends `link-invite {id, kind, system, seats:[{slot, romSha1, saveSha1}], hostVersion, backend, rtc}` over the run's channel. Tim's page shows "Marius wants to trade – Join / Not now". It's an explicit opt-in; the run's rule (§10) must allow it.
+1. **Invite.** On the board, Sam clicks "Trade with Tim" (or "Battle"). His page sends `link-invite {id, kind, system, seats:[{slot, romSha1, saveSha1}], hostVersion, backend, rtc}` over the run's channel. Tim's page shows "Sam wants to trade – Join / Not now". It's an explicit opt-in; the run's rule (§10) must allow it.
 2. **Check.** Each peer checks that it can produce **every seat's ROM**: its own from the run folder, the partner's from `manifest.outputs[slot]` with SHA-1 = `romSha1`, rebuilt if missing. It also checks the same link host version and backend.
    - If any check fails, the peer answers `link-refuse {reason}`. Examples: "Tim's game isn't built here – build it (2 min)" or "update souldew".
 3. **Save.** Both players save in game. Gen 3 asks for it at the Cable Club counter anyway, but the session boots from the battery save, so the current one counts. souldew flushes the battery save (FLUSH → SRAM).
@@ -382,7 +382,7 @@ the same hash sha256 on both, the route "direct". The real Mac ↔ Windows run i
 **Battles everywhere** use the same session as trades. The game's link battle runs on both consoles, so there is no extra work in the host. souldew adds:
 - a "Battle" invite;
 - optional battle rules (level cap = the run's cap, no items);
-- a result entry in the log ("Marius won a link battle against Tim") and the head-to-head record (below);
+- a result entry in the log ("Sam won a link battle against Tim") and the head-to-head record (below);
 - an optional wager in in-game money (below).
 - For SoulLink, battle losses never count as deaths unless the run says so (§10). The wager is independent of it.
 
@@ -426,7 +426,7 @@ battles in one session are fine, “won 2 : 1”); a tie is a draw. Four Game Bo
 losers of a multi battle.
 
 **The log, the record, the stream.** `feed:lb-<sid>` (every computer writes the same entry, keyed by the session):
-“Marius won a link battle against Tim” / “… won 2 : 1 in link battles against Tim” / “Marius & Lena beat Tim & Robin
+“Sam won a link battle against Tim” / “… won 2 : 1 in link battles against Tim” / “Sam & Lena beat Tim & Robin
 in a multi battle”. The head-to-head record is computed from the agreed entries (`headToHead`) and shown on the
 partner's card on the board and in the result card. The stream API has a `link-battle` event and the log entry carries
 winners, losers and the wager (docs/STREAM_API.md).
@@ -454,7 +454,7 @@ part of the hash.
   u32 in the trainer block (save data +0x90, only when its records decode). Clamped to ₽0 … ₽999,999.
 - **Exactly once into a save.** `lbpay:<sid>:<slot>` = `written` (with the game's boot id) → `saved` when the game's next
   battery save reached the run. A reset, a loaded save state or a new start before that is another boot: the money goes
-  in again. The payer's computer logs “Tim paid Marius ₽2,000 (link battle)” (`feed:lbp-<sid>-<slot>`).
+  in again. The payer's computer logs “Tim paid Sam ₽2,000 (link battle)” (`feed:lbp-<sid>-<slot>`).
 - **Multi battle:** each player stakes the wager; each loser pays one winner (the pot split per team).
 - **Exploits considered:** a client can only change its own game's money – a tampered page could add money without any
   of this (cheats are a run rule of their own). A lie in the result voids it (the hashes differ). Writing nothing as a
@@ -542,7 +542,7 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
    - **Drawing**: a sprite like the partners – sorted by its feet line between them and your own sprite (your sprite is drawn again over a follower behind you), cut by the map's top layer at the leader's elevation, clipped by the map-name popup; its lowest opaque pixel stands on the tile's bottom row. A shiny lead gets a small original sparkle every 2.4 s (Gen 3 icons have no shiny colours). It **overlaps people, walls and doors**: the game doesn't know it's there (nothing is written into the game), just like the partners.
    - **On the wire**: an optional 9th element of the world message, `{ f: [species, flags], z: [w, h] }` (flags: bit 0 shiny, bits 1–5 the form; `f: 0` = nobody follows; `z` the sender's map size, for connected maps). Sent when it changes and with the once-a-second heartbeat (and every relay message), so it costs ~0 bytes while walking. 3.0 builds from before it read only elements 0–7 and never see it (`test/worldplus.test.mjs` keeps a copy of their parser). Your partners always see your follower; the switch only changes your own picture.
 8. **Emotes**: Wave plus a heart, "!", "?" and "GG" – a row in the A menu, original pixel art in a speech bubble (`web/lib/worldart.mjs`). `{ t: 'wave' }` as before (older builds show it), `{ t: 'emote', e }` for the new ones (older builds ignore them). A token bucket on both ends: 4 at once, then one every 2.5 s – a partner's client that sends more gets 5 bubbles and then nothing.
-9. **Rock-paper-scissors** (`shared/rps.mjs`, `web/lib/worldrps.mjs`, `web/views/rps.mjs`): from the A menu (or a name tag), the hand on a partner's tile, or the board's log ("Play against: …", best of 1 or 3) – the board works for every game, Gen 1 to 3DS, since it only needs the run's peer channel. **Commit–reveal**: each side first sends SHA-256 over `souldew-rps|game|round|slot|hand|nonce` (16 random bytes); the hands go out only once both commitments are in; a hand that doesn't match its commitment is refused (the game doesn't count, both screens say so); the slot in the hash makes copying the other's commitment useless; a reveal that arrives before your own commitment is kept back. Time: 10 s to pick (no pick in the first round = no game; later = a loss), 6 s to show your hand once both picked – **not showing it after seeing the other's is a loss**, so leaving can't undo a defeat. A draw is played again (5 rounds at most, then a draw); best of 3 goes to two wins. In a Gen 3 game on the overworld the picker opens in the picture (the game waits while you pick, ≤ 10 s; ◀ ▶, A, B to pass, a controller, the mouse) and the hands pop up over both heads (the losing one fades) – partners on the same map see them too. Otherwise (another generation, Shared World off, a battle or a menu on screen when the challenge came) a small card at the bottom of the app. One game per pair; three challenges, then one every 20 s (the receiver ignores more). The player who asked writes one line into the run's log: "Marius beat Tim at rock-paper-scissors" (best of 3 with the score; "… (Tim gave up)" for a forfeit; draws too). Messages: `{ t: 'rps', op: 'ask' | 'c' | 'v' | 'x', id, to, … }` on the world action, over the relay for partners without a direct link (older builds ignore them – the asker sees "didn't answer").
+9. **Rock-paper-scissors** (`shared/rps.mjs`, `web/lib/worldrps.mjs`, `web/views/rps.mjs`): from the A menu (or a name tag), the hand on a partner's tile, or the board's log ("Play against: …", best of 1 or 3) – the board works for every game, Gen 1 to 3DS, since it only needs the run's peer channel. **Commit–reveal**: each side first sends SHA-256 over `souldew-rps|game|round|slot|hand|nonce` (16 random bytes); the hands go out only once both commitments are in; a hand that doesn't match its commitment is refused (the game doesn't count, both screens say so); the slot in the hash makes copying the other's commitment useless; a reveal that arrives before your own commitment is kept back. Time: 10 s to pick (no pick in the first round = no game; later = a loss), 6 s to show your hand once both picked – **not showing it after seeing the other's is a loss**, so leaving can't undo a defeat. A draw is played again (5 rounds at most, then a draw); best of 3 goes to two wins. In a Gen 3 game on the overworld the picker opens in the picture (the game waits while you pick, ≤ 10 s; ◀ ▶, A, B to pass, a controller, the mouse) and the hands pop up over both heads (the losing one fades) – partners on the same map see them too. Otherwise (another generation, Shared World off, a battle or a menu on screen when the challenge came) a small card at the bottom of the app. One game per pair; three challenges, then one every 20 s (the receiver ignores more). The player who asked writes one line into the run's log: "Sam beat Tim at rock-paper-scissors" (best of 3 with the score; "… (Tim gave up)" for a forfeit; draws too). Messages: `{ t: 'rps', op: 'ask' | 'c' | 'v' | 'x', id, to, … }` on the world action, over the relay for partners without a direct link (older builds ignore them – the asker sees "didn't answer").
 10. **Connected maps**: the local map's size (its layout in the ROM) and connections (`gMapHeader.connections` → { direction, offset, map }) place a partner on a neighbouring map in your frame (pokeemerald `Fill*Connection`: south at your height + offset, east at your width, north and west at minus *their* size – which they send in `z`). `Track.sample` interpolates in that frame, so a partner crossing the edge slides on instead of stopping; followers, the A menu and name tags work across it. Partners on older builds (no `z`) show next door only to the south and east.
 11. **FR/LG's quest-log replay** ("Previously on your quest…" after loading) runs with the overworld callback, unlocked, the player walking: `gQuestLogState` (EWRAM 0x0203ADFA in every revision and language; 2/3 = playback, 1 = the recording during normal play) hides the partners and sends you as hidden while it plays (verified live in Feuerrote/Blattgrüne/FireRed).
 
@@ -708,7 +708,7 @@ game of a SoulLink.
    cut by the map's top layer like the partners) on that tile of that map for five minutes, for everyone – also for a
    partner who walks onto that map later. A death the dying player's app didn't see (game closed) has no tombstone.
 3. **Gift an item.** "Give item" in the A menu (or on a partner's board card while your game runs here) opens a picker
-   of what your bag may give; the partner gets a card ("Marius wants to give you this – Accept / No thanks", 30 s).
+   of what your bag may give; the partner gets a card ("Sam wants to give you this – Accept / No thanks", 30 s).
    - **Order** (shared/together.mjs `GiftDesk`): both confirm → the giver's game gives it up first (written, read
      back) and records `gift:<id>` in the run doc → "go" → the receiver's game takes it (room checked first – all of it
      or nothing, read back) and records the outcome once, `giftgot:<id>` → "done" / "fail". On "fail" the giver's game
@@ -728,12 +728,12 @@ game of a SoulLink.
      Gen 4 on of the same version family (`sameItems`: HeartGold adds items Platinum doesn't have, Black 2 items Black
      doesn't …; Gen 3's five games share every item up to 348, the rest are key items). Up to 99 at once.
    - **Rule** "Gifts between us" (`itemGifts`, host-signed like every rule, default on; a strict Nuzlocke can switch it
-     off): checked by both apps. **Log:** "Marius gave Tim a gift: 3 × Potion", written once by the giver
+     off): checked by both apps. **Log:** "Sam gave Tim a gift: 3 × Potion", written once by the giver
      (`feed:gift-<id>`), in every player's language.
 4. **"Come to me".** A button next to the Shared World switches (every SoulLink game) sends your position (map and
    world pixels, your map's size) and place sign to every partner. On the same map – or a connected one – their picture
    shows an arrow at the edge pointing to you, or bobbing over the spot when it is on screen; otherwise the board's
-   card says "Marius is at Route 110 – come here" (and a card at the bottom of the app for a few seconds). It clears
+   card says "Sam is at Route 110 – come here" (and a card at the bottom of the app for a few seconds). It clears
    when they get within two tiles, after three minutes, when you take it back or call again. Two at once, then one
    every 20 s (both ends).
 
@@ -939,7 +939,7 @@ take part). A partner on an older 3.0 build never wrote one: no invite (“Tim's
 Older builds ignore the `raid:` keys.
 
 **The log, the stream.** Every computer that was in the raid writes the same entry, keyed by the raid
-(`feed:raid-<id>`): “Marius, Tim & Kim won a raid together (1:38 · most damage: Tim)” / “… lost a raid”. The stream
+(`feed:raid-<id>`): “Sam, Tim & Kim won a raid together (1:38 · most damage: Tim)” / “… lost a raid”. The stream
 API has a `raid` event (`docs/STREAM_API.md`).
 
 **Exploits considered.** A tampered client can report hits it never made (the raid is then won early) – every

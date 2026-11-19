@@ -261,7 +261,7 @@ test('run: a trade in a link session is logged from the team before and after', 
   const d = new RunDoc('t');
   d.by = 'a';
   d._persistSoon = () => {};
-  const m = { id: 'r', mode: 'soullink', game: { system: 'gba' }, players: { p1: { name: 'Marius' }, p2: { name: 'Tim' } } };
+  const m = { id: 'r', mode: 'soullink', game: { system: 'gba' }, players: { p1: { name: 'Sam' }, p2: { name: 'Tim' } } };
   const before = [{ key: 'a', species: 255 }, { key: 'b', species: 261 }];
   assert.equal(R.logLinkTrade(d, m, 'p1', 'p2', before, before), false, 'nothing changed: no entry');
   // Gen 2 (the recorded Crystal ↔ Silver trade): Cyndaquil and Pidgey share trainer ID and DVs – the same key
@@ -291,7 +291,7 @@ function browserGlobals() {
   return { post: (data) => listeners.forEach((fn) => fn({ origin: 'http://127.0.0.1:7373', data })), ls };
 }
 
-/** Two pages of one run (p1 = Marius, p2 = Tim): their channel, their servers (fetch), what reached the link hosts. */
+/** Two pages of one run (p1 = Sam, p2 = Tim): their channel, their servers (fetch), what reached the link hosts. */
 async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200, consoles = null, oldB = false, rules = {}, third = null } = {}) {
   const g = browserGlobals();
   const { LinkSessions } = await import('../web/lib/linksession.mjs');
@@ -496,10 +496,10 @@ test('linksession, bystander: the players outside a session see who is linked wi
 
 test('board: a partner linked with others – "In a link with Tim" on their card, Trade / Battle wait (the reason as their hint)', async () => {
   const { linkedText } = await import('../web/views/linkplay.mjs');
-  const names = { p1: { name: 'Marius' }, p2: { name: 'Tim' }, p3: { name: 'Lou' }, p4: { name: 'Robin' } };
+  const names = { p1: { name: 'Sam' }, p2: { name: 'Tim' }, p3: { name: 'Lou' }, p4: { name: 'Robin' } };
   const sessions = (e) => ({ linkedElsewhere: (s) => e[s] || null });
   assert.equal(linkedText(sessions({ p1: { seats: ['p1', 'p2'], kind: 'trade' } }), 'p1', names), 'In a link with Tim');
-  assert.equal(linkedText(sessions({ p2: { seats: ['p1', 'p2'], kind: 'trade' } }), 'p2', names), 'In a link with Marius');
+  assert.equal(linkedText(sessions({ p2: { seats: ['p1', 'p2'], kind: 'trade' } }), 'p2', names), 'In a link with Sam');
   assert.equal(linkedText(sessions({ p1: { seats: ['p1', 'p2', 'p4'], kind: 'battle' } }), 'p1', names), 'In a link battle with Tim, Robin');
   assert.equal(linkedText(sessions({}), 'p1', names), null, 'not linked: nothing');
   assert.equal(linkedText(null, 'p1', names), null);
@@ -659,7 +659,7 @@ test('linksession, wager: the challenge carries the wager; the partner joins for
   assert.deepEqual([A.state.stake, B.state.stake], [2000, 2000]);
   gbas.fight();
   await settle(1200);
-  gbas.end(1, 2); // Emerald (Marius) wins
+  gbas.end(1, 2); // Emerald (Sam) wins
   await settle(1200);
   A.leave('left');
   await settle(800);

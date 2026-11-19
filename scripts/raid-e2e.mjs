@@ -51,7 +51,7 @@ async function main() {
   const stateB64 = readFileSync(resolve(opt('state'))).toString('base64');
 
   const servers = [];
-  const profiles = [['A', 'Marius', 7431], ['B', 'Tim', 7432], ['C', 'Kim', 7433]].slice(0, n).map(([id, name, port]) => {
+  const profiles = [['A', 'Sam', 7431], ['B', 'Tim', 7432], ['C', 'Kim', 7433]].slice(0, n).map(([id, name, port]) => {
     const dir = join(data, id);
     const lib = join(dir, 'roms');
     mkdirSync(lib, { recursive: true });
