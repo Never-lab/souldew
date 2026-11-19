@@ -4156,5 +4156,20 @@
   "set.backupHint": "La carpeta «{name}» está en «backups», junto a tus datos. souldew no vuelve a tocarla: bórrala cuando estés seguro de que no la necesitas.",
   "set.backupMade": "Antes de su primer inicio, souldew 3.0 hizo una copia de seguridad de tus runs, partidas guardadas, estados guardados, ajustes y trofeos ({size}, {date}); no de tus juegos, que siguen donde están.",
   "set.backupNoSpace": "souldew no hizo una copia de seguridad antes de la 3.0: el disco tenía {free} libres, la copia necesita {need} y deja sitio para tus juegos. Tus datos siguen como estaban: no se cambió nada por falta de espacio.",
-  "set.backupOpen": "Abrir carpeta de la copia"
+  "set.backupOpen": "Abrir carpeta de la copia",
+  "set.uiScale": "Tamaño de la interfaz",
+  "set.uiScaleHint": "El tamaño con el que souldew dibuja sus menús, paneles, el tablero y el texto en este ordenador – para pantallas grandes y nítidas. El juego en sí no se escala: sigue llenando el espacio que tiene, nítido al píxel. {bigger}, {smaller} y {reset} lo cambian en cualquier parte.",
+  "set.uiScaleFit": "Esta ventana tiene sitio para {size} – hazla más grande y la interfaz crece hasta {chosen}.",
+  "set.uiScaleGame": "Mientras un juego llena la ventana, estas teclas siguen siendo sus atajos: {list} (Ajustes › Controles).",
+  "set.uiScaleBrowser": "En el navegador, su propio zoom ajusta el tamaño de souldew: {bigger} y {smaller}.",
+  "ui.scaleHintTitle": "La interfaz se ve pequeña en esta pantalla – ¿hacerla más grande?",
+  "ui.scaleHintText": "{size} va bien con una pantalla tan grande. Puedes cambiarlo cuando quieras – «Tamaño de la interfaz» en Ajustes, o {bigger} y {smaller}.",
+  "ui.scaleHintYes": "Ponerla al {size}",
+  "ui.scaleLimitTitle": "Más grande no cabe en esta ventana",
+  "ui.scaleLimitText": "Haz la ventana más grande y la interfaz crece hasta el tamaño elegido.",
+  "keys.uiScale": "Interfaz más grande · más pequeña · 100 % (mientras un juego llena la ventana, sus propios atajos en estas teclas van primero)",
+  "menu.view": "Visualización",
+  "menu.uiBigger": "Interfaz más grande",
+  "menu.uiSmaller": "Interfaz más pequeña",
+  "menu.uiReset": "Interfaz al 100 %"
 }

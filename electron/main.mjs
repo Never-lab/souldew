@@ -13,6 +13,7 @@ import { grantPicked } from '../server/lib/grants.mjs';
 import { chromiumSwitches, startDecision, crashDecision, gpuInfoSummary, safeGraphicsRequested, withoutSafeGraphics } from '../shared/gpu.mjs';
 import { sameOrigin, safeExternalUrl, subframeNavigationAllowed, permissionAllowed, isTrustedIpcSender, titleBarColors, initialWindowSize, signInUrl } from './guards.mjs';
 import { appLang, textsFor } from './texts.mjs';
+import { validUiScale, fitUiScale, windowChromeAt } from '../shared/uiscale.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 // An installed app takes no account service, dev pack or dev key from the environment (server/app.mjs DEV_SWITCHES –
@@ -176,9 +177,6 @@ function focusWindow() {
   win.focus();
 }
 
-/** Height of the title bar area on Windows (window buttons drawn over the page, styles.css .platform-win32). */
-const TITLEBAR_HEIGHT = 36;
-
 /**
  * The window frame per platform. macOS: the page reaches under the title bar, traffic lights inset at the top left.
  * Windows: likewise, with the minimize / maximize / close buttons drawn by Windows over the top right corner in the
@@ -188,10 +186,53 @@ const TITLEBAR_HEIGHT = 36;
  * draw its own); the menu bar stays hidden until Alt is pressed. The page needs no room for window buttons there
  * (styles.css .platform-linux).
  */
-function windowChrome() {
-  if (MAC) return { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 18 } };
-  if (WIN) return { titleBarStyle: 'hidden', titleBarOverlay: { color: '#1c1b21', symbolColor: '#ebe6da', height: TITLEBAR_HEIGHT } };
+function windowChrome(z = 1) {
+  const c = windowChromeAt(z);
+  if (MAC) return { titleBarStyle: 'hiddenInset', trafficLightPosition: c.lights };
+  if (WIN) return { titleBarStyle: 'hidden', titleBarOverlay: { color: '#1c1b21', symbolColor: '#ebe6da', height: c.titleBar } };
   return { autoHideMenuBar: true };
+}
+
+/**
+ * Interface size (Settings › General, shared/uiscale.mjs): the window's zoom. `chosen` is config.json's uiScale (the page
+ * saves it through the server and tells the window at once); `applied` is what the window shows – the chosen size, or a
+ * smaller one while the window is too small for it (fitUiScale), back up when it grows. The traffic lights / the Windows
+ * title bar buttons move and grow with it, so the page's title strip still fits around them.
+ */
+const ui = { chosen: 1, applied: 1, sent: '' };
+function uiState() {
+  let display = null;
+  try {
+    const d = screen.getDisplayMatching(win.getBounds());
+    display = { w: d.size.width, h: d.size.height, scale: d.scaleFactor };
+  } catch {
+    // no display information
+  }
+  const [w, h] = win ? win.getContentSize() : [0, 0];
+  return { chosen: ui.chosen, applied: ui.applied, fit: fitUiScale(1.75, { w, h }), display, win: { w, h } };
+}
+let uiTimer = null;
+function applyUiScale() {
+  if (!win) return;
+  const [w, h] = win.getContentSize();
+  const z = fitUiScale(ui.chosen, { w, h });
+  if (z !== ui.applied) {
+    ui.applied = z;
+    win.webContents.setZoomFactor(z);
+    const c = windowChromeAt(z);
+    if (MAC) win.setWindowButtonPosition?.(c.lights);
+    if (WIN) win.setTitleBarOverlay({ height: c.titleBar });
+  }
+  // (the page hears it once the size settles – resizing sends a stream of these)
+  clearTimeout(uiTimer);
+  uiTimer = setTimeout(() => {
+    if (!win) return;
+    const st = uiState();
+    const key = JSON.stringify(st);
+    if (key === ui.sent) return;
+    ui.sent = key;
+    send('ui-scale', st);
+  }, 200);
 }
 
 function createWindow() {
@@ -203,11 +244,15 @@ function createWindow() {
   } catch {
     // no display information – the usual size
   }
+  const size = initialWindowSize(workArea);
+  ui.chosen = validUiScale(readConfig().uiScale);
+  ui.applied = fitUiScale(ui.chosen, { w: size.width, h: size.height });
+  ui.sent = '';
   win = new BrowserWindow({
-    ...initialWindowSize(workArea),
+    ...size,
     title: 'souldew',
     backgroundColor: '#1b1a1f',
-    ...windowChrome(),
+    ...windowChrome(ui.applied),
     // the window / taskbar icon when running from source (`npm run app`) – and always on Linux, where X11 window
     // managers take it from the window (a packaged app elsewhere uses the icon of its .exe / .app)
     ...((!app.isPackaged && !MAC) || LINUX ? { icon: join(here, '..', 'build', 'icon.png') } : {}),
@@ -217,11 +262,18 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       backgroundThrottling: false, // keep the emulator and live sync running when the window is behind others
+      zoomFactor: ui.applied, // the interface size (above) from the first picture on
     },
   });
+  // a window too small for the chosen interface size shows a smaller one; the page hears the screen for its hint
+  win.on('resize', applyUiScale);
+  win.on('moved', applyUiScale);
+  // (Chromium keeps the zoom per address – a reload keeps it, this makes sure)
+  win.webContents.on('did-finish-load', () => win?.webContents.setZoomFactor(ui.applied));
   win.once('ready-to-show', () => {
     gpuStartOk();
     win.show();
+    applyUiScale(); // (the content size is known now – on Linux the frame takes some of the window's)
   });
   // Window fullscreen (macOS: green button / ⌃⌘F, Windows / Linux: F11): the page folds the side rail away
   win.on('enter-full-screen', () => send('fullscreen', true));
@@ -325,7 +377,15 @@ ipcMain.on('menu-labels', (e, labels) => {
 ipcMain.on('titlebar-colors', (e, colors) => {
   if (!trusted(e) || !WIN || !win) return;
   const c = titleBarColors(colors);
-  if (c) win.setTitleBarOverlay({ ...c, height: TITLEBAR_HEIGHT });
+  if (c) win.setTitleBarOverlay({ ...c, height: windowChromeAt(ui.applied).titleBar });
+});
+
+// The interface size: `v` a size to show from now on (the page saved it in config.json), nothing = just ask. Answers with
+// what the window shows and the screen it is on (shared/uiscale.mjs suggestUiScale).
+handle('ui-scale', (e, v) => {
+  if (v !== undefined) ui.chosen = validUiScale(v);
+  applyUiScale();
+  return uiState();
 });
 
 /**
@@ -374,6 +434,16 @@ function buildMenu(labels = {}) {
       ],
     },
     { role: 'editMenu' },
+    // the interface size (shared/uiscale.mjs): the page handles the keys – while a game fills the window a shortcut of
+    // Settings › Controls on the same key (⌘+ / ⌘− are the game speed) goes first, so the menu only shows them
+    {
+      label: l('view', t('menu.view', 'View')),
+      submenu: [
+        { label: l('uiBigger', t('menu.uiBigger', 'Bigger interface')), accelerator: 'CmdOrCtrl+Plus', registerAccelerator: false, click: () => send('menu', 'ui-in') },
+        { label: l('uiSmaller', t('menu.uiSmaller', 'Smaller interface')), accelerator: 'CmdOrCtrl+-', registerAccelerator: false, click: () => send('menu', 'ui-out') },
+        { label: l('uiReset', t('menu.uiReset', 'Interface at 100 %')), accelerator: 'CmdOrCtrl+0', registerAccelerator: false, click: () => send('menu', 'ui-reset') },
+      ],
+    },
     {
       label: l('go', t('menu.go', 'Go')),
       submenu: [

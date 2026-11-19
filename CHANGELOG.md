@@ -182,6 +182,15 @@ Plus a new play view that gives the game the room it deserves.
   rows of pixels at odd sizes. Settings › Play › “Whole pixels only” snaps to exact multiples instead, when that
   costs at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every
   layout and size; the 3DS menu's “Smooth picture” still smooths everything.
+- **Interface size, for big screens** (thanks to a player on Discord). Settings › General › “Interface size” draws
+  souldew's own interface at 80 to 175 % – the sidebar, the dock, the board, partner windows, menus, toasts and the
+  names and menus over the game – sharp at every size, because it is laid out again rather than stretched. ⌘+ / ⌘− /
+  ⌘0 (Ctrl on Windows and Linux) and the new View menu change it anywhere; while a game fills the window, its own
+  shortcuts on those keys go first, so ⌘+ / ⌘− stay the game speed there as before. The game picture isn't scaled: it
+  keeps filling the room it has, pixel-sharp. A window too small for the size you picked shows the biggest one that
+  fits and grows back when you make it larger. On a large screen at 100 % (4K, or 1440p without the system's own
+  scaling) souldew asks once: “The interface looks small on this screen – make it bigger?”. The size is kept per
+  computer, not per account; the stream overlays keep their own size in OBS.
 - **The Game Boy look.** The fast player now runs Game Boy and Game Boy Color games on SameBoy – the emulator the link
   sessions use. New in Settings › Play › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
   original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver

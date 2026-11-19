@@ -44,6 +44,7 @@ import { moveToGraveyard, parseHgssSave } from '../shared/gen4save.mjs';
 import { listPresets, savePreset, deletePreset } from './lib/presets.mjs';
 import { pageHeaders } from './lib/csp.mjs';
 import { gpuBackends, validBackend, fallbackNotice } from '../shared/gpu.mjs';
+import { validUiScale } from '../shared/uiscale.mjs';
 import { hostAllowed, apiRequestError, privateRequestError, rendererSecretError } from './lib/guard.mjs';
 import { overlaySnapshot, TEST_SPECIES, currentRunId } from '../shared/overlay.mjs';
 import { startPokelinkBridge, pokelinkPlayers, POKELINK_PORT } from './lib/pokelink.mjs';
@@ -963,6 +964,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         presence: config.presence !== false,
         // the "What's new" cards after an update to a new major version ('3.0'), until closed (server/lib/upgrade.mjs)
         whatsNew: typeof config.whatsNew === 'string' ? config.whatsNew : null,
+        uiScale: validUiScale(config.uiScale),
+        uiScaleHint: config.uiScaleHint === true,
       },
       // the backup made before the first start of this major version (Settings › About) – or why there is none
       upgradeBackup: backupInfo(config.upgradeBackups?.[majorOf(liveRuns.souldewVersion())]),
@@ -975,11 +978,14 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'whatsNew']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'whatsNew', 'uiScale', 'uiScaleHint']) {
       if (k in body) allowed[k] = body[k];
     }
     // the "What's new" cards: the page can only close them (the server opens them, server/lib/upgrade.mjs)
     if ('whatsNew' in allowed && allowed.whatsNew !== null) delete allowed.whatsNew;
+    // the interface size (shared/uiscale.mjs; electron/main.mjs reads it for the window) and its one-time hint on a big screen
+    if ('uiScale' in allowed) allowed.uiScale = validUiScale(allowed.uiScale);
+    if ('uiScaleHint' in allowed) allowed.uiScaleHint = allowed.uiScaleHint === true;
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
     if ('ctrRenderer' in allowed) {
       allowed.ctrRenderer = validRenderer(allowed.ctrRenderer);

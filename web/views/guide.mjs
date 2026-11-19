@@ -7,6 +7,7 @@ import { resolve as resolveControls, resolveHotkeys, keyLabel, HOTKEY_ROWS } fro
 import { shortcut, IS_MAC } from '../lib/platform.mjs';
 import { ShowFirstStepsButton } from './firststeps.mjs';
 import { WHATS_NEW_EVENT } from '../lib/whatsnew.mjs';
+import { uiScaleKeys } from '../lib/uiscale.mjs';
 
 /**
  * A key binding for display, with its modifiers: "Tab", "⇧ Tab" / "⌘+" on a Mac, "Shift+Tab" / "Ctrl+R" elsewhere – "–"
@@ -70,6 +71,8 @@ export const SHORTCUTS = (controls = null) => {
       [shortcut('Mod+1–5', { space: true }), t('keys.sectionsNavStream', 'Library · SoulLink · Nuzlocke · Connection · Stream')],
       [shortcut('Mod+O', { space: true }), t('keys.add', 'Add games')],
       [shortcut('Mod+B', { space: true }), t('keys.sidebarPlay', 'Show / hide the sidebar (while playing it slides in over the game)')],
+      // the interface size (lib/uiscale.mjs) – while a game fills the window, a shortcut above on the same key goes first
+      [Object.values(uiScaleKeys({ space: true })).join('  '), t('keys.uiScale', 'Interface bigger · smaller · 100 % (while a game fills the window, its own shortcuts on these keys go first)')],
     ] : []),
   ];
 };

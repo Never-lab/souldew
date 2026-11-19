@@ -63,7 +63,13 @@ export function watch(el, { onVisible, onResize, hoverTarget, onHover }) {
   }
   if (typeof ResizeObserver === 'function' && onResize) {
     const ro = new ResizeObserver(() => onResize());
-    ro.observe(el);
+    // the device-pixel box: it also changes with the interface size (the window's zoom, lib/uiscale.mjs) or another
+    // screen's pixel density – the canvas is drawn again sharp instead of stretched
+    try {
+      ro.observe(el, { box: 'device-pixel-content-box' });
+    } catch {
+      ro.observe(el);
+    }
     offs.push(() => ro.disconnect());
   }
   if (onVisible && typeof document !== 'undefined') {

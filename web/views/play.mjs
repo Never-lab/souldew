@@ -46,6 +46,7 @@ import { shinyThreshold } from '/shared/shiny.mjs';
 import { ctrUpdateNote } from '../lib/ctrupdate.mjs';
 import { presenceLoop, presenceBody } from '../lib/presence.mjs';
 import { resolveHotkeys, hotkeyOf, keyMatches } from '../lib/controls.mjs';
+import { uiScaleKeyDown, setPlayKeys } from '../lib/uiscale.mjs';
 import { hotkeyHint, comboLabel } from './guide.mjs';
 
 import { WagerPay } from '../lib/wagerpay.mjs';
@@ -773,7 +774,8 @@ export function GameSession({ session, mode }) {
     }
     // every other key: a shortcut of Settings › Controls (lib/controls.mjs HOTKEYS) – exactly its key and modifiers
     const id = hotkeyOf(k, hot);
-    if (!id) return false;
+    // none: from inside the game, the interface size's ⌘+ / ⌘− / ⌘0 (lib/uiscale.mjs – the page doesn't see the frame's keys)
+    if (!id) return !!fromGame && uiScaleKeyDown(k, { fromGame: true });
     // from inside the game always; from the page only while the game is shown big (in the mini player the page's keys
     // belong to the page) – and never Tab there, which keeps moving the focus between controls
     if (!fromGame && (modeRef.current !== 'full' || k.key === 'Tab')) return false;
@@ -821,22 +823,26 @@ export function GameSession({ session, mode }) {
       // EmulatorJS flushed the battery save by itself (periodic save) – write it to disk now.
       if (e.data?.type === 'emu-saved') window.dispatchEvent(new Event('sl-save-now'));
     };
+    // typing in a field, or answering the prompt over the screen (missed encounter) by keyboard: not the game's keys; a
+    // dialog (unsaved-progress, death alert …) or the rules drawer is open: its keys, not the game's
+    const notGame = (target) => !!target?.closest?.('input,textarea,select,dialog,.rules-drawer,.screen-confirm') || !!rulesRef.current || !!document.querySelector('dialog[open]');
     const down = (e) => {
-      // typing in a field, or answering the prompt over the screen (missed encounter) by keyboard: not the game's keys
-      if (e.target.closest?.('input,textarea,select,dialog,.rules-drawer,.screen-confirm')) return;
-      // a dialog (unsaved-progress, death alert …) or the rules drawer is open: its keys, not the game's
-      if (rulesRef.current || document.querySelector('dialog[open]')) return;
+      if (notGame(e.target)) return;
       if (onKey({ key: e.key, code: e.code, keyCode: e.keyCode, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, meta: e.metaKey, down: true, repeat: e.repeat }, false)) e.preventDefault();
     };
     const up = (e) => onKey({ key: e.key, code: e.code, keyCode: e.keyCode, down: false }, false);
     // the hold key released while the window had no focus (alt-tab, a click into another app): end a held turbo anyway
     const blur = () => turboHeld.current && onKey({ key: 'Tab', code: 'Tab', down: false, blur: true }, false);
+    // the interface size's shortcuts (lib/uiscale.mjs) leave the page's keys to the game's shortcuts while it is shown
+    // big – ⌘+ / ⌘− stay the game speed there, as since 2.8 – the same keys onKey acts on
+    const offUi = setPlayKeys((k) => modeRef.current === 'full' && !notGame(k.target) && !!hotkeyOf(k, hotRef.current));
     addEventListener('message', onMsg);
     addEventListener('keydown', down);
     addEventListener('keyup', up);
     addEventListener('blur', blur);
     const offMenu = window.sls?.on?.('emu', (a) => act.current[a]?.());
     return () => {
+      offUi();
       removeEventListener('message', onMsg);
       removeEventListener('keydown', down);
       removeEventListener('keyup', up);

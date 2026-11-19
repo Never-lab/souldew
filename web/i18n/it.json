@@ -4156,5 +4156,20 @@
   "set.backupHint": "La cartella «{name}» si trova in «backups» accanto ai tuoi dati. souldew non la tocca più: eliminala quando sei sicuro di non averne bisogno.",
   "set.backupMade": "Prima del primo avvio, souldew 3.0 ha fatto un backup di run, salvataggi, stati salvati, impostazioni e trofei ({size}, {date}) – non dei tuoi giochi, che restano dove sono.",
   "set.backupNoSpace": "souldew non ha fatto un backup prima della 3.0: sul disco c’erano {free} liberi, il backup richiede {need} e lascia spazio ai tuoi giochi. I tuoi dati sono rimasti com’erano – nulla è stato cambiato per mancanza di spazio.",
-  "set.backupOpen": "Apri cartella del backup"
+  "set.backupOpen": "Apri cartella del backup",
+  "set.uiScale": "Dimensione dell’interfaccia",
+  "set.uiScaleHint": "Quanto grandi souldew disegna menu, pannelli, la bacheca e il testo su questo computer – per schermi grandi e nitidi. Il gioco in sé non viene ridimensionato: continua a riempire lo spazio che ha, nitido al pixel. {bigger}, {smaller} e {reset} la cambiano ovunque.",
+  "set.uiScaleFit": "Questa finestra ha spazio per {size} – ingrandiscila e l’interfaccia cresce fino a {chosen}.",
+  "set.uiScaleGame": "Mentre un gioco riempie la finestra, questi tasti restano le sue scorciatoie: {list} (Impostazioni › Comandi).",
+  "set.uiScaleBrowser": "Nel browser è il suo zoom a regolare la dimensione di souldew: {bigger} e {smaller}.",
+  "ui.scaleHintTitle": "L’interfaccia sembra piccola su questo schermo – ingrandirla?",
+  "ui.scaleHintText": "{size} è adatto a uno schermo così grande. Puoi cambiarla quando vuoi – «Dimensione dell’interfaccia» nelle Impostazioni, oppure {bigger} e {smaller}.",
+  "ui.scaleHintYes": "Portala al {size}",
+  "ui.scaleLimitTitle": "Più grande non entra in questa finestra",
+  "ui.scaleLimitText": "Ingrandisci la finestra e l’interfaccia cresce fino alla dimensione scelta.",
+  "keys.uiScale": "Interfaccia più grande · più piccola · 100 % (mentre un gioco riempie la finestra, le sue scorciatoie su questi tasti hanno la precedenza)",
+  "menu.view": "Vista",
+  "menu.uiBigger": "Interfaccia più grande",
+  "menu.uiSmaller": "Interfaccia più piccola",
+  "menu.uiReset": "Interfaccia al 100 %"
 }

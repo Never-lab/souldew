@@ -4156,5 +4156,20 @@
   "set.backupHint": "Der Ordner „{name}“ liegt in „backups“ neben deinen Daten. souldew fasst ihn nie wieder an – lösch ihn, sobald du sicher bist, dass du ihn nicht brauchst.",
   "set.backupMade": "Vor dem ersten Start hat souldew 3.0 deine Runs, Spielstände, Savestates, Einstellungen und Trophäen gesichert ({size}, {date}) – nicht deine Spiele, die bleiben, wo sie sind.",
   "set.backupNoSpace": "souldew hat vor 3.0 kein Backup angelegt: Auf der Festplatte waren {free} frei, das Backup braucht {need} und lässt Platz für deine Spiele. Deine Daten sind unverändert – aus Platzmangel wurde nichts geändert.",
-  "set.backupOpen": "Backup-Ordner öffnen"
+  "set.backupOpen": "Backup-Ordner öffnen",
+  "set.uiScale": "Größe der Oberfläche",
+  "set.uiScaleHint": "Wie groß souldew Menüs, Leisten, das Board und Text auf diesem Computer zeichnet – für große, scharfe Bildschirme. Das Spiel selbst wird nicht skaliert: Es füllt weiter den Platz, den es hat, pixelscharf. {bigger}, {smaller} und {reset} ändern sie überall.",
+  "set.uiScaleFit": "Dieses Fenster hat Platz für {size} – zieh es größer, dann wächst die Oberfläche auf {chosen}.",
+  "set.uiScaleGame": "Solange ein Spiel das Fenster füllt, bleiben diese Tasten seine Kurzbefehle: {list} (Einstellungen › Steuerung).",
+  "set.uiScaleBrowser": "Im Browser stellt dessen eigener Zoom die Größe von souldew ein: {bigger} und {smaller}.",
+  "ui.scaleHintTitle": "Die Oberfläche wirkt auf diesem Bildschirm klein – größer machen?",
+  "ui.scaleHintText": "{size} passt zu einem so großen Bildschirm. Du kannst es jederzeit ändern – „Größe der Oberfläche“ in den Einstellungen, oder {bigger} und {smaller}.",
+  "ui.scaleHintYes": "Auf {size} stellen",
+  "ui.scaleLimitTitle": "Größer passt nicht in dieses Fenster",
+  "ui.scaleLimitText": "Zieh das Fenster größer, dann wächst die Oberfläche auf die gewählte Größe.",
+  "keys.uiScale": "Oberfläche größer · kleiner · 100 % (solange ein Spiel das Fenster füllt, gehen seine eigenen Kurzbefehle auf diesen Tasten vor)",
+  "menu.view": "Darstellung",
+  "menu.uiBigger": "Oberfläche größer",
+  "menu.uiSmaller": "Oberfläche kleiner",
+  "menu.uiReset": "Oberfläche auf 100 %"
 }

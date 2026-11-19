@@ -61,6 +61,8 @@ import { railGroups, FOOT_SECTIONS } from './lib/railnav.mjs';
 import { accountEvent } from './lib/account.mjs';
 import { useSocial } from './lib/socialapp.mjs';
 import { Avatar } from './views/social.mjs';
+import { initUiScale, watchUiScaleKeys, useUiScale, setUiScale, stepUi, suggestUiScale, uiScaleKeys } from './lib/uiscale.mjs';
+import { uiScaleLabel } from '/shared/uiscale.mjs';
 
 applyStoredTheme(); // before the first render: no flash of the wrong colours
 
@@ -105,6 +107,7 @@ function sendMenuLabels(controls = menuControls) {
     faster: t('menu.faster', 'Faster'), slower: t('menu.slower', 'Slower'), quicksave: t('menu.quicksave', 'Quick save'), quickload: t('menu.quickload', 'Quick load'),
     screenshot: t('keys.screenshot', 'Screenshot'), mute: t('keys.mute', 'Sound on/off'), fullscreen: t('menu.fullscreen', 'Fullscreen'),
     shortcuts: t('menu.shortcuts', 'Keyboard shortcuts'), guide: t('menu.guide', 'Guide'),
+    view: t('menu.view', 'View'), uiBigger: t('menu.uiBigger', 'Bigger interface'), uiSmaller: t('menu.uiSmaller', 'Smaller interface'), uiReset: t('menu.uiReset', 'Interface at 100 %'),
   });
 }
 
@@ -943,10 +946,38 @@ function App() {
         }
         if (what === 'reveal-library') api.post('/api/library/reveal', {});
         if (what === 'shortcuts') navigate('guide', { tab: 'keys' });
+        if (what === 'ui-in' || what === 'ui-out' || what === 'ui-reset') stepUi(what.slice(3), { onLimit: uiScaleLimited });
       }),
     ];
     return () => offs.forEach((f) => f());
   }, []);
+
+  // ---- interface size (lib/uiscale.mjs, Settings › General) ----------------------------------------------------
+  // The shortcuts on the page (⌘+ / ⌘− / ⌘0, Ctrl elsewhere – the play view hands over the ones pressed in the game), the
+  // window's size as it changes, and once per computer a quiet hint when the window is big on a large screen at 100 %.
+  const uiScaleLimited = useCallback(() => toast({ key: 'ui-scale', title: t('ui.scaleLimitTitle', 'That’s the biggest size this window has room for'),
+    text: t('ui.scaleLimitText', 'Make the window larger and the interface grows to the size you picked.') }), [toast]);
+  useEffect(() => {
+    const offKeys = watchUiScaleKeys({ onLimit: uiScaleLimited });
+    const offState = initUiScale();
+    return () => {
+      offKeys();
+      offState();
+    };
+  }, []);
+  const uiScale = useUiScale();
+  const uiHinted = useRef(false);
+  useEffect(() => {
+    if (uiHinted.current || !ready || boot || !status?.config?.onboarded || status.config.uiScaleHint) return;
+    const s = suggestUiScale(uiScale);
+    if (!s) return;
+    uiHinted.current = true;
+    api.post('/api/config', { uiScaleHint: true }).catch(() => {}); // asked once – whatever the answer
+    toast({ key: 'ui-scale-hint', ttl: 30000, title: t('ui.scaleHintTitle', 'The interface looks small on this screen – make it bigger?'),
+      text: t('ui.scaleHintText', '{size} suits a screen this large. You can change it any time – “Interface size” in Settings, or {bigger} and {smaller}.',
+        { size: uiScaleLabel(s), ...uiScaleKeys() }),
+      action: { label: t('ui.scaleHintYes', 'Make it {size}', { size: uiScaleLabel(s) }), run: () => setUiScale(s) } });
+  }, [ready, boot, status, uiScale]);
 
   // Who of the other players is online right now (heard from within PARTNER_TTL, or a direct link is up);
   // partnerOnline: anybody at all (the two-player call sites).

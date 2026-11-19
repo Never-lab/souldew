@@ -1276,6 +1276,8 @@ html[data-theme='contrast'] .nav a::before { background: radial-gradient(150px c
 .rail-open:hover { color: var(--ink, #fff); background: #2a2932; }
 /* macOS: next to the window's traffic lights */
 .app-native .rail-open { top: 8px; left: 82px; width: 30px; height: 30px; }
+/* below 100 % interface size (lib/uiscale.mjs sets --ui-zoom) the traffic lights stay their size: the button keeps clear */
+html.platform-darwin .app-native .rail-open { left: max(82px, calc(30px + 52px / var(--ui-zoom, 1))); }
 /* the page moves down a little so the button (and the traffic lights) don't sit on its title */
 .frame.rail-folded:has(.rail-open) .main-inner { padding-top: 56px; }
 .rail { position: relative; }
