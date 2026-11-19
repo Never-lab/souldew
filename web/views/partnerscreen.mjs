@@ -78,7 +78,7 @@ export function useScreenShare(link, getEmu, { system, enabled = true } = {}) {
 }
 
 /** Watches one partner's picture while mounted – one per shown window, so hiding one never disturbs the others. */
-function Watch({ link, slot, onView }) {
+export function Watch({ link, slot, onView }) {
   const cb = useRef(onView);
   cb.current = onView;
   useEffect(() => {
@@ -125,7 +125,7 @@ export function usePartnerLayout() {
 }
 
 /** What a partner's view shows now: { view, stream, imageMode, age, live, ar } – null while nothing is known. */
-function viewInfo(view, system, measured, now) {
+export function viewInfo(view, system, measured, now) {
   const stream = view?.mode === 'stream' ? view.stream : null;
   const imageMode = view?.mode === 'image' && !!view.url;
   const age = imageMode ? now - view.at : 0;
@@ -144,7 +144,7 @@ function message(view, name) {
 }
 
 /** The picture: video, still or why there is none. */
-function Picture({ info, name, onMeasure }) {
+export function Picture({ info, name, onMeasure }) {
   const { stream, imageMode, live, view } = info;
   const video = useRef(null);
   useEffect(() => {
@@ -192,7 +192,7 @@ function useViews(link, slots) {
  * row along the bottom. A popped-out partner leaves a small button that docks the window again.
  *   pl – usePartnerLayout()
  */
-export function PartnerTiles({ link, system, side, pl, box = null }) {
+export function PartnerTiles({ link, system, side, pl, box = null, below = null }) {
   const docked = pl.others.filter((s) => !pl.popped(s));
   const away = pl.others.filter((s) => pl.popped(s));
   const { views, measured, measure, watchers } = useViews(link, docked);
@@ -215,6 +215,7 @@ export function PartnerTiles({ link, system, side, pl, box = null }) {
             aria-label=${t('rps.challenge', 'Rock-paper-scissors with {name}', { name })}><img src=${artUrl('scissors', '#ebe6da', 2)} alt="" style="image-rendering:pixelated;width:12px;height:12px" /></button>`}
           <button class="ps-btn" onMouseDown=${keepFocus} onClick=${() => pl.pop(slot)} title=${popLabel} aria-label=${`${popLabel}: ${name}`}><${Icon} name="external" size=${12} /></button></header>
         <div class="pt-screen"><${Picture} info=${info} name=${name} onMeasure=${measure(slot)} /></div>
+        ${below?.(slot, 'tile')}
       </section>`;
     })}
     ${away.length > 0 && html`<div class="pt-away">${away.map((slot) => html`<button class="ps-tab" key=${slot} onMouseDown=${keepFocus} onClick=${() => pl.dock(slot)}
@@ -228,7 +229,7 @@ export function PartnerTiles({ link, system, side, pl, box = null }) {
  *   pl    – usePartnerLayout()
  *   avoid – CSS selector of what a window may never cover (the game bar), inside .session-body
  */
-export function PartnerScreens({ link, system, pl, avoid = '.session-bar' }) {
+export function PartnerScreens({ link, system, pl, avoid = '.session-bar', below = null }) {
   const shown = pl.others.filter((s) => pl.popped(s));
   const { views, measured, measure, watchers } = useViews(link, shown);
   const [zones, setZones] = useState(null);
@@ -325,12 +326,12 @@ export function PartnerScreens({ link, system, pl, avoid = '.session-bar' }) {
       area=${zones.area} dragging=${drag?.slot === slot} grip=${gripSide(rects[slot], zones.area)} onMeasure=${measure(slot)}
       onDrag=${(e, kind) => startDrag(e, slot, kind)}
       onSize=${(r) => pl.store(slot, toStored(avoidRect(r, zones.block, zones.area), zones.area))}
-      onDock=${() => pl.dock(slot)} />`)}
+      onDock=${() => pl.dock(slot)} below=${below} />`)}
   </div>`;
 }
 
 /** One partner's window: header (drag to move, Bigger / Smaller, back to the panel), the picture, the resize grip. */
-function PartnerWindow({ slot, name, info, rect, area, dragging, grip, onMeasure, onDrag, onSize, onDock }) {
+function PartnerWindow({ slot, name, info, rect, area, dragging, grip, onMeasure, onDrag, onSize, onDock, below = null }) {
   const { ar } = info;
   const big = rect.w >= defaultWidth(ar, true) - 1;
   const sizeLabel = big ? t('ps.smaller', 'Smaller') : t('ps.bigger', 'Bigger');
@@ -345,6 +346,7 @@ function PartnerWindow({ slot, name, info, rect, area, dragging, grip, onMeasure
       <button class="ps-btn" onMouseDown=${keepFocus} onClick=${onDock} title=${dockLabel} aria-label=${dockLabel}><${Icon} name="panelRight" size=${12} /></button>
     </header>
     <div class="ps-screen"><${Picture} info=${info} name=${name} onMeasure=${onMeasure} /></div>
+    ${below?.(slot, 'window')}
     <span class=${`ps-grip ${grip}`} title=${t('ps.resize', 'Drag to resize')} aria-hidden="true" onPointerDown=${(e) => onDrag(e, 'resize')}></span>
   </section>`;
 }

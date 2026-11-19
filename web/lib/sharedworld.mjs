@@ -96,8 +96,11 @@ export class SharedWorld {
       trade: t('world.trade', 'Trade'),
       battle: t('world.battle', 'Battle'),
       wave: t('world.wave', 'Wave'),
+      emote_wave: t('world.wave', 'Wave'),
+      watch: t('world.watch', 'Watch'),
+      gift: t('world.gift', 'Give item'),
       cancel: t('common.cancel', 'Cancel'),
-      tagHint: t('world.tagHint2', 'Trade, battle, wave or play rock-paper-scissors'),
+      tagHint: t('world.tagHint3', 'Trade, battle, give an item, wave or play rock-paper-scissors'),
       keys: t('world.menuKeys', 'A choose · B back'),
       rps: t('world.rps', 'Rock-paper-scissors'),
       emotes: t('world.emotes', 'Emotes'),
@@ -123,6 +126,22 @@ export class SharedWorld {
     // (true once the player page found this game's tables – the switch shows only then)
     Promise.resolve(w.config({ me: this.me, players: this.players, enabled: this.enabled, actions: this.actions, labels: this.labels(), lead: this.lead, follow: this.follow }))
       .then((ok) => this.onSupported(!!ok), () => this.onSupported(false));
+    if (this.togetherData) w.together?.(this.togetherData);
+  }
+
+  /**
+   * Playing together (web/lib/together.mjs → web/lib/togetheroverlay.mjs): who is in a battle, catches, tombstones,
+   * a "come here" – handed to the overlay as they change.
+   */
+  setTogether(data) {
+    this.togetherData = data;
+    this.world?.together?.(data);
+  }
+
+  /** Where I last stood on the overworld: { fam, map, x, y, size } or null (not on it since this game started). */
+  position() {
+    const st = this.shown?.st;
+    return st && st.fam ? { fam: st.fam, map: st.map, x: st.x, y: st.y, size: this.shown.size || null } : null;
   }
 
   _tick() {
@@ -144,13 +163,15 @@ export class SharedWorld {
     const d = e.data;
     if (d?.type === 'emu-world' && d.st) {
       this.local = d.st;
+      // (where I last stood on the overworld – "come to me", the tombstone of a Pokémon that died in a battle there)
+      if (!d.st.hidden) this.shown = { st: d.st, size: Array.isArray(d.size) ? d.size : this.shown?.size || null };
       if (Array.isArray(d.size)) this.size = d.size;
       this._send(d.st);
       const n = Number(d.near) || 0;
       if (n !== this.near) this.onNear((this.near = n));
     } else if (d?.type === 'emu-world-act' && typeof d.slot === 'string') {
       if (d.act === 'wave' || d.act === 'emote') this.emote(d.act === 'wave' ? 'wave' : d.emote);
-      else if (d.act === 'trade' || d.act === 'battle') this.onAction(d.act, d.slot);
+      else if (d.act === 'trade' || d.act === 'battle' || d.act === 'gift' || d.act === 'watch') this.onAction(d.act, d.slot);
       else if (d.act === 'rps') this.challenge(d.slot);
       // (for integrations and tests: what was picked, wherever the link flow lives)
       dispatchEvent(new CustomEvent('sl-world-action', { detail: { act: d.act, slot: d.slot, emote: d.emote } }));

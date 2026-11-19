@@ -51,6 +51,8 @@ import { hotkeyHint, comboLabel } from './guide.mjs';
 import { WagerPay } from '../lib/wagerpay.mjs';
 import { gameOfEntry, readMoney, moneyText, gameLinked } from '/shared/linkbattle.mjs';
 import { worldTable, readCamera } from '/shared/world.mjs';
+import { useTogether, makeBag, gameWhy, giftsAllowed } from '../lib/together.mjs';
+import { GiftDialog, WatchModal, BattleStrip, PingButton, giftWhyText } from './together.mjs';
 /**
  * What each shortcut of Settings › Controls does (lib/controls.mjs HOTKEYS – one entry each, test/controls.test.mjs
  * checks that none is missing and that the play view acts on no key of its own): `a` = the session's actions.
@@ -1520,8 +1522,12 @@ export function GameSession({ session, mode }) {
   // Controller navigation (lib/padnav.mjs): the game owns the controller while it fills the page and plays; pausing it
   // or opening anything over it (a menu, a panel, a prompt on the screen) hands it to the app.
   const padRef = useRef(null);
-  // (also the 3DS screen-layout menu and the message that the 3DS player stopped – CtrFailed)
-  padRef.current = { phase, overlay: !!(rulesOpen || statesOpen || soundOpen || cheatOpen || layoutOpen || ctrFail || confirmReset || pendingLoad || confirmCheat || asked) };
+  // (also the 3DS screen-layout menu and the message that the 3DS player stopped – CtrFailed; the gift picker and the
+  // watch panel of playing together)
+  const [giftFor, setGiftFor] = useState(null);
+  const [watchFor, setWatchFor] = useState(null);
+  const partnersShownRef = useRef(false);
+  padRef.current = { phase, overlay: !!(rulesOpen || statesOpen || soundOpen || cheatOpen || layoutOpen || ctrFail || confirmReset || pendingLoad || confirmCheat || asked || giftFor || watchFor) };
   useEffect(() => claimPad(() => ({
     mode: modeRef.current,
     playing: padRef.current.phase !== 'error',
@@ -1531,6 +1537,39 @@ export function GameSession({ session, mode }) {
     focus: focusGame,
   })), []);
   useScreenShare(isRun ? link : null, emu, { system: target.system, enabled: isRun && phase === 'running' && status?.config?.shareScreen !== false });
+
+  // Playing together (docs/MULTIPLAYER.md › 9, lib/together.mjs): my battle and place for the partners, my game's bag for
+  // gifts, where I stood for "come to me" – every game of a SoulLink; and what the partners do, for the picture
+  const tg = useTogether(isRun && !solo ? link : null);
+  const ownGame = isRun && !solo && !!tg && !target.link;
+  const tgBattle = ownGame && battle?.enemy ? battle : null;
+  useEffect(() => {
+    if (!tg) return undefined;
+    tg.setLocal({ battle: ownGame ? tgBattle : null, here: ownGame ? here : null });
+  }, [tg, ownGame, JSON.stringify([tgBattle?.kind, tgBattle?.enemy?.species, tgBattle?.enemy?.hp, tgBattle?.active, here?.id, here?.gen])]);
+  const tgState = useRef(null);
+  tgState.current = { live: liveState.status === 'live', inBattle: !!battle?.enemy, link: !!target.link };
+  useEffect(() => {
+    if (!tg || !ownGame) return undefined;
+    tg.setBag(makeBag(() => {
+      const e = emu();
+      const { entry, state } = liveRef.current;
+      const mem = e?.read ? { read: e.read, write: e.write, ...(entry?.platform === '3ds' && e.watch ? { watch: e.watch } : {}) } : null;
+      const s = tgState.current;
+      return { entry, state, mem, why: gameWhy({ entry, read: mem?.read, live: s.live, inBattle: s.inBattle || (!!entry && !!mem && inBattleFlag(entry, mem.read)), link: s.link }) };
+    }));
+    tg.setPosition(() => worldRef.current?.position?.() || null);
+    return () => {
+      tg.setBag(null);
+      tg.setPosition(null);
+      tg.setLocal({});
+    };
+  }, [tg, ownGame]);
+  /** Watch a partner: their window over the play area (the partner screens' picture, with the battle under it), else a panel. */
+  const watchPartner = (slot) => {
+    if (partnersShownRef.current) pl.pop(slot);
+    else setWatchFor(slot);
+  };
 
   // Shared World (docs/MULTIPLAYER.md › 9, lib/sharedworld.mjs): the partners walk in this game when they're on the
   // same map – never in a link session, a solo run or a game without the tables (the player page checks the ROM)
@@ -1567,6 +1606,12 @@ export function GameSession({ session, mode }) {
         : !linkIdle ? t('world.linkBusy', 'A link is already running.')
           : !linkStatus?.partners?.[s]?.p2p ? t('linkplay.needConnection', 'No connection to {name} yet', { name }) : '';
       worldActions[s] = { trade: can && linkAllowed(doc, manifest, 'trade'), battle: can && linkAllowed(doc, manifest, 'battle'), why: why || (!linkAllowed(doc, manifest, 'trade') && !linkAllowed(doc, manifest, 'battle') ? t('world.linkOff', 'Trades and battles are off in this run’s rules.') : '') };
+      // (playing together: Give item while the rule allows it – greyed with the reason; Watch while they battle)
+      if (tg && giftsAllowed(doc, manifest)) {
+        const gw = tg.giftWhy(s);
+        Object.assign(worldActions[s], { gift: !gw, giftWhy: gw ? giftWhyText(gw, name) : '' });
+      }
+      if (tg?.battleOf(s)) worldActions[s].watch = true;
     }
   }
   const worldKey = JSON.stringify([worldPlayers, worldActions, worldOn]);
@@ -1577,6 +1622,8 @@ export function GameSession({ session, mode }) {
       onAction: async (kind, slot) => {
         if (kind === 'rps-limit') return void toast({ kind: 'soul', title: t('world.rps', 'Rock-paper-scissors'), text: t('rps.limit', 'Not so fast – try again in a few seconds.') });
         if (kind.startsWith('rps-')) return;
+        if (kind === 'gift') return void setGiftFor(slot);
+        if (kind === 'watch') return void watchPartnerRef.current?.(slot);
         try {
           await linkSessions?.invite(kind, [slot]);
         } catch (e) {
@@ -1594,6 +1641,19 @@ export function GameSession({ session, mode }) {
   useEffect(() => {
     worldRef.current?.update({ players: worldPlayers, actions: worldActions, enabled: worldOn, lead: worldLead, follow: followOn });
   }, [worldKey, worldOk, leadKey, followOn]);
+  const watchPartnerRef = useRef(null);
+  watchPartnerRef.current = watchPartner;
+  // what the partners do, into the picture (lib/togetheroverlay.mjs): who battles, catches, tombstones, "come here"
+  const tgWorld = tg && worldOk ? {
+    battles: Object.fromEntries(others.filter((s) => tg.battleOf(s)).map((s) => [s, true])),
+    pops: tg.popsNow().filter((p) => p.slot !== me).map((p) => ({ slot: p.slot, species: p.species, shiny: p.shiny, form: p.form, age: Date.now() - p.at })),
+    tombs: tg.tombs(),
+    ping: others.map((s) => tg.pingOf(s)).filter((p) => p && p.map !== undefined).sort((a, b) => b.at - a.at)[0] || null,
+  } : null;
+  const tgWorldKey = JSON.stringify(tgWorld && { ...tgWorld, pops: tgWorld.pops.map((p) => `${p.slot}${p.species}`) });
+  useEffect(() => {
+    if (tgWorld) worldRef.current?.setTogether(tgWorld);
+  }, [tgWorldKey, worldOk]);
   const btn = (name, title, onClick, extra = {}) => html`<button class="btn icon" title=${title} aria-label=${title} onClick=${onClick} ...${extra}><${Icon} name=${name} size=${14} /></button>`;
 
   // Cheats (Rare Candies, Max Repels): written straight into the bag in RAM. In a run only while its rules allow them
@@ -1652,6 +1712,9 @@ export function GameSession({ session, mode }) {
   // the partners' games – tiles in the dock, or windows over the play area – not with the game in the corner (it floats
   // over other pages there; the board shows the partners), and not in a solo run
   const partnersShown = !!(isRun && names && !solo && full);
+  partnersShownRef.current = partnersShown;
+  // (a partner in a battle: the strip under their picture – live tracking's view of it)
+  const tgBelow = tg ? (slot, where) => html`<${BattleStrip} slot=${slot} variant=${where} />` : null;
   // The dock (views/playdock.mjs): right of a tall picture, under a wide one – the side where the picture comes out
   // bigger (lib/playlayout.mjs), decided anew whenever the play area or the game's layout changes.
   const dockH = dockHeight(Math.max(1, slots.length));
@@ -1850,7 +1913,8 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
   const groups = isRun && names && !solo;
   const teamEl = html`
     <${LiveStatus} status=${liveState.status} phase=${phase} names=${names} me=${me} others=${others}
-      extra=${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} follow=${followOn} onFollow=${setFollowOn} />`} />
+      extra=${html`${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} follow=${followOn} onFollow=${setFollowOn} />`}
+        ${ownGame && html`<${PingButton} />`}`} />
     ${liveState.status === 'unsupported' && html`<span class="small muted">${isRun
       ? t('play.liveUnsupportedRun', 'This ROM isn’t in the memory table (other language or a hack with a changed layout). The run still works – enter catches by hand.')
       : t('play.liveNoneSolo', 'Live tracking reads Pokémon games – this one plays without it.')}</span>`}
@@ -1879,7 +1943,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
     { id: 'team', label: groups ? t('pairs.titleGroup', 'Linked groups') : t('play.yourTeam', 'Your team'), icon: groups ? 'link' : 'ball',
       node: html`<div class="screen dock-screen">${teamEl}</div>` },
     partnersShown && { id: 'partners', label: t('ps.screens', 'Partner screens'), icon: 'eye',
-      node: html`<${PartnerTiles} link=${link} system=${target.system} side=${side} pl=${pl}
+      node: html`<${PartnerTiles} link=${link} system=${target.system} side=${side} pl=${pl} below=${tgBelow}
         box=${wide ? { w: dockW - DOCK_W - 12, h: (area?.h || 600) - 40 } : { w: DOCK_W, h: 380 }} />` },
   ].filter(Boolean);
   const who = partnersShown ? others.map((s) => ({ slot: s, name: names[s]?.name || s.toUpperCase(), on: !!onlineSlots?.has(s) })) : [];
@@ -1905,7 +1969,9 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
         ${full && html`<${AttentionCard} attn=${attn} onShow=${showAttn} />`}
       </div>
       ${full && html`<${Dock} side=${side} folded=${folded} onFold=${setFolded} head=${head} sections=${sections} who=${who} dockRef=${dockRef} wide=${wide} />`}
-      ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} pl=${pl} />`}
+      ${partnersShown && html`<${PartnerScreens} link=${link} system=${target.system} pl=${pl} below=${tgBelow} />`}
+      ${giftFor && html`<${GiftDialog} slot=${giftFor} onClose=${() => { setGiftFor(null); focusGame(); }} />`}
+      ${watchFor && html`<${WatchModal} slot=${watchFor} onClose=${() => { setWatchFor(null); focusGame(); }} />`}
     </div>
     ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false}
       onDone=${() => { setInserting(false); focusGame(); }} />`}

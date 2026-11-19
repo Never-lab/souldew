@@ -36,6 +36,9 @@ export const DEFAULT_RULES = {
   // most a wager may be (₽, 0: no limit – nobody can put in more than their game holds anyway)
   linkWagers: 'on',
   linkWagerCap: 0,
+  // items given from one player's bag to another's (docs/MULTIPLAYER.md › 9 "Playing together", web/lib/together.mjs):
+  // allowed unless the host switched it off ('on' | 'off') – a strict Nuzlocke may want every player on their own
+  itemGifts: 'on',
   // (the Discord webhook is not a rule: it stays on this computer – GET/PUT /api/runs/:id/discord)
 };
 

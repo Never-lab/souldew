@@ -72,6 +72,23 @@ Plus a new play view that gives the game the room it deserves.
   every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
 - **Partners next door:** a partner on a map connected to yours (the route beyond the town's edge) now shows across
   the edge and walks over it smoothly, instead of appearing only once you're on the same map.
+- **See when a partner is in a battle – and watch it.** Their card on the board says “In a battle – wild Zigzagoon”
+  in every game, and in Shared World they stay where the battle began with a small ⚔ over their head. “Watch” (their
+  card, their name tag, or walk up and press A) opens their game live in a window, with the battle under it: their
+  Pokémon and its HP and moves, the opponent and its HP – read by live tracking, so it shows even when there's no
+  picture.
+- **Catches and deaths show in the world** (Shared World). When a partner catches a Pokémon, its icon pops up over
+  their head for a moment; when a partner's Pokémon dies, a small tombstone stands where the battle began, on that map,
+  for everyone, for five minutes. Only what the run records – nothing is made up.
+- **Give your partner an item.** “Give item” in the A menu (or on their card on the board while your game runs) lets
+  you pick from your bag; your partner accepts, and it leaves your game and arrives in theirs – checked on both sides,
+  never in part, never twice, and back in your bag if their game can't take it. Only while you walk around – not in a
+  battle or a link (in the Gen 3 games not with a menu or a text open either). Key items, TMs/HMs and the Master Ball
+  stay with you. The log says “Marius gave Tim a gift: 3 × Potion”; the host's new rule “Gifts between us” (on by
+  default) switches it off for a stricter run. Works in the games whose bag souldew knows – the same as the cheats'.
+- **“Come to me”.** One button in the play view marks where you are for all your partners: in their game an arrow at
+  the edge of the picture points to you when they're on the same map or next door, otherwise their board says “Marius
+  is at Route 110 – come here”. It clears when they arrive, or after a few minutes.
 - **German Emerald (Smaragd) is read live.** souldew showed nothing for it so far: its memory was taken to be laid out
   differently from the English game's. It isn't – every address souldew reads is the same – so the team, the place,
   battles, level caps and badges, the bag (the Poké Ball rule, Rare Candies, Max Repels) and Shared World now work in
