@@ -44,13 +44,13 @@ function Owned({ yours }) {
 }
 
 /** A banner: live when the pack has it, else its preview picture (the loop while `loop`). */
-function BannerLook({ id, loop }) {
+export function BannerLook({ id, loop }) {
   if (has('banners', id)) return html`<${Banner} id=${id} size="fill" intro=${false} animate=${loop ? 'always' : undefined} />`;
   return html`<div class="cos-banner cos-banner--fill plus-pic"><${PreviewPicture} kind="banners" id=${id} loop=${loop} /></div>`;
 }
 
 /** The viewer's avatar (or the placeholder) with a frame round it: live, or the frame's preview picture over it. */
-function FramedAvatar({ me, frame, size, loop }) {
+export function FramedAvatar({ me, frame, size, loop }) {
   const src = me?.avatar && me.avatar.startsWith('/api/account/avatar?') ? me.avatar : null;
   const pic = src ? html`<img src=${src} alt="" width=${size} height=${size} loading="lazy" decoding="async" referrerpolicy="no-referrer" />`
     : html`<span class="av-blank" aria-hidden="true"><${Icon} name="user" size=${Math.round(size * 0.55)} /></span>`;
@@ -259,6 +259,7 @@ function FreeAndMoney() {
     <section class="plus-sec plus-panel">
       <${Head} k=${t('plus.kMoney', 'Where the money goes')} title=${t('plus.moneyT', 'Keeping souldew going')} />
       <ul class="plus-money">${money.map(([i, a, b]) => html`<li><span class="plus-money-ico"><${Icon} name=${i} size=${14} /></span><span><b>${a}</b><span class="small muted">${b}</span></span></li>`)}</ul>
+      <a class="plus-thanks-link small" href="#/thanks"><${Icon} name="heart" size=${12} /><span>${t('plus.thanksLink', 'See who already supports souldew')}</span><${Icon} name="external" size=${11} /></a>
     </section>
   </div>`;
 }

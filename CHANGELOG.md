@@ -252,6 +252,12 @@ Plus a new play view that gives the game the room it deserves.
   animation, every colour theme as a small swatch with a dressed-up
   profile in its colours, the three tiers, what always stays free, where the money goes and what happens if you stop.
   Every “Get souldew+” in the app leads there – never a pop-up; joining happens on the Buy Me a Coffee membership page.
+- **A Thank you page, live.** Help, Settings › About and the souldew+ page lead to the people who keep souldew free –
+  Legends, souldew+ members, Supporters and everyone who bought a coffee – each in their own banner and frame, with how
+  many support souldew right now. It updates by itself every minute while you look at it, and someone new arrives with
+  a short “New: Lena joined the Legends 🏆”; offline it shows the last list with “as of …”. Nobody appears by name
+  unless they say so: a new supporter is asked once (“Yes, show me” / “No thanks”), and Settings › Account › Privacy has
+  “Show my name on the Thank you page” – everyone else is only counted.
 - **Your showcase, your way.** Pick the three trophies from a trophy cabinet (search, categories, rarities) and your
   most trusted Pokémon from your regulars – the lines your own runs relied on most, with how many teams they were on,
   their top level and how often they fell, plus a line in your own words. On your profile you choose how friends see

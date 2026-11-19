@@ -122,7 +122,8 @@ export function GuideView() {
   const [tab, setTab] = useState(route.params.tab || 'start');
   return html`<div class="stack-l">
     <div class="topbar"><h1>${t('guide.title', 'Help')}</h1>
-      <button class="btn small ghost" onClick=${() => dispatchEvent(new Event(WHATS_NEW_EVENT))}><${Icon} name="star" size=${14} />${t('wn.open', 'What’s new in 3.0')}</button></div>
+      <div class="row tight"><a class="btn small ghost" href="#/thanks"><${Icon} name="heart" size=${14} />${t('thanks.open', 'Thank you')}</a>
+      <button class="btn small ghost" onClick=${() => dispatchEvent(new Event(WHATS_NEW_EVENT))}><${Icon} name="star" size=${14} />${t('wn.open', 'What’s new in 3.0')}</button></div></div>
     <div class="tabs" role="tablist" data-pad-tabs>
       ${[['start', t('guide.start', 'Getting started')], ['keys', t('guide.keys', 'Controls & shortcuts')], ['faq', t('guide.faq', 'Questions')]]
         .map(([k, l]) => html`<button role="tab" aria-selected=${tab === k} class=${tab === k ? 'on' : ''} onClick=${() => setTab(k)}>${l}</button>`)}

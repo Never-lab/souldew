@@ -134,6 +134,7 @@ export function AboutSection({ cfg, status, save }) {
           <button class="btn small" onClick=${() => openExternal(LINKS.github)}><${Icon} name="external" size=${14} />${t('set.github', 'souldew on GitHub')}</button>
           <button class="btn small" onClick=${() => openExternal(LINKS.issues)}><${Icon} name="external" size=${14} />${t('set.reportBug', 'Report a bug')}</button>
           <button class="btn small" onClick=${() => openExternal(LINKS.coffee)}><${Icon} name="coffee" size=${14} />${t('rail.coffee', 'Buy me a coffee')}</button>
+          <a class="btn small" href="#/thanks"><${Icon} name="heart" size=${14} />${t('thanks.who', 'Who supports souldew')}</a>
         </div>
       </div><//>
       <${Item} id="nag"><${Check} checked=${cfg.nagOff !== true} onChange=${(v) => save({ nagOff: !v })}
