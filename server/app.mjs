@@ -2027,12 +2027,16 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       if (stateBytes.length > MAX_STATE) throw httpError(413, 'The save state is too large', 'saveTooLarge');
     }
     const savePath = defaultSavePath(manifest, local);
+    // the save as it was before the session: what a session that falls out of step goes back to (/api/link/restore).
+    // Read before the session starts – and a rejoin (the session's state given) keeps the one its session began with:
+    // the save on disk holds the session's own in-game saves by then
+    const earlier = stateBytes && savePath ? [native.current, native.lastLink].find((c) => c?.link && c.preLinkFor && sameFile(c.preLinkFor, savePath)) : null;
+    const preLink = stateBytes ? earlier?.preLink || null : savePath && existsSync(savePath) ? readFileSync(savePath) : null;
     const id = await native.startLink({
       host: linkTool(), system, seats: out, local: localIndex, delay, rtc, key: `${manifest.id}:${local}`, state: stateBytes,
       saveFile: savePath ? { path: savePath, runId: manifest.id } : null,
     });
-    // the save as it was before the session: what a session that fell out of step goes back to (/api/link/restore)
-    native.current.preLink = savePath && existsSync(savePath) ? readFileSync(savePath) : null;
+    Object.assign(native.current, { preLink, preLinkFor: savePath || null });
     return { id, system, local: localIndex, seats: seats.length };
   });
   // A session that fell out of step: the run's save goes back to what it was before the session (both players do it,
@@ -2042,6 +2046,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const manifest = linkManifest(runId);
     const p = slotsOf(manifest).includes(slot) ? defaultSavePath(manifest, slot) : null;
     if (!p) throw httpError(400, 'Invalid seat', 'linkSeats'); // (checked before the session is stopped)
+    // (only the save the session played: another run's or player's never gets this session's earlier save)
+    const own = native.current?.id === id ? native.current : native.lastLink?.id === id ? native.lastLink : null;
+    if (own && own.preLinkFor && !sameFile(own.preLinkFor, p)) throw httpError(400, 'Invalid seat', 'linkSeats');
     const sess = native.linkRestore(id);
     if (!sess) throw httpError(404, 'No link session', 'noNativeSession');
     let backup = null;
