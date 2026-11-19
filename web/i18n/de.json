@@ -4156,5 +4156,11 @@
   "set.backupHint": "Der Ordner „{name}“ liegt in „backups“ neben deinen Daten. souldew fasst ihn nie wieder an – lösch ihn, sobald du sicher bist, dass du ihn nicht brauchst.",
   "set.backupMade": "Vor dem ersten Start hat souldew 3.0 deine Runs, Spielstände, Savestates, Einstellungen und Trophäen gesichert ({size}, {date}) – nicht deine Spiele, die bleiben, wo sie sind.",
   "set.backupNoSpace": "souldew hat vor 3.0 kein Backup angelegt: Auf der Festplatte waren {free} frei, das Backup braucht {need} und lässt Platz für deine Spiele. Deine Daten sind unverändert – aus Platzmangel wurde nichts geändert.",
-  "set.backupOpen": "Backup-Ordner öffnen"
+  "set.backupOpen": "Backup-Ordner öffnen",
+  "play.ffScaleTitle": "Die 3DS-Auflösung bremst das Vorspulen",
+  "play.ffScaleShort": "Turbo ≈{n}× von {set}×",
+  "play.ffScaleWhy": "Dieses Spiel wird in {scale}-facher Auflösung gezeichnet, und beim Vorspulen kostet jedes Bild die Grafikkarte entsprechend mehr: Sie schafft etwa {n}× statt {set}×. Stell die Auflösung unter Einstellungen › Spielen › 3DS-Auflösung niedriger, dann wird der Turbo schneller – das gilt ab dem nächsten Start des Spiels.",
+  "play.ffScaleNever": "Nicht mehr anzeigen",
+  "set.ctrFfHint": "Sag mir, wenn sie das Vorspulen bremst",
+  "set.ctrFfHintHint": "Auf manchen Grafikkarten bleibt der Turbo in 2× oder 3× deutlich unter der gewählten Geschwindigkeit – die Spielansicht sagt das dann, höchstens einmal pro Start von souldew."
 }

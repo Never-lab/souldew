@@ -4,7 +4,7 @@
 // covers the game and nothing hides by itself: the player folds it to a slim strip (button, ⌘I / Ctrl+I – remembered
 // on this computer), the strip still shows what matters (a battle, the level cap, who is online) and brings it back.
 // Also here: the "something happened" card over the top of the game (useAttention) and the compact notice that this
-// computer can't keep full speed (SlowChip).
+// computer can't keep full speed (SlowChip), and the one that the 3DS resolution holds back fast-forward (FfScaleChip).
 import { html, useState, useEffect, useRef, useCallback } from '/vendor/htm-preact.mjs';
 import { useApp, Led } from '../lib/ui.mjs';
 import { Icon } from '../lib/icons.mjs';
@@ -214,8 +214,8 @@ export function AttentionCard({ attn, onShow }) {
  * fast it really runs; "Why?" opens what causes it and what helps – the fast player, the melonDS app for DS games,
  * another graphics backend, power settings. Closable.
  */
-export function SlowChip({ slow, isDs, native, onClose }) {
-  const { navigate, status } = useApp();
+/** The chip's details pop: open / closed, closing on a click outside or Esc. */
+function usePop() {
   const [open, setOpen] = useState(false);
   const wrap = useRef(null);
   useEffect(() => {
@@ -229,6 +229,38 @@ export function SlowChip({ slow, isDs, native, onClose }) {
       removeEventListener('keydown', esc);
     };
   }, [open]);
+  return [open, setOpen, wrap];
+}
+
+/**
+ * A 3DS game drawn at 2× or 3× whose fast-forward stays clearly below the speed asked for (lib/ffhint.mjs, ticket #30):
+ * the same compact chip as SlowChip, once per app session. "Open Settings" goes to Settings › Play › 3DS resolution;
+ * nothing is changed by itself. `hint`: { target, reached, scale }.
+ */
+export function FfScaleChip({ hint, onClose, onNever }) {
+  const { navigate } = useApp();
+  const [open, setOpen, wrap] = usePop();
+  const title = t('play.ffScaleTitle', 'Fast-forward is held back by the 3DS resolution');
+  return html`<div class="slow-chip-wrap" ref=${wrap}>
+    <div class="slow-chip" role="status">
+      <${Icon} name="signal" size=${14} />
+      <button class="slow-chip-main" aria-expanded=${open} aria-haspopup="dialog" title=${title}
+        onClick=${() => setOpen(!open)}>${t('play.ffScaleShort', 'Fast-forward ≈{n}× of {set}×', { n: hint.reached, set: hint.target })} · <u>${t('play.slowWhyShort', 'Why?')}</u></button>
+      <button class="ps-btn" title=${t('common.close', 'Close')} aria-label=${t('common.close', 'Close')} onClick=${onClose}><${Icon} name="close" size=${12} /></button>
+    </div>
+    ${open && html`<div class="note slow-note slow-pop" role="dialog" aria-label=${title}>
+      <b>${title}</b>
+      <span class="small">${t('play.ffScaleWhy', 'This game is drawn at {scale}× resolution, and in fast-forward every frame costs the graphics card that much more: it reaches about {n}× instead of {set}×. Lower the resolution in Settings › Play › 3DS resolution for faster fast-forward – it applies the next time you start the game.', { scale: hint.scale, n: hint.reached, set: hint.target })}</span>
+      <div class="row"><button class="btn small" onClick=${() => navigate('settings', settingsLink('ctr-scale'))}><${Icon} name="gear" size=${14} />${t('play.slowSettings', 'Open Settings')}</button>
+        <button class="btn small ghost" data-pad-back onClick=${() => { setOpen(false); onClose(); }}>${t('play.slowOk', 'Got it')}</button>
+        <button class="btn small ghost" onClick=${() => { setOpen(false); onNever(); }}>${t('play.ffScaleNever', 'Don’t show again')}</button></div>
+    </div>`}
+  </div>`;
+}
+
+export function SlowChip({ slow, isDs, native, onClose }) {
+  const { navigate, status } = useApp();
+  const [open, setOpen, wrap] = usePop();
   const backend = GPU_LABELS()[status?.config?.gpuBackend || 'auto'] || status?.config?.gpuBackend;
   const melon = status?.emulators?.melonds;
   const tip = {

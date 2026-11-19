@@ -182,6 +182,11 @@ Plus a new play view that gives the game the room it deserves.
   rows of pixels at odd sizes. Settings › Play › “Whole pixels only” snaps to exact multiples instead, when that
   costs at most about 15 % of the picture. Touch on the DS and 3DS bottom screen lands on the same spot in every
   layout and size; the 3DS menu's “Smooth picture” still smooths everything.
+- **When the 3DS resolution holds back fast-forward, the play view says so.** At 2× or 3× some graphics cards fall
+  well short of the fast-forward speed you picked (a player's 4× reached only 1.1–3.3× at 3×, with gaps in the
+  sound). When fast-forward stays below 70 % of it for about 10 seconds, a small note in the dock says how fast it
+  really runs and opens Settings › Play › 3DS resolution – once per start of souldew, with “Don't show again” and a
+  switch next to the resolution to bring it back. souldew never lowers the resolution by itself.
 - **The Game Boy look.** The fast player now runs Game Boy and Game Boy Color games on SameBoy – the emulator the link
   sessions use. New in Settings › Play › “Game Boy look”: Red, Blue, Yellow and the other Game Boy games on the
   original Game Boy with its green screen (the default), or in the colours a Game Boy Color gives them; Gold, Silver

@@ -4156,5 +4156,11 @@
   "set.backupHint": "La carpeta «{name}» está en «backups», junto a tus datos. souldew no vuelve a tocarla: bórrala cuando estés seguro de que no la necesitas.",
   "set.backupMade": "Antes de su primer inicio, souldew 3.0 hizo una copia de seguridad de tus runs, partidas guardadas, estados guardados, ajustes y trofeos ({size}, {date}); no de tus juegos, que siguen donde están.",
   "set.backupNoSpace": "souldew no hizo una copia de seguridad antes de la 3.0: el disco tenía {free} libres, la copia necesita {need} y deja sitio para tus juegos. Tus datos siguen como estaban: no se cambió nada por falta de espacio.",
-  "set.backupOpen": "Abrir carpeta de la copia"
+  "set.backupOpen": "Abrir carpeta de la copia",
+  "play.ffScaleTitle": "La resolución de 3DS frena el avance rápido",
+  "play.ffScaleShort": "Turbo ≈{n}× de {set}×",
+  "play.ffScaleWhy": "Este juego se dibuja a resolución {scale}×, y en avance rápido cada imagen le cuesta a la tarjeta gráfica mucho más: alcanza unos {n}× en lugar de {set}×. Baja la resolución en Ajustes › Jugar › Resolución de 3DS para un avance rápido más rápido; se aplica la próxima vez que inicies el juego.",
+  "play.ffScaleNever": "No volver a mostrar",
+  "set.ctrFfHint": "Avisarme cuando frene el avance rápido",
+  "set.ctrFfHintHint": "En algunas tarjetas gráficas, el turbo a 2× o 3× se queda muy por debajo de la velocidad elegida; la vista de juego lo indica entonces, como mucho una vez cada vez que se inicia souldew."
 }

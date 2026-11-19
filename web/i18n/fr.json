@@ -4156,5 +4156,11 @@
   "set.backupHint": "Le dossier « {name} » se trouve dans « backups » à côté de tes données. souldew n’y touche plus jamais – supprime-le quand tu es sûr de ne plus en avoir besoin.",
   "set.backupMade": "Avant son premier lancement, souldew 3.0 a sauvegardé tes runs, sauvegardes, états de sauvegarde, paramètres et trophées ({size}, {date}) – pas tes jeux, qui restent où ils sont.",
   "set.backupNoSpace": "souldew n’a pas fait de sauvegarde avant la 3.0 : le disque avait {free} de libre, la sauvegarde a besoin de {need} et laisse de la place pour tes jeux. Tes données sont restées telles quelles – rien n’a été modifié faute de place.",
-  "set.backupOpen": "Ouvrir le dossier de sauvegarde"
+  "set.backupOpen": "Ouvrir le dossier de sauvegarde",
+  "play.ffScaleTitle": "La résolution 3DS freine l’avance rapide",
+  "play.ffScaleShort": "Turbo ≈{n}× sur {set}×",
+  "play.ffScaleWhy": "Ce jeu est affiché en résolution {scale}×, et en avance rapide chaque image demande d’autant plus à la carte graphique : elle atteint environ {n}× au lieu de {set}×. Baisse la résolution dans Réglages › Jouer › Résolution 3DS pour une avance rapide plus rapide – cela s’applique au prochain lancement du jeu.",
+  "play.ffScaleNever": "Ne plus afficher",
+  "set.ctrFfHint": "Me prévenir quand elle freine l’avance rapide",
+  "set.ctrFfHintHint": "Sur certaines cartes graphiques, le turbo en 2× ou 3× reste bien en dessous de la vitesse choisie – la vue de jeu le signale alors, au plus une fois par lancement de souldew."
 }

@@ -30,6 +30,7 @@ import { launchConfig, launchRightsNow } from '../lib/handheld/look.mjs';
 import { play as playCue } from '../lib/sound.mjs';
 import { addSample, typicalReach, offeredSteps, beyondReach, HELD } from '../lib/reach.mjs';
 import { SlowWatch, slowTips } from '../lib/slowdown.mjs';
+import { FfScaleWatch } from '../lib/ffhint.mjs';
 import { MissedTracker, openQuestions, queueQuestions, dropQuestion } from '../lib/missed.mjs';
 import { gpuBackends } from '/shared/gpu.mjs';
 import { CTR_LAYOUTS, ctrLayoutAspect } from '/shared/ctrlayout.mjs';
@@ -39,7 +40,7 @@ import { leadOf } from '/shared/worldicons.mjs';
 import { linkAllowed, linkedText, reasonText as linkReason, LINK_SYSTEMS, LinkBar, LINK_ASKS } from './linkplay.mjs';
 import { claimPad } from '../lib/padnav.mjs';
 import { dockSide, dockHeight, pictureFor, rightDockWidth, BAR_H, DOCK_W } from '../lib/playlayout.mjs';
-import { Dock, LiveStatus, SlowChip, AttentionCard, useAttention, useDockFold, useSize, revealIn } from './playdock.mjs';
+import { Dock, LiveStatus, SlowChip, FfScaleChip, AttentionCard, useAttention, useDockFold, useSize, revealIn } from './playdock.mjs';
 import { TURBO_AUDIO, TURBO_AUDIO_EVENT, readTurboAudio, writeTurboAudio } from './settings/play.mjs';
 import { settingsLink } from '../lib/settingsindex.mjs';
 import { shinyThreshold } from '/shared/shiny.mjs';
@@ -302,7 +303,7 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
  * you open another section: `mode` "full" fills the Play page, "mini" floats in the corner.
  */
 export function GameSession({ session, mode }) {
-  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, runData, linkSessions, linkPlay, linkStatus, library, wagerRef } = useApp();
+  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, reloadStatus, runData, linkSessions, linkPlay, linkStatus, library, wagerRef } = useApp();
   const payRef = useRef(null); // link battle wagers into this game (web/lib/wagerpay.mjs) – only the player's own run game
   const target = session.target;
   // the launch animation (Settings › Play › Launch animation) – what the membership allows at this moment (shared/
@@ -352,6 +353,7 @@ export function GameSession({ session, mode }) {
   const raidShownNow = useRaidShown(); // a raid to show in the dock (views/raid.mjs)
   const [confirmCheat, setConfirmCheat] = useState(null); // the cheat (CHEATS id) waiting for its yes
   const [slow, setSlow] = useState(null); // { reached, tips } – this computer can't hold full speed (lib/slowdown.mjs)
+  const [ffHint, setFfHint] = useState(null); // { target, reached, scale } – the 3DS resolution holds back fast-forward (lib/ffhint.mjs)
   // the cheats this game's bag can take (shared/live/cheats.mjs cheatsFor), comma-joined: a string, so setting the same
   // list again on every reading doesn't render anew
   const [cheatGame, setCheatGame] = useState('');
@@ -1468,6 +1470,42 @@ export function GameSession({ session, mode }) {
     return () => clearInterval(id);
   }, [phase, speed, speedGuard]);
 
+  // A 3DS game drawn at 2× or 3× whose fast-forward stays clearly below the speed asked for (support ticket #30: an RTX
+  // 2060 reached 1.1–3.3× of 4× at 3×, an AMD PC 3.99×): the play view says once per app session that the resolution
+  // holds it back and where to lower it (lib/ffhint.mjs) – the resolution itself is never changed. Measured on its own
+  // every 2 s from the host's frame count and the speed the page runs at (held Tab included), not the bar's state.
+  const ffHintOff = status?.config?.ctrFfHintOff === true;
+  useEffect(() => {
+    if (phase !== 'running' || target.system !== '3ds' || ffHintOff) return undefined;
+    const watch = new FfScaleWatch();
+    let last = null;
+    const id = setInterval(() => {
+      const e = emu();
+      const want = e?.speed?.();
+      if (!e?.ready || !e.frames || e.paused?.() || document.hidden || !(want > 1)) {
+        last = null;
+        watch.reset();
+        return;
+      }
+      const now = { f: e.frames(), t: performance.now(), want };
+      if (last && now.t > last.t && last.want === want) {
+        const reached = (now.f - last.f) / ((now.t - last.t) / 1000) / 60;
+        const hit = watch.add({ at: now.t, target: want, reached, scale: e.scale?.() ?? 1 });
+        if (hit) {
+          setFfHint(hit);
+          diag('perf', { type: 'ffScale', ...hit, renderer: e.perf?.()?.renderer ?? null });
+        }
+      }
+      last = now;
+    }, 2000);
+    return () => clearInterval(id);
+  }, [phase, ffHintOff]);
+  const ffHintNever = () => {
+    setFfHint(null);
+    api.post('/api/config', { ctrFfHintOff: true }).then(() => reloadStatus?.()).catch(() => {});
+    focusGame();
+  };
+
   // Diagnostics: the sound card and the pacing once, then every 10 s what the game really did (speed reached, display
   // rate, drop-outs in the sound, the longest gap between frames) – a report about crackling or slow-down then shows why.
   useEffect(() => {
@@ -1933,6 +1971,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
     <button class="btn icon ghost" title=${t('play.close', 'Close game')} aria-label=${t('play.close', 'Close game')} onClick=${actions.close}><${Icon} name="close" size=${14} /></button>`;
   const placeEl = html`
     ${slow && html`<${SlowChip} slow=${slow} isDs=${isDs} native=${nativeOn} onClose=${() => { setSlow(null); focusGame(); }} />`}
+    ${ffHint && html`<${FfScaleChip} hint=${ffHint} onClose=${() => { setFfHint(null); focusGame(); }} onNever=${ffHintNever} />`}
     <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
     ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}`;
   const battleEl = battle?.enemy && html`<${BattlePanel} battle=${battle} mine=${myParty} gen=${gameGen} game=${liveGame} isRun=${isRun}
@@ -1966,7 +2005,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
   // a raid (views/raid.mjs): first in the dock while there is one to show – the invite, the pool, the result
   const raidSec = raidShown && { id: 'raid', label: t('raid.title', 'Raid'), icon: 'bolt', node: html`<${RaidDock} species=${battle?.kind === 'trainer' ? battle.enemy?.species : null} gen=${gameGen} />`, dot: raidShown.asks ? 'warn' : 'live' };
   const placeSec = { id: 'place', label: t('dock.place', 'Place and rules'), icon: 'map', node: placeEl,
-    dot: capNow?.state === 'over' ? 'bad' : capNow?.state === 'at' || capNow?.state === 'near' || slow ? 'warn' : '' };
+    dot: capNow?.state === 'over' ? 'bad' : capNow?.state === 'at' || capNow?.state === 'near' || slow || ffHint ? 'warn' : '' };
   const sections = [
     raidSec,
     ...(side === 'bottom' ? [placeSec, linkSec] : [linkSec, placeSec]),

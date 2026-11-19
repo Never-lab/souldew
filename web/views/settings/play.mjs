@@ -62,6 +62,9 @@ function CtrScaleSetting({ cfg, save }) {
       <select value=${value} onChange=${(e) => save({ ctrScale: Number(e.target.value) })}>
         ${[1, 2, 3].map((n) => html`<option value=${n}>${labels[n]}</option>`)}</select></label>
     <span class="small faint">${t('set.ctrScaleHint', 'Draws the 3DS games at two or three times their own resolution – sharper and less pixelated, but more work for the graphics card. Applies to the next 3DS game you start. The Software renderer always plays at 1×, and so does the automatic step down after a crash.')}</span>
+    <${Check} checked=${cfg.ctrFfHintOff !== true} onChange=${(v) => save({ ctrFfHintOff: !v })}
+      label=${t('set.ctrFfHint', 'Tell me when it slows down fast-forward')}
+      hint=${t('set.ctrFfHintHint', 'On some graphics cards fast-forward at 2× or 3× stays well below the speed you pick – the play view then says so, at most once each time souldew starts.')} />
   </div>`;
 }
 
