@@ -45,7 +45,7 @@ test('the mode: its own name, in the SoulLink section, a run for friends to the 
   assert.equal(S.runSection(m), 'soullink');
   assert.equal(S.runSection({ mode: 'nuzlocke' }), 'nuzlocke');
   assert.equal(S.runMode({ mode: 'weird' }), 'soullink', 'unknown modes stay SoulLinks, as before');
-  assert.equal(S.wireMode(m), 'soullink', 'the accounts service knows soullink and nuzlocke only');
+  assert.equal(S.wireMode(m), 'together', 'the accounts service takes together since 19 Nov 2026');
   assert.deepEqual(S.slotsOf(m), ['p1', 'p2']);
   assert.deepEqual(S.slotsOf({ mode: 'together', players: { p1: { name: 'Sam' } } }), ['p1', 'p2'], 'a partner who hasn’t joined yet');
   assert.equal(S.defaultRunName(m.players, 'together'), 'Sam & Tim – together');
@@ -157,8 +157,8 @@ test('games: what a player announces, cleaned on the way in; which library ROMs 
   assert.equal(PT.okLibraryId('a\u0000b'), false);
 });
 
-test('presence: a Play together game counts as free play for the bot (it refuses unknown modes)', () => {
-  assert.deepEqual(presenceOf({ system: 'gba', mode: 'together' }), { system: 'gba', mode: 'solo' });
+test('presence: a Play together game counts as together for the bot', () => {
+  assert.deepEqual(presenceOf({ system: 'gba', mode: 'together' }), { system: 'gba', mode: 'together' });
   assert.deepEqual(presenceOf({ system: 'gba', mode: 'soullink' }), { system: 'gba', mode: 'soullink' });
 });
 

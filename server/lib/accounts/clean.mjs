@@ -194,7 +194,7 @@ const SYSTEMS = ['gb', 'gba', 'nds', '3ds'];
 function cleanRunRef(v) {
   const o = obj(v);
   if (!o) return null;
-  return { name: cleanText(o.name, RUN_NAME_MAX), game: cleanText(o.game, 60), mode: oneOf(o.mode, ['soullink', 'nuzlocke'], 'soullink'), system: oneOf(o.system, SYSTEMS, null) };
+  return { name: cleanText(o.name, RUN_NAME_MAX), game: cleanText(o.game, 60), mode: oneOf(o.mode, ['soullink', 'nuzlocke', 'together'], 'soullink'), system: oneOf(o.system, SYSTEMS, null) };
 }
 
 /** A friend's presence (§5.3). Away / hidden friends come as { userId, state: 'offline' }. */
@@ -209,7 +209,7 @@ export function cleanPresence(v) {
   return {
     userId, state,
     game: g && (state === 'playing' || state === 'in_run') ? { title: cleanText(g.title, 60), system: oneOf(g.system, SYSTEMS, null) } : null,
-    run: r && state === 'in_run' ? { name: cleanText(r.name, RUN_NAME_MAX), mode: oneOf(r.mode, ['soullink', 'nuzlocke'], 'soullink'), freeSlot: r.free_slot === true, joinable: r.joinable === true } : null,
+    run: r && state === 'in_run' ? { name: cleanText(r.name, RUN_NAME_MAX), mode: oneOf(r.mode, ['soullink', 'nuzlocke', 'together'], 'soullink'), freeSlot: r.free_slot === true, joinable: r.joinable === true } : null,
     location: cleanText(o.location, 40) || null,
     updatedAt: time(o.updated_at),
   };

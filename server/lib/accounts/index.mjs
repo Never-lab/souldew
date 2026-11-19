@@ -368,7 +368,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   function setReport(b) {
     const state = oneOf(b.state, ['online', 'library', 'playing', 'in_run'], 'online');
     const g = b.game && typeof b.game === 'object' ? { title: withoutFileNames(b.game.title, 60), system: presenceSystem(b.game.system) } : null;
-    const r = b.run && typeof b.run === 'object' ? { name: withoutFileNames(b.run.name, RUN_NAME_MAX), mode: oneOf(b.run.mode, ['soullink', 'nuzlocke'], 'soullink'), free_slot: b.run.freeSlot === true, joinable: b.run.joinable === true } : null;
+    const r = b.run && typeof b.run === 'object' ? { name: withoutFileNames(b.run.name, RUN_NAME_MAX), mode: oneOf(b.run.mode, ['soullink', 'nuzlocke', 'together'], 'soullink'), free_slot: b.run.freeSlot === true, joinable: b.run.joinable === true } : null;
     const next = { state, game: g?.title && g.system ? g : null, run: r?.name ? r : null, location: withoutFileNames(b.location, 40) || null };
     if (next.state === 'in_run' && !next.run) next.state = next.game ? 'playing' : 'online';
     if (next.state === 'playing' && !next.game) next.state = 'online';
@@ -940,7 +940,7 @@ function idOf(v) {
 /** A run as an invite names it (§6.2): name, game, mode, system – nothing that identifies the run itself. */
 function runRef(v) {
   const o = v && typeof v === 'object' ? v : {};
-  const out = { name: withoutFileNames(o.name, RUN_NAME_MAX) || 'Run', game: withoutFileNames(o.game, 60) || 'Game', mode: oneOf(o.mode, ['soullink', 'nuzlocke'], 'soullink') };
+  const out = { name: withoutFileNames(o.name, RUN_NAME_MAX) || 'Run', game: withoutFileNames(o.game, 60) || 'Game', mode: oneOf(o.mode, ['soullink', 'nuzlocke', 'together'], 'soullink') };
   const sys = presenceSystem(o.system);
   if (sys) out.system = sys;
   return out;

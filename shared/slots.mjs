@@ -24,10 +24,10 @@ export const isTogether = (manifest) => runMode(manifest) === 'together';
 export const isChallenge = (manifest) => runMode(manifest) !== 'together';
 
 /**
- * A run's mode as the souldew accounts service takes it (friend presence, friend invites): 'soullink' | 'nuzlocke' –
- * the service refuses anything else, so a Play together (a run for friends) goes as 'soullink'.
+ * A run's mode as the souldew accounts service takes it (friend presence, friend invites, recent runs):
+ * 'soullink' | 'nuzlocke' | 'together' (the service takes 'together' since 19 Nov 2026).
  */
-export const wireMode = (manifest) => (runMode(manifest) === 'nuzlocke' ? 'nuzlocke' : 'soullink');
+export const wireMode = (manifest) => runMode(manifest);
 
 /** The app section a run lives in (its route): Play together runs are in the SoulLink section, next to the SoulLinks. */
 export const runSection = (manifest) => (runMode(manifest) === 'nuzlocke' ? 'nuzlocke' : 'soullink');
