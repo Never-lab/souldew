@@ -16,7 +16,8 @@ import { PlusMark } from '../lib/cosmetics/components.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { previewSrc, usePreviews } from '../lib/cosmetics/previews.mjs';
 import { WRAPS, STICKERS, UNLOCKS, wrapById, devKey, playableLookFor, launchLook } from '/shared/handheld.mjs';
-import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick, useLaunchRights, ownedLook } from '../lib/handheld/look.mjs';
+import { showcaseSkin, showcaseState } from '../lib/handheld/pluspicks.mjs';
+import { useHandheld, setHandheld, handheldStill, launchConfig, poseScene, viewPlan, isFold, useCosmeticsTick, useLaunchRights, ownedLook, sceneWrap, previewWrap } from '../lib/handheld/look.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { atlasNow, loadAtlas } from '../lib/handheld/stickers.mjs';
 import { wrapThumb } from '../lib/handheld/wrap.mjs';
@@ -24,7 +25,7 @@ import { wrapThumb } from '../lib/handheld/wrap.mjs';
 const DEV = ['gba', 'nds', '3ds', 'gb'];
 
 /** A still of your handheld as an <img> (cached per look while the app runs). */
-export function HandheldStillImg({ sys, look, skin, stickers, w, h, view, zoom, class: cls = '' }) {
+export function HandheldStillImg({ sys, look, skin, stickers, w, h, view, zoom, cartLook, clear, class: cls = '' }) {
   useCosmeticsTick();
   const box = useRef(null);
   const [url, setUrl] = useState(null);
@@ -32,9 +33,9 @@ export function HandheldStillImg({ sys, look, skin, stickers, w, h, view, zoom, 
   useEffect(() => { let a = true; loadAtlas().then((x) => a && setAtlas(x), () => {}); return () => { a = false; }; }, [packState().entitled]);
   useEffect(() => {
     let alive = true;
-    handheldStill({ sys, look, skin, stickers, w, h, el: box.current, view, zoom }).then((u) => alive && setUrl(u), () => {});
+    handheldStill({ sys, look, skin, stickers, w, h, el: box.current, view, zoom, cartLook, clear }).then((u) => alive && setUrl(u), () => {});
     return () => { alive = false; };
-  }, [sys, look, skin, JSON.stringify(stickers), w, h, view, packState().entitled, atlasNow() ? 1 : 0]);
+  }, [sys, look, skin, JSON.stringify(stickers), w, h, view, cartLook, clear, packState().entitled, atlasNow() ? 1 : 0]);
   return html`<span class=${`hh-still ${cls}`} ref=${box}>${url ? html`<img src=${url} alt="" draggable="false" />` : html`<span class="hh-still-wait"></span>`}</span>`;
 }
 
@@ -64,37 +65,48 @@ export function HandheldTile({ system }) {
   </button>`;
 }
 
-/** The souldew+ page's featured section: your device turning slowly, the way into the editor, Surprise me. */
+/** The souldew+ page's featured section: your device turning slowly – put any skin on it, the way into the editor. */
 export function HandheldShowcase() {
   useCosmeticsTick();
   usePreviews();
-  const { navigate, status } = useApp();
+  const { navigate } = useApp();
   const doc = useHandheld();
   const R = useLaunchRights();
   const member = R.plus;
   const [sys, setSys] = useState('nds');
   const box = useRef(null), cvs = useRef(null);
-  const L = launchConfig(status?.config);
-  // free: the showcase wears the theme colour and the free look (their kept handheld waits for a membership);
-  // Supporter / souldew+: their own handheld as the launch plays it
-  const look = R.three ? launchLook(playableLookFor(L.look, R)).look : 'theme';
-  const plays = R.three ? ownedLook(doc, R) : { skin: null, stickers: {} };
-  const stickers = plays.stickers[sys] || [];
+  // Supporter / souldew+: their own stickers on it; free: a clean device (their kept handheld waits for a membership)
+  const own = R.three ? ownedLook(doc, R) : { skin: null, stickers: {} };
+  const worn = own.skin;
+  const [pick, setPick] = useState(() => showcaseSkin(worn));
+  const stickers = own.stickers[sys] || [];
+  // a skin this account can't draw (a souldew+ one without the pack): its public preview picture on the device
+  const real = !pick || !!sceneWrap(pick);
+  const [prev, setPrev] = useState(null); // { id, data } – data: previewWrap() or null (no picture)
+  useEffect(() => {
+    if (real) return undefined;
+    let alive = true;
+    previewWrap(pick).then((d) => alive && setPrev({ id: pick, data: d }));
+    return () => { alive = false; };
+  }, [pick, real, previewSrc('wraps', pick || '')]);
+  const preview = !real && prev?.id === pick ? prev.data : null;
+  const drawn = real ? pick : preview ? pick : null; // what the device wears on screen
   useEffect(() => {
     let alive = true, scene = null, raf = 0, io = null, seen = true;
     const reduced = prefersReduced();
     const fold = isFold(sys);
     const yaw = { v: fold ? -10 : -24 };
     const cv = document.createElement('canvas'); // one per build (a WebGL context belongs to its canvas)
-    cvs.current.replaceChildren(cv);
     (async () => {
       const b = box.current.getBoundingClientRect();
-      const r = await poseScene(cv, { sys, look, skin: plays.skin, w: Math.round(b.width), h: Math.round(b.height), el: box.current, reduced, clear: L.clear,
+      // the skins are the point here: always "Your colours" (a Gold or Clear shell takes no skin)
+      const r = await poseScene(cv, { sys, look: 'theme', skin: real ? pick : null, preview: real ? null : preview, w: Math.round(b.width), h: Math.round(b.height), el: box.current, reduced,
         plan: () => viewPlan(sys, fold ? 'lid' : 'back', { yaw: yaw.v, tilt: fold ? 4 : 2, zoom: 1.45 }) });
       scene = r.scene;
       if (!alive) { scene.dispose(); return; }
       scene.setStickers(placeLayout(stickers, scene.regions(), r.atlas?.rects || {}));
       scene.render(0);
+      cvs.current?.replaceChildren(cv); // the new build takes the old one's place once it has drawn (no blank frame)
       if (reduced) return;
       io = new IntersectionObserver((es) => { seen = es.some((e) => e.isIntersecting); });
       io.observe(box.current);
@@ -108,18 +120,33 @@ export function HandheldShowcase() {
       raf = requestAnimationFrame(tick);
     })().catch(() => {});
     return () => { alive = false; cancelAnimationFrame(raf); io?.disconnect(); scene?.dispose(); };
-  }, [sys, look, plays.skin, JSON.stringify(stickers), packState().entitled, L.clear]);
-  const skins = WRAPS.map((w) => ({ ...w, pic: wrapThumb(w.id) || previewSrc('wraps', w.id) }));
+  }, [sys, drawn, real ? 1 : 0, preview, JSON.stringify(stickers), packState().entitled]);
+  const skins = [{ id: null, name: t('hh.themeColourCap', 'Theme colour'), tier: 'free', finish: 'theme', pic: null }, ...WRAPS.map((w) => ({ ...w, pic: wrapThumb(w.id) || previewSrc('wraps', w.id) }))];
+  const cur = skins.find((x) => x.id === (pick || null)) || skins[0];
+  const st = showcaseState(cur.id, R, worn);
+  const plusPreview = cur.tier === 'plus' && !member;
   const nPlus = STICKERS.filter((s) => s.tier === 'plus').length;
+  const wear = () => setHandheld({ ...doc, skin: cur.id || null });
   return html`<section class="plus-sec hh-show" aria-label=${t('hh.title', 'Your handheld')}>
     <div class="hh-show-stage" ref=${box}><span class="hh-show-cv" ref=${cvs}></span>
+      ${plusPreview && html`<span class="hh-show-badge" role="status"><${PlusMark} title="" />${t('hh.showPreview', 'souldew+ · preview')}</span>`}
       <div class="hh-devs hh-show-devs" role="tablist" aria-label=${t('hh.device', 'Handheld')}>${DEV.map((id) => html`<button type="button" role="tab" aria-selected=${sys === id}
         class=${`hh-dev ${sys === id ? 'on' : ''}`} onClick=${() => setSys(id)}>${{ gba: 'GBA', nds: 'DS', '3ds': '3DS', gb: 'GB' }[id]}</button>`)}</div></div>
     <div class="hh-show-text stack-s">
       <span class="plus-kicker">${t('hh.showK', 'Your handheld')}</span>
       <h2>${t('hh.showT', 'Dress the device your games start on')}</h2>
-      <p class="small muted">${t('hh.showP2', 'The 3D launch animation plays on your own souldew handheld. Wrap it in a skin made from a banner, stick on up to 8 stickers per device – holo, glitter, over the edges – and save designs. Only you see it.')}</p>
-      <div class="hh-show-skins" aria-label=${t('hh.skins', 'Skins')}>${skins.map((w) => html`<span class=${`hh-show-skin ${w.finish}`} title=${w.name} style=${w.pic ? `background-image:url(${w.pic})` : ''}>${w.tier === 'free' && html`<i>${t('hh.free', 'free')}</i>`}</span>`)}</div>
+      <p class="small muted">${t('hh.showP3', 'The 3D launch animation plays on your own souldew handheld. Wrap it in a skin, stick on up to 8 stickers per device and save designs. Only you see it. Pick a skin to see it on the device.')}</p>
+      <div class="hh-show-skins" role="radiogroup" aria-label=${t('hh.skins', 'Skins')}>${skins.map((w) => html`<button type="button" role="radio" key=${w.id || 'theme'} aria-checked=${w === cur}
+        aria-label=${`${w.name}${w.tier === 'plus' ? ` · ${t('cos.plus', 'souldew+')}` : ''}`} title=${w.name}
+        class=${`hh-show-skin ${w.finish} ${w === cur ? 'on' : ''} ${w.id ? '' : 'theme'}`} style=${w.pic ? `background-image:url(${w.pic})` : ''} onClick=${() => setPick(w.id)}>
+        ${w.tier === 'plus' && !member ? html`<span class="hh-show-skin-m"><${PlusMark} title="" /></span>` : w.tier === 'free' && w.id ? html`<i>${t('hh.free', 'free')}</i>` : null}</button>`)}</div>
+      <div class="hh-show-cur" aria-live="polite"><b>${cur.name}</b>
+        <span class="small muted">${st === 'yours' ? t('hh.showWorn', 'on your handheld now')
+          : plusPreview ? (preview || real ? t('hh.showPlusSkin', 'a souldew+ skin – this is a preview, nothing changes on your handheld') : t('hh.showNoPreview', 'a souldew+ skin – its preview can’t be loaded right now'))
+            : !cur.id ? t('hh.showTheme', 'your theme’s accent colour, no skin')
+              : cur.tier === 'free' ? t('hh.showFreeSkin', 'free with Supporter and souldew+') : t('hh.showYours', 'yours with souldew+')}</span>
+        ${st === 'owned' && html`<button type="button" class="btn small" onClick=${wear}>${t('hh.showWear', 'Put it on my handheld')}</button>`}
+        ${plusPreview && html`<button type="button" class="btn small ghost" onClick=${() => document.getElementById('plus-tiers')?.scrollIntoView({ behavior: prefersReduced() ? 'auto' : 'smooth' })}>${t('hh.showGet', 'Get souldew+')}</button>`}</div>
       <span class="small faint">${t('hh.showCounts', '{skins} skins · {stickers} stickers · {earned} you can only earn', { skins: WRAPS.length, stickers: STICKERS.length, earned: UNLOCKS.length })}${member ? '' : ` · ${t('hh.showPlus', '{n} stickers, 6 skins and holo / glitter come with souldew+', { n: nPlus })}`}</span>
       ${R.three ? html`<div class="row hh-show-btns"><button type="button" class="btn primary" onClick=${() => navigate('handheld', { sys })}>${t('hh.dress', 'Dress your handheld')}</button>
         ${R.surprise && html`<label class="check small"><input type="checkbox" checked=${!!doc.surprise} disabled=${doc.designs.length < 2} onChange=${(e) => setHandheld({ ...doc, surprise: e.target.checked })} />

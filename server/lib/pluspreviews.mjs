@@ -16,8 +16,8 @@ import { manifestSigned } from './pluspack.mjs';
 import { writeFileAtomic, httpError } from './fsutil.mjs';
 import { accountsBase } from './accounts/contract.mjs';
 
-// launch/: the 2D launch animations' pictures of an older previews pack – gone from the app, still accepted so such a
-// pack isn't refused as a whole (nothing shows them)
+// launch/: the 3D launch looks' still and loop (your-colours, gold, holo, clear-shell-<colour> – the souldew+ page's launch
+// cards, views/launchlooks.mjs); an older pack's 2D launch pictures there are simply never asked for
 export const PREVIEWS_PATH_RE = /^(banners|nameplates|frames|launch|skins|stickers|wraps)\/[a-z0-9][a-z0-9-]{0,47}\.(png|webp)$/;
 export const PREVIEW_FILE_MAX = 512 * 1024;
 const MANIFEST_MAX = 1024 * 1024;

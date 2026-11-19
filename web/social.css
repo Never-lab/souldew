@@ -54,6 +54,24 @@
 .rail-me b { font-family: var(--font-pixel); font-weight: 500; color: var(--ink); }
 .rail-me:hover, .rail-me[aria-current='page'] { background: var(--shell-3); }
 .rail-me > .stack-s { min-width: 0; }
+/* signed out: the same chip as a button – "Sign in" with the Discord mark where the picture sits (app.mjs RailSignIn) */
+.rail-signin-wrap { position: relative; display: flex; min-width: 0; }
+button.rail-me.rail-signin { flex: 1; width: 100%; font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; transition: border-color .15s, background-color .15s; }
+button.rail-me.rail-signin:hover { border-color: var(--edge); }
+button.rail-me.rail-signin:focus-visible, .rail-signin-x:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+button.rail-me.rail-signin:disabled { cursor: progress; opacity: .8; }
+.rail-signin .tiny { color: var(--ink-3); }
+.rail-signin-mark { flex: none; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 28%; background: #5865f2; color: #fff;
+  box-shadow: inset 0 1px 0 #ffffff30, inset 0 -1px 0 #0003; }
+.rail-signin-mark svg { display: block; }
+.rail-signin-wrap.pending button.rail-me.rail-signin { padding-right: 34px; }
+.rail-signin-wrap.pending .rail-signin-mark { animation: rail-signin-wait 1.6s ease-in-out infinite; }
+@keyframes rail-signin-wait { 50% { opacity: .55; } }
+.rail-signin-x { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0;
+  border-radius: 7px; background: none; color: var(--ink-3); cursor: pointer; }
+.rail-signin-x:hover { color: var(--ink); background: var(--lt-hover, #ffffff10); }
+@media (prefers-reduced-motion: reduce) { .rail-signin-wrap.pending .rail-signin-mark { animation: none; } }
+@media (max-width: 860px) { .rail-signin-wrap { flex: none; } button.rail-me.rail-signin { padding: 5px 9px; } .rail-signin-mark { width: 24px; height: 24px; } }
 
 /* ---- Friends ---- */
 .fr-search { flex: 0 1 300px; margin-left: 0; }

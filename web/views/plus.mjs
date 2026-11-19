@@ -6,9 +6,8 @@
 // then the three tiers, what
 // stays free, where the money goes, what happens when you stop, and a few questions. Members get the thank-you
 // version. Every "Get souldew+" in the app leads here (lib/cosmetics/plus.mjs) – never a pop-up. Motion: the preview
-// loops play while hovered or focused (the hero card always), never with reduced motion. Every look listed here has
-// its favourite star (lib/favourites.mjs) – a wish list for later; the filters live in the pickers, where the full
-// lists are.
+// loops play while hovered or focused (the hero card always), never with reduced motion. No favourite stars here (owner,
+// 19.11.26): they belong where you choose your looks – the profile editor and the pickers, with their filters.
 import { html, useState } from '/vendor/htm-preact.mjs';
 import { t } from '../lib/i18n.mjs';
 import { Icon } from '../lib/icons.mjs';
@@ -22,10 +21,8 @@ import { PreviewPicture, usePreviews } from '../lib/cosmetics/previews.mjs';
 import { prefersReduced } from '../lib/cosmetics/motion.mjs';
 import { TIERS, CURATED, plusState, hasPlusLooks, isMember, heroLook, tierAction, curatedFrom, plusCounts, plusSkins, themeLook, themeVars } from '../lib/pluspage.mjs';
 import { TitlePlate, achTitle, Badges } from './social.mjs';
-import { FavScope } from '../lib/favourites.mjs';
 import { HandheldShowcase } from './handheldtile.mjs';
-import { LaunchTiers } from './launchtiers.mjs';
-import { useLaunchRights } from '../lib/handheld/look.mjs';
+import { LaunchLooks } from './launchlooks.mjs';
 
 const RARITY = () => ({ common: t('cos.rarity.common', 'Common'), rare: t('cos.rarity.rare', 'Rare'), epic: t('cos.rarity.epic', 'Epic'), legendary: t('cos.rarity.legendary', 'Legendary') });
 const dateOf = (ms) => (ms ? new Date(ms).toLocaleDateString(document.documentElement.lang || undefined, { day: 'numeric', month: 'long', year: 'numeric' }) : '');
@@ -122,7 +119,6 @@ function Themes({ skins, state, me, count, navigate }) {
   const k = skins.find((x) => x.id === cur) || skins[0];
   if (!k) return null;
   const look = themeLook(catalog(), k.id);
-  const known = catalog().skins.map((x) => x.id);
   const who = state.kind === 'signedOut' ? null : me;
   const action = hasPlusLooks(state)
     ? html`<button type="button" class="btn small go" onClick=${() => navigate('settings', settingsLink('skin'))}>${t('plus.useTheme', 'Use {name}', { name: k.name })}</button>`
@@ -134,8 +130,8 @@ function Themes({ skins, state, me, count, navigate }) {
     <div class="plus-tbox">
       <div class="plus-tside">
         <div class="plus-tstrip" role="radiogroup" aria-label=${t('plus.kThemes', 'Colour themes')}>
-          ${skins.map((x) => html`<${FavScope} key=${x.id} kind="theme" id=${x.id} name=${x.name} known=${known} class="plus-tfav" starClass="mini"><button type="button" role="radio" aria-checked=${x.id === k.id}
-            aria-label=${x.name} title=${x.name} class=${`plus-tchip ${x.id === k.id ? 'on' : ''}`} style=${sw(x)} onClick=${() => setCur(x.id)} onFocus=${() => setCur(x.id)}><i aria-hidden="true"></i></button><//>`)}
+          ${skins.map((x) => html`<button type="button" role="radio" key=${x.id} aria-checked=${x.id === k.id}
+            aria-label=${x.name} title=${x.name} class=${`plus-tchip ${x.id === k.id ? 'on' : ''}`} style=${sw(x)} onClick=${() => setCur(x.id)} onFocus=${() => setCur(x.id)}><i aria-hidden="true"></i></button>`)}
         </div>
         <div class="plus-tname"><b>${k.name}</b><span class="small muted">${k.hint} · ${k.group === 'light' ? t('skin.lightShort', 'light') : t('skin.darkShort', 'dark')}</span></div>
         <div class="row">${action}</div>
@@ -181,46 +177,33 @@ function PlateItem({ p, me, sub }) {
 function Gallery({ state, me, navigate }) {
   useCosmetics();
   usePreviews();
-  const launchTier = useLaunchRights().tier;
   const cat = catalog();
   const c = curatedFrom(cat);
   const n = plusCounts(cat);
   const yours = hasPlusLooks(state);
   const who = state.kind === 'signedOut' ? null : me;
-  // every id of a kind, for the stars (an id the catalog no longer knows is pruned when that kind is written)
-  const ids = (list) => (list || []).map((x) => x.id);
-  const star = (kind, list, it, cls, body) => html`<${FavScope} key=${it.id} kind=${kind} id=${it.id} name=${it.name} known=${ids(list)} class=${cls}>${body}<//>`;
   return html`
     <section class="plus-sec">
       <${Head} k=${t('plus.kBanners', 'Profile banners')} title=${t('plus.bannersT', 'Pixel scenes that move')}>${t('plus.bannersHint', 'Hand-made, animated, behind your name on your profile. {count} banners in all, new ones every month.', { count: n.banners })}<//>
-      <div class="plus-banners">${c.banners.map((b, i) => star('banner', cat.banners, b, `plus-fav ${i === 0 ? 'big' : ''}`, html`<${BannerCard} b=${b} yours=${yours} big=${i === 0} />`))}</div>
+      <div class="plus-banners">${c.banners.map((b, i) => html`<${BannerCard} key=${b.id} b=${b} yours=${yours} big=${i === 0} />`)}</div>
     </section>
     <div class="plus-pair">
       <section class="plus-sec">
         <${Head} k=${t('plus.kFrames', 'Avatar frames')} title=${t('plus.framesT', 'Around your picture')}>${t('plus.framesHint', '{count} frames in all.', { count: n.frames })}<//>
-        <div class="plus-frames">${c.frames.map((f) => star('frame', cat.frames, f, 'plus-fav', html`<${FrameItem} f=${f} me=${who} yours=${yours} />`))}</div>
+        <div class="plus-frames">${c.frames.map((f) => html`<${FrameItem} key=${f.id} f=${f} me=${who} yours=${yours} />`)}</div>
       </section>
       <section class="plus-sec">
         <${Head} k=${t('plus.kPlates', 'Nameplates')} title=${t('plus.platesT', 'Behind your name in friends’ lists')}>${t('plus.platesHint', 'Still in the list, moving when a friend points at you.')}<//>
-        <div class="plus-plates">${c.nameplates.map((p) => star('nameplate', cat.nameplates, p, 'plus-fav plus-fav-plate', html`<${PlateItem} p=${p} me=${who} sub=${p.name} />`))}</div>
+        <div class="plus-plates">${c.nameplates.map((p) => html`<${PlateItem} key=${p.id} p=${p} me=${who} sub=${p.name} />`)}</div>
       </section>
     </div>
     <${HandheldShowcase} />
     <section class="plus-sec">
-      <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT3', 'Your handheld, in gold or see-through')}>${t('plus.launchHint4', 'It never makes the game wait – a click or any key skips it. With Supporter your handheld plays in your colours; souldew+ adds three shells and, one start in 64, a Rare start.')}<//>
-      <ul class="plus-family" role="list">${PLUS_LAUNCH().map(([id, name, hint]) => html`<li key=${id} class="plus-family-i"><b>${name}</b><span class="small muted">${hint}</span></li>`)}</ul>
-      <${LaunchTiers} current=${launchTier} />
+      <${Head} k=${t('plus.kLaunch', 'Launch animations')} title=${t('plus.launchT3', 'Your handheld, in gold or see-through')}>${t('plus.launchHint5', 'What plays while your game starts – it never makes the game wait. Pick one to see it.')}<//>
+      <${LaunchLooks} />
     </section>
     <${Themes} skins=${plusSkins(cat)} state=${state} me=${me} count=${n.skins} navigate=${navigate} />`;
 }
-
-/** The souldew+ launch looks (the family: views/settings/launch.mjs) – names and one line each. */
-const PLUS_LAUNCH = () => [
-  ['gold', t('launch.gold', 'Gold'), t('launch.goldHint', 'A gold shell and a gold cartridge')],
-  ['clear-shell', t('launch.clear', 'Clear shell'), t('launch.clearHint4', 'See-through plastic, the board lit inside – four colours')],
-  ['holo', t('launch.holo', 'Holo label'), t('launch.holoHint', 'A holographic label on the cartridge')],
-  ['rare', t('launch.rareName', 'Rare start'), t('launch.rareHint', 'One start in 64: golden light, glints and a little dust')],
-];
 
 function Tiers({ state }) {
   const text = {

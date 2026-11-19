@@ -263,6 +263,10 @@ Plus a new play view that gives the game the room it deserves.
   your run. Friends can ask to join a run with a free seat if you allow it. Privacy is yours to set (who sees your
   profile, appear offline, where you are in the game), and you can export or delete your data any time. Without an
   account everything works exactly as before.
+- **Sign in from the sidebar.** Signed out, the bottom of the sidebar has a small “Sign in” with the Discord mark –
+  right where your profile picture sits once you're signed in. It starts the same sign-in as Settings › Account, says
+  so while your browser is open (a click opens it again, the × stops waiting), and works with the keyboard and a
+  controller, folded or open, in every theme and at every interface size.
 - **souldew+ with your account.** Support souldew on Buy Me a Coffee and link it in Settings › Account › souldew+ (or
   with /supporter claim in the souldew Discord): the souldew+ and Legend memberships unlock every theme, banner,
   avatar frame, nameplate and everything for the launch animation; the small one adds a Supporter badge and the 3D
@@ -277,8 +281,11 @@ Plus a new play view that gives the game the room it deserves.
   SoulLink, Nuzlocke – then Friends and Trophies, then Connection and Stream; Settings and Help sit at the bottom as
   two buttons next to **souldew+**, which replaces “Buy me a coffee” (members read “thank you”). The souldew+ page
   shows you yourself wearing it – your own picture and name – a few of the best banners, frames and nameplates
-  (their real look, even before you buy), your handheld turning slowly, what each tier gets for the launch
-  animation, every colour theme as a small swatch with a dressed-up
+  (their real look, even before you buy), your handheld turning slowly – pick any skin and it's on the device, a
+  souldew+ one as a marked preview that never changes your own handheld (“Put it on my handheld” for the ones you
+  have) – the launch animations side by side, each playing in its card with its tier on it and one of them selected
+  (the one you have, “Use it for my games” for another you may use; the Clear shell's four colours under its card),
+  every colour theme as a small swatch with a dressed-up
   profile in its colours, the three tiers, what always stays free, where the money goes and what happens if you stop.
   Every “Get souldew+” in the app leads there – never a pop-up; joining happens on the Buy Me a Coffee membership page.
 - **A Thank you page, live.** Help, Settings › About and the souldew+ page lead to the people who keep souldew free –
@@ -300,7 +307,7 @@ Plus a new play view that gives the game the room it deserves.
   banner, frame or nameplate as long as you like – Save keeps your free one and saves the rest. Works with keyboard
   and controller (L / R steps through the parts, B goes back).
 - **Favourites for your looks.** Every banner, frame, nameplate, colour theme and launch animation has a ☆ in its
-  corner – in the profile editor, in Settings and on the souldew+ page. Click it (or press F, or Y / △ on a
+  corner – in the profile editor and in Settings (the souldew+ page shows the looks without stars). Click it (or press F, or Y / △ on a
   controller) and “★ Favourites” above the list shows just those, in their usual order – no more scrolling through
   everything to find the ones you like. souldew+ items can be starred too, as a wish list. Favourites are kept on
   this computer.

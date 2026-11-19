@@ -21,7 +21,9 @@
 //                      PLUS_WRAPS, looks.mjs LOOKS) → handheld/stickers.png + stickers-cut.png + stickers.json (the atlas,
 //                      pre-built), handheld/wraps.json and handheld/looks.json (Gold, Clear shell, Holo label, the Rare
 //                      start, the holo / glitter finishes – web/lib/handheld/looks.mjs) in the pack, and a picture of
-//                      every souldew+ sticker and wrap in the previews (a tilted, glossy product shot – never the art 1:1)
+//                      every souldew+ sticker and wrap in the previews (a tilted, glossy product shot – never the art 1:1),
+//                      and the launch looks' still + loop (launch/<name>.png|webp, drawn by the real launch scene in
+//                      Electron: scripts/handheld/launch-shots.mjs – the souldew+ page's launch cards)
 //
 // --catalog rewrites web/lib/cosmetics/content/{catalog,banners-free,frames-free}.mjs: the PUBLIC part (names,
 // collections, rarities, swatches, pairings – what a locked card shows) and the free banners and frames.
@@ -32,7 +34,7 @@ import { join, resolve, dirname, basename } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { buildManifest, sealFile, makeSigner, b64encode, b64decode, b64url } from '../web/lib/cosmetics/pack/format.mjs';
-import { renderItemPreviews, renderSkinPreviews } from './plus-previews.mjs';
+import { renderItemPreviews, renderSkinPreviews, renderLaunchPreviews } from './plus-previews.mjs';
 import { buildAtlas, stickerPicture } from '../web/lib/handheld/atlas.mjs';
 import { STICKERS as HH_STICKERS, WRAPS as HH_WRAPS } from '../shared/handheld.mjs';
 import { atlasFiles, encodePng } from './handheld/png.mjs';
@@ -339,8 +341,9 @@ async function previewsMedia(dir) {
     ...await renderItemPreviews({ design: DESIGN, banners: plusBanners.filter((b) => !b.drop), frames: plusFrames, out: dir }),
     ...renderSkinPreviews({ skins: skinFiles().filter((f) => f.path.startsWith('skins/')).map((f) => ({ id: basename(f.path, '.css'), css: new TextDecoder().decode(f.bytes) })), out: dir }),
     ...await handheldPreviews(dir),
+    ...(HH?.looks ? renderLaunchPreviews({ looks: HH.looks, out: dir }) : []),
   ];
-  for (const f of files) if (!/^(banners|nameplates|frames|skins|stickers|wraps)\/[a-z0-9][a-z0-9-]*\.(png|webp)$/.test(f.path)) throw new Error(`not a preview picture: ${f.path}`);
+  for (const f of files) if (!/^(banners|nameplates|frames|skins|stickers|wraps|launch)\/[a-z0-9][a-z0-9-]*\.(png|webp)$/.test(f.path)) throw new Error(`not a preview picture: ${f.path}`);
   console.log(`${files.length} preview pictures → ${dir}`);
   return files;
 }
