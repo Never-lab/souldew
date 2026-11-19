@@ -19,6 +19,7 @@ Contents:
 12. [Measurements](#12-measurements)
 13. [Plan and effort](#13-plan-and-effort)
 14. [Decisions for the owner](#14-decisions-for-the-owner)
+15. [Raid: one trainer, one shared HP pool](#15-raid)
 
 ---
 
@@ -634,3 +635,88 @@ Decided (November 2026): TURN approved (Cloudflare Realtime key "souldew-link" o
 Decided in this round (seamless link, §4a): the fast player's Game Boy core is **SameBoy** (the link host's emulator and version, MIT) instead of Gambatte – Gambatte's save states can't go into a link session; the GBA core is built from the **link host's mGBA commit** instead of the 0.10.5 release. Cost: save states made with the older Gambatte fast player can't be loaded any more – they stay, and say so ("made with the previous Game Boy emulator – your in-game saves are unaffected"); battery saves and the cartridge clock carry over. Owner's follow-up (approved): Game Boy games on the **original Game Boy** by default (Settings › "Game Boy look": Original / Game Boy Color colours), each link seat on its own player's console.
 
 Open: none for this round. Worth deciding before release: whether runs created before 3.0 should get "Build every player's game" offered once (randomized GB/GBA runs joined earlier have only the joiner's own game), and whether DS JIT may be offered for sessions where every peer is the same architecture (faster for 4 players; needs the JIT build and a session option).
+
+## 15. Raid
+
+Built in November 2026 (branch `feat/30-raid`; `shared/raid.mjs`, `shared/live/raidhp.mjs` (Game Boy, GBA),
+`shared/live/raidds.mjs` (DS), `web/lib/raid.mjs`, `web/views/raid.mjs`, `scripts/raid-e2e.mjs`).
+
+**What it is.** The players of a run fight the same trainer together, each in their own game, and the trainer's
+Pokémon share **one HP pool**. Without it each player would simply beat the trainer alone; with it the trainer is
+beaten only when the combined pool is empty – in everybody's game at once.
+
+**Flow.** The board's log has “Raid” (next to rock-paper-scissors): the host of the raid ticks the partners (only
+online ones whose souldew announced raids and whose running game can take part – everybody else greyed out with the
+reason) and starts it. The invite shows in the partner's play view (the raid panel, first in the dock) or as a card at
+the bottom of the app: Join / Not now. Once everybody answered (or after 30 s) the raid starts with those who joined,
+or is called off. A 10-second countdown, then the **next trainer battle each player starts** is the raid (a battle
+already on when the raid started doesn't count). A game whose battle began first is held at its first menu (paused,
+at most 45 s) until the others' battles have begun; a player whose battle comes later still joins.
+
+**The pool** (`shared/raid.mjs`). Per opponent party slot, in basis points (integers – every computer must compute
+exactly the same). A player's game reports what happens to the opponent's HP as events: damage or heal of
+`bp = |ΔHP| / maxHP × 10000` on slot `i` (a knock-out empties the slot whatever the rounding left). Percentages make
+randomized runs work, where the trainer has other Pokémon in every game. Each player's events live in their own doc
+key `raid:<id>:<slot>` (one writer per key – nothing lost to last-writer-wins; the doc carries them reliably over
+the direct link and the relay), each stamped with a **Lamport clock** (past every event the computer has seen). Every
+computer folds all events in the same order – clock, then slot, then the player's own sequence – so every computer
+computes the same pool from the same events, whatever order they arrived in; a late event is folded where its clock
+puts it. Damage takes at most what is left (the MVP gets credit for that much); a heal (a potion, a draining move)
+goes back in up to 100 % but never into an empty slot. Slots: as many as the biggest party any player's battle shows
+(a randomizer that adds Pokémon). Won: every slot empty, with every player's battle known; lost: everybody out.
+
+**Into the games** (`RaidPlayer`, `shared/live/raidhp.mjs`). Three times a second the play view reads the battle; the
+pool goes into the game **only while it waits for the player's action** (`quiet`), and is read back: a write that
+didn't hold is tried once more, then that player is out (“out of step”) and gets no more writes. The opponent that is
+out never gets 0 HP from souldew: it keeps **1 HP**, and the player's next hit knocks it out – the game's own faint,
+exp, the next Pokémon or the trainer's defeat. Opponents not out get their share in the party copy – 0 for one that
+went down in another game, which the trainer then never sends out. Our own writes are never counted as hits.
+
+| Gen | Game(s) | Battle HP / party HP | Quiet (waiting for the player) | HP bar | Checked live |
+|---|---|---|---|---|---|
+| 1 | Red, Blue (US/EU) | `wEnemyMonHP` / `wEnemyMons` (+1) | the battle menu's parameters (`wTopMenuItemY/X`, `wMaxMenuItem`) | tiles in `wTileMap` and its saved copy `wTileMapBackup` (DrawHPBar's tiles) – drawn at once; its colour follows at the game's next redraw | rival in Oak's lab: 2 and 3 games, the app e2e |
+| 2 | Crystal (US) | `wEnemyMonHP` / `wOTPartyMons` (+0x22) | the battle menu's 2D menu, or the move menu with its “TYPE/” box | tiles in `wTilemap` (the saved copy is in WRAM bank 2, out of reach: souldew draws the bar again while the move menu waits) | a wild battle on Route 29 driven as a trainer's (lab, 2 games) |
+| 3 | FireRed, LeafGreen (rev 0, 1), Emerald (US) | `gBattleMons[b].hp` / `gEnemyParty` (+0x56, outside the encrypted part) | `gBattleMainFunc` = HandleTurnActionSelectionState, the player's controller in HandleInputChooseAction/Move, the opponent's idle | the game's own **HP bar update**: `CONTROLLER_HEALTHBARUPDATE` in `gBattleBufferA` and the opponent's controller pointed at its handler – the bar slides from the party HP; the party HP only after it (FR/LG's first rival battle: no bar command – Oak's lesson would start in the menu; there the bar catches up with the next hit) | FireRed: rival in Oak's lab, 3 games, the app e2e; Emerald: lab, 2 games (bar command) |
+| 4 | Platinum, HeartGold (US) | `BattleContext.battleMons[b].curHP` / the party Pokémon (+0x8E, PID-encrypted, no checksum) | battle command 5, the player's battler in a menu, no opponent command/queue/bar task | the game's own UpdateHPGauge command (queue entry, message, command byte) | Platinum vs Barry (lab, 2 games), HeartGold vs Bug Catcher Al (incl. a party member written to 30 % and 0) |
+| 5 | Black 2 (US/EU) | the server's and the client's battle copies (both, only while they agree) | the input proc in the action/move menu, single battles only | the gauge's own “HP changed” request (damage + flag) | Hugh's first battle (lab, 2 games; an extra-Pokémon variant for the party copies) |
+| 6/7 | X/Y, ORAS, Sun/Moon, US/UM | – | – | – | **not supported**: in souldew's 3DS host Hau's first battle never started in Sun (7 tries, three cores, old and new 3DS mode), so no write could be checked; the app says “Not in the 3DS games” |
+
+Not supported (the app says “not in this version yet”): other languages and revisions without verified addresses,
+Yellow, Gold/Silver, Ruby/Sapphire, Diamond/Pearl, SoulSilver, Black/White, White 2, hacks whose RAM moved. A Gen 3
+revision whose code addresses souldew doesn't know never reads as waiting: it would get no writes, so it is excluded
+by its memory table entry up front.
+
+**Leaving, dropping out.** A player whose team is down, who leaves the battle or the raid, whose writes don't hold,
+or who can't reach any raid partner for 30 s is out – their game is left as it is, no more writes. The others
+finish; the out player watches the raid panel and the partner screens. A game that loses its host (another link,
+a new start) answers no writes and drops out the same way.
+
+**Rules** (host-signed, `shared/hostrules.mjs`): “Raids” (`raids`, on) and “Deaths in a raid count” (`raidDeaths`,
+on – a raid is a real battle). Off: while the player's raid battle runs, the live team isn't applied to the run, and
+a Pokémon that went down in it is taken as standing (1 HP on the board) until it's healed (`raidspared:<slot>`).
+
+**Older builds.** Every 3.0 build with raids writes `raidcap:<slot>` (version, and whether the game playing now can
+take part). A partner on an older 3.0 build never wrote one: no invite (“Tim's souldew doesn't know raids yet”).
+Older builds ignore the `raid:` keys.
+
+**The log, the stream.** Every computer that was in the raid writes the same entry, keyed by the raid
+(`feed:raid-<id>`): “Marius, Tim & Kim won a raid together (1:38 · most damage: Tim)” / “… lost a raid”. The stream
+API has a `raid` event (`docs/STREAM_API.md`).
+
+**Exploits considered.** A tampered client can report hits it never made (the raid is then won early) – every
+damage event is in the run with its player, and the MVP shows who dealt what; it can only write into its own game.
+Writes happen only in a trainer battle that isn't a link battle, while the game waits.
+
+**End to end** (`scripts/raid-e2e.mjs`: two or three souldew servers with scratch data folders, every page in
+Electron, hidden and muted, the souldew engine; every game loads the same save state from just before the battle; A
+starts the raid from the board, the others press Join, everybody walks into the battle, turns of hits):
+
+| Game | Players | Result |
+|---|---|---|
+| Red (US/EU), rival in Oak's lab | 2 | won in both games; every hit mirrored (pool and both games' HP: 20 → 15 → 11 → 8 → 5 → 2, then 1 HP and the last hit in the other game); one log entry on both computers; muted clips |
+| FireRed (US), rival in Oak's lab | 3 | won in all three games; every hit mirrored into the other two (19 → … → 6 → 2 → 1/0); one log entry on all three |
+
+**Ideas not built.** A named boss (a gym leader or the Elite Four from the game's trainer table – `romcaps.mjs`
+already finds them; the games of a pair run have different tables); raids in the Shared World A menu; a “Win a raid”
+trophy (trophies are counted from run digests, which don't carry raids yet).
+

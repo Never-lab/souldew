@@ -47,6 +47,22 @@ Plus a new play view that gives the game the room it deserves.
 - **Blue or Red with Yellow:** a Game Boy game and a Game Boy Color game link again – Yellow's
   player refused every invite from Red or Blue (“isn't available for this game”), and each seat now runs on its own
   player's console on every computer.
+- **Raids: one trainer, all of you, one shared health bar.** On the board's log, “Raid” asks your partners; they
+  press Join, a short countdown runs, and the next trainer battle each of you walks into is the raid. Every hit in
+  anybody's game comes off one shared HP pool – as a share of each game's HP, so randomized games with other Pokémon
+  work too – and souldew puts the pool into everybody's game while it waits for your move: the opponent's HP bar
+  slides there the game's own way. The trainer is beaten when the pool is empty, in everyone's game at once (the
+  Pokémon that is out keeps 1 HP until your next hit, so the game knocks it out itself). A Pokémon of the trainer's
+  that went down in one game never comes out in the others. Your own team fights normally; whoever's team goes
+  down is out and watches the others in the raid panel and the partner screens. The raid panel in the play view
+  shows the pool per opponent Pokémon and everybody's team; afterwards the result – won or lost, who did the most
+  damage, who's still standing, the time – and one line in the log (“Marius, Tim & Lena won a raid together
+  (1:38 · most damage: Tim)”). Works in Red, Blue, Crystal, FireRed, LeafGreen, Emerald, Platinum, HeartGold and
+  Black 2 (English); not in the 3DS games yet, and the app says why for every other game. A partner on an older 3.0
+  build isn't asked.
+- **Two new host rules:** “Raids” (on by default) and “Deaths in a raid count” (on: a raid is a real battle). With it
+  off, Pokémon that go down in a raid don't count – they stand on the board until you heal them.
+- **Stream tools:** a `raid` event with who took part, won or lost, the MVP, the survivors and the time.
 - **Shared World: your partners walk in your game** (Gen 3). In a SoulLink of two to four players, partners on the
   same map appear in your own game, with their trainer sprite from your ROM and a name tag in their colour – walking,
   running, biking, surfing, coming and going between maps. Walk up to one and press A: Trade, Battle (straight into

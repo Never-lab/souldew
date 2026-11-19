@@ -36,6 +36,11 @@ export const DEFAULT_RULES = {
   // most a wager may be (₽, 0: no limit – nobody can put in more than their game holds anyway)
   linkWagers: 'on',
   linkWagerCap: 0,
+  // raids (docs/MULTIPLAYER.md › "Raid"): the players fight the same trainer together, one shared HP pool – allowed
+  // unless the host switched them off ('on' | 'off'); `raidDeaths`: a raid is a real battle, so Pokémon that go down
+  // in it count (off: they're taken as standing until healed)
+  raids: 'on',
+  raidDeaths: true,
   // (the Discord webhook is not a rule: it stays on this computer – GET/PUT /api/runs/:id/discord)
 };
 

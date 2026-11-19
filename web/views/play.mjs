@@ -51,6 +51,8 @@ import { hotkeyHint, comboLabel } from './guide.mjs';
 import { WagerPay } from '../lib/wagerpay.mjs';
 import { gameOfEntry, readMoney, moneyText, gameLinked } from '/shared/linkbattle.mjs';
 import { worldTable, readCamera } from '/shared/world.mjs';
+import { raidFor } from '../lib/raid.mjs';
+import { RaidDock, useRaidShown } from './raid.mjs';
 /**
  * What each shortcut of Settings › Controls does (lib/controls.mjs HOTKEYS – one entry each, test/controls.test.mjs
  * checks that none is missing and that the play view acts on no key of its own): `a` = the session's actions.
@@ -345,6 +347,7 @@ export function GameSession({ session, mode }) {
   }, []);
   const [soundOpen, setSoundOpen] = useState(false);
   const [cheatOpen, setCheatOpen] = useState(false);
+  const raidShownNow = useRaidShown(); // a raid to show in the dock (views/raid.mjs)
   const [confirmCheat, setConfirmCheat] = useState(null); // the cheat (CHEATS id) waiting for its yes
   const [slow, setSlow] = useState(null); // { reached, tips } – this computer can't hold full speed (lib/slowdown.mjs)
   // the cheats this game's bag can take (shared/live/cheats.mjs cheatsFor), comma-joined: a string, so setting the same
@@ -952,6 +955,7 @@ export function GameSession({ session, mode }) {
     document.addEventListener('visibilitychange', onVisibility);
     let autoTimer = null;
     let songTimer = null;
+    let raidTimer = null;
     let offAudio = null; // the mixer's event feed (diagnostics)
     let inBattle = false; // the live battle reader sees a battle (the turbo mixer's 'battle' song key)
     (async () => {
@@ -1069,6 +1073,22 @@ export function GameSession({ session, mode }) {
       const gameNow = () => gameOfEntry(liveRef.current?.entry);
       if (ownRun && wagerRef) wagerRef.current.money = () => (target.link || !emu()?.read ? null : readMoney(gameNow(), (a, n) => emu()?.read(a, n)));
       let world3 = null; // (Gen 3: the Shared World's reader says when the player stands in the overworld)
+      // raids (web/lib/raid.mjs): this player's own game of the run – its battle's HP into the shared pool and back. A
+      // few bytes three times a second; the writes go in only while the game waits for the player's action.
+      let raidTeam = null; // the live team ([{ hp, maxHp }]) – a raid ends for a player whose team is down
+      let raidFoe = null; // the opponent out now (National Dex number, from the live battle reader) – shown to the partners
+      const raid = ownRun ? raidFor(doc) : null;
+      if (raid) {
+        raidTimer = setInterval(() => {
+          const e = emu();
+          const ent = liveRef.current?.entry;
+          if (stopped || !e?.ready || !ent || e.ramInfo().base < 0) return;
+          const write = (a, b) => (e.writeChecked ? e.writeChecked(a, b) : e.write(a, b));
+          raid.gameTick({ entry: ent, read: e.read, write, team: raidTeam, foe: raidFoe, emu: e, ownGame: ownRun, link: !!target.link })
+            .then((r) => r && (r.begin || r.out || r.fin) && diag('raid', { begin: !!r.begin, out: r.out?.why || null, fin: !!r.fin }))
+            .catch((err) => diag('raid', { error: String(err?.message || err) }));
+        }, 330);
+      }
       // live loop
       let lastLocate = 0;
       let wramEntry = null;
@@ -1164,6 +1184,8 @@ export function GameSession({ session, mode }) {
               // (a Pokémon at 0 HP counts once two reads in a row say so, in a battle only one that has been out in it –
               // the tracker files deaths from this party)
               const party = confirmFaints(withBattleHp(res.party, fight, state), state, fight);
+              raidTeam = party.filter((m) => m && !m.isEgg && m.maxHp > 0).map((m) => ({ hp: m.hp, maxHp: m.maxHp }));
+              raidFoe = fight?.kind === 'trainer' ? fight.enemy?.species || null : null;
               // what the player has seen of it: a Pokémon whose fall the game is still showing keeps its HP for now
               const shown = revealer.current.see(party, { speed: effectiveSpeed(e.speed?.() ?? speedRef.current, { paused: !!e.paused?.(), reach: reachRef.current }), gen: entry.gen, battle: fight });
               setMine(shown.party);
@@ -1244,6 +1266,7 @@ export function GameSession({ session, mode }) {
       resetRomData(); // (this game's types and species names end with its session)
       clearInterval(autoTimer);
       clearInterval(songTimer);
+      clearInterval(raidTimer);
       offAudio?.();
       window.removeEventListener('sl-save-now', flushNow);
       window.removeEventListener('pagehide', onPageHide);
@@ -1869,11 +1892,15 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
   // the link session (trades and battles, views/linkplay.mjs): its bar lives in the dock while the game is big – first on
   // the right, next to the place at the bottom; the folded strip shows its dot (and a question waits over the game)
   const linkOn = !!(linkPlay && linkSessions && linkPlay.phase !== 'idle');
+  const raidShown = isRun && !solo ? raidShownNow : null;
   const linkAsks = linkOn && LINK_ASKS.includes(linkPlay.phase);
   const linkSec = linkOn && { id: 'link', label: t('linkplay.title', 'Link'), icon: 'link', node: html`<${LinkBar} inline />`, dot: linkAsks ? 'warn' : 'live' };
+  // a raid (views/raid.mjs): first in the dock while there is one to show – the invite, the pool, the result
+  const raidSec = raidShown && { id: 'raid', label: t('raid.title', 'Raid'), icon: 'bolt', node: html`<${RaidDock} species=${battle?.kind === 'trainer' ? battle.enemy?.species : null} gen=${gameGen} />`, dot: raidShown.asks ? 'warn' : 'live' };
   const placeSec = { id: 'place', label: t('dock.place', 'Place and rules'), icon: 'map', node: placeEl,
     dot: capNow?.state === 'over' ? 'bad' : capNow?.state === 'at' || capNow?.state === 'near' || slow ? 'warn' : '' };
   const sections = [
+    raidSec,
     ...(side === 'bottom' ? [placeSec, linkSec] : [linkSec, placeSec]),
     battleEl && { id: 'battle', label: t('battle.title', 'Battle'), icon: 'bolt', node: battleEl, dot: 'live' },
     { id: 'team', label: groups ? t('pairs.titleGroup', 'Linked groups') : t('play.yourTeam', 'Your team'), icon: groups ? 'link' : 'ball',
@@ -1902,6 +1929,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
         ${statesOpen && full && html`<${StatePanel} id=${target.stateId} core=${core} gen=${gameGen} version=${statesVer} selected=${sel}
           onClose=${closeStates} onSave=${(n) => actions.quicksave(n)} onLoad=${(n) => { setStatesOpen(false); actions.quickload(n); }} />`}
         ${full && folded && linkAsks && html`<${LinkBar} stage />`}
+        ${full && folded && !linkAsks && raidShown && (raidShown.asks || raidShown.over || raidShown.phase === 'countdown') && html`<${RaidDock} stage species=${battle?.enemy?.species} gen=${gameGen} />`}
         ${full && html`<${AttentionCard} attn=${attn} onShow=${showAttn} />`}
       </div>
       ${full && html`<${Dock} side=${side} folded=${folded} onFold=${setFolded} head=${head} sections=${sections} who=${who} dockRef=${dockRef} wide=${wide} />`}

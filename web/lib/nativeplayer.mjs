@@ -412,8 +412,26 @@ function write(addr, bytes) {
   const pl = new Uint8Array(4 + b.length);
   new DataView(pl.buffer).setUint32(0, addr >>> 0, true);
   pl.set(b, 4);
+  written.push({ fn: null }); // (the host answers every WRITE with an event, in order – writeChecked waits for its own)
   cmd(CMD.WRITE, pl);
   return true;
+}
+const written = []; // one entry per WRITE sent, the host's "written" events in the same order: { fn } – who waits for it
+/** A write the host confirmed: resolves true once it is in the game's memory, false when the host refused it (or no
+ *  answer came – an older host answers too, so a missing answer means the host is gone). */
+function writeChecked(addr, bytes) {
+  if (!write(addr, bytes)) return Promise.resolve(false);
+  const slot = written.at(-1);
+  return new Promise((res) => {
+    const timer = setTimeout(() => {
+      slot.fn = null; // (its answer still comes and is dropped)
+      res(false);
+    }, 3000);
+    slot.fn = (ok) => {
+      clearTimeout(timer);
+      res(ok);
+    };
+  });
 }
 
 // ---- events -------------------------------------------------------------------------------------------------------
@@ -426,6 +444,7 @@ function onEvent(p) {
   }
   if (!['stats', 'stepped', 'written', 'ffrate'].includes(e.event)) dbg('event', JSON.stringify(e).slice(0, 300));
   if (e.event === 'loaded') {
+    for (const w of written.splice(0)) w.fn?.(false); // (a new host: the old one's writes get no answer any more)
     st.info = e;
     st.engine = e.engine === true;
     if (Number.isInteger(e.local)) st.localSeat = e.local;
@@ -452,7 +471,8 @@ function onEvent(p) {
   } else if (e.event === 'stepped') {
     if (Number.isFinite(e.frame)) st.hostFrame = e.frame;
     waiters.stepped.splice(0).forEach((f) => f(e.frame));
-  } else if (e.event === 'stateLoaded') waiters.loaded.splice(0).forEach((f) => f(!!e.ok));
+  } else if (e.event === 'written') written.shift()?.fn?.(!!e.ok);
+  else if (e.event === 'stateLoaded') waiters.loaded.splice(0).forEach((f) => f(!!e.ok));
   else if (e.event === 'seatState' && !e.size) waiters.seatState.splice(0).forEach((f) => f(null));
   else if (LINK_SESSION && (e.event === 'hash' || e.event === 'wait')) post({ type: `emu-link-${e.event}`, ...e });
   else if (e.event === 'error') {
@@ -738,6 +758,7 @@ window.__emu = {
   ramInfo: () => ({ base: st.ramReady ? 0 : -1, size: st.ram.reduce((n, r) => n + r.b.length, 0), tried: 0, system: SYSTEM }),
   read,
   write,
+  writeChecked,
   paused: () => st.paused,
   pause() {
     if (LINK_SESSION) return; // (the partners' games would stand still too – leave the link instead)

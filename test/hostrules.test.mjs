@@ -44,7 +44,7 @@ const build = (o = {}) => buildRun({ romId: ROM, randomize: false, config: {}, p
 const MINE = {
   typeClause: 'party', dupes: 'both', missedDupes: true, failKillsPair: false, shinyClause: false, gifts: 'free', levelCaps: false,
   cheats: true, lives: 3, livesPool: 'player', typeHelp: false, autoAssign: false, autoDeath: false, startAtBalls: false,
-  linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true, linkWagers: 'off', linkWagerCap: 5000,
+  linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true, linkWagers: 'off', linkWagerCap: 5000, raids: 'off', raidDeaths: false,
 };
 
 function mkDoc(by, runId = 't') {
@@ -84,6 +84,7 @@ const slEditors = (value, n, disabled) => (onChange) => [
   UI.LivesRule({ value: value.lives, pool: value.livesPool, players: n, onChange, variant: 'wizard', disabled }),
   UI.SoulLinkAuto({ value, onChange, players: n, disabled }),
   UI.LinkRules({ value, onChange, disabled }), // (3.0: trades and battles between the players – the games that link)
+  UI.RaidRules({ value, onChange, disabled }), // (3.0: raids – one shared HP pool against a trainer)
   UI.BallsRule({ value: value.startAtBalls, onChange: (v) => onChange({ startAtBalls: v }), players: n, disabled }),
 ];
 
