@@ -327,7 +327,6 @@ Good to know:
 - Save states made for Game Boy / Game Boy Color games in the fast player before 3.0 (on the old Gambatte emulator)
   can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the
   other Game Boy look load once you switch back to it.
-- Gen 5 (Black/White) links come later.
 
 ## 2.8.4
 
