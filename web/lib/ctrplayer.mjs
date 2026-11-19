@@ -22,6 +22,7 @@ const st = {
   id: null, ready: false, paused: false, speed: 1, volume: 1, frames: 0, fps: 0, title: null, width: 400, height: 480,
   mem: [], watching: '', liveMemory: false, error: null, log: [], renderer: null, turboAudio: 'music',
   hostFrame: 0, hostFrames: false, hostSpeed: 0, // the host's count of emulated frames and its real speed (stats event)
+  scale: 1, // the internal resolution the host draws at (the server's answer to start: Settings › Play › 3DS resolution)
   sfxCore: false, sfxWant: false, // the core can leave the music out of its sound (sound effects in fast-forward) / asked
 };
 const waiters = { state: [], loaded: [], written: new Map() }; // written: write id → resolve
@@ -586,7 +587,10 @@ function onEvent(p) {
     startAudio(e.sampleRate);
     // a second "loaded" with another renderer: the server started the host again with a safer one (renderer "auto",
     // server/lib/ctrrenderer.mjs) – the play view says so
-    if (e.renderer && st.renderer && e.renderer !== st.renderer) post({ type: 'emu-renderer', from: st.renderer, to: e.renderer });
+    if (e.renderer && st.renderer && e.renderer !== st.renderer) {
+      post({ type: 'emu-renderer', from: st.renderer, to: e.renderer });
+      st.scale = 1; // (the safer renderer always starts at 1×: server/lib/ctr.mjs)
+    }
     if (e.renderer) st.renderer = e.renderer;
   } else if (e.event === 'title') {
     st.title = e.titleId;
@@ -916,6 +920,8 @@ window.__emu = {
   frames: () => (st.hostFrames ? st.hostFrame : st.frames),
   fastForward: () => st.speed > 1,
   ffRatio: () => (st.speed > 1 ? st.speed : 3),
+  /** The internal resolution this game runs with (1–3): the play view's hint when it holds back fast-forward (lib/ffhint.mjs). */
+  scale: () => st.scale,
   /**
    * A save state. The host copies it between two frames (a 3DS core with souldew-state.patch packs it on a thread
    * meanwhile; an older one packs it right there – 0.4 s without sound on a Windows PC): the sound may run dry for that
@@ -1034,7 +1040,7 @@ window.__emu = {
     });
   },
   perf: () => ({
-    fps: st.fps, speed: st.hostSpeed, frames: st.hostFrame, shown: st.frames, title: st.title, liveMemory: st.liveMemory, error: st.error, renderer: st.renderer, log: st.log.slice(-20),
+    fps: st.fps, speed: st.hostSpeed, frames: st.hostFrame, shown: st.frames, title: st.title, liveMemory: st.liveMemory, error: st.error, renderer: st.renderer, scale: st.scale, log: st.log.slice(-20),
     picture: { lit: black.lit, blackSeconds: Math.round(black.ms / 1000) }, // (a game that only ever showed black)
     sound: audio.ctx ? { contextRate: audio.ctx.sampleRate, state: audio.ctx.state, baseLatencyMs: +(audio.ctx.baseLatency * 1000).toFixed(1), outputLatencyMs: +((audio.ctx.outputLatency || 0) * 1000).toFixed(1) } : null,
     last: audio.last,
@@ -1123,6 +1129,7 @@ async function start() {
   st.id = j.id;
   st.liveMemory = !!j.liveMemory;
   st.renderer = j.renderer || null;
+  st.scale = [1, 2, 3].includes(j.scale) ? j.scale : 1;
   st.update = j.update || null;
   const stop = () => fetch('/api/ctr/stop', { method: 'POST', keepalive: true, headers: { 'content-type': 'application/json', 'x-soullink': '1' }, body: JSON.stringify({ id: st.id }) }).catch(() => {});
   addEventListener('pagehide', stop);

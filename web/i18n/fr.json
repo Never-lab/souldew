@@ -4171,5 +4171,11 @@
   "menu.view": "Présentation",
   "menu.uiBigger": "Agrandir l’interface",
   "menu.uiSmaller": "Réduire l’interface",
-  "menu.uiReset": "Interface à 100 %"
+  "menu.uiReset": "Interface à 100 %",
+  "play.ffScaleTitle": "La résolution 3DS freine l’avance rapide",
+  "play.ffScaleShort": "Turbo ≈{n}× sur {set}×",
+  "play.ffScaleWhy": "Ce jeu est affiché en résolution {scale}×, et en avance rapide chaque image demande d’autant plus à la carte graphique : elle atteint environ {n}× au lieu de {set}×. Baisse la résolution dans Réglages › Jouer › Résolution 3DS pour une avance rapide plus rapide – cela s’applique au prochain lancement du jeu.",
+  "play.ffScaleNever": "Ne plus afficher",
+  "set.ctrFfHint": "Me prévenir quand elle freine l’avance rapide",
+  "set.ctrFfHintHint": "Sur certaines cartes graphiques, le turbo en 2× ou 3× reste bien en dessous de la vitesse choisie – la vue de jeu le signale alors, au plus une fois par lancement de souldew."
 }

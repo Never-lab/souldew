@@ -149,8 +149,9 @@ html.platform-linux .frame.rail-folded.app-native .rail-open ~ .main .session.fu
 .slow-chip svg { flex: none; }
 .slow-chip-main { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slow-chip-main u { text-underline-offset: 2px; }
-.slow-pop { position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; width: min(420px, 80vw); box-shadow: 0 18px 44px #000c; }
-.dock.bottom .slow-pop { position: fixed; top: auto; right: auto; bottom: calc(var(--dock-h, 196px) + 24px); left: 24px; }
+/* (as wide as the chip in the side dock – wider, the dock cut it off on the left; free-standing over the game at the bottom) */
+.slow-pop { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; right: 0; box-shadow: 0 18px 44px #000c; }
+.dock.bottom .slow-pop { position: fixed; top: auto; right: auto; bottom: calc(var(--dock-h, 196px) + 24px); left: 24px; width: min(420px, 80vw); }
 .slow-pop b { color: var(--ink); }
 
 /* ---- the first time the sidebar folds for the game: how it comes back ---------------------------------------------- */

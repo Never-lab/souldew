@@ -4171,5 +4171,11 @@
   "menu.view": "Visualización",
   "menu.uiBigger": "Interfaz más grande",
   "menu.uiSmaller": "Interfaz más pequeña",
-  "menu.uiReset": "Interfaz al 100 %"
+  "menu.uiReset": "Interfaz al 100 %",
+  "play.ffScaleTitle": "La resolución de 3DS frena el avance rápido",
+  "play.ffScaleShort": "Turbo ≈{n}× de {set}×",
+  "play.ffScaleWhy": "Este juego se dibuja a resolución {scale}×, y en avance rápido cada imagen le cuesta a la tarjeta gráfica mucho más: alcanza unos {n}× en lugar de {set}×. Baja la resolución en Ajustes › Jugar › Resolución de 3DS para un avance rápido más rápido; se aplica la próxima vez que inicies el juego.",
+  "play.ffScaleNever": "No volver a mostrar",
+  "set.ctrFfHint": "Avisarme cuando frene el avance rápido",
+  "set.ctrFfHintHint": "En algunas tarjetas gráficas, el turbo a 2× o 3× se queda muy por debajo de la velocidad elegida; la vista de juego lo indica entonces, como mucho una vez cada vez que se inicia souldew."
 }
