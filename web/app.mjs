@@ -453,7 +453,9 @@ function App() {
       const m = await reloadManifest(runId);
       if (!m || cancelled) return;
       const d = await new RunDoc(runId).load();
-      const rd = await new RunData().load(m);
+      // (the ROM's own data comes later, below: its scan must not hold up the run – the board, the sync with the
+      // others, their link sessions)
+      const rd = await new RunData().load(m, { rom: false });
       if (cancelled) return;
       // (an invite imported without a stored choice: the first player after the host, as before)
       // (a stored slot the run doesn't have – fewer players after a rebuild – would break every name lookup)
@@ -480,6 +482,12 @@ function App() {
       setDoc(d);
       setRunData(rd);
       setDocVersion((v) => v + 1);
+      // The ROM's own data (its types, a hack's own Pokémon): a scan of the game file on the server – seconds for a DS
+      // game, up to minutes on a slow PC the first time. Until it arrives the official types stand in. (The run used
+      // to wait for it: a partner on such a PC stayed offline that long – no sync, no link session.)
+      rd.romFetch(m).then((j) => {
+        if (!cancelled && j) setRunData((cur) => (cur === rd ? rd.withRom(j) : cur));
+      });
     })();
     return () => {
       cancelled = true;
