@@ -7,6 +7,8 @@ import { once } from 'node:events';
 import { join, extname, resolve, basename, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
+import { upgradeStep, backupInfo, majorOf } from './lib/upgrade.mjs';
+import { AUTO_SLOT, STATE_EXT, mtimeOf, statePath as statePathIn, rotateAutoState as rotateAutoStateIn } from './lib/statefiles.mjs';
 import { WEB_DIR, SHARED_DIR, CACHE_DIR, DATA_DIR, CONFIG_PATH, NODE_MODULES, DEV, LIBRARY_DIR } from './lib/paths.mjs';
 import { writeFileAtomic, httpError, safeFileName, safeJoin, realInside, logLine, readRange } from './lib/fsutil.mjs';
 import { detectJava, uprStatus, installUpr, runBridge, inspectRom } from './lib/toolchain.mjs';
@@ -228,36 +230,10 @@ const keyOf = (s) => createHash('sha1').update(String(s)).digest('hex').slice(0,
 /** Save files of solo games (not part of a run) live here, keyed by the library id. */
 const SOLO_SAVES = join(DATA_DIR, DEV ? 'runs/.saves' : 'Saves');
 
-// ---- save states of the built-in emulator -------------------------------------------
-// states/<key>-<slot>.state, plus a small JPEG (.jpg) and an info file (.json: party, core …) per state.
-// Slots 1–8 are the player's, 99 is "where you left off", 96–98 keep older copies of 99.
+// ---- save states of the built-in emulator (server/lib/statefiles.mjs) -----------------
 const STATE_DIR = join(SOLO_SAVES, 'states');
-const AUTO_SLOT = 99;
-const BACKUP_SLOTS = [98, 97, 96]; // newest first
-const BACKUP_EVERY = 10 * 60 * 1000;
-const STATE_EXT = ['state', 'jpg', 'json'];
-const statePath = (key, slot, ext) => join(STATE_DIR, `${key}-${slot}.${ext}`);
-const mtimeOf = (p) => {
-  try {
-    return Math.round(statSync(p).mtimeMs);
-  } catch {
-    return 0;
-  }
-};
-
-/** Before "where you left off" is replaced it becomes a backup – if the newest backup is ≥ 10 min older. */
-function rotateAutoState(key) {
-  const auto = mtimeOf(statePath(key, AUTO_SLOT, 'state'));
-  if (!auto || auto - mtimeOf(statePath(key, BACKUP_SLOTS[0], 'state')) < BACKUP_EVERY) return;
-  const move = (from, to) => {
-    for (const ext of STATE_EXT) {
-      if (existsSync(statePath(key, from, ext))) renameSync(statePath(key, from, ext), statePath(key, to, ext)); // keeps the mtime
-      else rmSync(statePath(key, to, ext), { force: true });
-    }
-  };
-  for (let i = BACKUP_SLOTS.length - 1; i > 0; i--) move(BACKUP_SLOTS[i - 1], BACKUP_SLOTS[i]);
-  move(AUTO_SLOT, BACKUP_SLOTS[0]);
-}
+const statePath = (key, slot, ext) => statePathIn(STATE_DIR, key, slot, ext);
+const rotateAutoState = (key) => rotateAutoStateIn(STATE_DIR, key);
 
 /**
  *   GET    /api/saves/states?id=                 list: [{ slot, at, thumb, info }]
@@ -496,6 +472,15 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
   // and tests do) – otherwise a changed environment could send the tokens elsewhere or make the app trust another key.
   const env = packaged ? withoutDevSwitches(process.env) : process.env;
   const GEN4 = JSON.parse(readFileSync(join(SHARED_DIR, 'data', 'gen4.json'), 'utf8'));
+  // The first start of a new major version (server/lib/upgrade.mjs): the backup of the player's data comes before any
+  // migration below touches it, and the "What's new" cards are noted. Not in development (the data folder is the
+  // project folder there) – the version is still noted. A config that can't be read is left alone.
+  try {
+    const config = existsSync(CONFIG_PATH) ? JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) : {};
+    upgradeStep({ dataDir: DATA_DIR, config, current: liveRuns.souldewVersion(), save: saveConfig, backups: !DEV });
+  } catch (e) {
+    console.warn('[upgrade] skipped:', e.message);
+  }
   // The stream API's localPages switch (server/lib/streamapi.mjs streamMigration): an install set up before it
   // existed keeps reading from local pages without a token, a new one starts strict. A config that can't be read
   // is left alone (saveConfig would replace it with this one patch).
@@ -976,7 +961,11 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         handheld: cleanHandheld(config.handheld),
         favourites: cleanFavourites(config.favourites),
         presence: config.presence !== false,
+        // the "What's new" cards after an update to a new major version ('3.0'), until closed (server/lib/upgrade.mjs)
+        whatsNew: typeof config.whatsNew === 'string' ? config.whatsNew : null,
       },
+      // the backup made before the first start of this major version (Settings › About) – or why there is none
+      upgradeBackup: backupInfo(config.upgradeBackups?.[majorOf(liveRuns.souldewVersion())]),
       plusDev: plusPack.dev,
     };
   });
@@ -986,9 +975,11 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'whatsNew']) {
       if (k in body) allowed[k] = body[k];
     }
+    // the "What's new" cards: the page can only close them (the server opens them, server/lib/upgrade.mjs)
+    if ('whatsNew' in allowed && allowed.whatsNew !== null) delete allowed.whatsNew;
     // the 3DS renderer (server/lib/ctrrenderer.mjs): a new choice forgets what "auto" learned – it starts afresh
     if ('ctrRenderer' in allowed) {
       allowed.ctrRenderer = validRenderer(allowed.ctrRenderer);
@@ -1889,6 +1880,14 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     return azaharBridge().status();
   });
   // The mGBA script lives in a hidden folder on Windows (%APPDATA%) – show it instead of making people type the path.
+  // the backup from before this major version (Settings › About): its folder, as the config names it – no path from the page
+  route('POST', /^\/api\/backup\/reveal$/, () => {
+    const b = loadConfig().upgradeBackups?.[majorOf(liveRuns.souldewVersion())];
+    const dir = b?.name && /^pre-[\w.-]+$/.test(b.name) ? join(DATA_DIR, 'backups', b.name) : null;
+    if (!dir || !existsSync(dir)) throw httpError(404, 'The backup folder is gone', 'backupGone');
+    revealInFileManager(dir);
+    return { ok: true };
+  });
   route('POST', /^\/api\/live\/reveal$/, () => {
     if (!existsSync(live.luaScriptPath())) throw httpError(404, 'The mGBA script is missing', 'scriptMissing');
     revealInFileManager(live.luaScriptPath());

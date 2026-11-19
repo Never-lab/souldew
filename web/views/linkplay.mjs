@@ -10,6 +10,7 @@ import { serverErrorText } from '../lib/errors.mjs';
 import { players as getPlayers, rules as getRules, slotsOf } from '../lib/run.mjs';
 import { sameLinkSystem, LINK_SYSTEMS } from '/shared/link.mjs';
 import { wagerGame, battleFormats, moneyText, MONEY_MAX } from '/shared/linkbattle.mjs';
+import { useTogether } from '../lib/together.mjs';
 import { wagerRules, agreedWager, sessionsIn, outcomeOf, headToHead, wagerStatus } from '../lib/wager.mjs';
 import { currentLang } from '../lib/i18n.mjs';
 
@@ -69,9 +70,10 @@ export function linkedText(linkSessions, slot, names) {
 
 /** Trade / Battle on a partner's card (the board): only when both can link right now. */
 export function LinkButtons({ slot }) {
-  const { doc, manifest, me, onlineSlots, linkSessions, linkPlay, linkStatus, toast } = useApp();
+  const { doc, manifest, me, onlineSlots, linkSessions, linkPlay, linkStatus, toast, link } = useApp();
   const [busy, setBusy] = useState(false);
   const [setup, setSetup] = useState(false);
+  const together = useTogether(link);
   if (!linkSessions || slot === me || !LINK_SYSTEMS.includes(manifest?.game?.system)) return null;
   const online = onlineSlots?.has?.(slot);
   const direct = !!linkStatus?.partners?.[slot]?.p2p;
@@ -80,6 +82,8 @@ export function LinkButtons({ slot }) {
   const name = names[slot]?.name || slot;
   // linked with others right now: said on the card, and the buttons wait until that link ends
   const away = online ? linkedText(linkSessions, slot, names) : null;
+  // a partner on 2.x never answers an invite: say why instead of letting it run into "didn't answer"
+  const older = online && !!together?.olderApp(slot);
   const start = async (kind) => {
     setBusy(true);
     try {
@@ -90,14 +94,16 @@ export function LinkButtons({ slot }) {
       setBusy(false);
     }
   };
-  const why = !online ? t('linkplay.needOnline', '{name} isn’t online', { name }) : away || (!direct ? t('linkplay.needConnection', 'No connection to {name} yet', { name }) : null);
+  const olderText = t('linkplay.olderApp', '{name} is on an older souldew – trading and battling need souldew 3.0 on both computers', { name });
+  const why = !online ? t('linkplay.needOnline', '{name} isn’t online', { name }) : older ? olderText : away || (!direct ? t('linkplay.needConnection', 'No connection to {name} yet', { name }) : null);
   // a battle may be for money (the run's wager rule): first the challenge – format and wager – then the invite
   const challenge = wagerRules(getRules(doc, manifest)).on && wagerGame(manifest?.game?.id);
   if (setup) {
     return html`<${BattleSetup} names=${[name]} seats=${2} onCancel=${() => setSetup(false)}
       onSend=${async (opts) => { setSetup(false); setBusy(true); try { await linkSessions.invite('battle', [slot], opts); } catch (e) { toast({ kind: 'death', title: t('linkplay.title', 'Link'), text: reasonText(e.code, name) }); } finally { setBusy(false); } }} />`;
   }
-  return html`${away && html`<span class="link-away tiny" data-linked=${slot}><${Icon} name="link" size=${12} />${away}</span>`}<div class="row link-buttons">
+  return html`${away && html`<span class="link-away tiny" data-linked=${slot}><${Icon} name="link" size=${12} />${away}</span>`}
+    ${older && html`<span class="link-away tiny" data-older=${slot}><${Icon} name="download" size=${12} />${olderText}</span>`}<div class="row link-buttons">
     ${linkAllowed(doc, manifest, 'trade') && html`<button class="btn small" disabled=${busy || !idle || !!why} title=${why || t('linkplay.tradeHint', 'Both games open in the link – meet in the Pokémon Center upstairs, as with a cable')}
       onClick=${() => start('trade')}><${Icon} name="link" size=${14} />${t('linkplay.trade', 'Trade')}</button>`}
     ${linkAllowed(doc, manifest, 'battle') && html`<button class="btn small" disabled=${busy || !idle || !!why} title=${why || t('linkplay.battleHint2', 'A link battle – by the run’s rules, losing there doesn’t count')}
@@ -164,13 +170,14 @@ export function HeadToHead({ slot }) {
  * Union Room takes all of them).
  */
 export function LinkGroupButton() {
-  const { doc, manifest, me, onlineSlots, linkSessions, linkPlay, linkStatus, toast } = useApp();
+  const { doc, manifest, me, onlineSlots, linkSessions, linkPlay, linkStatus, toast, link } = useApp();
   const [busy, setBusy] = useState(false);
   const [setup, setSetup] = useState(false);
+  const together = useTogether(link);
   const slots = manifest ? slotsOf(manifest) : [];
   if (!linkSessions || slots.length < 3 || !LINK_SYSTEMS.includes(manifest?.game?.system) || !linkAllowed(doc, manifest, 'battle')) return null;
-  // (a player linked with others right now waits for the next one)
-  const ready = slots.filter((s) => s !== me && onlineSlots?.has?.(s) && linkStatus?.partners?.[s]?.p2p && !linkSessions.linkedElsewhere?.(s));
+  // (a player linked with others right now waits for the next one; one on an older souldew can't take part)
+  const ready = slots.filter((s) => s !== me && onlineSlots?.has?.(s) && linkStatus?.partners?.[s]?.p2p && !linkSessions.linkedElsewhere?.(s) && !together?.olderApp(s));
   const idle = !linkPlay || ['idle', 'ended', 'rejoinable'].includes(linkPlay.phase);
   const go = async (opts = {}) => {
     setBusy(true);

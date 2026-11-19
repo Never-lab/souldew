@@ -3,7 +3,8 @@ import { html, useState, useEffect } from '/vendor/htm-preact.mjs';
 import { openExternal, saveDiagnostics } from '../../lib/ui.mjs';
 import { LINKS } from '../../lib/links.mjs';
 import { Icon } from '../../lib/icons.mjs';
-import { t } from '../../lib/i18n.mjs';
+import { t, currentLang } from '../../lib/i18n.mjs';
+import { api } from '../../lib/api.mjs';
 import { PLATFORM } from '../../lib/platform.mjs';
 import { gpuBackends } from '/shared/gpu.mjs';
 import { UpdateSection } from '../update.mjs';
@@ -80,9 +81,41 @@ export function gpuFallbackText(notice) {
     : t('set.gpuFallbackStart', 'souldew didn’t open with the graphics backend {backend}, so it uses “Automatic” again. You can change it in Settings.', { backend });
 }
 
+const mb = (n) => `${Math.max(1, Math.round((Number(n) || 0) / 1048576)).toLocaleString(currentLang())} MB`;
+
+/**
+ * The backup souldew made before the first start of this major version (server/lib/upgrade.mjs) – where it is, or why
+ * there is none. It stays until the player deletes the folder.
+ */
+function BackupNote({ backup }) {
+  const [error, setError] = useState(null);
+  if (!backup) return null;
+  if (backup.skipped) {
+    return html`<p class="small muted" role="status">${backup.skipped === 'space'
+      ? t('set.backupNoSpace', 'souldew didn’t make a backup before 3.0: the disk had {free} free, the backup needs {need} and leaves room for your games. Your data is as it was – nothing was changed for lack of space.', { free: mb(backup.free), need: mb(backup.need) })
+      : t('set.backupFailed', 'souldew couldn’t make a backup before 3.0. Your data is as it was.')}</p>`;
+  }
+  const date = backup.at ? new Date(backup.at).toLocaleDateString(currentLang(), { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  const open = async () => {
+    setError(null);
+    try {
+      await api.post('/api/backup/reveal', {});
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+  return html`<div class="stack-s">
+    <div class="row"><span class="grow small">${t('set.backupMade', 'Before its first start, souldew 3.0 backed up your runs, saves, save states, settings and trophies ({size}, {date}) – not your games, which stay where they are.', { size: mb(backup.bytes), date })}</span>
+      <button class="btn small" onClick=${open}><${Icon} name="folder" size=${14} />${t('set.backupOpen', 'Open backup folder')}</button></div>
+    <span class="small faint">${t('set.backupHint', 'The folder “{name}” is in “backups” next to your data. souldew never touches it again – delete it once you’re sure you don’t need it.', { name: backup.name || '' })}</span>
+    ${error && html`<span class="small warning error" role="alert">${error}</span>`}
+  </div>`;
+}
+
 export function AboutSection({ cfg, status, save }) {
   return html`
-    <${Group} title=${t('set.versionUpdates', 'Version & updates')}><${Item} id="updates"><${UpdateSection} /><//><//>
+    <${Group} title=${t('set.versionUpdates', 'Version & updates')}><${Item} id="updates"><${UpdateSection} /><//>
+      <${Item} id="backup" when=${!!status?.upgradeBackup}><${BackupNote} backup=${status?.upgradeBackup} /><//><//>
     <${Group} title=${t('set.trouble', 'Troubleshooting')} note=${t('set.troubleNote', 'Only needed when something doesn’t work – the defaults are right for most computers.')}>
       <${Item} id="gpu" when=${hasGpuChoice()}><${GraphicsSetting} cfg=${cfg} save=${save} /><//>
       <${Item} id="ctr-renderer" when=${!!status?.ctr?.ok}><${CtrRendererSetting} cfg=${cfg} status=${status} save=${save} /><//>

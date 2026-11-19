@@ -78,6 +78,7 @@ export const SETTINGS = [
   { id: 'account-data', section: 'account', keys: ['acct.dataTitle', 'acct.export', 'acct.delete'], kw: 'export download gdpr dsgvo data delete account remove rgpd datos dati' },
   // About
   { id: 'updates', section: 'about', keys: ['set.versionUpdates', 'upd.check'], kw: 'update updates version release download upgrade new version aktualisierung mise à jour actualización aggiornamento' },
+  { id: 'backup', section: 'about', keys: ['set.backupOpen', 'set.backupMade'], kw: 'backup back up restore copy safety upgrade 3.0 sicherung datensicherung sauvegarde copia de seguridad copia di sicurezza' },
   { id: 'gpu', section: 'about', keys: ['set.gpu', 'set.gpuHint', 'set.trouble'],
     kw: 'graphics backend vulkan opengl direct3d d3d11 gpu graphics card driver stutter crackle blank window black screen grafik grafikkarte graphique gráfica grafica' },
   { id: 'ctr-renderer', section: 'about', keys: ['set.ctrRenderer', 'set.ctrRendererHint', 'set.trouble'],

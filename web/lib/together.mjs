@@ -23,6 +23,12 @@ import { giftList } from '/shared/giftitems.mjs';
 import { feed, feedText, msg, live, encounter, players, rules as getRules, slotsOf, runMode } from './run.mjs';
 
 const TICK_MS = 500;
+/**
+ * A partner whose direct connection has stood this long without one status from them runs an older souldew (2.x): every
+ * 3.0 build sends its status as a heartbeat (TG.statusEveryMs) the moment the link is up. Three heartbeats' worth, so a
+ * slow first message never makes a 3.0 partner look old.
+ */
+export const OLDER_APP_MS = 3 * TG.statusEveryMs;
 const hubs = new WeakMap(); // SyncLink → TogetherHub
 
 /** May the players of this run give each other items? The host's rule "Gifts between us" (default: yes). */
@@ -69,6 +75,9 @@ export class TogetherHub {
     this.position = null; // () → my last position on the overworld { fam, map, x, y, size } or null (the play view)
     this.seen = new Set(); // log ids looked at
     this.started = now();
+    this.directSince = new Map(); // slot → since when we have a direct connection to them (olderApp)
+    this.spoke = new Set(); // slots that sent a status on this link at least once – a 3.0 build
+    this.older = new Set(); // slots olderApp said yes to at the last tick
     this.desk = new GiftDesk({
       me: this.me,
       send: (m) => this.send(m),
@@ -152,6 +161,7 @@ export class TogetherHub {
     if (!(this.link.others || []).includes(m.from)) return;
     if (m.op === 'st') {
       const st = unpackStatus(m);
+      if (st && !this.spoke.has(m.from)) (this.spoke.add(m.from), this._emit());
       if (st) {
         this.statuses.set(m.from, { ...st, at: this.now() });
         this._emit();
@@ -173,6 +183,17 @@ export class TogetherHub {
     const s = this.statuses.get(slot);
     return s && this.now() - s.at < TG.staleMs ? s : null;
   }
+  /**
+   * Is `slot` on an older souldew – one without link trades and battles, Shared World, raids and gifts (2.x)? true once
+   * our direct connection to them has stood OLDER_APP_MS without a single status from them. false while unknown (no
+   * direct connection, or not long enough) – the callers then say what they said before (offline, no connection).
+   */
+  olderApp(slot) {
+    if (this.spoke.has(slot)) return false;
+    const since = this.directSince.get(slot);
+    return since != null && this.now() - since >= OLDER_APP_MS;
+  }
+
   /** Can `slot`'s app do `cap` ('gift' | 'ping' | 'watch')? Only builds that send a status can. */
   can(slot, cap) {
     return !!this.status(slot)?.caps.includes(cap);
@@ -358,9 +379,39 @@ export class TogetherHub {
       if (now >= p.until || pingArrived(p, pos)) (this.pings.delete(slot), (changed = true));
     }
     if (this.myPing && now >= this.myPing.until) (this.myPing = null), (changed = true);
+    // how long each partner has been directly connected (olderApp) – the moment one counts as older is a change
+    for (const slot of this.link.others || []) {
+      if (!this.link.status?.partners?.[slot]?.p2p) this.directSince.delete(slot);
+      else if (!this.directSince.has(slot)) this.directSince.set(slot, now);
+      const older = this.olderApp(slot);
+      if (older === this.older.has(slot)) continue;
+      changed = true;
+      if (older) (this.older.add(slot), this._olderNote(slot));
+      else this.older.delete(slot);
+    }
     for (const [slot, s] of this.statuses) if (now - s.at >= TG.staleMs) (this.statuses.delete(slot), (changed = true));
     if (this.pops.length && this.pops.some((p) => now - p.at >= TG.popMs)) (this.pops = this.popsNow()), (changed = true);
     if (changed) this._emit();
+  }
+
+  /**
+   * One line in the run's log, once per partner on an older souldew: their 2.x app shows a new log line of someone else
+   * as a notice, so this is how they learn that the others are on 3.0 and what they miss. Every 3.0 player writes the
+   * same entry (keyed by the older partner's slot), so it's there once. The English text is what a 2.x app shows: it
+   * doesn't know the key.
+   */
+  _olderNote(slot) {
+    if (!this.olderApp(slot) || !this.doc || !this.manifest || runMode(this.manifest) === 'nuzlocke') return;
+    const id = `older-${slot}`;
+    try {
+      if (this.doc.get(`feed:${id}`, null)) return;
+      const name = players(this.doc, this.manifest)[slot]?.name || slot.toUpperCase();
+      const entry = { type: 'note', slot: this.me, about: slot,
+        msg: msg('feed.olderApp', '{name} is on an older souldew – trading, battling, raids and Shared World need souldew 3.0 on every computer of the run. Update in Settings › About.', { name }) };
+      feed(this.doc, { ...entry, text: feedText(this.doc, this.manifest, entry) }, id);
+    } catch (err) {
+      console.warn('older app note', err);
+    }
   }
 
   stop() {
