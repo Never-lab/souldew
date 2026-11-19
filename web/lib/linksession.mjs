@@ -100,12 +100,14 @@ function collect(box, m) {
  */
 export class LinkSessions {
   constructor({ sync, runId, me, onChange = () => {}, openSession = () => {}, closeSession = () => {}, emu = () => null, ownGame = () => false, fetchImpl = null,
-    rules = () => ({}), onResult = () => {}, block = () => null }) {
+    rules = () => ({}), onResult = () => {}, block = () => null, beforeRestore = async () => {} }) {
+    // beforeRestore(state): a desync is about to put the run's save back – the play view stops writing the session's
+    // saves and waits for the ones already on their way (a write landing after the restore would undo it)
     // ownGame(): this player's game of this run runs in the fast player right now (a link starts from it, no restart)
     // rules(): the run's rules (the wager rule); onResult(entry): what this computer read of a session's battles – into
     // the run (web/lib/wager.mjs); block(seats, kind): why these players' games can't link – a refusal code (Play
     // together, where every player has a game of their own: shared/playtogether.mjs inviteBlock) – or null
-    Object.assign(this, { sync, runId, me, onChange, openSession, closeSession, emu, ownGame, rules, onResult, block });
+    Object.assign(this, { sync, runId, me, onChange, openSession, closeSession, emu, ownGame, rules, onResult, block, beforeRestore });
     this.fetch = fetchImpl || ((...a) => fetch(...a)); // (tests give each player's page its own server)
     this.state = { phase: 'idle' };
     this.elsewhere = {}; // slot → { seats, kind, at }: players of the run linked with others right now (their 'linked')
@@ -463,6 +465,11 @@ export class LinkSessions {
     store.set(REJOIN_KEY(this.runId), null);
     let restored = null;
     if (reason === 'linkDesync' && st.id && (was === 'running' || was === 'rejoining')) {
+      try {
+        await this.beforeRestore(st);
+      } catch {
+        // (the restore goes ahead – the session's saves are dropped by closeSession as before)
+      }
       try {
         restored = await this._api('/api/link/restore', { runId: this.runId, id: st.id, slot: this.me });
       } catch {

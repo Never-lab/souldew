@@ -294,7 +294,7 @@ function browserGlobals() {
 }
 
 /** Two pages of one run (p1 = Sam, p2 = Tim): their channel, their servers (fetch), what reached the link hosts. */
-async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200, consoles = null, oldB = false, rules = {}, third = null } = {}) {
+async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200, consoles = null, oldB = false, rules = {}, third = null, beforeRestore = undefined } = {}) {
   const g = browserGlobals();
   const { LinkSessions } = await import('../web/lib/linksession.mjs');
   const roms = { p1: 'a'.repeat(40), p2: 'b'.repeat(40), p3: 'c'.repeat(40) };
@@ -358,7 +358,8 @@ async function pair({ missingOnB = false, seamless = false, binary = false, save
   const changes = { p1: 0, p2: 0, p3: 0 };
   const OldLinkSessions = third === 'old' ? (await import(OLD_LINKSESSION)).LinkSessions : null;
   const mk = (slot, Cls = LinkSessions) => new Cls({ sync: sync(slot), runId: 'run1', me: slot, onChange: () => changes[slot]++, openSession: () => {}, closeSession: () => closed[slot]++,
-    emu: () => emuFor(slot), ownGame: () => seamless, fetchImpl: fetchFor(slot), rules: () => rules, onResult: (e) => results[slot].push(e) });
+    emu: () => emuFor(slot), ownGame: () => seamless, fetchImpl: fetchFor(slot), rules: () => rules, onResult: (e) => results[slot].push(e),
+    ...(beforeRestore ? { beforeRestore: (st) => beforeRestore(slot, st) } : {}) });
   const A = mk('p1'), B = mk('p2');
   const C = third ? mk('p3', OldLinkSessions || LinkSessions) : null;
   const settle = async (ms = 1700) => { for (let i = 0; i < ms / 50; i++) await new Promise((r) => setTimeout(r, 50)); };
@@ -711,4 +712,31 @@ test('"Pick your copy": a failed step always says something – the server\'s co
   // a network error (no code at all) – it used to leave the alert empty
   assert.equal(needRomsError(new TypeError('Failed to fetch'), names), 'Failed to fetch');
   assert.ok(needRomsError({}, names).length > 0, 'never empty');
+});
+
+test('linksession: out of step – the play view\'s saves on their way land before the run\'s save goes back, never after', async () => {
+  const order = [];
+  let server = null;
+  const beforeRestore = async (slot) => {
+    order.push(`${slot}: stop writing`);
+    await new Promise((r) => setTimeout(r, 150)); // an upload still on its way
+    order.push(`${slot}: uploads done (${server[slot].restores.length} restores yet)`);
+  };
+  const p = await pair({ beforeRestore });
+  server = p.server;
+  const { A, B, as, settle } = p;
+  await as('p1', () => A.invite('trade', ['p2']))();
+  await settle(100);
+  await as('p2', () => B.accept())();
+  await settle(3500);
+  assert.equal(A.state.phase, 'running');
+  A._hash('p1', 240, 'aaaa');
+  A._hash('p2', 240, 'bbbb');
+  await settle(1000);
+  assert.equal(A.state.ended.reason, 'linkDesync');
+  for (const slot of ['p1', 'p2']) {
+    assert.deepEqual(order.filter((x) => x.startsWith(slot)), [`${slot}: stop writing`, `${slot}: uploads done (0 restores yet)`]);
+    assert.equal(server[slot].restores.length, 1, 'then restored');
+  }
+  A.stop(), B.stop();
 });

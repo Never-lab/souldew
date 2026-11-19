@@ -887,6 +887,13 @@ function App() {
       // what this computer read of a session's battles (web/lib/wager.mjs): compared with the partners' in the run
       onResult: (entry) => doc.set(`lb:${entry.sid}:${me}`, entry),
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
+      // out of step: from now on the play view writes none of the session's saves, and the ones on their way land first
+      beforeRestore: async () => {
+        const tl = sessionRef.current?.target?.link;
+        if (!tl) return;
+        tl.discard = true;
+        await Promise.race([tl.settle?.(), new Promise((res) => setTimeout(res, 15000))]);
+      },
       openSession: (st) => {
         lp.partyFirst = lp.partyLast = null; // the teams the link session shows first and last (the trade's log entry)
         const out = manifest.outputs?.[me];

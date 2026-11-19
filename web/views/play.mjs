@@ -884,6 +884,9 @@ export function GameSession({ session, mode }) {
       });
       return chain;
     };
+    // a link session that falls out of step waits for the uploads already on their way before the run's save goes back
+    // (web/lib/linksession.mjs beforeRestore) – one landing after the restore would bring the session's save back
+    if (target.link) target.link.settle = () => chain.catch(() => {});
     // "Where you left off": a state next to the battery save. It is only resumed while the save on disk
     // is still the one it was taken with – after an in-game save elsewhere the save wins.
     const autoKey = `sl-auto-${target.stateId}`;
