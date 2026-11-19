@@ -154,10 +154,11 @@ test('games: the seat\'s game from its cartridge header (and the live tracker\'s
     nds.set([...code].map((c) => c.charCodeAt(0)), 0x0c);
     assert.equal(L.gameOf('nds', nds), game, code);
   }
-  // (White 2: no link battle of it recorded yet – no results and no wagers until one is)
-  assert.equal(L.gameOfEntry({ id: 'white2_us' }), null);
+  // (White 2: no link battle of it recorded yet – no results and no wagers until one is; its money table stays for the
+  // cheats, checked live in a running White 2)
+  assert.equal(L.gameOfEntry({ id: 'white2_us' }), 'white2');
   assert.equal(L.gameOfEntry({ id: 'white_us' }), 'white');
-  assert.ok(!L.wagerGame('pokemon-white-2') && L.wagerGame('pokemon-white') && !L.GAMES.white2);
+  assert.ok(!L.wagerGame('pokemon-white-2') && L.wagerGame('pokemon-white') && L.GAMES.white2.money);
   assert.equal(L.gameOfEntry({ id: 'emerald_us' }), 'emerald');
   assert.equal(L.gameOfEntry({ id: 'crystal_us', wram: { delta: 11 } }), null, 'a hack whose RAM moved');
   assert.equal(L.gameOfEntry({ id: 'heartgold_us~IPKD', scanOnly: true }), null);

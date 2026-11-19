@@ -117,6 +117,9 @@ export const GAMES = {
   black: { gen: 5, kind: 'records', save: { at: 0x0221bbac }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021d0798, battle: [0x2100, 0x2101] }, money: { off: 0x21200 } },
   white: { gen: 5, kind: 'records', save: { at: 0x0221bbcc }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021d07b8, battle: [0x2100, 0x2101] }, money: { off: 0x21200 } },
   black2: { gen: 5, kind: 'records', save: { ptr: 0x02000024, add: 0x920 }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021b5138, battle: [0x2100, 0x2101] }, money: { off: 0x21100 } },
+  // White 2: kept for the cheats' money (checked live in a running White 2) – its link results and wagers stay off
+  // until a session is recorded: IRDO isn't in NDS_GAMES and wagerGame leaves it out
+  white2: { gen: 5, kind: 'records', save: { ptr: 0x02000024, add: 0x920 }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021b5178, battle: [0x2100, 0x2101] }, money: { off: 0x21100 } },
 };
 
 /**
@@ -147,7 +150,7 @@ export function gameOfEntry(entry) {
   if (id === 'platinum_us') return 'platinum';
   if (/^(diamond|pearl)_us$/.test(id)) return 'dp';
   if (/^(heartgold|soulsilver)_us$/.test(id)) return 'hgss';
-  if (/^(black|white|black2)_us$/.test(id)) return id.slice(0, -3);
+  if (/^(black|white|black2|white2)_us$/.test(id)) return id.slice(0, -3);
   return null;
 }
 
