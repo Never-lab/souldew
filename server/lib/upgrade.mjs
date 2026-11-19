@@ -30,11 +30,13 @@ export const majorOf = (v) => {
  * What this start means: `from` the version that ran before ('2.x' for an install from before versions were noted –
  * every 2.x – null for a new install), whether it's the first start of a new major version, and the config patch
  * (appVersion always; whatsNew '<major>.0' for a player who knows the app already – a new one gets the welcome tour).
+ * `ranBefore`: the data folder holds what an app that ran leaves behind (ranBefore()) – a config written by hand for a
+ * new install (the e2e scripts, tests) has no version and isn't an update.
  */
-export function versionStep(config, current) {
+export function versionStep(config, current, ranBefore = true) {
   const c = config && typeof config === 'object' ? config : {};
   // an install that ran before: anything in its config beyond the graphics start marker electron/main.mjs may write first
-  const used = Object.keys(c).some((k) => !k.startsWith('gpu'));
+  const used = ranBefore && Object.keys(c).some((k) => !k.startsWith('gpu'));
   const from = typeof c.appVersion === 'string' ? c.appVersion : used ? '2.x' : null;
   const to = majorOf(current);
   const was = from === '2.x' ? 2 : majorOf(from);
@@ -144,12 +146,15 @@ function dropPartials(dataDir) {
   for (const n of names) if (/^\.pre-.+\.partial$/.test(n)) rmSync(join(dataDir, 'backups', n), { recursive: true, force: true });
 }
 
+/** Has souldew run on this data folder before? What every 2.x start leaves: the library's index, runs, trophies, states. */
+export const ranBefore = (dataDir) => ['library-index.json', 'runs', 'trophies.json', 'Saves', 'Local Storage'].some((n) => exists(join(dataDir, n)));
+
 /**
  * The whole step at start-up. `config`: the config as it is on disk (null: none); `save(patch)` writes the config.
  * → { from, to, major, backup } – backup: what upgradeBackups now says for this major version (null: nothing to do).
  */
 export function upgradeStep({ dataDir, config, current, save, log = console.log, now = Date.now(), free = null, backups = true }) {
-  const step = versionStep(config, current);
+  const step = versionStep(config, current, ranBefore(dataDir));
   let backup = config?.upgradeBackups?.[step.to] || null;
   const patch = { ...step.patch };
   if (step.major && !backup && backups) {

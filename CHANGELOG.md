@@ -305,6 +305,21 @@ Plus a new play view that gives the game the room it deserves.
 - **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
   keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
   2.8.2 in the souldew engine too.
+- **A backup before the first start of 3.0.** Updating from 2.x, souldew first copies your runs, in-game saves, save
+  states, settings and trophies into a “backups” folder next to your data – not your games, which stay where they are.
+  Settings › About shows it with “Open backup folder”. It's made once, and only when there's enough free space on the
+  disk (if not, souldew says so there and changes nothing for lack of it).
+- **What's new, at a glance.** The first start after updating from 2.x shows five short cards – play together, Shared
+  World, raids, your handheld and friends – each with a picture of the app. Skip them any time; Help and Settings ›
+  General bring them back. New installs get the welcome tour as before.
+- **A partner still on 2.8 is told, not left waiting.** In a SoulLink where someone hasn't updated yet, Trade and
+  Battle on their card say they need souldew 3.0 (instead of an invite that ran out with “didn't answer”), “Link all of
+  us” leaves them out, and the run's log gets one line for them that their 2.8 app shows as a notice: update to trade,
+  battle, raid and walk around together. Everything else of the run – catches, deaths, the log, the rules – keeps
+  syncing between both versions as before.
+- **Save states of the old Game Boy player are kept.** The first game after the update no longer replaces the last
+  “where you left off” of the previous Game Boy emulator: it moves to the backups, and older ones are set aside in the
+  save-state folder instead of being dropped.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

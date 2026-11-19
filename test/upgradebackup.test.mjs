@@ -64,6 +64,17 @@ test('versionStep: 2.x (nothing noted), the same major, a new install, a later 4
   // back on 2.8.3 for a while (it keeps keys it doesn't know) and 3.0 again: no second round
   assert.equal(U.versionStep({ onboarded: true, appVersion: '3.0.0', upgradeBackups: { 3: { name: 'pre-3.0-x' } } }, '3.0.0').major, false);
   assert.deepEqual(U.versionStep({ onboarded: true, appVersion: '3.4.2' }, '4.0.0').patch, { appVersion: '4.0.0', whatsNew: '4.0' });
+  // a config written for a new install (the e2e scripts, tests): nothing in the folder shows the app ever ran
+  assert.deepEqual(U.versionStep({ onboarded: true, lang: 'de' }, '3.0.0', false), { from: null, to: 3, major: false, patch: { appVersion: '3.0.0' } });
+  const fresh = join(TMP, 'fresh');
+  mkdirSync(fresh, { recursive: true });
+  writeFileSync(join(fresh, 'config.json'), '{"onboarded":true}');
+  assert.equal(U.ranBefore(fresh), false);
+  let cfg = { onboarded: true };
+  assert.equal(U.upgradeStep({ dataDir: fresh, config: cfg, current: '3.0.0', save: (p) => (cfg = { ...cfg, ...p }), log: () => assert.fail('no backup') }).major, false);
+  assert.deepEqual(cfg, { onboarded: true, appVersion: '3.0.0' }, 'no cards, no backup');
+  writeFileSync(join(fresh, 'library-index.json'), '{}');
+  assert.equal(U.ranBefore(fresh), true, 'what every 2.x start leaves');
 });
 
 test('backup: runs, saves, states, settings, trophies and the browser storage – not ROMs, the library, caches, tools or installed updates', () => {
