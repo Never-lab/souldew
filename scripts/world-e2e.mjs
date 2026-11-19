@@ -299,7 +299,16 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
       await sleep(450);
     }
   }
-  log('next to B', JSON.stringify({ local: (await world(0)).local, B: await local(1), own: (await world(0)).own, drawn: (await world(0)).followers }));
+  // (HGSS: A's own Pokémon trails on A's last tile – if A came over B's tile, it now stands there, and A talks to it, as
+  // the game does: a step back and in again moves it behind A)
+  for (let n = 0; ds && n < 3; n++) {
+    const [own, bb] = [(await world(0))?.ownFollower, await local(1)];
+    if (!own || !bb || own.tx !== bb.tx || own.ty !== bb.ty) break;
+    log('own follower on B, stepping out and in', JSON.stringify(own));
+    await ds.step(0, opposite[side.key]);
+    await ds.step(0, side.key);
+  }
+  log('next to B', JSON.stringify({ local: (await world(0)).local, B: await local(1), own: (await world(0)).ownFollower, drawn: (await world(0)).followers }));
   await (ds ? ds.press(0, 'a') : hold(0, ['a'], 120));
   if (ds) log('after A', JSON.stringify(await world(0)));
   if (ds) log('overlays', await Promise.all([0, 1].map((i) => ev(i, `document.querySelector('.console-screen iframe').contentWindow.document.querySelectorAll('.sw-layer').length`))));
