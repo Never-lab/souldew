@@ -78,9 +78,10 @@ Plus a new play view that gives the game the room it deserves.
   while it eases after you, smaller further away like everything the game draws. souldew uses the game's own camera,
   so they stay on their tile to the pixel while you both walk. In HeartGold and SoulSilver they're lit like the field –
   a blue evening, a dark cave – and their Pokémon walks behind them as the game's own follower does; in Platinum it's
-  the party icon. Names, Trade/Battle/Wave with A, the emotes and rock-paper-scissors work as in Gen 3. The 3D houses
-  and trees don't hide them (only you do), and surfing partners sit without their Pokémon. Diamond and Pearl follow
-  later.
+  the party icon. Names, Trade/Battle/Wave with A, the emotes and rock-paper-scissors work as in Gen 3. They walk
+  behind houses, trees, counters, plants and people exactly like the game's own figures: souldew's DS emulator hands
+  over the depth of the 3D picture, pixel for pixel. Surfing partners sit without their Pokémon. Diamond and Pearl
+  follow later.
 - **Rock-paper-scissors with your partners, fair and square.** Walk up to a partner and press A, click their name tag
   or the hand on their tile, or use “Rock-paper-scissors” in the board's log – that last one works in every game, not
   just the Gen 3 ones. Both pick within 10 seconds; souldew only swaps the hands once both have picked (each side first

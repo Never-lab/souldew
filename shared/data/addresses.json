@@ -2093,7 +2093,8 @@
      "location": "0x20",
      "mapMatrix": "0x30",
      "playerAvatar": "0x40",
-     "runningFieldMap": "0x6C"
+     "runningFieldMap": "0x6C",
+     "followMon": "0xE4"
     },
     "avatar": {
      "state": "0x18",
@@ -2101,6 +2102,7 @@
      "mapObject": "0x30"
     },
     "billboardFoot": 5,
+    "billboardDepth": 17,
     "mmodel": "a/0/8/1",
     "sprites": {
      "walk": [
@@ -2117,6 +2119,7 @@
      ]
     },
     "followers": "overworld",
+    "icons": "a/0/2/0",
     "source": "pret/pokeheartgold xmap branch heartgoldus.xMAP / soulsilverus.xMAP (the same addresses): sFieldSysPtr 021D4158 (src/field_system.c), NNS_G3dGlb 021DA49C, gSystem 021D110C; layouts from include/field_system.h, include/player_avatar.h, include/map_object.h. Checked in the running HeartGold US (19 Nov 2026): global coordinates outdoors (New Bark Town), the matrices against the picture. Followers: the game's own overworld Pokémon ('tsure_poke' in a/0/8/1) by sModelIndexLUT, found in ARM9 by its shape."
    }
   },
@@ -2213,7 +2216,8 @@
      "location": "0x20",
      "mapMatrix": "0x30",
      "playerAvatar": "0x40",
-     "runningFieldMap": "0x6C"
+     "runningFieldMap": "0x6C",
+     "followMon": "0xE4"
     },
     "avatar": {
      "state": "0x18",
@@ -2221,6 +2225,7 @@
      "mapObject": "0x30"
     },
     "billboardFoot": 5,
+    "billboardDepth": 17,
     "mmodel": "a/0/8/1",
     "sprites": {
      "walk": [
@@ -2237,6 +2242,7 @@
      ]
     },
     "followers": "overworld",
+    "icons": "a/0/2/0",
     "source": "pret/pokeheartgold xmap branch heartgoldus.xMAP / soulsilverus.xMAP (the same addresses): sFieldSysPtr 021D4158 (src/field_system.c), NNS_G3dGlb 021DA49C, gSystem 021D110C; layouts from include/field_system.h, include/player_avatar.h, include/map_object.h. Checked in the running HeartGold US (19 Nov 2026): global coordinates outdoors (New Bark Town), the matrices against the picture. Followers: the game's own overworld Pokémon ('tsure_poke' in a/0/8/1) by sModelIndexLUT, found in ARM9 by its shape."
    }
   },
@@ -2331,6 +2337,7 @@
      "mapObject": "0x30"
     },
     "billboardFoot": 4,
+    "billboardDepth": 8,
     "mmodel": "data/mmodel/mmodel.narc",
     "sprites": {
      "walk": [

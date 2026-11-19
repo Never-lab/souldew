@@ -81,7 +81,11 @@ node scripts/rom-matrix.mjs <roms> --live --native   # the ROM matrix in the fas
 node scripts/native-e2e.mjs <roms>              # the app UI: native player taken, speeds 1×/2×/4×/Max, save states
 ```
 
-Sources are cloned at their tags into `_ref/native/` (not in the repository). The cores are built without OpenGL (the
+Sources are cloned at their tags into `_ref/native/` (not in the repository). Two small patches are applied to them:
+`native/melonds-patch/` (melonDS's software renderer keeps the depth of the 3D frame on screen while asked) and
+`native/melonds-ds-patch/` (melonDS DS exports it as `souldew_depth`) – Shared World hides DS partners behind the map
+with it (docs/MULTIPLAYER.md › 9). The DS core is built against the link host's melonDS checkout (the same pinned commit
+of the fork's branch melonDS DS fetches), so both carry the patch. The cores are built without OpenGL (the
 page draws the picture), the DS core with its Wi-Fi switched off at run time. `npm run dist` checks the folder
 (`build-native.mjs --check`); `SLS_NO_NATIVE=1 npm run dist` builds without it – everything then plays in the browser
 emulator. Windows and Linux: `.github/workflows/native.yml` (Ubuntu 22.04 for Linux, MinGW-w64 cross build for Windows,

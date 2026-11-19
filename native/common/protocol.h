@@ -18,6 +18,8 @@ enum host_msg {
   MSG_SEATSRAM = 14, // link host: u32 seat, bytes – every seat's battery save (on FLUSH in a link session)
   MSG_SEATSTATE = 15, // link host: u32 seat, bytes – the local seat's console in the fast player's state format
   MSG_WATCHED = 16,  // u32 frame, the WATCH ranges' bytes – right before each VIDEO
+  MSG_DEPTH = 17,    // u32 frame, i32 flags (1 | 2 W-buffered), per DEPTH rectangle { s16 x, s16 y, u16 w, u16 h, u32 depth[w×h] row
+                     // by row } – right before WATCHED
 };
 
 // ---- souldew → host --------------------------------------------------------------------------------------------------
@@ -35,6 +37,7 @@ enum host_cmd_type {
   CMD_RESYNC = 12, // all of the RAM with the next RAM message
   CMD_STEP = 13,   // u32 n: run exactly n frames, then pause → event stepped
   CMD_WATCH = 14,  // u32 count (≤ 16), count × { u32 addr, u32 len } (≤ 512 bytes in all; 0 = off) → WATCHED
+  CMD_DEPTH = 15,  // u32 count (≤ 8), count × { s16 x, s16 y, u16 w, u16 h } (≤ 16384 pixels; 0 = off) → DEPTH (the DS's 3D)
   // link sessions (native/link-host)
   CMD_VIEW = 20,      // u32 seat – whose picture comes out (tests, spectating)
   CMD_RINPUT = 21,    // u32 seat, u32 first frame, u32 inputs[] – a peer's buttons

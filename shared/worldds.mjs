@@ -52,12 +52,15 @@ export function dsWorldTable(entry) {
     fieldSystem: hex(w.fieldSystem),
     glb: hex(w.g3dGlb),
     system: hex(w.system),
-    off: { location: hex(w.off.location), mapMatrix: hex(w.off.mapMatrix), playerAvatar: hex(w.off.playerAvatar), task: hex(w.off.task), running: hex(w.off.runningFieldMap) },
+    off: { location: hex(w.off.location), mapMatrix: hex(w.off.mapMatrix), playerAvatar: hex(w.off.playerAvatar), task: hex(w.off.task), running: hex(w.off.runningFieldMap), followMon: w.off.followMon ? hex(w.off.followMon) : 0 },
     avatar: { mapObject: hex(w.avatar.mapObject), state: hex(w.avatar.state), gender: hex(w.avatar.gender) },
     mmodel: w.mmodel,
     sprites: w.sprites,
     followers: w.followers || 'icons',
     foot: w.billboardFoot ?? 4,
+    // how far toward the camera the game draws its billboards (world units in view space – measured on the player's own
+    // sprite in the depth buffer: Platinum 8, HeartGold 17): a partner is as deep as a game sprite on its tile
+    toward: w.billboardDepth ?? 8,
     icons: w.icons || null,
     screen: DS_SCREEN,
   };
@@ -84,7 +87,14 @@ export function dsPointers(t, read) {
   if (!ok(a, 0x34)) return null;
   const obj = u32(a, t.avatar.mapObject);
   if (!inRam(obj)) return null;
-  return { fs, pm, pav, loc, mm, obj };
+  // HeartGold/SoulSilver: the Pokémon walking behind you (FieldSystem.followMon) and its MapObject
+  let follow = 0;
+  if (t.off.followMon) {
+    const fm = read(fs + t.off.followMon, 4);
+    const p = ok(fm, 4) ? u32(fm, 0) : 0;
+    follow = inRam(p) ? p : 0;
+  }
+  return { fs, pm, pav, loc, mm, obj, follow };
 }
 
 /**
@@ -101,6 +111,9 @@ export function dsWatchRanges(t, ptr) {
   ];
   if (ptr) {
     r.push([ptr.fs, 0x70], [ptr.pm, 8], [ptr.obj + 0x28, 0x54], [ptr.pav + t.avatar.state, 8], [ptr.loc, 4], [ptr.mm, 4]);
+    // (HGSS: followMon's species … form, and its MapObject's facing and position)
+    if (t.off.followMon) r.push([ptr.fs + t.off.followMon, 0x1c]);
+    if (ptr.follow) r.push([ptr.follow + 0x28, 4], [ptr.follow + 0x70, 12]);
   }
   return r;
 }
@@ -133,8 +146,17 @@ export function dsReadFrame(t, read, ptr) {
   // (the player's MapObject from 0x28: facing 0x28, … grid x/y/z 0x64–0x6c, pos 0x70–0x78)
   const at = (k) => k - 0x28;
   const st = s32(a, 0);
+  // HGSS: FollowMon { mapObject, …, species +0x10, gender +0x14, active +0x16, shiny +0x17, form +0x18 }
+  let follow = null;
+  const fm = t.off.followMon ? read(ptr.fs + t.off.followMon, 0x1c) : null;
+  if (ok(fm, 0x1c) && ptr.follow && u32(fm, 0) === ptr.follow) {
+    const fo = read(ptr.follow + 0x28, 4);
+    const fp = read(ptr.follow + 0x70, 12);
+    if (ok(fo, 4) && ok(fp, 12)) follow = { species: u32(fm, 0x10), active: !!fm[0x16], shiny: !!fm[0x17], form: u16(fm, 0x18), facing: s32(fo, 0), x: fx(fp, 0), y: fx(fp, 4), z: fx(fp, 8) };
+  }
   return {
     ...out,
+    follow,
     field: true,
     task: u32(f, t.off.task),
     running: u32(f, t.off.running),
@@ -472,9 +494,10 @@ export function dsAvatarSheets(files, names) {
  * glow. `pic`: the picture { w, h, fmt (0 BGRA, 2 RGB565), px } (the top screen is its first 256×192, or the left half
  * side by side – `stride` its width); `frame`: the player's frame { rgba, w, h } drawn with its top-left at (x, y).
  * Returns [r, g, b] multipliers (least squares over the sprite's opaque pixels) with the fit's mean error, or null when
- * the sprite isn't there as expected (something covers it, it's another frame: the error is large).
+ * the sprite isn't there as expected (something covers it, it's another frame: the error is large). `keep(sx, sy)`:
+ * only those pixels (where the depth says they are the player's own – not a follower in front of them).
  */
-export function measureTint(pic, frame, x, y) {
+export function measureTint(pic, frame, x, y, keep = null) {
   if (!pic || !frame) return null;
   const { w: pw, fmt, px } = pic;
   const sum = [[0, 0], [0, 0], [0, 0]];
@@ -485,7 +508,7 @@ export function measureTint(pic, frame, x, y) {
       if (!frame.rgba[i + 3]) continue;
       const sx = x + c;
       const sy = y + r;
-      if (sx < 0 || sy < 0 || sx >= DS_SCREEN.w || sy >= DS_SCREEN.h) continue;
+      if (sx < 0 || sy < 0 || sx >= DS_SCREEN.w || sy >= DS_SCREEN.h || (keep && !keep(sx, sy))) continue;
       let R, G, B;
       if (fmt === 2) {
         const v = px[(sy * pw + sx) * 2] | (px[(sy * pw + sx) * 2 + 1] << 8);
@@ -507,10 +530,126 @@ export function measureTint(pic, frame, x, y) {
       pairs.push([got, want]);
     }
   }
-  if (pairs.length < 60) return null;
+  if (pairs.length < 32) return null;
   const tint = sum.map(([a, b]) => (b ? Math.min(1.2, a / b) : 1));
   let err = 0;
   for (const [got, want] of pairs) for (let k = 0; k < 3; k++) err += Math.abs(got[k] - tint[k] * want[k]);
   err /= pairs.length * 3;
   return { tint, err };
+}
+
+// ---- the map in front: the DS's own depth buffer ----------------------------------------------------------------------
+/**
+ * The depth value the DS keeps for a world point (24 bits, as the geometry engine computes it – melonDS GPU3D.cpp):
+ * Z-buffered `((z/w)·0x4000 + 0x3FFF)·0x200`, W-buffered the clip w (fx 12-bit). `toward`: the point moved that many world
+ * units toward the camera first (a margin). Null behind the camera.
+ */
+export function depthAt(m, x, y, z, { wbuffer = false, toward = 0 } = {}) {
+  if (!m) return null;
+  const { P, C } = m;
+  const vx = x * C[0] + y * C[3] + z * C[6] + C[9];
+  const vy = x * C[1] + y * C[4] + z * C[7] + C[10];
+  const vz = x * C[2] + y * C[5] + z * C[8] + C[11] + toward; // (the camera looks down −z: nearer is more)
+  const cz = vx * P[2] + vy * P[6] + vz * P[10] + P[14];
+  const cw = vx * P[3] + vy * P[7] + vz * P[11] + P[15];
+  if (!(cw > 1e-6)) return null;
+  const d = wbuffer ? cw * 4096 : ((cz / cw) * 0x4000 + 0x3fff) * 0x200;
+  return Math.max(0, Math.min(0xffffff, Math.round(d)));
+}
+
+/**
+ * The host's DEPTH message: { frame, wbuffer, rects: [{ x, y, w, h, d: Uint32Array }] } or null (nothing kept: an
+ * older core, a frame without 3D).
+ */
+export function parseDepth(bytes) {
+  if (!bytes || bytes.length < 8) return null;
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const flags = v.getInt32(4, true);
+  if (flags <= 0) return null;
+  const rects = [];
+  let o = 8;
+  while (o + 8 <= bytes.length) {
+    const x = v.getInt16(o, true);
+    const y = v.getInt16(o + 2, true);
+    const w = v.getUint16(o + 4, true);
+    const h = v.getUint16(o + 6, true);
+    o += 8;
+    if (!w || !h || o + w * h * 4 > bytes.length) break;
+    const d = new Uint32Array(w * h);
+    for (let i = 0; i < w * h; i++) d[i] = v.getUint32(o + i * 4, true);
+    o += w * h * 4;
+    rects.push({ x, y, w, h, d });
+  }
+  return { frame: v.getUint32(0, true), wbuffer: !!(flags & 2), rects };
+}
+
+/** The depth at a pixel of the top screen from a parsed DEPTH (−1 where no rectangle has it). */
+export function depthPixel(depth, sx, sy) {
+  for (const r of depth?.rects || []) {
+    const x = sx - r.x;
+    const y = sy - r.y;
+    if (x >= 0 && y >= 0 && x < r.w && y < r.h) return r.d[y * r.w + x];
+  }
+  return -1;
+}
+
+/**
+ * What of a sprite the map hides: a mask (1 = hidden) over the screen box { x, y, w, h } (whole pixels) where the depth
+ * is nearer than `limit` – the depth a game sprite standing there has (its billboard is drawn a few units toward the
+ * camera), a little nearer still. `footY`: rows from there down are left alone (Infinity: none). `null`: no depth for
+ * the box (nothing to hide by).
+ */
+export function depthMask(depth, box, footY, limit) {
+  if (!depth || limit === null) return null;
+  const mask = new Uint8Array(box.w * box.h);
+  let known = false;
+  for (let r = 0; r < box.h; r++) {
+    const sy = box.y + r;
+    if (sy >= footY) break;
+    for (let c = 0; c < box.w; c++) {
+      const d = depthPixel(depth, box.x + c, sy);
+      if (d < 0) continue;
+      known = true;
+      if (d < limit) mask[r * box.w + c] = 1;
+    }
+  }
+  return known ? mask : null;
+}
+
+/**
+ * The rectangles to ask the host's depth for: the boxes things are drawn in, a margin around (they move before the
+ * next answer), merged where they overlap, clipped to the screen – at most 8 and 16384 pixels (the host's limits).
+ */
+export function depthRects(boxes, margin = 10) {
+  let rs = boxes.map((b) => {
+    const x0 = Math.max(0, Math.floor((b.x - margin) / 8) * 8);
+    const y0 = Math.max(0, Math.floor((b.y - margin) / 8) * 8);
+    const x1 = Math.min(DS_SCREEN.w, Math.ceil((b.x + b.w + margin) / 8) * 8);
+    const y1 = Math.min(DS_SCREEN.h, Math.ceil((b.y + b.h + margin) / 8) * 8);
+    return [x0, y0, x1, y1];
+  }).filter(([x0, y0, x1, y1]) => x1 > x0 && y1 > y0);
+  for (let merged = true; merged;) {
+    merged = false;
+    outer: for (let i = 0; i < rs.length; i++) {
+      for (let j = i + 1; j < rs.length; j++) {
+        const a = rs[i];
+        const b = rs[j];
+        if (a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]) {
+          rs[i] = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])];
+          rs.splice(j, 1);
+          merged = true;
+          break outer;
+        }
+      }
+    }
+  }
+  rs = rs.map(([x0, y0, x1, y1]) => [x0, y0, x1 - x0, y1 - y0]).sort((a, b) => a[2] * a[3] - b[2] * b[3]);
+  const out = [];
+  let px = 0;
+  for (const r of rs) {
+    if (out.length >= 8 || px + r[2] * r[3] > 16384) break;
+    out.push(r);
+    px += r[2] * r[3];
+  }
+  return out;
 }

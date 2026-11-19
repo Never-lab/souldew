@@ -62,6 +62,8 @@ export function installWorld(host) {
     ownFollower: () => st?.ownFollower !== false,
     /** nativeplayer: the WATCHED bytes of the picture that comes next */
     onWatched: (bytes) => st?.onWatched(bytes),
+    /** nativeplayer: the DS's 3D depth in the rectangles named (MSG_DEPTH), for the picture whose bytes come next */
+    onDepth: (bytes) => st?.onDepth?.(bytes),
     /** nativeplayer: the buttons as sent to the game (libretro bits) */
     input: (bits) => st?.input(bits),
     /** nativeplayer: another host runs the game now (a seamless link session began or ended) – WATCH goes out again */

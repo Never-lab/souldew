@@ -148,7 +148,7 @@ test('reading the field: the pointers, the player, the map key, when partners ma
     [t.glb + 8, new Uint8Array(0x74)], [t.system + 0x2c, u32le(100, 1, 0, 1)]];
   const read = ram(parts);
   const ptr = dsPointers(t, read);
-  assert.deepEqual(ptr, { fs: FS, pm: PM, pav: PAV, loc: LOC, mm: MM, obj: OBJ });
+  assert.deepEqual(ptr, { fs: FS, pm: PM, pav: PAV, loc: LOC, mm: MM, obj: OBJ, follow: 0 });
   const r = dsReadFrame(t, read, ptr);
   assert.equal(r.fc, 1);
   assert.equal(r.keys, 1); // A held
@@ -162,6 +162,29 @@ test('reading the field: the pointers, the player, the map key, when partners ma
   assert.equal(dsDrawable({ ...r, running: 0 }), false);
   // another FieldSystem now (a new map, pointers not watched yet): no field reading
   assert.equal(dsReadFrame(t, read, { ...ptr, fs: FS + 4 }).field, false);
+  // HeartGold/SoulSilver: the Pokémon the game walks behind you (FieldSystem.followMon) – species, form, shiny, where
+  const th = dsWorldTable(entry('heartgold_us'));
+  const FMO = 0x02296000;
+  const fsh = new Uint8Array(0x100);
+  fsh.set(u32le(PM), 0);
+  fsh.set(u32le(LOC), th.off.location);
+  fsh.set(u32le(MM), th.off.mapMatrix);
+  fsh.set(u32le(PAV), th.off.playerAvatar);
+  fsh.set(u32le(1), th.off.running);
+  fsh.set(u32le(FMO), th.off.followMon);
+  fsh.set(u32le(249), th.off.followMon + 0x10);
+  fsh[th.off.followMon + 0x16] = 1; // active
+  const fmo = new Uint8Array(0x128);
+  fmo.set(u32le(1), 0x28);
+  fmo.set(u32le(6392 * 4096, 16 * 4096, 7384 * 4096), 0x70);
+  const pavh = new Uint8Array(0x40);
+  pavh.set(u32le(OBJ), th.avatar.mapObject);
+  const readh = ram([[th.fieldSystem, u32le(FS)], [FS, fsh], [PM, u32le(0x02299000, 0)], [PAV, pavh], [OBJ, obj], [LOC, u32le(3)], [MM, Uint8Array.from([30, 30, 0, 0])],
+    [FMO, fmo], [th.glb + 8, new Uint8Array(0x74)], [th.system + 0x2c, u32le(100, 1, 0, 0)]]);
+  const ph = dsPointers(th, readh);
+  assert.equal(ph.follow, FMO);
+  assert.deepEqual(dsReadFrame(th, readh, ph).follow, { species: 249, active: true, shiny: false, form: 0, facing: 1, x: 6392, y: 16, z: 7384 });
+  assert.ok(dsWatchRanges(th, ph).reduce((n, x) => n + x[1], 0) <= 512);
   // no FieldSystem (the title screen)
   assert.equal(dsPointers(t, ram([[t.fieldSystem, u32le(0)]])), null);
 });
@@ -352,5 +375,48 @@ test('the field\'s light, measured off the player\'s own sprite (a blue evening 
   // something in front of the player: the fit is bad and isn't used
   for (let y = 0; y < 10; y++) for (let x = 0; x < 4; x++) pic.px.set([0, 255, 0, 255], ((20 + y) * w + 10 + x) * 4);
   assert.ok(measureTint(pic, frame, 10, 20).err > 10);
+  // …unless the depth says which pixels are the player's own (a follower stands in front of the upper half)
+  const own = measureTint(pic, frame, 10, 20, (sx, sy) => sy >= 30);
+  assert.ok(own.err < 1 && Math.abs(own.tint[2] - 0.9) < 0.01);
   assert.equal(measureTint(pic, frame, 300, 20), null); // off the screen
+});
+
+test('the map in front: the DS depth of a world point, the host\'s DEPTH message, the mask, the rectangles asked for', async () => {
+  const { depthAt, parseDepth, depthMask, depthRects, depthPixel } = await import('../shared/worldds.mjs');
+  const s = SAMPLES[0];
+  const t = dsWorldTable(entry(s.game));
+  const m = dsReadFrame(t, ram([[t.glb + 8, hexBytes(s.glb)], [t.system + 0x2c, new Uint8Array(16)]]), null);
+  // Platinum's interior camera (Z-buffered): the player's own billboard was in the depth buffer at 0xDA9E00 – its spot
+  // moved 8 units toward the camera (the table's billboardDepth); the spot itself is further away (larger)
+  assert.ok(Math.abs(depthAt(m, 136, 0, 104, { toward: t.toward }) - 0xda9e00) < 0x400);
+  assert.ok(depthAt(m, 136, 0, 104) > depthAt(m, 136, 0, 104, { toward: 8 }));
+  assert.ok(depthAt(m, 136, 0, 88) > depthAt(m, 136, 0, 104)); // a tile further back: deeper
+  assert.equal(depthAt(null, 0, 0, 0), null);
+  // the message: frame, flags, then each rectangle with where it is
+  const msg = new Uint8Array(8 + 8 + 2 * 2 * 4);
+  const v = new DataView(msg.buffer);
+  v.setUint32(0, 77, true);
+  v.setInt32(4, 1, true);
+  v.setInt16(8, 10, true);
+  v.setInt16(10, 20, true);
+  v.setUint16(12, 2, true);
+  v.setUint16(14, 2, true);
+  [500, 900, 500, 900].forEach((d, i) => v.setUint32(16 + i * 4, d, true));
+  const d = parseDepth(msg);
+  assert.deepEqual([d.frame, d.wbuffer, d.rects.length, d.rects[0].x, d.rects[0].y], [77, false, 1, 10, 20]);
+  assert.equal(depthPixel(d, 11, 20), 900);
+  assert.equal(depthPixel(d, 12, 20), -1);
+  assert.equal(parseDepth(msg.slice(0, 8).fill(0)), null); // flags 0: nothing kept
+  // a sprite whose box covers those pixels: hidden where the map is nearer (500 < 700), not where it's further
+  const mask = depthMask(d, { x: 10, y: 20, w: 3, h: 2 }, Infinity, 700);
+  assert.deepEqual([...mask], [1, 0, 0, 1, 0, 0]);
+  assert.deepEqual([...depthMask(d, { x: 10, y: 20, w: 2, h: 2 }, 21, 700)], [1, 0, 0, 0]); // (rows from footY on: left alone)
+  assert.equal(depthMask(d, { x: 100, y: 100, w: 2, h: 2 }, Infinity, 700), null); // no depth there
+  assert.equal(depthMask(null, { x: 0, y: 0, w: 1, h: 1 }, Infinity, 1), null);
+  // the rectangles: around what's drawn, on an 8-pixel grid, merged, clipped, at most 8 and 16384 pixels
+  const r = depthRects([{ x: 100, y: 50, w: 32, h: 32 }, { x: 110, y: 60, w: 32, h: 32 }, { x: -20, y: 180, w: 32, h: 32 }]);
+  assert.equal(r.length, 2);
+  for (const [x, y, w, h] of r) assert.ok(x >= 0 && y >= 0 && x + w <= 256 && y + h <= 192 && !(x % 8) && !(y % 8));
+  assert.ok(r.reduce((n, [, , w, h]) => n + w * h, 0) <= 16384);
+  assert.ok(depthRects(Array.from({ length: 20 }, (_, i) => ({ x: (i % 5) * 50, y: Math.floor(i / 5) * 48, w: 8, h: 8 }))).length <= 8);
 });

@@ -10,7 +10,7 @@ import { Track, unpackState, Follower, followerHidden, DIR, chainReaders, rangeR
 import {
   dsWorldTable, dsPointers, dsWatchRanges, dsReadFrame, Displayed, billboard, project, dsPlayer, dsDrawable, dsMapKey,
   dsFacedPartner, dsAvatarSheets, dsAvatarFrame, dsFollowerFrame, findFollowerTable, btxSheet,
-  findIconPalettes, dsMonIcon, measureTint, DS_SCREEN, DS_TILE,
+  findIconPalettes, dsMonIcon, measureTint, depthAt, parseDepth, depthMask, depthRects, depthPixel, DS_SCREEN, DS_TILE,
 } from '/shared/worldds.mjs';
 import { ART, HAND_ART, artSize } from '/lib/worldart.mjs';
 import { WORLD_CSS, drawBubble, createWorldUi } from '/lib/worldui.mjs';
@@ -21,6 +21,8 @@ const HAND_MS = 2400;
 const A_CONFIRM_MS = 110; // after A: the game's own answer (a sign, a person) takes over first
 const RETRO_A = 1 << 8; // libretro joypad bit of A (nativeplayer's input)
 const DS_A = 1; // PAD_BUTTON_A in gSystem.heldKeysRaw
+// (the map hides a sprite where it is nearer than a game sprite on that tile by this many units: rounding, no more)
+const DEPTH_MARGIN = 1;
 const SPARKLE = ['..#..', '..#..', '##o##', '..#..', '..#..'];
 const none = (extra = {}) => ({ t: null, setConfig() {}, partner() {}, gone() {}, emote() {}, onWatched() {}, input() {}, debug: () => ({ supported: false, ...extra }), stop() {} });
 
@@ -66,12 +68,16 @@ async function loadGraphics(rom, t) {
       const base = mm.length - (lut[493] + 18);
       followers = { kind: 'overworld', lut, files: mm.slice(Math.max(0, base)), base };
     }
-  } else if (t.icons) {
-    const at = findIconPalettes(arm9);
-    const icons = at >= 0 ? narc(t.icons) : null;
-    if (icons) followers = { kind: 'icons', pals: arm9.slice(at, at + 494), files: icons };
   }
-  return { avatars, followers };
+  // the party icons: Diamond/Pearl/Platinum's followers, and every game's catches popping up (playing together)
+  let icons = null;
+  if (t.icons) {
+    const at = findIconPalettes(arm9);
+    const files = at >= 0 ? narc(t.icons) : null;
+    if (files) icons = { kind: 'icons', pals: arm9.slice(at, at + 494), files };
+  }
+  if (!followers && icons) followers = icons;
+  return { avatars, followers, icons };
 }
 
 function worldDs(host, t, gfx) {
@@ -121,6 +127,11 @@ function worldDs(host, t, gfx) {
   let ticks = 0;
   let drawnDebug = {};
   let tint = [1, 1, 1]; // the field's light on its billboards (measureTint), applied to everything drawn
+  // the map in front (shared/worldds.mjs depthMask): the DS's 3D depth in the rectangles named, with every picture
+  let depthNext = null; // (arrived, for the picture whose bytes come next)
+  let depthNow = null; // this picture's
+  let depthKey = '';
+  const depthCost = { n: 0, ms: 0, hidden: {} };
   let tintAt = 0;
   let tintErr = null;
 
@@ -217,6 +228,8 @@ function worldDs(host, t, gfx) {
   function render(now, fresh) {
     if (!(++ticks % 30)) rewatch();
     if (fresh) {
+      depthNow = depthNext;
+      depthNext = null;
       latest = dsReadFrame(t, reader(), ptr);
       shown = displayed.feed(latest);
       // (the pointers moved – a new map: watch the new ones right away)
@@ -265,7 +278,7 @@ function worldDs(host, t, gfx) {
         const sheet = sheetFor(p.s.kind, p.s.gender);
         const bb = billboard(m, p.s.x, p.s.h ?? me?.h ?? 0, p.s.y, sheet.w, sheet.h, t.foot);
         if (!bb || bb.x > DS_SCREEN.w + 8 || bb.x + bb.w < -8 || bb.y > DS_SCREEN.h + 8 || bb.y + bb.h < -24) continue;
-        sprites.push({ type: 'partner', slot: p.slot, s: p.s, sheet, bb });
+        sprites.push({ type: 'partner', slot: p.slot, s: p.s, sheet, bb, at: [p.s.x, p.s.h ?? me?.h ?? 0, p.s.y] });
         const f = followers.get(p.slot)?.last;
         const fs = followerFor(leads.get(p.slot));
         if (f && !f.hidden && fs && !followerHidden(p.s)) addFollower(sprites, p.slot, f, fs, leads.get(p.slot), p.s.h ?? me?.h ?? 0);
@@ -280,9 +293,20 @@ function worldDs(host, t, gfx) {
     const localBb = me ? billboard(m, me.x, me.h, me.y, 32, 32, t.foot) : null;
     const localMask = me && localBb ? silhouette(sheetFor(me.kind, me.gender), me.facing) : null;
     sprites.sort((a, b) => a.bb.foot - b.bb.foot);
+    const t0 = performance.now();
     for (const sp of sprites) {
-      const behind = localBb && sp.bb.foot < localBb.foot - 0.5 && overlaps(sp.bb, localBb);
-      drawSprite(sp, now, behind ? { mask: localMask, bb: localBb } : null);
+      // the map in front – houses, trees, people, you: the DS's own depth where the host sends it; else only your figure
+      const hide = depthNow ? depthCut(sp) : null;
+      const behind = !depthNow && localBb && sp.bb.foot < localBb.foot - 0.5 && overlaps(sp.bb, localBb);
+      drawSprite(sp, now, hide || (behind ? { mask: localMask, bb: localBb } : null));
+    }
+    if (depthNow) (depthCost.n++, depthCost.ms += performance.now() - t0);
+    if (fresh) {
+      // (and you, and HGSS's Pokémon behind you: the light is measured off them)
+      const fm = shown?.follow;
+      const fs = fm?.active ? followerFor({ species: fm.species }) : null;
+      const fbb = fs ? billboard(m, fm.x, fm.y, fm.z, fs.w, fs.h, t.foot) : null;
+      askDepth([...sprites, ...(localBb ? [{ bb: localBb }] : []), ...(fbb ? [{ bb: fbb }] : [])]);
     }
     // names and bubbles
     for (const p of list) {
@@ -318,14 +342,59 @@ function worldDs(host, t, gfx) {
     tintAt = performance.now();
     const pic = host.picture?.();
     if (!pic || me.x !== me.tx * DS_TILE + DS_TILE / 2 || me.y !== me.ty * DS_TILE + DS_TILE / 2) return;
+    // your own sprite, standing – or (HGSS) the Pokémon the game walks behind you, where it covers you
     const sheet = sheetFor(me.kind, me.gender);
-    const bb = billboard(shown, me.x, me.h, me.y, sheet.w, sheet.h, t.foot);
-    if (!bb || Math.abs(bb.k - 1) > 0.03) return;
-    const f = sheet.frames[dsAvatarFrame(sheet, me.facing, false, 0, 0, me.kind)];
-    const r = measureTint(pic, f, Math.round(bb.x), Math.round(bb.y));
-    tintErr = r ? Math.round(r.err * 10) / 10 : null;
-    if (!r || r.err > 10) return;
-    tint = tint.map((v, k) => Math.round((v * 0.5 + r.tint[k] * 0.5) * 100) / 100);
+    const fm = shown?.follow;
+    const fsheet = fm?.active && fm.facing >= 0 && fm.facing <= 3 ? followerFor({ species: fm.species }) : null;
+    const tries = [{ sheet, i: dsAvatarFrame(sheet, me.facing, false, 0, 0, me.kind), at: [me.x, me.h, me.y] }];
+    if (fsheet?.kind === 'overworld') tries.push({ sheet: fsheet, i: dsFollowerFrame(fsheet, [DIR.N, DIR.S, DIR.W, DIR.E][fm.facing], false, 0), at: [fm.x, fm.y, fm.z] });
+    for (const tr of tries) {
+      const bb = billboard(shown, tr.at[0], tr.at[1], tr.at[2], tr.sheet.w, tr.sheet.h, t.foot);
+      if (!bb || Math.abs(bb.k - 1) > 0.03) continue;
+      // (with the depth: only the pixels at that sprite's depth – something may stand in front of it)
+      let keep = null;
+      if (depthNow) {
+        const d0 = depthAt(shown, tr.at[0], tr.at[1], tr.at[2], { wbuffer: depthNow.wbuffer, toward: t.toward });
+        const tol = Math.max(2, Math.abs(depthAt(shown, tr.at[0], tr.at[1], tr.at[2], { wbuffer: depthNow.wbuffer, toward: t.toward + 2 }) - d0));
+        keep = (sx, sy) => { const d = depthPixel(depthNow, sx, sy); return d >= 0 && Math.abs(d - d0) <= tol; };
+      }
+      const r = measureTint(pic, tr.sheet.frames[tr.i], Math.round(bb.x), Math.round(bb.y), keep);
+      tintErr = r ? Math.round(r.err * 10) / 10 : null;
+      if (!r || r.err > 10) continue;
+      tint = tint.map((v, k) => Math.round((v * 0.5 + r.tint[k] * 0.5) * 100) / 100);
+      return;
+    }
+  }
+
+  /**
+   * Where the map is nearer than a sprite: its pixels whose depth (this picture's, from the host) is nearer than a game
+   * sprite standing on its tile would be – a mask canvas over its box, or null (nothing in front).
+   */
+  function depthCut(sp) {
+    const { bb } = sp;
+    const box = { x: Math.floor(bb.x), y: Math.floor(bb.y), w: Math.ceil(bb.x + bb.w) - Math.floor(bb.x), h: Math.ceil(bb.y + bb.h) - Math.floor(bb.y) };
+    const limit = depthAt(shown, sp.at[0], sp.at[1], sp.at[2], { wbuffer: depthNow.wbuffer, toward: t.toward + DEPTH_MARGIN });
+    const mask = depthMask(depthNow, box, Infinity, limit);
+    let n = 0;
+    if (mask) for (const v of mask) n += v;
+    depthCost.hidden[sp.type === 'partner' ? sp.slot : `f:${sp.slot}`] = n;
+    if (!n) return null;
+    const rgba = new Uint8ClampedArray(box.w * box.h * 4);
+    for (let i = 0; i < mask.length; i++) if (mask[i]) rgba[i * 4 + 3] = 255;
+    const c = document.createElement('canvas');
+    c.width = box.w;
+    c.height = box.h;
+    c.getContext('2d').putImageData(new ImageData(rgba, box.w, box.h), 0, 0);
+    return { mask: c, bb: { ...box, k: 1 } };
+  }
+
+  /** The rectangles the next pictures' depth is wanted for: around what is drawn now (none: the host stops). */
+  function askDepth(sprites) {
+    if (!host.depth) return;
+    const rects = depthRects(sprites.map((sp) => sp.bb));
+    const key = JSON.stringify(rects);
+    if (key === depthKey) return;
+    if (host.depth(rects)) depthKey = key;
   }
 
   const overlaps = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
@@ -348,7 +417,7 @@ function worldDs(host, t, gfx) {
   function addFollower(list, slot, f, sheet, lead, h) {
     const bb = billboard(shown, f.x, h, f.y, sheet.w, sheet.h, t.foot);
     if (!bb) return;
-    list.push({ type: 'follower', slot, f, sheet, lead, bb });
+    list.push({ type: 'follower', slot, f, sheet, lead, bb, at: [f.x, h, f.y] });
   }
 
   /** One billboard; `cut`: the local player in front of it (their figure is cut out of it). */
@@ -447,7 +516,10 @@ function worldDs(host, t, gfx) {
     // seen wherever we stand in the field – also while a menu or a message is open here; not in a battle or a menu
     // screen (the field's child program), nor while the field isn't running (a map loading)
     const onField = !!me && !!r?.running && !!r.parent && !r.child;
-    host.post({ type: 'emu-world', st: onField ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size: null, drawn: cfg.enabled && dsDrawable(shown), near });
+    // (HGSS: the Pokémon the game walks behind you is what your partners see following you)
+    const fm = r?.follow;
+    const gameLead = fm?.active && fm.species > 0 && fm.species <= 493 ? { species: fm.species, shiny: fm.shiny, form: fm.form } : null;
+    host.post({ type: 'emu-world', st: onField ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size: null, drawn: cfg.enabled && dsDrawable(shown), near, gameLead });
   }
 
   // ---- walking up to a partner ------------------------------------------------------------------------------------------
@@ -512,6 +584,9 @@ function worldDs(host, t, gfx) {
       }
     },
     canPresent: () => !stopped && cfg.enabled && dsDrawable(shown),
+    onDepth(bytes) {
+      depthNext = parseDepth(bytes);
+    },
     onWatched(bytes) {
       if (!watched || !bytes || bytes.length !== 4 + watched.total) return;
       watched.bytes = bytes.subarray(4);
@@ -533,6 +608,7 @@ function worldDs(host, t, gfx) {
         supported: true, game: t.id, gen: 4, enabled: cfg.enabled, follow: cfg.follow, lead: cfg.lead, drawable: dsDrawable(shown), perFrame: !!watched?.bytes,
         local: me, shownLocal: dsPlayer(t, shown), map: latest ? dsMapKey(latest) : null, field: latest ? { task: latest.task, running: latest.running, parent: latest.parent, child: latest.child, fc: latest.fc } : null,
         followerKind: gfx.followers?.kind || null, drawn: drawnDebug, tint, tintErr, ...ui.debug(),
+        depth: depthNow ? { wbuffer: depthNow.wbuffer, rects: depthNow.rects.map((r) => [r.x, r.y, r.w, r.h]), hidden: depthCost.hidden, msPerPicture: depthCost.n ? Math.round((depthCost.ms / depthCost.n) * 1000) / 1000 : null } : null,
         followers: Object.fromEntries(Object.entries(drawnDebug).filter(([k]) => k.startsWith('f:')).map(([k, v]) => [k.slice(2), v])),
         bubbles: Object.fromEntries([...bubbles].filter(([, b]) => now < b.until).map(([slot, b]) => [slot, b.art])),
         localPos: me && shown ? project(shown, me.x, me.h, me.y) : null,
@@ -549,6 +625,7 @@ function worldDs(host, t, gfx) {
       layer.remove();
       style.remove();
       host.watch?.([]);
+      host.depth?.([]);
     },
   };
 }

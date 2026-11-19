@@ -599,27 +599,42 @@ xMAPs: `sFieldSystem`, `NNS_G3dGlb`, `gSystem`).
    the projection's pixels per world unit at that depth (whole pixels at scale 1: crisp like the game's own). The offset
    was measured by matching the decoded frame against the game's own player in the picture (error 2.7 / 3.0 per colour
    channel). Frames: four per direction walking, the running half from 1.5 px/frame, bike and surf sheets. Sorted far to
-   near by the feet; a partner behind you loses what your figure covers (your sheet's silhouette for the direction you
-   face).
-6. **Light**: HeartGold/SoulSilver light the field by the time of day, caves are darker – a partner in full colour
+   near by the feet.
+6. **The map in front – the DS's own depth buffer**: houses, trees, counters, plants, people and you hide a partner
+   exactly where the game's own sprites would be hidden. souldew builds melonDS itself, so its software renderer keeps
+   the depth of the 3D frame on screen (`native/melonds-patch/souldew-depth.patch`: copied in `FinishRendering`, at line
+   192, when the picture's frame is done and before line 215 starts rendering the next one – deterministic, ~200 KB of
+   `memcpy` a frame and only while asked). The page names up to 8 rectangles of the top screen (around the partners,
+   their followers and you, on an 8-pixel grid: `DEPTH`, command 15) and gets their 24-bit depths with every picture
+   (`MSG_DEPTH` 17, right before `WATCHED`; `native/common/depth.c`, in retrohost through melonDS DS's exported
+   `souldew_depth` – `native/melonds-ds-patch` – and in the souldew engine through its melonDS backend). A partner's
+   pixel is hidden where the depth is nearer than a game sprite on its tile would be: the game draws its billboards a
+   fixed distance toward the camera – measured on the player's own sprite in the depth buffer: 8 units in Platinum, 17 in
+   HeartGold (`billboardDepth`) – plus 1 for rounding. Z or W buffering as the frame used (the flag comes along). Cost
+   measured in the page: 0.6–1.2 ms per picture for two partners and their followers (a loaded machine).
+   Without souldew's core (an older install, the browser player) there is no depth: then only your own figure covers a
+   partner behind you (your sheet's silhouette for the direction you face).
+7. **Light**: HeartGold/SoulSilver light the field by the time of day, caves are darker – a partner in full colour
    would glow. souldew measures the light off your own sprite while you stand still (the picture's pixels against your
-   decoded standing frame, least squares per channel; a poor fit – something in front of you – is skipped) and lights
+   decoded standing frame, least squares per channel – only the pixels the depth buffer says are your sprite's, so your
+   HGSS follower in front of you doesn't spoil it; a poor fit is skipped) and lights
    everything it draws the same. Measured in New Bark Town in the evening: ×(0.60, 0.60, 0.88); Platinum indoors ×1.
-7. **Followers**: HeartGold/SoulSilver have their own – souldew draws the partners' as **the game's own overworld
+8. **Followers**: HeartGold/SoulSilver have their own – souldew draws the partners' as **the game's own overworld
    Pokémon** (`tsure_poke` sheets at the end of `a/0/8/1`, by `sModelIndexLUT`, found in ARM9 by its shape), walking the
    partner's trail with two frames per direction; your own follower is the game's (the "Show my Pokémon following me"
    switch isn't offered there). Diamond/Pearl/Platinum: the party icon (`pl_poke_icon.narc`, the palette table found in
    ARM9 by its first entries), as in Gen 3, its lowest pixel on the feet's line.
-8. **When**: the field runs (its program, no child program) and no task holds the player. The partners see you on the
+9. **When**: the field runs (its program, no child program) and no task holds the player. The partners see you on the
    field also while a menu or a message is open on your side; a battle or a menu screen sends "hidden".
-9. **A, the menu, emotes, rock-paper-scissors**: as in Gen 1–3 (`web/lib/worldui.mjs` – one set of controls for every
+10. **A, the menu, emotes, rock-paper-scissors**: as in Gen 1–3 (`web/lib/worldui.mjs` – one set of controls for every
    generation): standing still on a tile's centre, facing a partner's tile at about your height, A (the game's
    `heldKeysRaw` or the fast player's input), and no script started by the game within 110 ms.
 
 ### Limits (Gen 4)
 
-- **No depth against the 3D map**: houses, trees, counters and NPCs never cover a partner (the picture has no depth
-  buffer souldew can read; only your own figure does). A partner behind a house is drawn on its roof.
+- The map hides a partner as deep as a game sprite on that tile, by the 3D depth: 2D parts of the picture (the
+  map-name sign, the HGSS touch menu on the top screen) never cover them – partners vanish while a script holds you
+  anyway. Translucent polygons that write depth (rare) count as in front, like for the game's own sprites.
 - Surfing partners sit without their Pokémon (the surf mount is a field effect, not in their sheet). Field moves,
   fishing, the Pokétch pose, saving and the like show the walking sheet.
 - HGSS partners' followers: the base form/male sprite (female and form sprites are skipped). A lead your game has no
@@ -648,7 +663,7 @@ xMAPs: `sFieldSystem`, `NNS_G3dGlb`, `gSystem`).
 ### Feasibility for the other generations
 
 - **Gen 1/2:** done – see [The Game Boy games](#the-game-boy-games-gen-12). (The earlier notes here had Gen 1's `wPlayerMovingDirection` for the sub-step: the step vector in the player's sprite data is what `AdvancePlayerSprite` itself uses, and it is what the overlay reads.)
-- **Gen 4:** done for Platinum and HeartGold/SoulSilver – see "Gen 4 (DS)" above. Left: Diamond/Pearl (their `sFieldSystem`, `NNS_G3dGlb` and `gSystem` addresses, verified in a running game – `NNS_G3dGlb` can be found by its first word, `0x17101610`), other languages, depth against the map.
+- **Gen 4:** done for Platinum and HeartGold/SoulSilver – see "Gen 4 (DS)" above, with the depth buffer hiding partners behind the map. Left: Diamond/Pearl (their `sFieldSystem`, `NNS_G3dGlb` and `gSystem` addresses, verified in a running game – `NNS_G3dGlb` can be found by its first word, `0x17101610`), other languages.
 - **Gen 5 (B/W, B2/W2): dropped for now** (spike on Black 2 US, 19 Nov 2026). The camera part works the Gen 4 way:
   Black 2 also hands its field camera to NitroSystem (`NNS_G3dGlb` at 0x02143A0C, found by its first word; a
   perspective projection), and a marker on a grass tile of Route 19 stayed on its tile while walking with the camera

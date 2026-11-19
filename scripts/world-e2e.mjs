@@ -23,6 +23,8 @@
 //                                             tree top in Oldale Town, then A walks into Route 101 while B stands under
 //                                             the map-name popup – crops of every player's picture side by side)
 //                              [--lead <n>]  (--plus: the lead every page shows when live tracking can't read the team)
+//                              [--behind --walk up,left,…] (the DS: B walks those steps, A's picture and the map's
+//                                             depth cut after each)
 //                              [--clip]      (a muted clip of A's picture: B walks away and around, A walks and turns)
 // The DS (Gen 4) is driven frame-exactly through the fast player's step() – a tap turns, six frames walk a tile.
 //                              [--plus]      (followers, emotes and rock-paper-scissors: B walks with A's and B's
@@ -687,6 +689,23 @@ async function main() {
     for (const [i] of profiles.entries()) await shot('01-same-map', i);
     if (args.includes('--occlusion')) {
       await occlusion({ world, hold, shot, log, sleep, until, out, emu });
+      finish(0);
+      return;
+    }
+    if (args.includes('--behind')) {
+      // the DS: B walks the steps of --walk, A stands – after each step A's picture and what of B the map hides there
+      const steps = String(opt('walk', '')).split(',').filter(Boolean);
+      const seen = [];
+      for (const [n, d] of steps.entries()) {
+        if (isDs) await ds.step(1, d);
+        else { await hold(1, [d], 150); await sleep(450); }
+        await sleep(400);
+        const w = await world(0);
+        seen.push({ n, step: d, B: (await world(1))?.local, depth: w?.depth, drawn: w?.drawn?.p2 });
+        log('behind', n, d, JSON.stringify(seen.at(-1)));
+        await shot(`behind-${String(n).padStart(2, '0')}`, 0, true);
+      }
+      writeFileSync(join(out, 'behind.json'), JSON.stringify(seen, null, 1));
       finish(0);
       return;
     }
