@@ -1160,6 +1160,8 @@ tr.pad-lit .kbd { border-color: var(--tri); color: var(--ink); }
 .onb-choice.primary { border-color: color-mix(in srgb, var(--focus) 60%, var(--edge)); background: linear-gradient(160deg, color-mix(in srgb, var(--focus) 16%, var(--shell-3)), var(--shell-3)); }
 .onb-choice-icon { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 12px; background: #0006; color: var(--ink); margin-bottom: 4px; }
 .onb-ok { color: var(--tri); font-weight: 600; }
+/* the welcome tour's look step: what souldew sends by itself, set apart from the look settings above */
+.onb-online { padding-top: 12px; border-top: 1px solid var(--edge); }
 @media (max-width: 760px) { .onb-choices, .onb-panel .explain, .onb-keys { grid-template-columns: 1fr; } .onb-progress span { display: none; } .lang-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 /* short windows: tighter, so the longest step still fits with its buttons */
 @media (max-height: 840px) {

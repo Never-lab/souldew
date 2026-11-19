@@ -963,6 +963,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         handheld: cleanHandheld(config.handheld),
         favourites: cleanFavourites(config.favourites),
         presence: config.presence !== false,
+        // Settings › About "Check for updates automatically" – the desktop app's updater reads it (electron/updater.mjs)
+        updateCheck: config.updateCheck !== false,
         // the "What's new" cards after an update to a new major version ('3.0'), until closed (server/lib/upgrade.mjs)
         whatsNew: typeof config.whatsNew === 'string' ? config.whatsNew : null,
         uiScale: validUiScale(config.uiScale),
@@ -979,7 +981,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'whatsNew', 'uiScale', 'uiScaleHint', 'ctrFfHintOff']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'updateCheck', 'whatsNew', 'uiScale', 'uiScaleHint', 'ctrFfHintOff']) {
       if (k in body) allowed[k] = body[k];
     }
     // the "What's new" cards: the page can only close them (the server opens them, server/lib/upgrade.mjs)
@@ -1032,6 +1034,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     if ('gbLook' in allowed && !GB_LOOKS.includes(allowed.gbLook)) delete allowed.gbLook; // Game Boy games: original / GBC colours
     if ('padNav' in allowed) allowed.padNav = allowed.padNav !== false; // controller navigation (web/lib/padnav.mjs): on unless switched off
     if ('presence' in allowed) allowed.presence = allowed.presence !== false; // the anonymous "playing now" count: on unless switched off
+    if ('updateCheck' in allowed) allowed.updateCheck = allowed.updateCheck !== false; // the automatic update check: on unless switched off
     // the graphics backend electron/main.mjs applies at the next start; the fallback notice can only be dismissed
     if ('gpuBackend' in allowed) {
       if (gpuBackends(process.platform).includes(allowed.gpuBackend)) allowed.gpuStart = null; // a new choice starts counting afresh

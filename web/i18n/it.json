@@ -4181,5 +4181,9 @@
   "play.ffScaleWhy": "Questo gioco è disegnato a risoluzione {scale}×, e nell’avanzamento veloce ogni immagine costa alla scheda grafica molto di più: arriva a circa {n}× invece di {set}×. Abbassa la risoluzione in Impostazioni › Gioca › Risoluzione 3DS per un avanzamento veloce più rapido – vale dal prossimo avvio del gioco.",
   "play.ffScaleNever": "Non mostrare più",
   "set.ctrFfHint": "Avvisami quando frena l’avanzamento veloce",
-  "set.ctrFfHintHint": "Su alcune schede grafiche il turbo a 2× o 3× resta ben sotto la velocità scelta – la vista di gioco lo segnala allora, al massimo una volta per ogni avvio di souldew."
+  "set.ctrFfHintHint": "Su alcune schede grafiche il turbo a 2× o 3× resta ben sotto la velocità scelta – la vista di gioco lo segnala allora, al massimo una volta per ogni avvio di souldew.",
+  "upd.auto": "Cerca aggiornamenti automaticamente",
+  "upd.autoHint": "All’avvio e ogni 4 ore souldew chiede a GitHub se c’è una nuova versione – non viene inviato nulla su di te. Se disattivato, souldew controlla solo quando clicchi su «Cerca aggiornamenti».",
+  "onb.onlineText": "souldew non raccoglie dati personali. Parte da solo soltanto ciò che è spuntato qui – puoi disattivarlo qui o più tardi nelle impostazioni.",
+  "onb.privacyLink": "Informativa sulla privacy"
 }

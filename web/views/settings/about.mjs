@@ -112,9 +112,25 @@ function BackupNote({ backup }) {
   </div>`;
 }
 
+/**
+ * "Check for updates automatically" (config.json updateCheck, electron/updater.mjs) – the desktop app only, the browser
+ * version has no updater. Off: no request at the start or every 4 hours, only "Check for updates" asks. Switched on
+ * again, it checks right away.
+ */
+export function AutoUpdateCheck({ cfg, save }) {
+  if (!window.sls?.update) return null;
+  const change = async (on) => {
+    await save({ updateCheck: on });
+    if (on) window.sls.update.check().catch(() => {});
+  };
+  return html`<${Check} checked=${cfg.updateCheck !== false} onChange=${change}
+    label=${t('upd.auto', 'Check for updates automatically')}
+    hint=${t('upd.autoHint', 'At start and every 4 hours souldew asks GitHub whether there is a new version – nothing about you is sent. When off, souldew only checks when you click “Check for updates”.')} />`;
+}
+
 export function AboutSection({ cfg, status, save }) {
   return html`
-    <${Group} title=${t('set.versionUpdates', 'Version & updates')}><${Item} id="updates"><${UpdateSection} /><//>
+    <${Group} title=${t('set.versionUpdates', 'Version & updates')}><${Item} id="updates"><div class="stack-s"><${UpdateSection} /><${AutoUpdateCheck} cfg=${cfg} save=${save} /></div><//>
       <${Item} id="backup" when=${!!status?.upgradeBackup}><${BackupNote} backup=${status?.upgradeBackup} /><//><//>
     <${Group} title=${t('set.trouble', 'Troubleshooting')} note=${t('set.troubleNote', 'Only needed when something doesn’t work – the defaults are right for most computers.')}>
       <${Item} id="gpu" when=${hasGpuChoice()}><${GraphicsSetting} cfg=${cfg} save=${save} /><//>

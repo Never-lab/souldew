@@ -80,7 +80,8 @@ export const SETTINGS = [
   { id: 'account-sessions', section: 'account', keys: ['acct.devices', 'acct.devicesText', 'acct.thisDevice'], kw: 'sessions devices signed in computers sign out device geräte sitzungen appareils sessions dispositivos sesiones dispositivi sessioni' },
   { id: 'account-data', section: 'account', keys: ['acct.dataTitle', 'acct.export', 'acct.delete'], kw: 'export download gdpr dsgvo data delete account remove rgpd datos dati' },
   // About
-  { id: 'updates', section: 'about', keys: ['set.versionUpdates', 'upd.check'], kw: 'update updates version release download upgrade new version aktualisierung mise à jour actualización aggiornamento' },
+  { id: 'updates', section: 'about', keys: ['set.versionUpdates', 'upd.check', 'upd.auto', 'upd.autoHint'],
+    kw: 'update updates version release download upgrade new version automatic automatically privacy offline aktualisierung automatisch datenschutz mise à jour automatique confidentialité actualización automática privacidad aggiornamento automatico privacy' },
   { id: 'backup', section: 'about', keys: ['set.backupOpen', 'set.backupMade'], kw: 'backup back up restore copy safety upgrade 3.0 sicherung datensicherung sauvegarde copia de seguridad copia di sicurezza' },
   { id: 'gpu', section: 'about', keys: ['set.gpu', 'set.gpuHint', 'set.trouble'],
     kw: 'graphics backend vulkan opengl direct3d d3d11 gpu graphics card driver stutter crackle blank window black screen grafik grafikkarte graphique gráfica grafica' },
