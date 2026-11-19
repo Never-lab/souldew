@@ -33,6 +33,7 @@
 #include "seats.h"
 #include "session.h"
 #include "../common/cadence.h"
+#include "../common/depth.h"
 #include "../common/hostio.h"
 #include "../common/protocol.h"
 #include "../common/ramstream.h"
@@ -120,6 +121,7 @@ static void games_free(struct seat_game *g, int n) {
 
 // ---- the engine's state ----------------------------------------------------------------------------------------------
 static struct ram_stream rs;
+static void seat_picture(int seat, struct ram_stream *r, uint32_t frame); // (the picture, after the DS's depth – below)
 static struct cadence cad;
 static float speed = 1.0f;
 static uint32_t step_left, until_frame; // STEP: frames still to run; UNTIL: pause at this session frame
@@ -258,7 +260,7 @@ static void go_link(uint8_t *p, uint32_t len) {
   host_log("link: %d seats formed in %.0f ms (seat %d is ours, delay %d)", a.n, (host_now() - t0) * 1000, a.local, a.delay);
   speed = 1.0f;
   send_loaded();
-  avout_picture(view_seat, &rs, session_frame());
+  seat_picture(view_seat, &rs, session_frame());
 }
 
 /**
@@ -291,7 +293,7 @@ static void go_solo(uint8_t *p, uint32_t len) {
   host_log("solo: alone again in %.0f ms", (host_now() - t0) * 1000);
   speed = 1.0f;
   send_loaded();
-  avout_picture(view_seat, &rs, session_frame());
+  seat_picture(view_seat, &rs, session_frame());
 }
 
 /** RESET / SRAM while alone: the console starts over from its game – with `save` (a battery save given late) or the one
@@ -349,6 +351,17 @@ static void send_seatstate(const uint8_t *p, uint32_t len) {
   free(st);
 }
 
+// ---- the DS's 3D depth for Shared World (native/common/depth.h): the picture's seat ------------------------------------
+static struct depth_req dreq;
+static int link_depth(void *ctx, int on, int x, int y, int w, int h, uint32_t *out) {
+  return B && B->depth ? B->depth((int)(intptr_t)ctx, on, x, y, w, h, out) : -1;
+}
+/** The seat's picture – after its depth (asked for) and the watched bytes, as retrohost sends them. */
+static void seat_picture(int seat, struct ram_stream *r, uint32_t frame) {
+  if (r) depth_send(&dreq, frame, link_depth, (void *)(intptr_t)seat);
+  avout_picture(seat, r, frame);
+}
+
 /** One command, between two frames. Returns false on QUIT. `*wrote`: a cheat went in (the RAM goes out right away). */
 static bool command(struct host_cmd *c, bool *wrote) {
   const int local = session_local();
@@ -358,6 +371,7 @@ static bool command(struct host_cmd *c, bool *wrote) {
   case CMD_QUIT: return false;
   case CMD_RESYNC: ram_resync(&rs); break;
   case CMD_WATCH: ram_set_watch(&rs, c->p, c->len); break;
+  case CMD_DEPTH: depth_set(&dreq, c->p, c->len, link_depth, (void *)(intptr_t)local); break;
   case CMD_STEP:
     if (c->len >= 4) {
       uint32_t n;
@@ -546,7 +560,7 @@ int main(int argc, char **argv) {
     t = host_now();
     const bool turbo = speed > 1.01f;
     avout_sound(session_local(), true, turbo, speed, t);
-    if (stepped || cadence_picture_due(&cad, turbo, t)) avout_picture(view_seat, &rs, frame), cad.shown++;
+    if (stepped || cadence_picture_due(&cad, turbo, t)) seat_picture(view_seat, &rs, frame), cad.shown++;
     if (stepped) { // the plan's next input applies from the next frame: the RAM as it is now
       ram_send(&rs);
       cad.last_ram = t;

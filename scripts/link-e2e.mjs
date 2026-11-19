@@ -233,6 +233,16 @@ async function crossMain() {
       await api(`/api/runs/${runId}/save/${slot}`, new Uint8Array(bytes), 'PUT');
       result.saveBeforeSha256 = sha(bytes, 'sha256');
     }
+    // (how long this computer's server takes to scan the run's game – web/lib/data.mjs romFetch; the page asks for the
+    // same scan and no longer waits for it: logged, so a slow computer shows up in the result)
+    const scanAt = Date.now();
+    api(`/api/runs/${runId}`).then((m) => {
+      const file = m.outputs?.[slot]?.rom;
+      return file && api(`/api/rom/locations?src=${encodeURIComponent(`/api/runs/${runId}/file?inline=1&name=${encodeURIComponent(file)}`)}`);
+    }).then((r) => {
+      result.romScanMs = Date.now() - scanAt;
+      log(`the game's ROM data: ${(result.romScanMs / 1000).toFixed(1)} s${r?.data ? '' : ' (none found)'}`);
+    }, (e) => log('the game\'s ROM data:', String(e)));
     await ev(`localStorage.setItem(${JSON.stringify(`sl-me-${runId}`)}, ${JSON.stringify(JSON.stringify(slot))}); localStorage.setItem('sl-e2e', 'true'); true`);
     await load(`#/soullink?run=${runId}`);
     await ev('location.reload(); true');

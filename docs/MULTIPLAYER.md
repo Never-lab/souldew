@@ -19,6 +19,7 @@ Contents:
 12. [Measurements](#12-measurements)
 13. [Plan and effort](#13-plan-and-effort)
 14. [Decisions for the owner](#14-decisions-for-the-owner)
+15. [Raid: one trainer, one shared HP pool](#15-raid)
 
 ---
 
@@ -477,7 +478,7 @@ Goal: partners walk visibly in your game, on the same map, and you can walk up t
 
 GBA-PK's approach injects NPC objects into game RAM per ROM revision, which breaks on randomizers and is CC BY-NC. souldew's version is an **overlay drawn by souldew** over the emulator picture, fed by RAM reads. Nothing is written into the game.
 
-**Status (branches `feat/shared-world`, `feat/30-world-plus`): Gen 3 works in the app** – Ruby, Sapphire, Emerald, FireRed and LeafGreen (English and German: Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`). Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge.
+**Status (branches `feat/shared-world`, `feat/30-world-plus`, `feat/30-world-gb`, `feat/30-world-ds`): Gen 1, 2, 3 and 4 (Platinum, HeartGold/SoulSilver) work in the app** – Red, Blue, Yellow, Gold, Silver, Crystal, Ruby, Sapphire, Emerald, FireRed and LeafGreen (Gen 3 also in German: Rubin, Saphir, Smaragd, Feuerrote, Blattgrüne) tested end to end with two to four scratch profiles (`scripts/world-e2e.mjs`). Every player is followed by their lead Pokémon; emotes and rock-paper-scissors (commit–reveal, also from the board for every other game); partners on a connected map show across the edge. The Game Boy games: see [The Game Boy games](#the-game-boy-games-gen-12) below.
 
 | Game | Status |
 |---|---|
@@ -493,7 +494,18 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 | LeafGreen US (rev 0–1) | Same as FireRed US, from `pokeleafgreen*.sym` – untested |
 | Radical Red 4.1 (the "FireRed (patched)" here) | The FireRed US RAM still fits (checked by the literal pools and a live probe), the graphics table is found by the search; its expanded species (1375) have no icon table souldew recognises: **no followers**, partners untested |
 | Emerald/Ruby/Sapphire FR/IT/ES, hacks with moved RAM (CFRU/Unbound …) | No overlay (no verified RAM addresses – no such ROM on the test Mac); the board keeps saying where the partner is. Randomized ROMs work (maps, RAM, sprite and icon tables unchanged). An unknown *revision* of a known game learns its overworld callback and searches the ROM for the sprite tables |
-| Gen 1/2, Gen 4/5, 3DS | Not yet – see the feasibility notes below |
+| Red / Blue (US/EU) | **Works** (tested 19 Nov 2026: Red ↔ Red, Blue ↔ Yellow, Red, Blue, Yellow and Red together, with `--plus`; on the original Game Boy, and Red ↔ Yellow with "Game Boy look" › Color – partners and followers in the green Red's own sprite has there). Every address from `pokered.sym`/`pokeblue.sym`, the camera checked frame by frame against the picture (`--frames`), the START menu lock in the running game. Partners across Pallet Town's edge: unit-tested with Route 1's real alignment; the e2e walker didn't find its way out of Pallet Town's fences, so not run across (the same code carried Crystal ↔ New Bark Town across) |
+| Yellow (US/EU) | **Works** (tested with Blue, see above). Its own Pikachu walking behind you is the game's: souldew draws no second follower then, and your partners see Pikachu follow you (`gameLead`, below) |
+| Gold / Silver (US/EU) | **Works** (tested 19 Nov 2026: Gold ↔ Silver, Silver ↔ Crystal, Crystal, Silver, Gold and Crystal together, with `--plus`; and Red, Blue, Crystal, Silver in one run: each pair sees only its own family). A Gold/Silver map goes out with Crystal's number (`canon`, below) |
+| Crystal (US/EU rev 0) | **Works** (tested with Silver: walking, followers, rock-paper-scissors, the heart, partners across the Route 29 ↔ New Bark Town edge, the camera frame by frame). Rev 1 (`pokecrystal11.sym`) has the same addresses – not run here |
+| Crystal Legacy 1.3.1 (a hack on the Crystal engine) | Partners only, from a static check (not run here): its WRAM is 11 bytes further on – found from the code like the live tracker's (`shared/live/romwram.mjs`) – and its sprite and colour tables are found by their shape; its party icon tables aren't recognised: **no followers** |
+| Polished Crystal, other Gen 1/2 hacks with their own engine | No overlay (no ROM here to verify a table; Polished Crystal's RAM and graphics are its own) |
+| Gen 1/2 in other languages (German …) | No overlay: no such ROM on the test Mac, so no address could be verified |
+| Platinum (US) | **Works** (tested 19 Nov 2026, 2 players, branch `feat/30-world-ds`): partners drawn into the 3D field with their own overworld sprite from the ROM, names, followers (party icons), A → menu, Wave/emotes/rock-paper-scissors both sides – see "Gen 4 (DS)" below |
+| HeartGold / SoulSilver (US) | **Works** (HeartGold tested 19 Nov 2026, 2 players; SoulSilver has the same addresses – xMAP – untested): as Platinum, outdoors with the perspective camera, lit like the field (evening, night, caves), followers are the game's own overworld Pokémon |
+| Diamond / Pearl, other languages of Gen 4 | Not yet: no field addresses verified (pokediamond has no symbol map, and no D/P save on the overworld was at hand). Diamond, Pearl and Platinum are one family (map headers 0–558 are the same), so the rest is ready for them |
+| Gen 5 | Dropped for now – see the feasibility notes below |
+| 3DS | Not yet – see the feasibility notes below |
 
 ### How it works
 
@@ -531,6 +543,210 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 10. **Connected maps**: the local map's size (its layout in the ROM) and connections (`gMapHeader.connections` → { direction, offset, map }) place a partner on a neighbouring map in your frame (pokeemerald `Fill*Connection`: south at your height + offset, east at your width, north and west at minus *their* size – which they send in `z`). `Track.sample` interpolates in that frame, so a partner crossing the edge slides on instead of stopping; followers, the A menu and name tags work across it. Partners on older builds (no `z`) show next door only to the south and east.
 11. **FR/LG's quest-log replay** ("Previously on your quest…" after loading) runs with the overworld callback, unlocked, the player walking: `gQuestLogState` (EWRAM 0x0203ADFA in every revision and language; 2/3 = playback, 1 = the recording during normal play) hides the partners and sends you as hidden while it plays (verified live in Feuerrote/Blattgrüne/FireRed).
 
+### The Game Boy games (Gen 1/2)
+
+`shared/worldgb.mjs` is what differs; everything else – the wire, the interpolation, the followers' trail, emotes, rock-paper-scissors, the A menu, the overlay itself – is the Gen 3 code. The tables (`addresses.json` › `world` of `red_us`, `blue_us`, `yellow_us`, `gold_us`, `silver_us`, `crystal_us`) come from the pret symbol files of the `symbols` branches (`pokered`, `pokeblue`, `pokeyellow`, `pokegold`, `pokesilver`, `pokecrystal`); the RAM fields end in `Addr`, so a hack built from the disassemblies whose WRAM moved gets the moved addresses the same way the live tracker does (`gbWramShift`).
+
+1. **Where the player is** – everything the overlay reads is in WRAM banks 0 and 1, which the mirror and `WATCH` reach (no HRAM, no VRAM):
+   - Gen 1: `wCurMap`, `wYCoord`/`wXCoord` (Red 0xD35E/0xD361/0xD362, Yellow one byte lower), `wWalkCounter` (8 → 0: `AdvancePlayerSprite` scrolls two pixels each turn of the overworld loop – which runs every other frame – four on the bike, and moves the tile coordinates at 0) with the step vector in `wSpritePlayerStateData1` (0xC103/0xC105), facing in its byte 9 (0/4/8/12), `wWalkBikeSurfState`. Before a game is loaded the player's sprite slot is empty; on CONTINUE's screen the save is loaded but the player isn't drawn (image index $FF): neither counts as the overworld.
+   - Gen 2: `wMapGroup`/`wMapNumber`/`wYCoord`/`wXCoord` (Crystal 0xDCB5–8, Gold/Silver 0xDA00–3, which change at the end of a step), `wPlayerBGMapOffsetX/Y` – every object on screen is shifted by it while you step: minus the pixels walked – with `wPlayerStepVectorX/Y`, `wPlayerStepFlags` and `wPlayerStepDirection` next to it, `wPlayerStruct` (`OBJECT_FACING` 0–15, `OBJECT_FLAGS2` bit 3 = in tall grass), `wPlayerState` (bike, surf, surfing Pikachu), Crystal's `wPlayerGender`.
+   - **Frame by frame** (`world-e2e.mjs --frames`: A's game run one frame at a time while A walks a step each way, the camera the overlay read against the background's shift between two pictures): a Game Boy shows the scroll its RAM had one frame earlier, so the overlay takes the bytes of the frame before each picture (by the host's frame number in front of them – a picture sent twice doesn't shift them). On top: Gen 1's first turn of a step lasts a frame longer (the new row or column is drawn), its picture doesn't move yet; Gen 2's picture shows the loop's turn before – back by the step vector, except on the step's first turn. With that, 0 of 116 picture pairs off in Red and in Crystal: a partner standing still stays put on the map while you walk.
+   - **Drawable**: no battle (`wIsInBattle`, `wBattleMode`), and nothing holding the player – Gen 1: the font in VRAM (`wFontLoaded` bit 0: a text box or a menu), `wJoyIgnore`, `wStatusFlags5` bits 5/7 (buttons off, scripted movement); Gen 2: `wScriptRunning` (a person talking, a sign, the START menu, a warp) or `wMapStatus` not "handling the map". Checked in the running game: the START menu hides the partners, B brings them back (`--frames`).
+2. **The picture**: 160×144, the player's square at (64, 64); every overworld sprite stands four pixels higher than its square. The partners' sheets come from this computer's ROM: Gen 1 `RedSprite`, `RedBikeSprite`, `SeelSprite` (surfing); Gen 2 the game's `OverworldSprites` table by sprite id (Chris $01, his bike $02, `SPRITE_SURF` $53, Crystal's Kris $60/$61) – 24 tiles of 2bpp, six 16×16 frames, walking as the games' facing tables do it (stand, walk, stand, walk mirrored; right is left mirrored), a phase every eight frames.
+3. **Colours** – the partners have exactly the colours the game's own sprites have on screen:
+   - Gen 1: every overworld sprite has OBP0, so the overlay takes the colours from **your own sprite on the picture** (the native player's last picture, `host.picture()`): the colour numbers of the frame the game shows against the picture's pixels there, its top half only (tall grass may cover the bottom). That is right on the original Game Boy ("Game Boy look" › Original, SameBoy's lime greens), in a Game Boy Color's colours for Red/Blue (the boot ROM's palette for the title), in Yellow's own colours – and through every fade. Until it has seen your sprite: the original Game Boy's shades.
+   - Gen 2: the overworld OBJ palette from the ROM (`MapObjectPals`: four times of day × eight palettes, `wTimeOfDayPal`), the sprite's own palette number (Chris red, Kris and the surf sprite blue), converted the way SameBoy shows them ("emulate hardware": its colour curve and the green/blue mix, `GB_convert_rgb15`).
+4. **The followers**: the party menu icon from the ROM, one step behind on the leader's path as in Gen 3. Gen 1: one of the game's generic icons (a monster, a bird, a ball, a helix …), built like its OAM writer – `MonPartyData` picks the icon, `MonPartySpritePointers` copies its tiles (some from overworld sprites), the left half mirrored except the helix – in the overworld sprites' colours. Gen 2: the Pokémon's own icon (`MonMenuIcons` → `IconPointers`) in the Pokémon's own two colours (`PokemonPalettes`, normal or shiny – a shiny follower looks shiny, no sparkle needed). **Yellow**: while the game's own Pikachu walks behind you (sprite slot 15 on screen), souldew draws no second follower, and sends Pikachu as your follower so your partners see what you see; A at a partner who stands on your Pikachu's tile is the game's (it talks to Pikachu). The A menu waits 250 ms for the game's own answer in the Game Boy games (110 ms in Gen 3): their overworld runs every other frame and opens a text box later.
+5. **Occlusion – what the hardware does**: a Game Boy hides sprites behind the map in one place, the tall grass. A sprite standing in it gets the OAM priority bit on its lower half (pokered `UpdateSpriteImage` / `wSpritePlayerStateData2GrassPriority`, pokecrystal `SetTallGrassFlags`), so the grass's colours 1–3 cover those rows and colour 0 shows them. souldew does the same for partners, followers and your own sprite drawn again: Gen 1 asks whether the tile under the square's lower left is the tileset's grass tile (`wGrassTile`), Gen 2 the collision of the square's quadrant (tall and long grass, and water – as `CheckGrassTile` does); the grass's colour numbers come from the tileset in the ROM (Gen 1 2bpp as it is, Gen 2 through its LZ – `gbLz`, Crystal's second $60 tiles in VRAM bank 1 numbered $80 on), the blocks from `wOverworldMap`/`wOverworldMapBlocks` (with the three blocks of the connected maps around them). The Game Boy Color's background priority attribute isn't used by any of these games on map tiles (Crystal's and Gold/Silver's palette maps carry a palette and a VRAM bank, never the priority bit), so nothing else covers a sprite. Crystal's place sign is the window over the bottom four rows with that priority set: nothing of souldew's is drawn there while its timer runs. Your own sprite is drawn again over partners and followers that overlap you (it has the first OAM entries, so the game's own people go under you too on a Game Boy Color; the original Game Boy lets the leftmost sprite win – the rare overlap there may differ by a pixel column or two).
+6. **Connected maps**: from your own RAM – the connection headers (`wNorthConnectionHeader`…, Gen 2 `wNorthMapConnection`…, 11 and 12 bytes) say where entering the neighbour puts you (its row or column alignment), so a partner there is placed without knowing their map's size.
+7. **Families**: Red, Blue and Yellow share every map number (Yellow only adds the beach house). Gold/Silver and Crystal share every map but not every number – Crystal inserted maps into some groups – so a Gold/Silver map goes out with Crystal's number: `canon`, generated from the pret map constants (68 maps differ; every shared map has the same size in both, 58 have a few blocks changed; Gold/Silver's Tin Tower back entrance has none in Crystal and goes out as 0). Gen 1 and Gen 2 never meet (other maps; no Time Capsule walk).
+8. **Hacks**: the ROM tables of `t.rom` are checked where the table says (`gbRomTables`) and, where one doesn't fit, found again by their shape – the player's and the bike's red walking entries before the Game Boy kid's green standing one; the icons' run of $80 steps only together with the 251 icon numbers right before it (a run alone appears in other tables too); the people's palettes ending in black after two whites in the sixth. What isn't found is left out: no partners without sheets, no followers without icons (Crystal Legacy), the overworld colours without `PokemonPalettes`.
+
+### Limits (Gen 1/2)
+
+- Partners walk through NPCs, walls and over ledges on your screen if they stand there in their game; the tall grass is the only map part that covers them (as it is for the game's own sprites). A Gold/Silver partner in one of the 58 maps Crystal redrew a little (some Pokémon Centers, Goldenrod, Route 36 …) may stand on a tile that looks different in your Crystal.
+- Ledge jumps slide, surfing partners are drawn with the surf sprite their game uses (Seel in Gen 1, the surf Pokémon in Gen 2); Yellow's surfing Pikachu and Gen 2's surfing Pikachu show as the plain surf sprite.
+- Followers walk through people and doors and stand in the void for a step after entering a room, as in Gen 3. Gen 1's generic icons are the game's own (a bird for Pidgey and Spearow alike).
+- The colours of Gen 1 partners come from your own sprite: in the frame or two after a palette change (a fade starting) they may lag a little; a fade to black or white hides nothing by itself – the warp's script or text box does.
+- The browser player (EmulatorJS, Settings › fast player off) shows no partners in Game Boy games: the overlay needs the native player's per-picture bytes and pictures.
+- Not verified: Crystal rev 1, Crystal Legacy in a running game, other languages, Polished Crystal (no ROMs here); Gen 2's bike and surf sprites drawn in a partner's game (taken from the same table as walking, the e2e didn't ride); a Gen 1 partner across a map edge in a running game (see the table).
+- Verified 19 Nov 2026 with `scripts/world-e2e.mjs` (`--plus`, `--frames`, `--edge`, `--look color`, 2 and 4 players) and battery saves made by `scripts/rom-matrix.mjs` plans (to the first Pokémon, then START › SAVE; ROM copies and saves in a scratch folder, never committed). The saves stand in Route 29's tall grass (Gen 2) and south of Oak's lab (Gen 1); the e2e keeps a Repel going so no wild Pokémon interrupt the walking.
+
+### Gen 4 (DS): the 3D field
+
+The DS field is 3D: a perspective camera outdoors (pitch and distance per map type – Platinum has 20 camera types, HGSS
+tilts per map), an orthographic one in most houses, and a camera that eases after the player. souldew doesn't model any
+of that: **it reads the two matrices the game hands to its 3D engine** – NitroSystem's `NNS_G3dGlb` (projection 4×4 at
++0x08, camera 4×3 at +0x4C; `nnsys/g3d/glbstate.h`) – and projects a world point exactly as the geometry engine does
+(row vector × camera × projection, then the top screen's viewport). A camera that eases, tilts or zooms is just another
+matrix. `shared/worldds.mjs`, tables in `addresses.json` › `world` (Platinum US, HeartGold/SoulSilver US, from the pret
+xMAPs: `sFieldSystem`, `NNS_G3dGlb`, `gSystem`).
+
+1. **Read** (per picture through `WATCH`, 9 ranges, ~330 bytes): the matrices; `gSystem` (vblank/frame counters, the
+   keys); the `FieldSystem` (heap – its pointers move with every map load, so the overlay reads them from the RAM mirror
+   now and then and watches the new addresses): the field's program and child program (menu screens, the bag, battles),
+   its task (scripts, messages, warps), the location (map header) and the map matrix; the player's `MapObject` (grid
+   x/y/z and the fx32 position: tile × 16 + 8 on the ground plane, y the height) and `PlayerAvatar` (walking, cycling,
+   surfing; gender).
+2. **Which matrices the picture shows**: the field runs at 30 fps and the picture shows the geometry of the *previous*
+   main-loop iteration. `Displayed` keeps one snapshot per iteration (the first reading after `frameCounter` went back
+   to 0 and up again – the VBlank interrupt counts it up, the main loop clears it; a late iteration with 2 replaces its
+   snapshot) and hands out the one before the newest. **Measured** against the picture by block matching while walking,
+   turning and with the camera easing (a harness stepping the fast player frame by frame, 300+ frames each): Platinum interior 0.15 px mean,
+   0.55 px worst; HeartGold outdoors under a pixel (the block matcher's own rounding of the 3D rasteriser's sub-pixels).
+   Taking this frame's matrices instead is off by one step of the camera (2 px) every other frame; without the
+   frame-counter rule, the late iterations at every tile boundary (map streaming) are off by 2 px for one frame.
+3. **Same map**: a matrix of several maps (the overworld, big caves) has coordinates running across all of them, so its
+   id is the key (`0x8000 | id`); a single-map matrix (a house) is keyed by its map header. Partners on the next route
+   are simply there. Families: Diamond/Pearl/Platinum (`dppt`; their map headers 0–558 are the same, Platinum adds
+   559–595 – maps Platinum rebuilt can show a Diamond partner where Platinum has scenery) and HeartGold/SoulSilver.
+4. **On the wire**: the Gen 3 message, `x`/`y` the ground plane in world units, plus the height as a 10th element
+   (after the ext, or a 0 in its place – older builds never read past the ext).
+5. **Drawing** (`web/lib/worldds.mjs`): a 256×192 canvas over the top screen (`host.screen()`: the upper half, or the left
+   one side by side). Partners are billboards like the game's: their 32×32 sheet decoded from **this computer's ROM**
+   (BTX0 in `data/mmodel/mmodel.narc` / `a/0/8/1`, found by texture name – `pl_boy01c`, `hero`, … – so any language or
+   randomized copy works), centred on the projected point, its bottom 4 px (Platinum) / 5 px (HGSS) below it, scaled by
+   the projection's pixels per world unit at that depth (whole pixels at scale 1: crisp like the game's own). The offset
+   was measured by matching the decoded frame against the game's own player in the picture (error 2.7 / 3.0 per colour
+   channel). Frames: four per direction walking, the running half from 1.5 px/frame, bike and surf sheets. Sorted far to
+   near by the feet.
+6. **The map in front – the DS's own depth buffer**: houses, trees, counters, plants, people and you hide a partner
+   exactly where the game's own sprites would be hidden. souldew builds melonDS itself, so its software renderer keeps
+   the depth of the 3D frame on screen (`native/melonds-patch/souldew-depth.patch`: copied in `FinishRendering`, at line
+   192, when the picture's frame is done and before line 215 starts rendering the next one – deterministic, ~200 KB of
+   `memcpy` a frame and only while asked). The page names up to 8 rectangles of the top screen (around the partners,
+   their followers and you, on an 8-pixel grid: `DEPTH`, command 15) and gets their 24-bit depths with every picture
+   (`MSG_DEPTH` 17, right before `WATCHED`; `native/common/depth.c`, in retrohost through melonDS DS's exported
+   `souldew_depth` – `native/melonds-ds-patch` – and in the souldew engine through its melonDS backend). A partner's
+   pixel is hidden where the depth is nearer than a game sprite on its tile would be: the game draws its billboards a
+   fixed distance toward the camera – measured on the player's own sprite in the depth buffer: 8 units in Platinum, 17 in
+   HeartGold (`billboardDepth`) – plus 1 for rounding. Z or W buffering as the frame used (the flag comes along). Cost
+   measured in the page: 0.6–1.2 ms per picture for two partners and their followers (a loaded machine).
+   Without souldew's core (an older install, the browser player) there is no depth: then only your own figure covers a
+   partner behind you (your sheet's silhouette for the direction you face).
+7. **Light**: HeartGold/SoulSilver light the field by the time of day, caves are darker – a partner in full colour
+   would glow. souldew measures the light off your own sprite while you stand still (the picture's pixels against your
+   decoded standing frame, least squares per channel – only the pixels the depth buffer says are your sprite's, so your
+   HGSS follower in front of you doesn't spoil it; a poor fit is skipped) and lights
+   everything it draws the same. Measured in New Bark Town in the evening: ×(0.60, 0.60, 0.88); Platinum indoors ×1.
+8. **Followers**: HeartGold/SoulSilver have their own – souldew draws the partners' as **the game's own overworld
+   Pokémon** (`tsure_poke` sheets at the end of `a/0/8/1`, by `sModelIndexLUT`, found in ARM9 by its shape), walking the
+   partner's trail with two frames per direction; your own follower is the game's (the "Show my Pokémon following me"
+   switch isn't offered there). Diamond/Pearl/Platinum: the party icon (`pl_poke_icon.narc`, the palette table found in
+   ARM9 by its first entries), as in Gen 3, its lowest pixel on the feet's line.
+9. **When**: the field runs (its program, no child program) and no task holds the player. The partners see you on the
+   field also while a menu or a message is open on your side; a battle or a menu screen sends "hidden".
+10. **A, the menu, emotes, rock-paper-scissors**: as in Gen 1–3 (`web/lib/worldui.mjs` – one set of controls for every
+   generation): standing still on a tile's centre, facing a partner's tile at about your height, A (the game's
+   `heldKeysRaw` or the fast player's input), and no script started by the game within 110 ms. In HeartGold/SoulSilver
+   your own Pokémon on that tile wins: the game talks to it, the partner waits (as Yellow's Pikachu does in Gen 1).
+
+### Limits (Gen 4)
+
+- The map hides a partner as deep as a game sprite on that tile, by the 3D depth: 2D parts of the picture (the
+  map-name sign, the HGSS touch menu on the top screen) never cover them – partners vanish while a script holds you
+  anyway. Translucent polygons that write depth (rare) count as in front, like for the game's own sprites.
+- Surfing partners sit without their Pokémon (the surf mount is a field effect, not in their sheet). Field moves,
+  fishing, the Pokétch pose, saving and the like show the walking sheet.
+- HGSS partners' followers: the base form/male sprite (female and form sprites are skipped). A lead your game has no
+  overworld sprite for (a hack) shows none. Platinum's icons ignore forms.
+- The light is measured off your sprite while you stand still: right after a change (entering a cave) partners keep
+  the old light for up to half a second.
+- Diamond/Pearl and other languages: no overlay yet (no verified addresses). The browser player (EmulatorJS, the
+  fallback without the fast player) has no per-picture bytes: no DS overlay there.
+- Verified with two players on one Mac (19 Nov 2026, a loaded machine – the games ran at 20–60 % speed): Platinum in
+  the Sandgem Pokémon Center 2F (the orthographic camera), HeartGold in New Bark Town (perspective, evening light).
+  Clips: `world-e2e.mjs --clip`. The DS recordings' saves hold cloned Pokémon, so live tracking can't read their team:
+  the Platinum follower run used `--lead`. The depth cut (`--behind`, B walking set steps while A watches): in
+  Platinum's Pokémon Center the partner disappears behind the NPC standing south of him and behind the potted plants'
+  leaves, as the game's own player does; in HeartGold behind the follower Pokémon in front of him and the mailbox – both
+  in retrohost and in the souldew engine (`--engine`). The depth buffer itself was dumped and compared with the picture
+  (every NPC, counter, roof and tree canopy is there).
+
+### Playing together
+
+Owner's goal: multiplayer should feel like *playing together*, not just seeing each other. Four things, built on hooks
+any generation's Shared World gets once it has its tables (a partner's position and map, "in a battle", the run's
+catches and deaths) – today the Game Boy games, Gen 3 and Gen 4 (Platinum, HeartGold/SoulSilver) – and, where no picture of the game is needed, for every
+game of a SoulLink.
+
+| Part | Where |
+|---|---|
+| Messages, checks, rate limits, the gift protocol (`GiftDesk`), the "come here" arrow's geometry | `shared/together.mjs` |
+| What may be given (no key items, TMs/HMs, Master Ball; Gen 1/2 by list) | `shared/giftitems.mjs` |
+| The bag: read, take out, room – through the cheats' layouts | `shared/live/cheats.mjs` `bagItems`, `removeItem`, `bagRoom` (and `addItem`) |
+| The hub per run link: statuses, pings, the run log's catches and deaths, the ledger | `web/lib/together.mjs` |
+| Cards, gift picker, watch panel, battle strip, board line, "Come to me" | `web/views/together.mjs`, `web/together.css` |
+| In the picture: ⚔, catch, tombstones, arrow; the art | `web/lib/togetheroverlay.mjs`, `web/lib/togetherart.mjs` (hooked into `worldoverlay.mjs` in a few lines) |
+
+1. **Who is in a battle, and watching it.** Each player's app sends a small status on the world action when its battle
+   or place changes, and every 5 s (`{ t: 'tg', op: 'st', v, b, here, caps }`, ~150 bytes; HP at most twice a second;
+   over the relay every 15 s and whenever a battle begins or ends). `b` is the live battle from tracking: the foe's
+   species, level, HP, shiny/form and the index and HP of the player's Pokémon out there – the partner's own Pokémon
+   (name, moves) come from the run doc's live team. A partner on a build without it: the run doc's `where:<slot>.fight`
+   says "in a battle" too (no HP), while their live data is under 90 s old.
+   - **Board** (every game, no Shared World needed): the partner's card says "In a battle – wild Zigzagoon" with
+     **Watch**.
+   - **Shared World**: a partner in a battle sends "hidden" (they left the overworld); the overlay keeps drawing them
+     where the battle began, standing, with a ⚔ bubble. Walking up and pressing A (or clicking the name tag) opens the
+     menu with **Watch** in place of Trade / Battle / Give item.
+   - **Watch** is the partner screens' live picture (`SyncLink.watchPartnerScreen`: WebRTC video on a direct link,
+     encrypted stills every ~1.5 s over the relay) – in the play view their window pops out over the play area, from
+     the board a panel – with a battle strip from live tracking under it: their Pokémon, its HP and moves, the
+     opponent and its HP. So it works even when there is no picture (the partner switched screen sharing off, the
+     game is in a background tab, or the video is still connecting – a second or more after the window opens): the
+     strip still shows the battle. Partner tiles in the dock show the one-line strip
+     too.
+2. **Catches and deaths in the world** – only what the run records, nothing made up: the hub reads the run log as it
+   arrives (entries of the last two minutes, never older ones arriving after a reconnect). A `catch` entry pops the
+   Pokémon's party icon (this computer's ROM, like the followers) up over the catcher's head in a speech bubble for
+   2.6 s. A `death` entry of *my* Pokémon makes *my* app write `tomb:<slot>:<log id>` with where I last stood on the
+   overworld (where the battle began – `SharedWorld.position()`), and every app draws a tombstone (original pixel art,
+   cut by the map's top layer like the partners) on that tile of that map for five minutes, for everyone – also for a
+   partner who walks onto that map later. A death the dying player's app didn't see (game closed) has no tombstone.
+3. **Gift an item.** "Give item" in the A menu (or on a partner's board card while your game runs here) opens a picker
+   of what your bag may give; the partner gets a card ("Marius wants to give you this – Accept / No thanks", 30 s).
+   - **Order** (shared/together.mjs `GiftDesk`): both confirm → the giver's game gives it up first (written, read
+     back) and records `gift:<id>` in the run doc → "go" → the receiver's game takes it (room checked first – all of it
+     or nothing, read back) and records the outcome once, `giftgot:<id>` → "done" / "fail". On "fail" the giver's game
+     takes it back. The receiver decides each id once and answers repeats from the doc, so a message sent twice, a
+     restart or a lost link never adds it twice. **Silence is never a "fail"**: the giver asks again (`g-q`) until an
+     answer comes, and a receiver that knows nothing of the gift (restarted, "go" never came) decides "not added"
+     then and there – a pulled cable can't copy items. A "go" later than 20 s after "yes" is refused (the giver gets
+     it back). After a restart the giver's app restores its open gifts from the doc and asks.
+   - **When:** both games running in souldew with live tracking, never during a battle or a link (a partner linked
+     with others: Give item is greyed with the A menu's "In a link with …", like Trade and Battle), and – where the
+     screen state is read (Gen 1–4 today) – only on the overworld with no menu, text or fade (the bag menu keeps its own
+     copy of the list). One gift per pair at a time; offers 3 at once, then one every 10 s, on both ends.
+   - **What:** the pockets of ordinary items only (Items, Medicine, Poké Balls, Berries where the game keeps them
+     apart); Gen 1's one bag by a list (no key items, badges, fossils, Safari Balls, TMs/HMs). Never the Master Ball
+     (one per game – passing it on would hand one player two legendaries), never TMs/HMs (one-of-a-kind and used up
+     in Gen 1–4, and in Gen 5+ given away for good), never key items. Only to a game of the same generation, and from
+     Gen 4 on of the same version family (`sameItems`: HeartGold adds items Platinum doesn't have, Black 2 items Black
+     doesn't …; Gen 3's five games share every item up to 348, the rest are key items). Up to 99 at once.
+   - **Rule** "Gifts between us" (`itemGifts`, host-signed like every rule, default on; a strict Nuzlocke can switch it
+     off): checked by both apps. **Log:** "Marius gave Tim a gift: 3 × Potion", written once by the giver
+     (`feed:gift-<id>`), in every player's language.
+4. **"Come to me".** A button next to the Shared World switches (every SoulLink game) sends your position (map and
+   world pixels, your map's size) and place sign to every partner. On the same map – or a connected one – their picture
+   shows an arrow at the edge pointing to you, or bobbing over the spot when it is on screen; otherwise the board's
+   card says "Marius is at Route 110 – come here" (and a card at the bottom of the app for a few seconds). It clears
+   when they get within two tiles, after three minutes, when you take it back or call again. Two at once, then one
+   every 20 s (both ends).
+
+**On the DS** (`web/lib/worldds.mjs`, the same data): a partner in a battle stands where it began with the ⚔ (the
+standing-in of `standIn`), the catch pops up over their head (the party icon from this computer's ROM – HGSS's icon NARC
+`a/0/2/0` too), the tombstone stands on its tile as a billboard as deep as a game sprite there (hidden by the map like
+the partners; a DS position carries its height, and the tile's centre – Gen 1–3 keep its corner), and the "come here"
+arrow points along the game's own camera – off screen at the edge, over the spot when it's on the picture. A gift waits
+while the DS field isn't free (`gameWhy`: a script, a menu screen, a battle). Checked 19 Nov 2026 with data handed to
+A's overlay (`world-e2e.mjs --tgds`, Platinum and HeartGold) and the A menu's Give item.
+
+Older builds ignore `t: 'tg'` (Shared World and rock-paper-scissors look only at their own types – `test/together.test.mjs`
+checks both). A partner that never sent a status has no gifts offered ("their souldew needs an update"); their board
+card still says "In a battle" from the run doc. Stream overlay: gifts are ordinary log entries (type `gift`), so the
+overlay's feed shows them; the ⚔, catches and tombstones are drawn in the game picture only.
+
 ### Limits (Gen 3)
 
 - Partners disappear behind the map's top layer exactly where the real player does (tree tops, roofs, the leaves of potted plants, counters). Not covered: tall grass (a field-effect sprite in the game, not the map), animated top-layer tiles (the mask is the ROM's first frame), and other sprites (NPCs) – partners walk through NPCs and walls on your screen if they stand there in their game (their own game decides where they can walk).
@@ -545,9 +761,15 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 
 ### Feasibility for the other generations
 
-- **Gen 1/2 (≈ 4–6 days):** everything is in WRAM, so the 10 Hz mirror and `WATCH` both reach it. Gen 1: `wCurMap` 0xD35E, `wYCoord`/`wXCoord` 0xD361/2 (16 px steps), `wWalkCounter` 0xCFC5 (8 → 0, 2 px per frame) with `wPlayerMovingDirection` 0xD528 for the sub-step, facing `wSpritePlayerStateData1FacingDirection` 0xC109, bike/surf `wWalkBikeSurfState` 0xD700; the player sits at a fixed spot (sprite at 64, 60). Gen 2 (Crystal): `wMapGroup`/`wMapNumber` 0xDCB5/6, `wYCoord`/`wXCoord` 0xDCB7/8, `wPlayerStruct` 0xD4D6 (facing, step offsets), `wPlayerGender` 0xD472, `wPlayerState` 0xD95D (bike/surf). Sprites: 2bpp 16×16 sheets (`RedSprite` 05:4180, Crystal's Chris/Kris sprites) – trivial to decode. The hard part is the colour: Gen 1 on a Color console is coloured by the boot ROM's palette for the title, Gen 2 by its OBJ palettes in ROM (`PAL_NPC_*`) – both reproducible, but to be checked against what Gambatte shows. `hSCX`/`hSCY` are in HRAM, outside the mirror; not needed with the walk counter.
-- **Gen 4 (Platinum/HGSS, ≈ 2–3 wk):** the field is 3D with a perspective camera at a fixed pitch (Platinum, HGSS tilt differs per map). Position: the player's map object (x/z in tiles + fixed-point sub-tile) under the field system; the camera struct gives target, distance and angle, from which a projection to the top screen can be derived – an overlay is feasible but needs the projection per map type and won't match exactly where the camera eases. Sprites: the player's overworld textures are in the ROM's NARC (`data/mmodel`), BTX0 textures, decodable. Depth against 3D buildings is not possible from outside.
-- **Gen 5 (B/W, B2/W2):** like Gen 4 with a freely tilting camera on many maps: hard; best kept to the board's "Tim is on Route 4".
+- **Gen 1/2:** done – see [The Game Boy games](#the-game-boy-games-gen-12). (The earlier notes here had Gen 1's `wPlayerMovingDirection` for the sub-step: the step vector in the player's sprite data is what `AdvancePlayerSprite` itself uses, and it is what the overlay reads.)
+- **Gen 4:** done for Platinum and HeartGold/SoulSilver – see "Gen 4 (DS)" above, with the depth buffer hiding partners behind the map. Left: Diamond/Pearl (their `sFieldSystem`, `NNS_G3dGlb` and `gSystem` addresses, verified in a running game – `NNS_G3dGlb` can be found by its first word, `0x17101610`), other languages.
+- **Gen 5 (B/W, B2/W2): dropped for now** (spike on Black 2 US, 19 Nov 2026). The camera part works the Gen 4 way:
+  Black 2 also hands its field camera to NitroSystem (`NNS_G3dGlb` at 0x02143A0C, found by its first word; a
+  perspective projection), and a marker on a grass tile of Route 19 stayed on its tile while walking with the camera
+  following. The rest has no clean footing: there is no symbol map or decomp for B/W/B2/W2, so the player's position,
+  the field's state (menus, scripts, battles) and the frame counter the timing needs would come from heap pointers found
+  by scanning RAM, not from the game's own symbols as in Gen 4; and the overworld sprites are another format. By the
+  owner's rule (only the clean approach, no workaround) Gen 5 keeps the board's "Tim is on Route 4".
 - **3DS:** research only.
 
 ### Effort for the rest
@@ -558,8 +780,9 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 | ~~Partners on connected maps~~, followers, emotes, rock-paper-scissors | done |
 | Surf blob, ledge hop | 1–2 days |
 | More languages (verify RAM per language with pret or community tables) | ½ day per language |
-| Gen 1/2 | 4–6 days |
-| Gen 4 | 2–3 weeks |
+| ~~Gen 1/2~~ | done (English Red, Blue, Yellow, Gold, Silver, Crystal) |
+| Gen 1/2 in other languages, Polished Crystal | ½ day per game with a ROM to verify |
+| ~~Gen 4~~ (Platinum, HGSS) | done; Diamond/Pearl ½–1 day once a save on the overworld is at hand |
 
 ## 10. SoulLink rules and UX
 
@@ -619,7 +842,7 @@ M-series Mac, darwin-arm64, Release build:
 
 ## 13. Plan and effort
 
-Done in this round: one link host with all three backends (macOS built and tested, Windows cross-compiled, Linux in CI), touch, sound, the cartridge clock, rejoin by state transfer, resend, TURN (Worker + app), direct/relayed, desync safety, the partner's game by SHA-1 (pick / build), DS in the app, 3–4 player invites, the location sign, rules, tests (`test/link.test.mjs`, `test/linkhost.test.mjs`, `test/native.test.mjs` clock test) and the e2e harness for 2–4 players; the Shared World overlay for Gen 3 (§9).
+Done in this round: one link host with all three backends (macOS built and tested, Windows cross-compiled, Linux in CI), touch, sound, the cartridge clock, rejoin by state transfer, resend, TURN (Worker + app), direct/relayed, desync safety, the partner's game by SHA-1 (pick / build), DS in the app, 3–4 player invites, the location sign, rules, tests (`test/link.test.mjs`, `test/linkhost.test.mjs`, `test/native.test.mjs` clock test) and the e2e harness for 2–4 players; the Shared World overlay for Gen 1, 2 and 3 (§9).
 
 What is left for 3.0, with effort:
 
@@ -639,7 +862,7 @@ What is left for 3.0, with effort:
 | Seamless DS start over slow uplinks: 1.7 MB deflated per DS state (0.8 s on one Mac, 1.4–2.0 s over TURN at 40 ms); a delta against a reference the receiver builds itself (the same game booted from the same save) would cut it further | 1–2 d |
 | Seamless DS session started while both are already inside the Union Room alone (the fast player's firmware MAC is the same for every player – the games may need to leave and re-enter the room so their wireless reads the link host's per-seat MAC); a DS 3–4-player seamless run | 1 d |
 | The souldew engine (§4b) as the default, then retrohost gone: a beta with real players (Windows x64 PCs incl. 96 kHz sound cards and weak laptops, Linux), the first `native.yml` run with melonDS's JIT in the link host, the play view and Settings no longer tied to the libretro cores (`nativeOn`, `status.native.ok`), then retrohost, the libretro cores and the old hand-over path (SEATSTATE → `/api/native/start` with a state) removed | – |
-| Shared World beyond Gen 3 (§9), rollback, spectating | after 3.0 |
+| Shared World for Diamond/Pearl and Gen 5 (§9), rollback, spectating | after 3.0 |
 
 ## 14. Decisions for the owner
 
@@ -648,3 +871,92 @@ Decided (November 2026): TURN approved (Cloudflare Realtime key "souldew-link" o
 Decided in this round (seamless link, §4a): the fast player's Game Boy core is **SameBoy** (the link host's emulator and version, MIT) instead of Gambatte – Gambatte's save states can't go into a link session; the GBA core is built from the **link host's mGBA commit** instead of the 0.10.5 release. Cost: save states made with the older Gambatte fast player can't be loaded any more – they stay, and say so ("made with the previous Game Boy emulator – your in-game saves are unaffected"); battery saves and the cartridge clock carry over. Owner's follow-up (approved): Game Boy games on the **original Game Boy** by default (Settings › "Game Boy look": Original / Game Boy Color colours), each link seat on its own player's console.
 
 Open: none for this round. Worth deciding before release: whether runs created before 3.0 should get "Build every player's game" offered once (randomized GB/GBA runs joined earlier have only the joiner's own game), and whether DS JIT may be offered for sessions where every peer is the same architecture (faster for 4 players; needs the JIT build and a session option).
+
+## 15. Raid
+
+Built in November 2026 (branch `feat/30-raid`; `shared/raid.mjs`, `shared/live/raidhp.mjs` (Game Boy, GBA),
+`shared/live/raidds.mjs` (DS), `web/lib/raid.mjs`, `web/views/raid.mjs`, `scripts/raid-e2e.mjs`).
+
+**What it is.** The players of a run fight the same trainer together, each in their own game, and the trainer's
+Pokémon share **one HP pool**. Without it each player would simply beat the trainer alone; with it the trainer is
+beaten only when the combined pool is empty – in everybody's game at once.
+
+**Flow.** The board's log has “Raid” (next to rock-paper-scissors): the host of the raid ticks the partners (only
+online ones whose souldew announced raids and whose running game can take part – everybody else greyed out with the
+reason) and starts it. The invite shows in the partner's play view (the raid panel, first in the dock) or as a card at
+the bottom of the app: Join / Not now. Once everybody answered (or after 30 s) the raid starts with those who joined,
+or is called off. A 10-second countdown, then the **next trainer battle each player starts** is the raid (a battle
+already on when the raid started doesn't count). A game whose battle began first is held at its first menu (paused,
+at most 45 s) until the others' battles have begun; a player whose battle comes later still joins.
+
+**The pool** (`shared/raid.mjs`). Per opponent party slot, in basis points (integers – every computer must compute
+exactly the same). A player's game reports what happens to the opponent's HP as events: damage or heal of
+`bp = |ΔHP| / maxHP × 10000` on slot `i` (a knock-out empties the slot whatever the rounding left). Percentages make
+randomized runs work, where the trainer has other Pokémon in every game. Each player's events live in their own doc
+key `raid:<id>:<slot>` (one writer per key – nothing lost to last-writer-wins; the doc carries them reliably over
+the direct link and the relay), each stamped with a **Lamport clock** (past every event the computer has seen). Every
+computer folds all events in the same order – clock, then slot, then the player's own sequence – so every computer
+computes the same pool from the same events, whatever order they arrived in; a late event is folded where its clock
+puts it. Damage takes at most what is left (the MVP gets credit for that much); a heal (a potion, a draining move)
+goes back in up to 100 % but never into an empty slot. Slots: as many as the biggest party any player's battle shows
+(a randomizer that adds Pokémon). Won: every slot empty, with every player's battle known; lost: everybody out.
+
+**Into the games** (`RaidPlayer`, `shared/live/raidhp.mjs`). Three times a second the play view reads the battle; the
+pool goes into the game **only while it waits for the player's action** (`quiet`), and is read back: a write that
+didn't hold is tried once more, then that player is out (“out of step”) and gets no more writes. The opponent that is
+out never gets 0 HP from souldew: it keeps **1 HP**, and the player's next hit knocks it out – the game's own faint,
+exp, the next Pokémon or the trainer's defeat. Opponents not out get their share in the party copy – 0 for one that
+went down in another game, which the trainer then never sends out. Our own writes are never counted as hits.
+
+| Gen | Game(s) | Battle HP / party HP | Quiet (waiting for the player) | HP bar | Checked live |
+|---|---|---|---|---|---|
+| 1 | Red, Blue (US/EU) | `wEnemyMonHP` / `wEnemyMons` (+1) | the battle menu's parameters (`wTopMenuItemY/X`, `wMaxMenuItem`) | tiles in `wTileMap` and its saved copy `wTileMapBackup` (DrawHPBar's tiles) – drawn at once; its colour follows at the game's next redraw | rival in Oak's lab: 2 and 3 games, the app e2e |
+| 2 | Crystal (US) | `wEnemyMonHP` / `wOTPartyMons` (+0x22) | the battle menu's 2D menu, or the move menu with its “TYPE/” box | tiles in `wTilemap` (the saved copy is in WRAM bank 2, out of reach: souldew draws the bar again while the move menu waits) | a wild battle on Route 29 driven as a trainer's (lab, 2 games) |
+| 3 | FireRed, LeafGreen (rev 0, 1), Emerald (US) | `gBattleMons[b].hp` / `gEnemyParty` (+0x56, outside the encrypted part) | `gBattleMainFunc` = HandleTurnActionSelectionState, the player's controller in HandleInputChooseAction/Move, the opponent's idle | the game's own **HP bar update**: `CONTROLLER_HEALTHBARUPDATE` in `gBattleBufferA` and the opponent's controller pointed at its handler – the bar slides from the party HP; the party HP only after it (FR/LG's first rival battle, until Oak's first lesson was shown: no bar command – it would start his lesson in the action menu; the bar then catches up with that game's next hit) | FireRed: rival in Oak's lab, 3 games, the app e2e; Emerald: lab, 2 games (bar command) |
+| 4 | Platinum, HeartGold (US) | `BattleContext.battleMons[b].curHP` / the party Pokémon (+0x8E, PID-encrypted, no checksum) | battle command 5, the player's battler in a menu, no opponent command/queue/bar task | the game's own UpdateHPGauge command (queue entry, message, command byte) | Platinum vs Barry (lab, 2 games), HeartGold vs Bug Catcher Al (incl. a party member written to 30 % and 0) |
+| 5 | Black 2 (US/EU) | the server's and the client's battle copies (both, only while they agree) | the input proc in the action/move menu, single battles only | the gauge's own “HP changed” request (damage + flag) | Hugh's first battle (lab, 2 games; an extra-Pokémon variant for the party copies) |
+| 6/7 | X/Y, ORAS, Sun/Moon, US/UM | – | – | – | **not supported**: in souldew's 3DS host Hau's first battle never started in Sun (7 tries, three cores, old and new 3DS mode), so no write could be checked; the app says “Not in the 3DS games” |
+
+Not supported (the app says “not in this version yet”): other languages and revisions without verified addresses,
+Yellow, Gold/Silver, Ruby/Sapphire, Diamond/Pearl, SoulSilver, Black/White, White 2, hacks whose RAM moved. A Gen 3
+revision whose code addresses souldew doesn't know never reads as waiting: it would get no writes, so it is excluded
+by its memory table entry up front.
+
+**Leaving, dropping out.** A player whose team is down, who leaves the battle or the raid, whose writes don't hold,
+or who can't reach any raid partner for 30 s is out – their game is left as it is, no more writes. The others
+finish; the out player watches the raid panel and the partner screens. A game that loses its host (another link,
+a new start) answers no writes and drops out the same way.
+
+**Rules** (host-signed, `shared/hostrules.mjs`): “Raids” (`raids`, on) and “Deaths in a raid count” (`raidDeaths`,
+on – a raid is a real battle). Off: while the player's raid battle runs, the live team isn't applied to the run, and
+a Pokémon that went down in it is taken as standing (1 HP on the board) until it's healed (`raidspared:<slot>`).
+
+**Older builds.** Every 3.0 build with raids writes `raidcap:<slot>` (version, and whether the game playing now can
+take part). A partner on an older 3.0 build never wrote one: no invite (“Tim's souldew doesn't know raids yet”).
+Older builds ignore the `raid:` keys.
+
+**The log, the stream.** Every computer that was in the raid writes the same entry, keyed by the raid
+(`feed:raid-<id>`): “Marius, Tim & Kim won a raid together (1:38 · most damage: Tim)” / “… lost a raid”. The stream
+API has a `raid` event (`docs/STREAM_API.md`).
+
+**Exploits considered.** A tampered client can report hits it never made (the raid is then won early) – every
+damage event is in the run with its player, and the MVP shows who dealt what; it can only write into its own game.
+Writes happen only in a trainer battle that isn't a link battle, while the game waits.
+
+**End to end** (`scripts/raid-e2e.mjs`: two or three souldew servers with scratch data folders, every page in
+Electron, hidden and muted, the souldew engine; every game loads the same save state from just before the battle; A
+starts the raid from the board, the others press Join, everybody walks into the battle, turns of hits; `--skins` adds
+the raid panel in other colours). FireRed's first rival battle is Oak's lesson: until his “Inflicting damage…” text
+was shown (`gBattleStruct->simulatedInputState[2]` bit 0) the bar command is left out and the bar follows with that
+game's next hit – after it, the bar slides as everywhere else:
+
+| Game | Players | Result |
+|---|---|---|
+| Red (US/EU), rival in Oak's lab | 2 | won in both games; every hit mirrored (pool and both games' HP: 20 → 15 → 11 → 8 → 5 → 2, then 1 HP and the last hit in the other game); one log entry on both computers; muted clips |
+| FireRed (US), rival in Oak's lab | 3 | won in all three games; every hit mirrored into the other two (19 → … → 6 → 2 → 1/0); one log entry on all three |
+| FireRed (US), rival in Oak's lab | 2 | won in both games (15 → 11 → 7 → 3 → 1/0); the raid panel checked in the default colours, the high-contrast theme and five souldew+ skins (Fieldbook, Sakura, Cartridge Grey – light; Paper Lantern, Midnight Ink – dark), fighting and with the result |
+
+**Ideas not built.** A named boss (a gym leader or the Elite Four from the game's trainer table – `romcaps.mjs`
+already finds them; the games of a pair run have different tables); raids in the Shared World A menu; a “Win a raid”
+trophy (trophies are counted from run digests, which don't carry raids yet).
+

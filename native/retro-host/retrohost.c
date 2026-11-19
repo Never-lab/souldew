@@ -12,8 +12,8 @@
 // Messages: native/common/protocol.h. This host sends VIDEO (the core's format: XRGB8888 as BGRA bytes, or RGB565),
 // AUDIO (fast-forward: sped up by the real speed, resampled to real time – ffaudio.h), STATE, LOG, EVENT ('loaded' |
 // 'error' | 'stateLoaded' | 'stats' {fps, speed, shown, frame, ffk, ffHoles} | 'stepped' {frame} | 'saved' {size} |
-// 'written' {addr, len, ok} | 'ffrate' {k} | 'audioRate' {sampleRate}), RAM, SRAM, WATCHED; it takes INPUT, SPEED, SAVE, LOAD, QUIT, RESET,
-// WRITE, FLUSH, SRAM, RESYNC, STEP, WATCH.
+// 'written' {addr, len, ok} | 'ffrate' {k} | 'audioRate' {sampleRate}), RAM, SRAM, WATCHED, DEPTH; it takes INPUT, SPEED, SAVE, LOAD, QUIT,
+// RESET, WRITE, FLUSH, SRAM, RESYNC, STEP, WATCH, DEPTH.
 // Builds on macOS, Linux and Windows (../ctr-host/compat.h); scripts/build-native.mjs builds it.
 #include "libretro.h"
 
@@ -26,6 +26,7 @@
 #include <string.h>
 #include "compat.h"
 #include "../common/cadence.h"
+#include "../common/depth.h"
 #include "../common/ffaudio.h"
 #include "../common/hostio.h"
 #include "../common/protocol.h"
@@ -174,9 +175,19 @@ static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch
   frame_w = (int)w, frame_h = (int)h, frame_fmt = bpp == 4 ? 0 : 2, frame_new = 1;
 }
 
+// ---- the DS's 3D depth (Shared World: partners hide behind the map – native/common/depth.h) -------------------------
+// souldew's melonDS DS (native/melonds-ds-patch) exports souldew_depth; another core has none and the page gets nothing.
+static int (*core_depth)(int on, int x, int y, int w, int h, uint32_t *out);
+static struct depth_req depth;
+static int retro_depth(void *ctx, int on, int x, int y, int w, int h, uint32_t *out) {
+  (void)ctx;
+  return core_depth ? core_depth(on, x, y, w, h, out) : -1;
+}
+
 /** The last picture (right after the bytes the page watches – for exactly this picture). */
 static void send_frame(void) {
   if (!frame_new) return;
+  depth_send(&depth, (uint32_t)frame_no, retro_depth, NULL);
   ram_send_watched(&rs, (uint32_t)frame_no);
   frame_new = 0;
   cad.shown++;
@@ -436,6 +447,7 @@ int main(int argc, char **argv) {
   SYM(unserialize, "retro_unserialize"); SYM(get_memory_data, "retro_get_memory_data");
   SYM(get_memory_size, "retro_get_memory_size");
   core.set_controller_port_device = (void *)dlsym(lib, "retro_set_controller_port_device");
+  core_depth = (void *)dlsym(lib, "souldew_depth"); // (souldew's melonDS DS only: the 3D depth for Shared World)
 
   core.set_environment(environment);
   core.set_video_refresh(video_refresh);
@@ -612,6 +624,7 @@ int main(int argc, char **argv) {
           }
           break;
         case CMD_WATCH: ram_set_watch(&rs, c->p, c->len); break;
+        case CMD_DEPTH: depth_set(&depth, c->p, c->len, retro_depth, NULL); break;
         }
         free(c->p);
       }

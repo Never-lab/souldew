@@ -15,8 +15,9 @@ import { t } from './i18n.mjs';
 
 const GONE_MS = 5000; // a partner silent this long is gone from the overlay
 
-/** Systems with a Shared World so far (Gen 3 on the GBA; the player page checks the game itself). */
-export const WORLD_SYSTEMS = ['gba'];
+/** Systems with a Shared World so far (Gen 1/2 on the Game Boy, Gen 3 on the GBA, Gen 4 on the DS; the player page checks
+ * the game itself). */
+export const WORLD_SYSTEMS = ['gb', 'gbc', 'gba', 'nds'];
 
 /** The per-run "Show partners in my game" switch (this computer only, default on). */
 export const worldPrefKey = (runId) => `sl-world-${runId}`;
@@ -96,8 +97,11 @@ export class SharedWorld {
       trade: t('world.trade', 'Trade'),
       battle: t('world.battle', 'Battle'),
       wave: t('world.wave', 'Wave'),
+      emote_wave: t('world.wave', 'Wave'),
+      watch: t('world.watch', 'Watch'),
+      gift: t('world.gift', 'Give item'),
       cancel: t('common.cancel', 'Cancel'),
-      tagHint: t('world.tagHint2', 'Trade, battle, wave or play rock-paper-scissors'),
+      tagHint: t('world.tagHint3', 'Trade, battle, give an item, wave or play rock-paper-scissors'),
       keys: t('world.menuKeys', 'A choose · B back'),
       rps: t('world.rps', 'Rock-paper-scissors'),
       emotes: t('world.emotes', 'Emotes'),
@@ -122,7 +126,24 @@ export class SharedWorld {
     this.configured.add(win);
     // (true once the player page found this game's tables – the switch shows only then)
     Promise.resolve(w.config({ me: this.me, players: this.players, enabled: this.enabled, actions: this.actions, labels: this.labels(), lead: this.lead, follow: this.follow }))
-      .then((ok) => this.onSupported(!!ok), () => this.onSupported(false));
+      .then((ok) => this.onSupported(!!ok, { follow: w.ownFollower?.() !== false }), () => this.onSupported(false, {}));
+    if (this.togetherData) w.together?.(this.togetherData);
+  }
+
+  /**
+   * Playing together (web/lib/together.mjs → web/lib/togetheroverlay.mjs): who is in a battle, catches, tombstones,
+   * a "come here" – handed to the overlay as they change.
+   */
+  setTogether(data) {
+    this.togetherData = data;
+    this.world?.together?.(data);
+  }
+
+  /** Where I last stood on the overworld: { fam, map, x, y, size } or null (not on it since this game started). */
+  position() {
+    const st = this.shown?.st;
+    // (the DS: its height too – a tombstone stands on the bridge where it happened)
+    return st && st.fam ? { fam: st.fam, map: st.map, x: st.x, y: st.y, ...(Number.isFinite(st.h) ? { h: st.h } : {}), size: this.shown.size || null } : null;
   }
 
   _tick() {
@@ -144,13 +165,17 @@ export class SharedWorld {
     const d = e.data;
     if (d?.type === 'emu-world' && d.st) {
       this.local = d.st;
+      // (where I last stood on the overworld – "come to me", the tombstone of a Pokémon that died in a battle there)
+      if (!d.st.hidden) this.shown = { st: d.st, size: Array.isArray(d.size) ? d.size : this.shown?.size || null };
+      // (Yellow: the game's own Pikachu follows – the partners see that one, as you do)
+      this.gameLead = d.gameLead && d.gameLead.species > 0 ? d.gameLead : null;
       if (Array.isArray(d.size)) this.size = d.size;
       this._send(d.st);
       const n = Number(d.near) || 0;
       if (n !== this.near) this.onNear((this.near = n));
     } else if (d?.type === 'emu-world-act' && typeof d.slot === 'string') {
       if (d.act === 'wave' || d.act === 'emote') this.emote(d.act === 'wave' ? 'wave' : d.emote);
-      else if (d.act === 'trade' || d.act === 'battle') this.onAction(d.act, d.slot);
+      else if (d.act === 'trade' || d.act === 'battle' || d.act === 'gift' || d.act === 'watch') this.onAction(d.act, d.slot);
       else if (d.act === 'rps') this.challenge(d.slot);
       // (for integrations and tests: what was picked, wherever the link flow lives)
       dispatchEvent(new CustomEvent('sl-world-action', { detail: { act: d.act, slot: d.slot, emote: d.emote } }));
@@ -214,7 +239,7 @@ export class SharedWorld {
     if (s && diff && now - s.at < SEND.minMs) return;
     // standing hidden (a battle, a menu screen): one message says so, then quiet but for the heartbeat
     // (who follows me and my map's size: when they change, and with the heartbeat for whoever came later)
-    const ext = packExt({ follower: this.lead || null, size: this.size });
+    const ext = packExt({ follower: this.gameLead || this.lead || null, size: this.size });
     const ek = JSON.stringify(ext);
     const extDue = ek !== this.extKey || now - this.extAt >= SEND.idleMs;
     const w = packState(st, ++this.seq, now, extDue ? ext : null);

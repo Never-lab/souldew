@@ -2,7 +2,7 @@
 // (incl. Definitive HG) use a curated route list with level caps, every other game builds its
 // area list on the fly from the catch locations the players report.
 import { PROGRESSION, VANILLA_CAPS, areaForMetLocation, levelCapFor, gymCapsFamily, vanillaCapFor, romCapFor, prettyTrainer } from '/shared/routes.mjs';
-import { gen4data, speciesName, pokeapi } from './data.mjs';
+import { gen4data, speciesName, pokeapi, giftItemName } from './data.mjs';
 import { t, currentLang } from './i18n.mjs';
 import { ALL_SLOTS, slotsOf, runMode, isNuzlocke, othersOf } from '/shared/slots.mjs';
 import { DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, rulesWithDefaults } from '/shared/rules.mjs';
@@ -252,11 +252,18 @@ function renderMsg(doc, manifest, m) {
   for (const [k, v] of Object.entries(m.vars || {})) {
     vars[k] = v && typeof v === 'object'
       ? v.area !== undefined ? areaName(doc, manifest, v.area) : v.species !== undefined ? speciesName(v.species) : v.money !== undefined ? moneyText(v.money, currentLang())
+        : v.item !== undefined ? itemCount(v)
         : v.key ? renderMsg(doc, manifest, v) : ''
       : v;
   }
   return t(m.key, m.def, vars);
 }
+
+/** An item in a log line ({ item, gen, n } – a gift between players): "Potion", "3 × Potion". */
+const itemCount = (v) => {
+  const name = giftItemName(v.item, v.gen) || `#${v.item}`;
+  return v.n > 1 ? t('feed.itemCount', '{n} × {item}', { n: v.n, item: name }) : name;
+};
 
 export const causeText = (doc, manifest, cause) => (cause && typeof cause === 'object' ? renderMsg(doc, manifest, cause) : cause || '');
 
@@ -492,6 +499,26 @@ export function logLinkBattle(doc, manifest, sid, o) {
   return true;
 }
 
+/**
+ * A raid that is over (web/lib/raid.mjs): "Marius, Tim & Kim won a raid (1:23 · most damage: Tim)" / "… lost a raid".
+ * Every computer that was in it writes the same entry, keyed by the raid (shared/raid.mjs raidFeedEntry).
+ */
+export function logRaid(doc, manifest, entry) {
+  const key = `feed:raid-${entry.raid}`;
+  if (doc.get(key)) return false;
+  const names = players(doc, manifest);
+  const name = (s) => names[s]?.name || s;
+  const who = joinNames(entry.players.map(name));
+  const time = Number.isFinite(entry.ms) ? `${Math.floor(entry.ms / 60000)}:${String(Math.floor((entry.ms % 60000) / 1000)).padStart(2, '0')}` : '';
+  const m = entry.won
+    ? entry.mvp ? msg('feed.raidWonMvp', '{names} won a raid together ({time} · most damage: {mvp})', { names: who, time, mvp: name(entry.mvp) })
+      : msg('feed.raidWon', '{names} won a raid together ({time})', { names: who, time })
+    : msg('feed.raidLost', '{names} lost a raid ({time})', { names: who, time });
+  const e = { ...entry, slot: null, msg: m };
+  doc.set(key, { ...e, text: feedText(doc, manifest, e) });
+  return true;
+}
+
 /** `slot`'s game paid a lost wager: "Tim paid Marius ₽2,000 (link battle)" – once per session and payer. */
 export function logWagerPaid(doc, manifest, sid, slot, to, amount) {
   const key = `feed:lbp-${sid}-${slot}`;
@@ -574,6 +601,7 @@ const switchLabels = (n) => ({
   linkTrades: msg('rules.linkTrades', 'Trades between us (link)'),
   linkBattles: msg('rules.linkBattles', 'Battles between us (link)'),
   linkBattleDeaths: msg('rules.linkBattleDeaths', 'Losing a link battle counts as deaths'),
+  itemGifts: msg('rules.itemGifts', 'Gifts between us'),
 });
 // (the link rules say 'on' / 'off')
 const switchOn = (v) => !!v && v !== 'off';

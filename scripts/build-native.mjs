@@ -18,7 +18,7 @@
 // compiler; Windows is cross-compiled with MinGW-w64 (macOS: brew install mingw-w64; Ubuntu: apt install mingw-w64) –
 // every library is linked in statically, the DLLs need nothing but Windows itself.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync, chmodSync, readFileSync, rmSync, readdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cpus } from 'node:os';
@@ -136,6 +136,21 @@ function cmakeTarget() {
   return a;
 }
 
+/**
+ * souldew's patches to a checkout (native/<dir>/*.patch, in name order), each applied once: one whose reverse applies is
+ * in already. melonDS: the depth of the 3D frame on screen for Shared World (native/melonds-patch); melonDS DS: the
+ * function that hands it out (native/melonds-ds-patch).
+ */
+function applyPatches(src, dir) {
+  const d = join(root, 'native', dir);
+  if (!existsSync(d)) return;
+  for (const n of readdirSync(d).filter((f) => f.endsWith('.patch')).sort()) {
+    const patch = join(d, n);
+    if (spawnSync('git', ['apply', '--reverse', '--check', patch], { cwd: src }).status === 0) continue;
+    run('git', ['apply', patch], { cwd: src });
+  }
+}
+
 /** The core's license next to it (it ships with the app). */
 function license(key, src) {
   const [from, to] = SOURCES[key].license;
@@ -144,9 +159,14 @@ function license(key, src) {
 
 function buildNds() {
   const src = source('nds');
+  applyPatches(src, 'melonds-ds-patch');
+  // its melonDS: the link host's checkout (the pinned commit of the fork's branch melonDS DS fetches), with souldew's patch
+  const melon = source('melonds');
+  applyPatches(melon, 'melonds-patch');
   const build = join(src, `build-${plat}`);
   // no OpenGL (the page draws the picture), no Wi-Fi (souldew never goes online through the core), the JIT on
-  run('cmake', [...cmakeTarget(), '-DENABLE_OPENGL=OFF', '-DENABLE_JIT=ON', '-DENABLE_LTO_RELEASE=OFF', '-DBUILD_TESTING=OFF', '-DTRACY_ENABLE=OFF', '-S', src, '-B', build]);
+  run('cmake', [...cmakeTarget(), '-DENABLE_OPENGL=OFF', '-DENABLE_JIT=ON', '-DENABLE_LTO_RELEASE=OFF', '-DBUILD_TESTING=OFF', '-DTRACY_ENABLE=OFF',
+    `-DFETCHCONTENT_SOURCE_DIR_MELONDS=${melon}`, '-S', src, '-B', build]);
   run('cmake', ['--build', build, '--parallel', jobs]);
   copyFileSync(join(build, 'src', 'libretro', SOURCES.nds.file), join(out, SOURCES.nds.file));
   license('nds', src);
@@ -244,6 +264,7 @@ function ninjaDefines(build, re) {
  */
 function buildMelonDS() {
   const src = source('melonds');
+  applyPatches(src, 'melonds-patch');
   const build = join(src, `build-core-${plat}`);
   run('cmake', [...cmakeTarget(), '-DBUILD_QT_SDL=OFF', '-DENABLE_OGLRENDERER=OFF', '-DENABLE_GDBSTUB=OFF', '-DENABLE_JIT=ON', '-DENABLE_LTO_RELEASE=OFF', '-DENABLE_LTO=OFF',
     '-DUSE_VCPKG=OFF', '-DMELONDS_EMBED_BUILD_INFO=OFF', '-S', src, '-B', build]);
@@ -298,7 +319,7 @@ function buildSameBoy(flags) {
  * native/common: what both hosts share – IPC (hostio), the RAM stream for live tracking (ramstream), the fast-forward
  * sound (ffaudio) and the frame loop's rhythm (cadence). Plain C, its OS calls from native/ctr-host/compat.h.
  */
-const COMMON = ['hostio.c', 'ramstream.c', 'ffaudio.c', 'cadence.c'].map((f) => join(root, 'native', 'common', f));
+const COMMON = ['hostio.c', 'ramstream.c', 'ffaudio.c', 'cadence.c', 'depth.c'].map((f) => join(root, 'native', 'common', f));
 // (compat.h's Windows crash-report helpers are unused by the common files: no warnings for them)
 const COMMON_FLAGS = ['-Wno-unused-function'];
 

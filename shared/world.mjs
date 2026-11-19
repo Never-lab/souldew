@@ -10,6 +10,8 @@
 // Coordinates are world pixels of the current map: tile × 16 (+ the sub-tile offset while walking). Gen 3 map coords
 // are SaveBlock1 `pos` (the camera's tile = the player's tile), the object events' coords carry +7 (MAP_OFFSET).
 
+import { gbWorldTable, gbWatchRanges, gbReadCamera, gbReadPlayer, gbDrawable, gbLocalSprite, gbReadConnections, gbPopupRect } from './worldgb.mjs';
+
 const hex = (v) => (typeof v === 'string' ? parseInt(v, 16) : Number(v));
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
 const s16 = (b, o) => (u16(b, o) << 16) >> 16;
@@ -25,8 +27,12 @@ const STEP = { 1: [0, 1], 2: [0, -1], 3: [-1, 0], 4: [1, 0] };
 
 /** Avatar kinds (what the player rides or does). Index = the number on the wire. */
 export const KINDS = ['walk', 'mach', 'acro', 'bike', 'surf', 'dive', 'fieldmove', 'fish', 'water', 'vsseeker'];
-/** Families whose maps share ids: a partner is only drawn in a game of the same family (Ruby ↔ Sapphire, FR ↔ LG). */
-export const FAMILIES = { rs: 1, e: 2, frlg: 3, rb: 11, y: 12, gs: 13, c: 14 };
+/**
+ * Families whose maps share ids: a partner is only drawn in a game of the same family (Ruby ↔ Sapphire, FR ↔ LG; Red,
+ * Blue and Yellow; Gold, Silver and Crystal – Gold/Silver maps go out with Crystal's numbers, shared/worldgb.mjs; Diamond,
+ * Pearl and Platinum; HeartGold and SoulSilver – shared/worldds.mjs).
+ */
+export const FAMILIES = { rs: 1, e: 2, frlg: 3, rby: 11, gsc: 13, dppt: 21, hgss: 22 };
 
 // GBA key bits (KEYINPUT / gMain.heldKeys)
 export const GBA_KEY = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, UP: 64, DOWN: 128, R: 256, L: 512 };
@@ -40,6 +46,7 @@ export const GBA_KEY = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, U
  */
 export function worldTable(entry, rev = 0, code = '') {
   const w = entry?.world;
+  if (w && (entry.gen === 1 || entry.gen === 2)) return gbWorldTable(entry);
   if (!w || entry.gen !== 3) return null;
   const rom = (code && w.rom?.[`${code}:${rev}`]) || w.rom?.[String(rev)] || null;
   const inBattle = entry.inBattle ? { addr: hex(entry.inBattle.addr), mask: hex(entry.inBattle.mask || '0xff') } : null;
@@ -96,6 +103,7 @@ function saveBlock1(t, read) {
  */
 export function watchRanges(t, sb1, spriteId = null) {
   if (!t) return [];
+  if (t.gen <= 2) return gbWatchRanges(t);
   const r = [
     [t.fieldCamera + 0x10, 8], // CameraObject x, y (s32)
     [t.main + 4, 4], // gMain.callback2
@@ -118,6 +126,7 @@ export function watchRanges(t, sb1, spriteId = null) {
  * animNum, cmd, flip } or null. `cam` gives nothing here; the sprite id comes from gPlayerAvatar.
  */
 export function readLocalSprite(t, read) {
+  if (t?.gen <= 2) return gbLocalSprite(t, read);
   if (!t?.sprites) return null;
   const av = read(t.playerAvatar + 4, 2);
   if (!ok(av, 2) || av[0] >= 64) return null;
@@ -164,7 +173,8 @@ export const chainReaders = (...readers) => (addr, len) => {
  * The camera, per picture: { sb1, map, tx, ty (the camera's tile), cx, cy (its world pixels), keys, cb2, locked, fade
  * (0 = clear … 16 = black/white), battle } – or null when SaveBlock1 isn't there yet (title screen, intro).
  */
-export function readCamera(t, read) {
+export function readCamera(t, read, prior = null) {
+  if (t?.gen <= 2) return gbReadCamera(t, read, prior);
   const sb1 = saveBlock1(t, read);
   if (!sb1) return null;
   const pos = read(sb1, 8);
@@ -209,6 +219,7 @@ export function readCamera(t, read) {
  */
 export function readPlayer(t, read, cam = readCamera(t, read)) {
   if (!cam) return null;
+  if (t.gen <= 2) return gbReadPlayer(t, read, cam);
   const av = read(t.playerAvatar, 8);
   if (!ok(av, 8)) return null;
   const id = av[5];
@@ -282,6 +293,7 @@ export function blockReader(view, read) {
  * from the RAM mirror, a few frames late: while the popup grows (`prev`: the last result) 12 rows more are cut away.
  */
 export function popupRect(t, read, prev = null) {
+  if (t?.gen <= 2) return gbPopupRect(t, read);
   const p = t?.popup;
   if (!p) return null;
   const b = read(t.tasks, 16 * 0x28);
@@ -304,9 +316,83 @@ export function popupRect(t, read, prev = null) {
  * learned while the player walked: `learned`), no battle, no menu or script holding the player, no full fade.
  */
 export function drawable(t, cam, learned = 0) {
+  if (t?.gen <= 2) return gbDrawable(t, cam);
   if (!t || !cam || cam.battle || cam.locked || cam.help || cam.replay || cam.fade >= 16) return false;
   const cb2 = t.overworldCb2 || learned;
   return cb2 ? cam.cb2 === cb2 : true;
+}
+
+/**
+ * Pressing A toward a partner (the Shared World A menu). A press counts from the moment the button goes down – not
+ * from a picture that happens to show it held: a short tap between two drawn pictures (a busy or slow computer draws
+ * fewer of them) is still a press.
+ *
+ * `input(down, now)`: the player's own buttons as the fast player sends them to the game – from the first call on only
+ * these count, and true means a press began. `sample(down, now)`: the game's held keys as read with a picture (the
+ * browser player – nothing else tells it). `swallow()`: the A that chose in a menu doesn't open it again. `due(now, ms)`:
+ * the press is `ms` old – true once.
+ */
+export class APress {
+  constructor() {
+    this.held = false;
+    this.at = 0;
+    this.direct = false; // the buttons come through input()
+    this.inputDown = false;
+  }
+
+  input(down, now) {
+    this.direct = true;
+    this.inputDown = !!down;
+    if (down && !this.held) {
+      this.held = true;
+      this.at = now || 1;
+      return true;
+    }
+    if (!down) this.held = false;
+    return false;
+  }
+
+  sample(down, now) {
+    // (the fast player: the buttons themselves say it – a swallowed A is over once it isn't held any more)
+    if (this.direct) {
+      if (!this.inputDown) this.held = false;
+      return false;
+    }
+    const edge = !!down && !this.held;
+    this.held = !!down;
+    if (edge) this.at = now || 1;
+    return edge;
+  }
+
+  swallow() {
+    this.held = true;
+    this.at = 0;
+  }
+
+  cancel() {
+    this.at = 0;
+  }
+
+  get pending() {
+    return !!this.at;
+  }
+
+  due(now, ms) {
+    if (!this.at || now - this.at < ms) return false;
+    this.at = 0;
+    return true;
+  }
+}
+
+/**
+ * Starts something once: every call gets the promise of the first – also calls made while it still runs. The Shared
+ * World overlay is configured again whenever the play view's players, rules or lead change; a second start while the
+ * first still loaded its ROM made a second overlay, and the two took turns at the native player's one WATCH list – the
+ * one left without bytes kept its first reading and said "not on the field" (a DS partner flickering away).
+ */
+export function startOnce(fn) {
+  let p = null;
+  return (...args) => (p ||= Promise.resolve().then(() => fn(...args)));
 }
 
 /**
@@ -341,6 +427,8 @@ export class OverworldLearner {
  *   f: [species (National Dex), flags (bit 0 shiny, bits 1–5 the form: Unown's letter)] – the Pokémon following them,
  *      0 = none (no lead that can walk, or an egg-only team);
  *   z: [w, h] – the size of their map in tiles (a partner on a connected map north or west of yours is placed by it).
+ * `h` (optional, the DS: Gen 4 has heights – stairs, slopes, bridges): the 10th element, world units; a 0 stands in
+ * for a missing ext before it. Builds without the DS overlay never read past the ext.
  */
 export const WIRE_V = 1;
 export function packState(st, seq, t, ext = null) {
@@ -349,6 +437,11 @@ export function packState(st, seq, t, ext = null) {
     : [WIRE_V, seq >>> 0, Math.round(t), st.fam | 0, st.map | 0, Math.round(st.x), Math.round(st.y),
       (st.facing & 7) | (Math.max(0, KINDS.indexOf(st.kind)) << 3) | ((st.gender & 1) << 7) | (st.run ? 1 << 8 : 0) | ((st.elev & 15) << 10)];
   if (ext && (ext.f !== undefined || ext.z)) base.push(ext);
+  // the DS field's height (world units: stairs, slopes, bridges) as a 10th element – after the ext or a 0 in its place
+  if (st && !st.hidden && Number.isFinite(st.h)) {
+    if (base.length === 8) base.push(0);
+    base.push(Math.round(st.h));
+  }
   return base;
 }
 
@@ -379,7 +472,8 @@ export function unpackState(a) {
   const ext = a.length > 8 ? unpackExt(a[8]) : null;
   if (flags & (1 << 9)) return { seq, t, fam, hidden: true, ...(ext ? { ext } : {}) };
   const facing = flags & 7;
-  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), elev: (flags >> 10) & 15, hidden: false, ...(ext ? { ext } : {}) };
+  const h = a.length > 9 && Number.isFinite(a[9]) && Math.abs(a[9]) <= 0x8000 ? a[9] : undefined;
+  return { seq, t, fam, map, x, y, facing: facing >= 1 && facing <= 4 ? facing : DIR.S, kind: KINDS[(flags >> 3) & 15] || 'walk', gender: (flags >> 7) & 1, run: !!(flags & (1 << 8)), elev: (flags >> 10) & 15, hidden: false, ...(h !== undefined ? { h } : {}), ...(ext ? { ext } : {}) };
 }
 
 /** How often the sender sends: while something changes up to 15 a second, else a heartbeat once a second. */
@@ -387,7 +481,7 @@ export const SEND = { minMs: 66, idleMs: 1000, relayMs: 2000 };
 /** Is `st` different enough from the last sent one to send now? */
 export function changed(a, b) {
   if (!a || !b) return a !== b;
-  return a.hidden !== b.hidden || a.map !== b.map || a.x !== b.x || a.y !== b.y || a.facing !== b.facing || a.kind !== b.kind || a.run !== b.run || a.gender !== b.gender || (a.elev | 0) !== (b.elev | 0);
+  return a.hidden !== b.hidden || a.map !== b.map || a.x !== b.x || a.y !== b.y || a.facing !== b.facing || a.kind !== b.kind || a.run !== b.run || a.gender !== b.gender || (a.elev | 0) !== (b.elev | 0) || (a.h ?? null) !== (b.h ?? null);
 }
 
 // ---- interpolation -------------------------------------------------------------------------------------------------
@@ -463,7 +557,8 @@ export class Track {
       if (d > this.snapPx) return { ...a, moving: false };
       const k = (rt - a.t) / (n.t - a.t);
       // (speed in pixels per game frame: 1 walking, 2 running or cycling, more on the Mach Bike)
-      return { ...a, x: a.x + (n.x - a.x) * k, y: a.y + (n.y - a.y) * k, facing: d > 0 ? n.facing : k < 0.5 ? a.facing : n.facing, moving: d > 0, speed: d / Math.max(1, (n.t - a.t) / FRAME_MS) };
+      const h = Number.isFinite(a.h) && Number.isFinite(n.h) ? { h: a.h + (n.h - a.h) * k } : {};
+      return { ...a, ...h, x: a.x + (n.x - a.x) * k, y: a.y + (n.y - a.y) * k, facing: d > 0 ? n.facing : k < 0.5 ? a.facing : n.facing, moving: d > 0, speed: d / Math.max(1, (n.t - a.t) / FRAME_MS) };
     }
     if (n) return { ...a, moving: false }; // the next one is on another map / hidden: hold until it's due
     // past the newest: keep going the way it went, for a moment (a held direction keeps walking in the game too)
@@ -556,6 +651,7 @@ export const CONN = { S: 1, N: 2, W: 3, E: 4 };
  * { map, w, h, list: [{ dir, offset, map }] } or null. Cached per connections pointer (`cache`: a Map).
  */
 export function readConnections(t, read, rom, map, cache = null) {
+  if (t?.gen <= 2) return gbReadConnections(t, read, map);
   if (!t?.mapHeader || !rom) return null;
   const h = read(t.mapHeader, 0x10);
   if (!ok(h, 0x10)) return null;
@@ -601,6 +697,8 @@ export function inLocalFrame(conns, st, size = null) {
   if (st.map === conns.map) return { x: st.x, y: st.y };
   const c = conns.list.find((x) => x.map === st.map);
   if (!c) return null;
+  // (the Game Boy games: the offsets from your own RAM – shared/worldgb.mjs gbReadConnections)
+  if (c.ox !== undefined) return { x: st.x + c.ox, y: st.y + c.oy };
   const o = c.offset * TILE;
   if (c.dir === CONN.S) return { x: st.x + o, y: st.y + conns.h * TILE };
   if (c.dir === CONN.E) return { x: st.x + conns.w * TILE, y: st.y + o };

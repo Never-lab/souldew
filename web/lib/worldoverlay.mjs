@@ -11,63 +11,43 @@
 import {
   worldTable, watchRanges, rangeReader, chainReaders, readCamera, readPlayer, readLocalSprite, drawable, OverworldLearner,
   Track, unpackState, screenPos, facedPartner, gfxFor, kindFor, animFor, readMapView, blockReader, popupRect, GBA_KEY, TILE,
-  Follower, followerHidden, readConnections, inLocalFrame,
+  Follower, followerHidden, readConnections, inLocalFrame, APress, startOnce,
 } from '/shared/world.mjs';
 import { findMonIcons, monIcon, iconIndex, dexToInternal, NAT } from '/shared/worldicons.mjs';
-import { ART, HAND_ART, artSize, paintArt, artCanvas, INK } from '/lib/worldart.mjs';
-import { rpsLine } from '/shared/rps.mjs';
+import { ART, HAND_ART, artSize } from '/lib/worldart.mjs';
+import { WORLD_CSS, drawBubble, createWorldUi } from '/lib/worldui.mjs';
 import { gen3Avatar, animFrame, liveFrame, avatarPalette } from '/shared/worldsprites.mjs';
 import { mapTop, coverMask, aboveTopLayer } from '/shared/worldmap.mjs';
+import { togetherLayer, standIn, emptyTogether, POP_MS } from '/lib/togetheroverlay.mjs';
+import {
+  gbSheet, sheetFrames, GB_ANIMS, gen1Icon, gen2Icon, gen2MonPalette, gen2ObjPalette, DMG_SHADES, DMG_OBP0, samplePalette, paint, gbMapView,
+  grassMask, gameFollower, gameFollowerTile,
+} from '/shared/worldgb.mjs';
 
 const STATE_MS = 66; // the local state to the play view (it decides what goes out)
 const WAVE_MS = 2600; // an emote bubble
 const HAND_MS = 2400; // the hands of a rock-paper-scissors round
-const EMOTE_ROW = ['heart', 'excl', 'quest', 'gg'];
 const A_CONFIRM_MS = 110; // after A: the game's own answer (a sign, a person) takes over first
+const A_CONFIRM_GB_MS = 250; // (the Game Boy games run their overworld every other frame: they answer later)
 const RETRO_A = 1 << 8; // libretro joypad bit of A (nativeplayer's input)
 
-const CSS = `
-.sw-layer{position:fixed;pointer-events:none;overflow:hidden;z-index:5}
-.sw-layer canvas{position:absolute;inset:0;width:100%;height:100%;image-rendering:pixelated;transition:opacity .14s linear}
-.sw-tag{position:absolute;transform:translate(-50%,-100%);padding:1px 6px 2px;border-radius:7px;font:600 11px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;
-  color:var(--c);background:rgba(14,13,18,.74);border:1px solid color-mix(in srgb,var(--c) 55%,transparent);white-space:nowrap;letter-spacing:.01em;
-  pointer-events:auto;cursor:pointer;transition:opacity .14s linear;text-shadow:0 1px 0 #000}
-.sw-tag:hover{background:rgba(14,13,18,.92)}
-.sw-menu{position:fixed;z-index:6;min-width:132px;padding:6px;border-radius:10px;background:#1b1a1f;border:1px solid #4a4855;box-shadow:0 8px 28px #000a,inset 0 1px 0 #ffffff10;
-  font:600 13px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;color:#ebe6da;animation:sw-in .12s ease-out}
-@keyframes sw-in{from{opacity:0;transform:translateY(4px) scale(.97)}to{opacity:1;transform:none}}
-.sw-menu .sw-who{padding:4px 8px 6px;font-size:12px;color:var(--c);display:flex;gap:6px;align-items:center}
-.sw-menu .sw-who i{width:7px;height:7px;border-radius:50%;background:var(--c);box-shadow:0 0 6px var(--c)}
-.sw-menu button{display:flex;width:100%;align-items:center;gap:8px;padding:7px 10px;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.sw-menu button[aria-selected="true"]{background:color-mix(in srgb,var(--c) 22%,#2a2931);box-shadow:inset 2px 0 0 var(--c)}
-.sw-menu button:disabled{opacity:.42;cursor:default}
-.sw-menu .sw-why{padding:2px 10px 4px;font:500 11px/1.35 system-ui,sans-serif;color:#a9a5b3;max-width:220px}
-.sw-menu .sw-keys{padding:5px 10px 2px;font:500 10px/1 system-ui,sans-serif;color:#77757f}
-.sw-menu .sw-row{display:flex;gap:4px;padding:2px 4px}
-.sw-menu .sw-row button{width:auto;flex:1;justify-content:center;padding:6px 0}
-.sw-menu canvas.px-art{image-rendering:pixelated;display:block}
-.sw-rps{min-width:216px}
-.sw-rps .sw-hands{display:flex;gap:6px;padding:4px}
-.sw-rps .sw-hands button{flex-direction:column;gap:5px;padding:8px 4px 6px;justify-content:center;align-items:center;font-size:11px}
-.sw-rps .sw-hands button.picked{background:color-mix(in srgb,var(--c) 30%,#2a2931);opacity:1}
-.sw-rps .sw-time{height:3px;margin:4px 8px 2px;border-radius:2px;background:#2d2c33;overflow:hidden}
-.sw-rps .sw-time i{display:block;height:100%;background:var(--c);transform-origin:left;transition:transform .25s linear}
-.sw-rps .sw-say{padding:6px 8px 2px;font:600 12px/1.35 system-ui,sans-serif;min-height:16px}
-`;
 
 // a little four-point star over a shiny follower (party icons have no shiny colours in Gen 3) – original pixel art
 const SPARKLE = ['..#..', '..#..', '##o##', '..#..', '..#..'];
 
 /**
  * Installs window.__world in a player page. `host`: { system, romUrl, read(addr, len), rect() → the picture's box in
- * CSS pixels, watch?(ranges) (native: per-picture bytes), pause(), resume(), paused(), post(msg), keyButton?(e) }.
+ * CSS pixels, watch?(ranges) (native: per-picture bytes), watchedNow?() (native: the newest of those bytes), pause(),
+ * resume(), paused(), post(msg), keyButton?(e) }.
  */
 export function installWorld(host) {
   let st = null; // everything once config() turned it on
+  // (one overlay per page: a config() while the first start still runs waits for it – shared/world.mjs startOnce)
+  const begin = startOnce((cfg) => start(host, cfg).catch((e) => (console.warn('shared world', e), null)));
   const api = {
     /** From the play view: { me, players: { slot: { name, color } }, enabled, actions: { slot: { trade, battle, why } }, labels } */
     async config(cfg) {
-      if (!st) st = await start(host, cfg).catch((e) => (console.warn('shared world', e), null));
+      if (!st) st = await begin(cfg);
       st?.setConfig(cfg);
       return !!st?.t;
     },
@@ -80,10 +60,16 @@ export function installWorld(host) {
     rps: (view) => st?.rps?.(view),
     /** A round's hands over both players' heads: { hands: { slot: 0–2 }, winner } */
     rpsRound: (round) => st?.rpsRound?.(round),
+    /** Playing together (web/lib/togetheroverlay.mjs): { battles, pops, tombs, ping } from the play view */
+    together: (data) => st?.together?.(data),
     /** Can this page show a rock-paper-scissors game right now (Shared World on, the overworld on screen)? */
     canPresent: () => !!st?.canPresent?.(),
+    /** Does this game get souldew's follower for you? (HeartGold/SoulSilver walk your Pokémon themselves) */
+    ownFollower: () => st?.ownFollower !== false,
     /** nativeplayer: the WATCHED bytes of the picture that comes next */
     onWatched: (bytes) => st?.onWatched(bytes),
+    /** nativeplayer: the DS's 3D depth in the rectangles named (MSG_DEPTH), for the picture whose bytes come next */
+    onDepth: (bytes) => st?.onDepth?.(bytes),
     /** nativeplayer: the buttons as sent to the game (libretro bits) */
     input: (bits) => st?.input(bits),
     /** nativeplayer: another host runs the game now (a seamless link session began or ended) – WATCH goes out again */
@@ -92,14 +78,20 @@ export function installWorld(host) {
     menuOpen: () => !!st?.menuOpen?.(),
     /** tests / diagnostics */
     state: () => st?.debug() || null,
+    /** tests: the picture the overlay was drawn for (the native player's last one) */
+    picture: () => host.picture?.() || null,
     stop: () => st?.stop(),
   };
   window.__world = api;
   return api;
 }
 
+const UNSUPPORTED = (more = {}) => ({ t: null, setConfig() {}, partner() {}, gone() {}, emote() {}, onWatched() {}, input() {}, debug: () => ({ supported: false, ...more }), stop() {} });
+
 async function start(host, cfg) {
-  if (host.system !== 'gba') return { t: null, setConfig() {}, partner() {}, gone() {}, emote() {}, onWatched() {}, input() {}, debug: () => ({ supported: false }), stop() {} };
+  if (host.system === 'nds') return (await import('/lib/worldds.mjs')).startDs(host, cfg);
+  if (host.system === 'gb' || host.system === 'gbc') return startGb(host);
+  if (host.system !== 'gba') return UNSUPPORTED();
   const [{ findEntry }, addresses, rom, dex] = await Promise.all([
     import('/shared/live/parse.mjs'),
     fetch('/shared/data/addresses.json').then((r) => r.json()),
@@ -109,13 +101,40 @@ async function start(host, cfg) {
   const code = rom && rom.length > 0xc0 ? String.fromCharCode(...rom.subarray(0xac, 0xb0)) : cfg.code || '';
   const entry = findEntry(addresses, { platform: 'gba', code });
   const t = worldTable(entry, rom ? rom[0xbc] : 0, code);
-  if (!t || !rom) return { t: null, setConfig() {}, partner() {}, gone() {}, emote() {}, onWatched() {}, input() {}, debug: () => ({ supported: false, code }), stop() {} };
+  if (!t || !rom) return UNSUPPORTED({ code });
   return world(host, t, rom, dex);
+}
+
+/**
+ * Red/Blue/Yellow and Gold/Silver/Crystal (shared/worldgb.mjs): the game by its header, its world table – for a hack
+ * built from the pret disassemblies whose WRAM moved (Crystal Legacy …) with the moved addresses
+ * (shared/live/romwram.mjs, the same reading the live tracker uses) – and its ROM tables checked before they're used.
+ */
+async function startGb(host) {
+  const [{ findEntry }, { identifyRom }, { gbWramShift, shiftEntry }, { gbRomTables }, addresses, rom] = await Promise.all([
+    import('/shared/live/parse.mjs'),
+    import('/shared/romid.mjs'),
+    import('/shared/live/romwram.mjs'),
+    import('/shared/worldgb.mjs'),
+    fetch('/shared/data/addresses.json').then((r) => r.json()),
+    fetch(host.romUrl).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => (b ? new Uint8Array(b) : null)),
+  ]);
+  const head = rom && rom.length > 0x150 ? identifyRom(rom.subarray(0, 0x200), host.system) : null;
+  const found = head ? findEntry(addresses, { platform: head.system, code: head.code, title: head.title }) : null;
+  if (!found?.world || !rom) return UNSUPPORTED({ title: head?.title });
+  const anchor = found.gen === 1 ? { curMapAddr: found.world.curMapAddr } : { mapGroupAddr: found.world.mapGroupAddr };
+  const shift = gbWramShift(rom, found, anchor);
+  const entry = shift ? shiftEntry(found, shift) : found;
+  const t0 = worldTable(entry);
+  // (a hack keeps its graphics elsewhere: the tables are found again by their shape, or not used)
+  const t = t0 && { ...t0, rom: gbRomTables(rom, t0), hack: !!shift };
+  if (!t) return UNSUPPORTED({ title: head.title });
+  return world(host, t, rom, null);
 }
 
 function world(host, t, rom, dex) {
   const style = document.createElement('style');
-  style.textContent = CSS;
+  style.textContent = WORLD_CSS;
   document.head.append(style);
   const layer = document.createElement('div');
   layer.className = 'sw-layer';
@@ -130,7 +149,6 @@ function world(host, t, rom, dex) {
 
   let cfg = { me: null, players: {}, enabled: false, actions: {}, labels: {}, lead: null, follow: true };
   const tracks = new Map(); // slot → Track
-  const tags = new Map(); // slot → name tag element
   const avatars = new Map(); // gfx id → { w, h, frames: [canvas], anims } | null
   const anim = new Map(); // slot → { time, lastX, lastY }
   const bubbles = new Map(); // slot (or the local one) → { art, start, until, lose, draw }
@@ -145,18 +163,23 @@ function world(host, t, rom, dex) {
   const connCache = new Map();
   let conns = null; // this map's size and connections, this picture
   let fdraw = {}; // diagnostics: the followers drawn this picture
-  let rpsUi = null; // the rock-paper-scissors picker
   let ownLast = null; // diagnostics: your own follower this picture
   const spriteCache = {};
   const frameCache = new Map();
+  // the Game Boy games (shared/worldgb.mjs): sprites and icons as colour numbers, coloured with the palette of the moment
+  const gb = t.gen <= 2;
+  const gbSheets = new Map(); // gfx → { idx: [6 frames], pal } | null
+  const gbIcons = new Map();
+  let gbObj = null; // Gen 1: the object colours as the picture shows them (sampled from your own sprite)
+  let gbPalKey = '';
+  let gbOwnFollows = false; // Yellow: the game's own Pikachu walks behind you
   const learner = new OverworldLearner();
   let watched = null; // { ranges, sb1, spriteId, bytes } – the native player's per-picture bytes
   let watchKey = '';
   let cam = null;
   let shown = 0; // opacity
-  let menu = null;
-  let aHeld = false;
-  let aAt = 0;
+  const aPress = new APress(); // walking up to a partner and pressing A
+  let aTimer = 0;
   let lastState = 0;
   let raf = 0;
   let stopped = false;
@@ -172,6 +195,22 @@ function world(host, t, rom, dex) {
   let covered = {}; // diagnostics: hidden pixels per partner slot ('me': the local player's redraw)
   const scratch = document.createElement('canvas');
   const sctx = scratch.getContext('2d');
+  // the tags, the A menu and the rock-paper-scissors picker (web/lib/worldui.mjs): over the partner's tile
+  const ui = createWorldUi({
+    host, layer, screen: t.screen, getCfg: () => cfg,
+    anchor: (slot) => {
+      const p = tracks.get(slot)?.sample(performance.now());
+      const pos = p && cam ? screenPos(t, cam, p) : null;
+      return pos ? { x: pos.x + TILE / 2, top: pos.y - 20, bottom: pos.y + TILE + 6 } : null;
+    },
+    canModal: () => drawable(t, cam, learner.cb2),
+    onClosed: () => aPress.swallow(), // (the A that chose doesn't open it again)
+  });
+  const { tags, tagFor, openMenu, closeMenu } = ui;
+  // playing together: partners in a battle, catches, tombstones, "come here" (web/lib/togetheroverlay.mjs)
+  const tl = togetherLayer(t);
+  let tg = emptyTogether();
+  let tgDrawn = {};
 
   const toCanvas = (rgba, w, h) => {
     const c = document.createElement('canvas');
@@ -180,7 +219,32 @@ function world(host, t, rom, dex) {
     c.getContext('2d').putImageData(new ImageData(rgba, w, h), 0, 0);
     return c;
   };
+  /** Gen 1: OBP0's colours (sampled, else the original Game Boy's); Gen 2: the overworld OBJ palette of the time of day. */
+  const gbPalette = (pal) => {
+    if (t.gen === 1) return gbObj || DMG_OBP0.map((sh) => DMG_SHADES[sh]);
+    const tod = (host.read(t.ram.timeOfDayPal, 1) || [1])[0] & 3;
+    return gen2ObjPalette(rom, t, pal, tod) || DMG_OBP0.map((sh) => DMG_SHADES[sh]);
+  };
+  const gbAvatar = (gfx) => {
+    if (!gbSheets.has(gfx)) {
+      const sh = gbSheet(rom, t, ['walk', 'bike', 'surf'][gfx >> 1] || 'walk', gfx & 1);
+      gbSheets.set(gfx, sh ? { idx: sheetFrames(rom, sh.off), pal: sh.pal } : null);
+    }
+    const s = gbSheets.get(gfx);
+    if (!s) return null;
+    const pal = gbPalette(s.pal);
+    const key = `${gfx}:${pal.join('|')}`;
+    if (!avatars.has(key)) {
+      if (avatars.size > 48) avatars.clear();
+      const rgba = s.idx.map((f) => paint(f, pal));
+      let vtop = 16;
+      for (const f of s.idx.slice(0, 3)) for (let i = 0; i < f.length; i++) if (f[i]) { vtop = Math.min(vtop, i >> 4); break; }
+      avatars.set(key, { w: 16, h: 16, vtop, idx: s.idx, pal, rgba, frames: rgba.map((f) => toCanvas(f, 16, 16)), anims: GB_ANIMS });
+    }
+    return avatars.get(key);
+  };
   const avatarFor = (gfx) => {
+    if (gb) return gbAvatar(gfx);
     if (!avatars.has(gfx)) {
       const a = gen3Avatar(rom, t, gfx, spriteCache);
       // vtop: the first row with a pixel in any standing frame – the head, where the name and the bubble go
@@ -193,6 +257,7 @@ function world(host, t, rom, dex) {
 
   /** The follower's picture for a lead { species, shiny, form }: the party icon as two canvases, or null. */
   const iconFor = (lead) => {
+    if (gb) return gbIconFor(lead);
     if (!lead || !icons) return null;
     const idx = iconIndex(toInternal, lead.species, lead.form);
     if (!idx) return null;
@@ -204,6 +269,50 @@ function world(host, t, rom, dex) {
     return iconCache.get(`c:${key}`) || null;
   };
 
+  /**
+   * The Game Boy follower: its party menu icon from the ROM – Gen 1 one of the game's generic icons in the colours of
+   * the overworld sprites, Gen 2 the Pokémon's own icon in the Pokémon's own colours (its shiny ones too).
+   */
+  function gbIconFor(lead) {
+    if (!lead) return null;
+    const ic = t.gen === 1 ? gen1Icon(rom, t, lead.species, gbIcons) : gen2Icon(rom, t, lead.species, gbIcons);
+    if (!ic) return null;
+    const pal = (t.gen === 2 && gen2MonPalette(rom, t, lead.species, lead.shiny)) || gbPalette(0);
+    const key = `c:${lead.species}:${lead.shiny ? 1 : 0}:${pal.join('|')}`;
+    if (!gbIcons.has(key)) {
+      if (gbIcons.size > 64) gbIcons.clear();
+      const rgba = ic.frames.map((f) => paint(f, pal));
+      gbIcons.set(key, { ...ic, idx: ic.frames, rgba, frames: rgba.map((f) => toCanvas(f, ic.w, ic.h)) });
+    }
+    return gbIcons.get(key);
+  }
+
+  /**
+   * Gen 1 colours from the picture: every overworld sprite has OBP0, so the partners look like your own sprite – on the
+   * original Game Boy, in a Game Boy Color's colours for Red/Blue, in Yellow's, and through every fade.
+   */
+  function gbSample(read) {
+    const pic = host.picture?.();
+    const spr = pic && readLocalSprite(t, read);
+    const me = spr && cam ? readPlayer(t, read, cam) : null;
+    if (!me) return;
+    const s = gbAvatar(gfxFor(t, me.kind, me.gender));
+    if (!s) return;
+    const at = (x, y) => {
+      if (x < 0 || y < 0 || x >= pic.w || y >= pic.h) return null;
+      const i = y * pic.w + x;
+      if (pic.fmt === 0) return [pic.px[i * 4 + 2], pic.px[i * 4 + 1], pic.px[i * 4]];
+      const v = pic.px[i * 2] | (pic.px[i * 2 + 1] << 8);
+      return [Math.round(((v >> 11) * 255) / 31), Math.round((((v >> 5) & 63) * 255) / 63), Math.round(((v & 31) * 255) / 31)];
+    };
+    const seen = samplePalette(s.idx[spr.img], spr.flip, spr.x, spr.y, at);
+    if (!seen) return;
+    const base = gbObj || DMG_OBP0.map((sh) => DMG_SHADES[sh]);
+    const pal = [base[0], seen[1] || base[1], seen[2] || base[2], seen[3] || base[3]];
+    const key = pal.join('|');
+    if (key !== gbPalKey) (gbPalKey = key), (gbObj = pal);
+  }
+
   // ---- reading the game ---------------------------------------------------------------------------------------------
   /** Anything to draw: the partners (the switch), or just your own follower (its own switch, with a lead to show). */
   const active = () => cfg.enabled || (cfg.follow && !!cfg.lead && !!icons);
@@ -212,6 +321,15 @@ function world(host, t, rom, dex) {
   const reader = () => (watched?.bytes ? chainReaders(rangeReader(watched.ranges, watched.bytes), mirror) : mirror);
   function rewatch() {
     if (!host.watch) return;
+    if (gb) {
+      const key = `gb:${active()}`;
+      if (key === watchKey) return;
+      watchKey = key;
+      const ranges = active() ? watchRanges(t) : [];
+      watched = ranges.length ? { ranges, bytes: null, total: ranges.reduce((n, r) => n + r[1], 0) } : null;
+      if (!host.watch(ranges)) watchKey = '';
+      return;
+    }
     const p = t.saveBlock1Ptr ? host.read(t.saveBlock1Ptr, 4) : null;
     const sb1 = t.saveBlock1 || (p && p.length === 4 ? (p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)) >>> 0 : 0);
     const av = host.read(t.playerAvatar + 4, 1);
@@ -239,32 +357,12 @@ function world(host, t, rom, dex) {
     return r;
   }
 
-  /**
-   * A white speech bubble with pixel art (web/lib/worldart.mjs) in `color`, its tail at (x, y), bobbing once when it
-   * appears. `dim`: drawn faded (the losing hand of a rock-paper-scissors round).
-   */
-  function drawBubble(x, y, color, age, art = 'wave', dim = false) {
-    const [aw, ah] = artSize(art);
-    const w = aw + 6;
-    const h = ah + 5;
-    const bob = age < 160 ? Math.round(-2 * Math.sin((age / 160) * Math.PI)) : 0;
-    const bx = Math.round(x) - (w >> 1);
-    const by = Math.round(y) - h - 2 + bob;
-    ctx.save();
-    if (dim) ctx.globalAlpha = 0.5;
-    ctx.fillStyle = INK;
-    ctx.fillRect(bx + 1, by, w - 2, h);
-    ctx.fillRect(bx, by + 1, w, h - 2);
-    ctx.fillRect(bx + (w >> 1) - 1, by + h, 3, 2);
-    ctx.fillStyle = '#fbf8f1';
-    ctx.fillRect(bx + 1, by + 1, w - 2, h - 2);
-    ctx.fillRect(bx + (w >> 1), by + h - 1, 1, 2);
-    paintArt(ctx, art, bx + 3, by + 3 - (ah > 8 ? 1 : 0), color);
-    ctx.restore();
-  }
-
   /** The top layer of the map the game shows now (built on the first picture of a map, then kept). */
   function readOcclusion(read) {
+    if (gb) {
+      const v = gbMapView(t, read, rom, tilesets);
+      return v ? { gb: true, ...v, layout: v.key } : null;
+    }
     const v = readMapView(t, read);
     if (!v) return null;
     if (!tops.has(v.layout)) {
@@ -280,10 +378,11 @@ function world(host, t, rom, dex) {
    * leaves of a plant) – unless it stands on a bridge (`elev`: its elevation; such sprites are drawn above BG1).
    * `img`: the frame as a canvas, `rgba` its pixels (for the cut-out). Returns the hidden pixel count.
    */
-  function drawSprite(img, rgba, w, h, x, y, flip, elev) {
-    const mask = occ && rgba && !aboveTopLayer(elev | 0)
-      ? coverMask({ x: x - t.anchor.x + cam.cx, y: y - t.anchor.y + cam.cy, w, h }, occ.blockAt, occ.mask)
-      : null;
+  function drawSprite(img, rgba, w, h, x, y, flip, elev, grass = false) {
+    // (the Game Boy games: only a sprite standing in tall grass, its lower half – shared/worldgb.mjs grassMask)
+    const mask = !occ || !rgba ? null : occ.gb
+      ? (grass && w === 16 && h === 16 ? grassMask(occ, x - t.anchor.x + cam.cx, y - t.anchor.y + cam.cy) : null)
+      : !aboveTopLayer(elev | 0) ? coverMask({ x: x - t.anchor.x + cam.cx, y: y - t.anchor.y + cam.cy, w, h }, occ.blockAt, occ.mask) : null;
     if (mask) {
       const out = new ImageData(w, h);
       const d = out.data;
@@ -317,6 +416,9 @@ function world(host, t, rom, dex) {
     return 0;
   }
 
+  /** Is the tile under world pixels (x, y) tall grass (the Game Boy games)? */
+  const grassAt = (x, y) => !!occ?.gb && occ.grassAt(Math.round(x / TILE), Math.round(y / TILE));
+
   let ticks = 0;
   function frame(now) {
     raf = requestAnimationFrame(frame);
@@ -326,8 +428,13 @@ function world(host, t, rom, dex) {
   function render(now) {
     if (!(++ticks % 30)) rewatch();
     const read = reader();
-    cam = readCamera(t, read);
-    if (!t.overworldCb2) learner.feed(cam);
+    cam = readCamera(t, read, gb && watched?.before ? rangeReader(watched.ranges, watched.before) : null);
+    if (!t.overworldCb2 && !gb) learner.feed(cam);
+    if (gb) {
+      // Gen 1: the colours of the moment, from your own sprite on the picture; Yellow: is its Pikachu following you?
+      if (t.gen === 1 && !(ticks % 12) && drawable(t, cam)) gbSample(read);
+      gbOwnFollows = gameFollower(t, read);
+    }
     // this map's size and the maps connected to it (partners next door are drawn across the edge)
     conns = cam ? readConnections(t, read, rom, cam.map, connCache) : null;
     // the partners see us even while our switch is off (it says what *we* see)
@@ -342,12 +449,15 @@ function world(host, t, rom, dex) {
     const list = [];
     for (const [slot, tr] of tracks) {
       const conv = conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null;
-      const s = tr.sample(now, conv);
+      const s0 = tr.sample(now, conv);
+      // (a partner in a battle stays where it began, with a ⚔ – their follower is in the battle with them)
+      const s = standIn(s0, tr, conv, !!tg.battles[slot]);
       const pos = can && cfg.enabled && s ? screenPos(t, cam, s) : null;
       list.push({ slot, s, pos });
-      followTrail(slot, s, conv ? `L${cam?.map}` : s?.map);
+      followTrail(slot, s0, conv ? `L${cam?.map}` : s0?.map);
     }
-    const own = cfg.follow && cfg.lead && me && !followerHidden(me) ? ownFollower.update(`L${cam.map}`, me.x, me.y, me.facing) : null;
+    // (Yellow's own Pikachu already walks behind you there: no second follower)
+    const own = cfg.follow && cfg.lead && me && !followerHidden(me) && !gbOwnFollows ? ownFollower.update(`L${cam.map}`, me.x, me.y, me.facing) : null;
     if (!own) ownFollower.trail = [];
     ownLast = own;
     if (!rect || !active() || !host.ready()) {
@@ -369,12 +479,16 @@ function world(host, t, rom, dex) {
         if (f && !f.hidden && p.s && !followerHidden(p.s) && (p.s.local || p.s.map === cam.map)) addFollower(sprites, p.slot, f, leads.get(p.slot), p.s.elev);
       }
       if (own && !own.hidden) addFollower(sprites, cfg.me, own, cfg.lead, me.elev);
+      if (cfg.enabled) sprites.push(...tl.tombSprites(cam, conns, tg.tombs));
     }
     // the partners behind the local player first, then the player's own sprite again (only where it covers one of
     // them), then those in front: depth as in the game, by the feet's line
     const spr = can ? readLocalSprite(t, read) : null;
-    const localFeet = spr ? spr.y + spr.h : t.anchor.y + TILE;
-    const drawn = sprites.sort((a, b) => a.pos.y - b.pos.y || (a.kind === 'follower' ? -1 : 1));
+    // (a Game Boy draws your own sprite over every other one – it has the first OAM entries: it goes last)
+    const localFeet = gb ? Infinity : spr ? spr.y + spr.h : t.anchor.y + TILE;
+    // (on one line: a tombstone on the ground first, then the followers, then the players)
+    const order = { tomb: 0, follower: 1 };
+    const drawn = sprites.sort((a, b) => a.pos.y - b.pos.y || (order[a.kind] ?? 2) - (order[b.kind] ?? 2));
     occ = can && drawn.length ? readOcclusion(read) : null; // (nobody here: no tilesets to decode either)
     popup = can ? popupRect(t, read, popup) : null;
     covered = {};
@@ -393,6 +507,7 @@ function world(host, t, rom, dex) {
         localDone = true;
       }
       if (p.kind === 'follower') drawFollower(p, now);
+      else if (p.kind === 'tomb') tl.drawTomb(p, drawSprite);
       else drawPartner(p, now);
     }
     if (!localDone) drawLocal(spr, drawn, me);
@@ -404,16 +519,22 @@ function world(host, t, rom, dex) {
       const vis = !!p.pos && can && !underPopup(p.pos.x + TILE / 2, p.pos.y - 8);
       el.style.opacity = vis ? String(Math.round(shown * 100) / 100) : '0';
       el.style.pointerEvents = vis ? 'auto' : 'none';
-      const b = bubbles.get(p.slot);
-      const talking = vis && b && now < b.until;
+      const b0 = bubbles.get(p.slot);
+      // (in a battle: the ⚔ bubble stays while it lasts – an emote shows over it for its moment)
+      const b = vis && b0 && now < b0.until ? b0 : vis && p.s.battling ? { art: 'battle', start: -1e9, until: Infinity } : null;
+      const talking = !!b;
       const a = vis ? avatarFor(gfxFor(t, p.s.kind, p.s.gender)) : null;
-      const head = vis ? p.pos.y + TILE - (a?.h || 32) + (a?.vtop || 0) : 0;
+      const head = vis ? p.pos.y + TILE - (a?.h || 32) + (a?.vtop || 0) + (t.spriteDy || 0) : 0;
+      const pop = vis ? tg.pops.find((x) => x.slot === p.slot) : null;
+      const popIc = pop ? iconFor(pop) : null;
+      const lift = (talking ? 19 + (artSize(b.art)[1] - 8) : 1) + (popIc ? popIc.bottom - popIc.top + 14 : 0);
       if (vis) {
-        // the name just above the head – above the bubble while there is one
+        // the name just above the head – above the bubble (and a catch) while there is one
         el.style.left = `${((p.pos.x + TILE / 2) / t.screen.w) * 100}%`;
-        el.style.top = `${((head - (talking ? 19 + (artSize(b.art)[1] - 8) : 1)) / t.screen.h) * 100}%`;
+        el.style.top = `${((head - lift) / t.screen.h) * 100}%`;
       }
       if (talking) bubble(p.slot, b, p.pos.x + TILE / 2, head - 1, now);
+      if (popIc) tl.drawPop(ctx, popIc, p.pos.x + TILE / 2, head - (talking ? 17 + (artSize(b.art)[1] - 8) : 0), now - pop.atPage);
     }
     const mine = bubbles.get(cfg.me);
     if (can && mine && now < mine.until) {
@@ -421,6 +542,10 @@ function world(host, t, rom, dex) {
       const head = spr ? spr.y + (la?.vtop || 0) : t.anchor.y - 8;
       bubble(cfg.me, mine, spr ? spr.x + spr.w / 2 : t.anchor.x + 8, head - 1, now);
     }
+    // a partner's "come here": an arrow at the edge toward them (or over the spot when it's on the picture)
+    tgDrawn = { ping: can && cfg.enabled && tg.ping ? tl.drawPing(ctx, cam, conns, tg.ping, cfg.players[tg.ping.slot]?.color || '#ebe6da', now) : null,
+      tombs: drawn.filter((p) => p.kind === 'tomb').map((p) => p.id), battling: list.filter((p) => p.pos && p.s?.battling).map((p) => p.slot),
+      pops: tg.pops.filter((x) => list.some((p) => p.pos && p.slot === x.slot)).map((x) => `${x.slot}:${x.species}`) };
     ctx.restore();
     interact(now, read, can, list);
     near = list.filter((p) => p.pos).length;
@@ -428,7 +553,7 @@ function world(host, t, rom, dex) {
 
   function bubble(slot, b, x, y, now) {
     // (the losing hand fades a moment after both show)
-    drawBubble(x, y, cfg.players[slot]?.color || '#fff', now - b.start, b.art, !!b.lose && now - b.start > 500);
+    drawBubble(ctx, x, y, cfg.players[slot]?.color || '#fff', now - b.start, b.art, !!b.lose && now - b.start > 500);
   }
 
   /** A partner's follower walks their (interpolated) path; it goes back onto them when they're gone or out of frame. */
@@ -459,13 +584,13 @@ function world(host, t, rom, dex) {
     const left = f.flip ? ic.w - 1 - ic.right : ic.left;
     const right = f.flip ? ic.w - 1 - ic.left : ic.right;
     const x = Math.round(p.pos.x + TILE / 2 - (left + right + 1) / 2);
-    const y = Math.round(p.pos.y + TILE - 1 - ic.bottom);
+    const y = Math.round(p.pos.y + TILE - 1 - ic.bottom) + (t.spriteDy || 0);
     const fr = f.frame & 1;
-    const n = drawSprite(ic.frames[fr], ic.rgba[fr], ic.w, ic.h, x, y, f.flip, p.elev);
+    const n = drawSprite(ic.frames[fr], ic.rgba[fr], ic.w, ic.h, x, y, f.flip, p.elev, gb && grassAt(f.x, f.y));
     p.box = { x: x + left, y: y + ic.top, w: right - left + 1, h: ic.bottom - ic.top + 1 };
     fdraw[p.slot] = { species: p.lead.species, x: Math.round(p.pos.x), y: Math.round(p.pos.y), flip: f.flip, frame: fr, moving: f.moving, covered: n };
-    // a shiny one sparkles now and then
-    if (p.lead.shiny) {
+    // a shiny one sparkles now and then (a Gen 2 icon has its shiny colours; Gen 1 has no shiny ones)
+    if (p.lead.shiny && !gb) {
       const k = (now % 2400) / 2400;
       if (k < 0.22) {
         const sx = x + right - 3 - Math.round(k * 6);
@@ -496,8 +621,8 @@ function world(host, t, rom, dex) {
     const c = animFrame(a, animFor({ ...s, kind }, s.speed || 0), Math.floor(k.time));
     const i = a.frames[c.img] ? c.img : 0;
     const x = Math.round(p.pos.x + TILE / 2 - a.w / 2);
-    const y = Math.round(p.pos.y + TILE - a.h);
-    covered[p.slot] = drawSprite(a.frames[i], a.rgba[i], a.w, a.h, x, y, c.flip, s.elev);
+    const y = Math.round(p.pos.y + TILE - a.h) + (t.spriteDy || 0);
+    covered[p.slot] = drawSprite(a.frames[i], a.rgba[i], a.w, a.h, x, y, c.flip, s.elev, gb && grassAt(s.x, s.y));
     p.box = { x, y, w: a.w, h: a.h };
   }
 
@@ -508,8 +633,14 @@ function world(host, t, rom, dex) {
   function drawLocal(spr, drawn, me) {
     if (!spr) return;
     lastSprite = spr;
-    const over = drawn.some((p) => p.box && p.pos.y + TILE <= spr.y + spr.h && p.box.x < spr.x + spr.w && p.box.x + p.box.w > spr.x && p.box.y < spr.y + spr.h && p.box.y + p.box.h > spr.y);
+    const over = drawn.some((p) => p.box && (gb || p.pos.y + TILE <= spr.y + spr.h) && p.box.x < spr.x + spr.w && p.box.x + p.box.w > spr.x && p.box.y < spr.y + spr.h && p.box.y + p.box.h > spr.y);
     if (!over || !me) return;
+    if (gb) {
+      // the frame the game shows (its sheet, the phase, the flip) – and its lower half behind the grass like the game's
+      const a = gbAvatar(gfxFor(t, me.kind, me.gender));
+      if (a?.frames[spr.img]) covered.me = drawSprite(a.frames[spr.img], a.rgba[spr.img], 16, 16, spr.x, spr.y, spr.flip, 0, spr.grass);
+      return;
+    }
     const pal = me && avatarPalette(rom, t, gfxFor(t, me.kind, me.gender), spriteCache);
     const px = pal && liveFrame(rom, spr, pal, frameCache);
     if (!px) return;
@@ -517,28 +648,6 @@ function world(host, t, rom, dex) {
     if (!frameCache.has(key)) frameCache.set(key, toCanvas(px, spr.w, spr.h));
     // (the game hides the same pixels of the real one: drawn again in full it would stand on top of a tree top)
     covered.me = drawSprite(frameCache.get(key), px, spr.w, spr.h, spr.x, spr.y, spr.flip, me.elev);
-  }
-
-  function tagFor(slot) {
-    const pl = cfg.players[slot];
-    if (!pl) return null;
-    let el = tags.get(slot);
-    if (!el) {
-      el = document.createElement('button');
-      el.type = 'button';
-      el.className = 'sw-tag';
-      el.style.opacity = '0';
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openMenu(slot);
-      });
-      layer.append(el);
-      tags.set(slot, el);
-    }
-    if (el.textContent !== pl.name) el.textContent = pl.name;
-    el.style.setProperty('--c', pl.color || '#ebe6da');
-    el.title = cfg.labels.tagHint || '';
-    return el;
   }
 
   // ---- the local player for the partners --------------------------------------------------------------------------
@@ -550,356 +659,66 @@ function world(host, t, rom, dex) {
     const onOverworld = !!me && !!cam && !cam.battle && !cam.replay && cam.fade < 16 && (t.overworldCb2 || learner.cb2 ? cam.cb2 === (t.overworldCb2 || learner.cb2) : true);
     // (and the size of this map: a partner on the map north or west of it places us by it)
     const size = conns && cam && conns.map === cam.map ? [conns.w, conns.h] : null;
-    host.post({ type: 'emu-world', st: onOverworld ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size, drawn: can, near });
+    // (Yellow's Pikachu walking behind you in the game: your partners see that one follow you, as you do)
+    host.post({ type: 'emu-world', st: onOverworld ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size, drawn: can, near, gameLead: gbOwnFollows ? { species: 25, shiny: false, form: 0 } : null });
   }
 
   // ---- walking up to a partner ----------------------------------------------------------------------------------------
+  const aConfirmMs = gb ? A_CONFIRM_GB_MS : A_CONFIRM_MS;
+  // The browser player: the game's held keys, read with every picture. (The fast player tells the buttons themselves:
+  // input() → confirmA, independent of how often pictures are drawn.)
   function interact(now, read, can, list) {
-    const a = !!((cam?.keys || 0) & GBA_KEY.A) || !!(inputBits & RETRO_A);
-    const edge = a && !aHeld;
-    aHeld = a;
-    if (menu || !can) {
-      aAt = 0;
+    aPress.sample(!!((cam?.keys || 0) & GBA_KEY.A), now);
+    if (aPress.direct) return;
+    if (ui.menu || !can) {
+      aPress.cancel();
       return;
     }
-    if (edge) aAt = now;
-    if (!aAt || now - aAt < A_CONFIRM_MS) return;
-    aAt = 0;
+    if (aPress.due(now, aConfirmMs)) tryMenu(read, cam, list);
+  }
+
+  /**
+   * The fast player: A went down `aConfirmMs` ago – what the game shows right now (the newest bytes it sent, not the
+   * last picture drawn: that may be older than the press) decides whether it answered the button itself.
+   */
+  function confirmA() {
+    aTimer = 0;
+    if (stopped || !aPress.pending) return;
+    aPress.cancel();
+    const now = performance.now();
+    const fresh = host.watchedNow?.();
+    const read = watched && fresh && fresh.length === 4 + watched.total ? chainReaders(rangeReader(watched.ranges, fresh.subarray(4)), mirror) : reader();
+    const c = readCamera(t, read);
+    if (ui.modal() || !cfg.enabled || !host.ready() || !drawable(t, c, learner.cb2)) return;
+    const list = [...tracks].map(([slot, tr]) => {
+      const s = tr.sample(now, conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null);
+      return { slot, s, pos: s ? screenPos(t, c, s) : null };
+    });
+    tryMenu(read, c, list);
+  }
+  function armA() {
+    clearTimeout(aTimer);
+    aTimer = setTimeout(confirmA, aConfirmMs);
+  }
+
+  /** A was pressed (and the game didn't take it over): the menu of the partner faced, if one stands there. */
+  function tryMenu(read, cam, list) {
     if (cam.locked) return; // the game answered the button itself (a sign, someone standing there)
     const me = readPlayer(t, read, cam);
     if (!me || me.x !== me.tx * TILE || me.y !== me.ty * TILE) return; // only standing still
+    // (Yellow: its own Pikachu on that tile – the game talks to Pikachu, the partner waits)
+    const pika = gb ? gameFollowerTile(t, read) : null;
+    if (pika && pika[0] === me.tx + ({ 3: -1, 4: 1 }[me.facing] || 0) && pika[1] === me.ty + ({ 1: 1, 2: -1 }[me.facing] || 0)) return;
     const faced = facedPartner(t, me, list.filter((p) => p.pos).map((p) => ({ slot: p.slot, state: p.s })));
     if (faced) openMenu(faced);
   }
-
-  // ---- the menu (the partners stay drawn behind it; the game is paused while it is open) ----------------------------
-  // Items: Trade, Battle, Wave, Rock-paper-scissors, a row of emotes (heart, !, ?, GG), Cancel. Up/down between the
-  // items, left/right along the emote row.
-  function openMenu(slot) {
-    if (menu || rpsUi?.modal || !cfg.players[slot]) return;
-    const pl = cfg.players[slot];
-    const L = cfg.labels;
-    const ac = cfg.actions[slot] || {};
-    const items = [
-      { act: 'trade', label: L.trade || 'Trade', on: !!ac.trade },
-      { act: 'battle', label: L.battle || 'Battle', on: !!ac.battle },
-      { act: 'wave', label: L.wave || 'Wave', on: true },
-      { act: 'rps', label: L.rps || 'Rock-paper-scissors', on: ac.rps !== false },
-      { act: 'emote', row: EMOTE_ROW, on: true },
-      { act: 'close', label: L.cancel || 'Cancel', on: true },
-    ];
-    const el = document.createElement('div');
-    el.className = 'sw-menu';
-    el.setAttribute('role', 'menu');
-    el.setAttribute('aria-label', pl.name);
-    el.style.setProperty('--c', pl.color || '#ebe6da');
-    const who = document.createElement('div');
-    who.className = 'sw-who';
-    who.append(document.createElement('i'), document.createTextNode(pl.name));
-    el.append(who);
-    const buttons = [];
-    items.forEach((it, i) => {
-      const pick = (sub) => (e) => {
-        e.stopPropagation();
-        choose(i, sub);
-      };
-      if (it.row) {
-        const row = document.createElement('div');
-        row.className = 'sw-row';
-        row.setAttribute('role', 'group');
-        row.setAttribute('aria-label', L.emotes || 'Emotes');
-        it.buttons = it.row.map((name, k) => {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.setAttribute('role', 'menuitem');
-          b.title = L[`emote_${name}`] || name;
-          b.setAttribute('aria-label', b.title);
-          b.append(artCanvas(name, '#ebe6da', 2));
-          b.addEventListener('click', pick(k));
-          b.addEventListener('pointerenter', () => select(i, k));
-          row.append(b);
-          return b;
-        });
-        el.append(row);
-        buttons.push(row);
-        return;
-      }
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.setAttribute('role', 'menuitem');
-      b.textContent = it.label;
-      b.disabled = !it.on;
-      b.addEventListener('click', pick(0));
-      b.addEventListener('pointerenter', () => it.on && select(i));
-      el.append(b);
-      buttons.push(b);
-    });
-    const why = !ac.trade && !ac.battle ? ac.why || '' : '';
-    if (why) {
-      const w = document.createElement('div');
-      w.className = 'sw-why';
-      w.textContent = why;
-      el.append(w);
-    }
-    if (L.keys) {
-      const k = document.createElement('div');
-      k.className = 'sw-keys';
-      k.textContent = L.keys;
-      el.append(k);
-    }
-    document.body.append(el);
-    const wasPaused = host.paused();
-    if (!wasPaused) host.pause();
-    menu = { el, slot, items, buttons, sel: -1, sub: 0, wasPaused, pad: {} };
-    select(items.findIndex((x) => x.on));
-    positionMenu();
-    addEventListener('keydown', onKey, true);
-    addEventListener('keyup', swallow, true);
-    addEventListener('pointerdown', outside, true);
-  }
-  /**
-   * Over the partner (`slot`), or (null) at the bottom of the picture – the players stand in its middle and their
-   * bubbles show above them; kept inside the picture.
-   */
-  function placeBox(el, slot) {
-    const r = host.rect();
-    if (!r) return;
-    const p = slot ? tracks.get(slot)?.sample(performance.now()) : null;
-    const pos = p && cam ? screenPos(t, cam, p) : null;
-    const k = r.width / t.screen.w;
-    const mw = el.offsetWidth;
-    const mh = el.offsetHeight;
-    let x = pos ? r.left + (pos.x + TILE / 2) * k - mw / 2 : r.left + r.width / 2 - mw / 2;
-    let y = pos ? r.top + (pos.y - 20) * k - mh : r.top + r.height - mh - 8;
-    if (y < r.top + 6) y = pos ? r.top + (pos.y + TILE + 6) * k : r.top + 6;
-    x = Math.max(r.left + 6, Math.min(x, r.left + r.width - mw - 6));
-    y = Math.max(r.top + 6, Math.min(y, r.top + r.height - mh - 6));
-    el.style.left = `${Math.round(x)}px`;
-    el.style.top = `${Math.round(y)}px`;
-  }
-  const positionMenu = () => menu && placeBox(menu.el, menu.slot);
-  function select(i, sub = null) {
-    if (!menu || i < 0) return;
-    menu.sel = i;
-    if (sub !== null) menu.sub = sub;
-    menu.items.forEach((it, j) => {
-      if (it.buttons) it.buttons.forEach((b, k) => b.setAttribute('aria-selected', String(j === i && k === menu.sub)));
-      else menu.buttons[j].setAttribute('aria-selected', String(j === i));
-    });
-  }
-  function move(d) {
-    if (!menu) return;
-    const n = menu.items.length;
-    for (let k = 1; k <= n; k++) {
-      const i = (menu.sel + d * k + n * 4) % n;
-      if (menu.items[i].on) return select(i);
-    }
-  }
-  function side(d) {
-    const it = menu?.items[menu.sel];
-    if (it?.row) select(menu.sel, (menu.sub + d + it.row.length) % it.row.length);
-  }
-  function choose(i, sub = menu?.sub || 0) {
-    if (!menu) return;
-    const it = menu.items[i];
-    if (!it?.on) return;
-    const slot = menu.slot;
-    closeMenu();
-    if (it.act === 'close') return;
-    // (the play view decides – a wave or an emote within the limits shows over you through emote(), a game opens
-    // the picker through rps())
-    if (it.act === 'emote') host.post({ type: 'emu-world-act', act: 'emote', emote: it.row[sub] || it.row[0], slot });
-    else host.post({ type: 'emu-world-act', act: it.act, slot });
-  }
-  function closeMenu() {
-    if (!menu) return;
-    const m = menu;
-    menu = null;
-    m.el.remove();
-    removeEventListener('keydown', onKey, true);
-    removeEventListener('keyup', swallow, true);
-    removeEventListener('pointerdown', outside, true);
-    aHeld = true; // the A that chose doesn't open it again
-    if (!m.wasPaused) host.resume();
-  }
-  function swallow(e) {
-    e.stopImmediatePropagation();
-    e.preventDefault();
-  }
-  function onKey(e) {
-    if (!menu) return;
-    swallow(e);
-    const b = host.keyButton?.(e);
-    const k = e.key;
-    if (k === 'ArrowDown' || b === 'down') move(1);
-    else if (k === 'ArrowUp' || b === 'up') move(-1);
-    else if (k === 'ArrowLeft' || b === 'left') side(-1);
-    else if (k === 'ArrowRight' || b === 'right') side(1);
-    else if (k === 'Enter' || k === ' ' || b === 'a') choose(menu.sel);
-    else if (k === 'Escape' || k === 'Backspace' || b === 'b') closeMenu();
-  }
-  function outside(e) {
-    if (menu && !menu.el.contains(e.target)) closeMenu();
-  }
-
-  // ---- rock-paper-scissors: the picker (shared/rps.mjs through the play view) ----------------------------------------
-  // While you pick, the game waits (at most the 10 s of the round) and the keys are the picker's: left/right, A, B
-  // to pass. Once you picked the game runs on; the result shows as the hands over both heads, and here in words.
-  const HANDS_KEYS = ['rock', 'paper', 'scissors'];
-  function rpsView(v) {
-    if (!v) return closeRps();
-    const L = cfg.labels;
-    const pl = cfg.players[v.other] || { name: v.other, color: '#ebe6da' };
-    if (!rpsUi || rpsUi.id !== v.id) {
-      closeRps();
-      closeMenu();
-      const el = document.createElement('div');
-      el.className = 'sw-menu sw-rps';
-      el.setAttribute('role', 'dialog');
-      el.style.setProperty('--c', pl.color || '#ebe6da');
-      const who = document.createElement('div');
-      who.className = 'sw-who';
-      const name = document.createElement('span');
-      who.append(document.createElement('i'), name);
-      const hands = document.createElement('div');
-      hands.className = 'sw-hands';
-      const buttons = HANDS_KEYS.map((h, k) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.append(artCanvas(h, cfg.players[cfg.me]?.color || '#ebe6da', 3), document.createTextNode(L[`hand_${h}`] || h));
-        b.addEventListener('click', (e) => {
-          e.stopPropagation();
-          rpsPick(k);
-        });
-        b.addEventListener('pointerenter', () => rpsSel(k));
-        hands.append(b);
-        return b;
-      });
-      const time = document.createElement('div');
-      time.className = 'sw-time';
-      const bar = document.createElement('i');
-      time.append(bar);
-      const say = document.createElement('div');
-      say.className = 'sw-say';
-      say.setAttribute('aria-live', 'polite');
-      const keys = document.createElement('div');
-      keys.className = 'sw-keys';
-      el.append(who, hands, time, say, keys);
-      document.body.append(el);
-      rpsUi = { id: v.id, el, name, buttons, bar, say, keys, sel: 1, modal: false, wasPaused: false, pad: {}, closeAt: 0 };
-      rpsSel(1);
-    }
-    const u = rpsUi;
-    u.v = v;
-    u.name.textContent = `${L.rpsWith ? L.rpsWith.replace('{name}', pl.name) : `Rock-paper-scissors · ${pl.name}`}${v.bo === 3 ? ` · ${L.bestOf3 || 'best of 3'} ${v.wins.me}–${v.wins.them}` : ''}`;
-    const picking = v.phase === 'pick';
-    u.buttons.forEach((b, k) => {
-      b.disabled = !picking;
-      b.classList.toggle('picked', v.hand === k && !picking);
-    });
-    u.keys.textContent = picking ? L.rpsKeys || '◀ ▶ choose · A pick · B pass' : '';
-    u.bar.parentNode.style.visibility = picking ? '' : 'hidden';
-    u.say.textContent = rpsSay(v, pl.name);
-    // the modal part: the keys and the paused game, only while picking on the overworld
-    const want = picking && drawable(t, cam, learner.cb2);
-    if (want && !u.modal) rpsModal(true);
-    else if (!want && u.modal) rpsModal(false);
-    if (v.phase === 'end') u.closeAt = u.closeAt || performance.now() + 2600;
-    placeBox(u.el, null);
-  }
-  function rpsSay(v, name) {
-    return rpsLine(v, cfg.me, cfg.labels, name, (h) => cfg.labels[`hand_${HANDS_KEYS[h]}`] || HANDS_KEYS[h]);
-  }
-  function rpsModal(on) {
-    const u = rpsUi;
-    if (!u || u.modal === on) return;
-    u.modal = on;
-    if (on) {
-      u.wasPaused = host.paused();
-      if (!u.wasPaused) host.pause();
-      addEventListener('keydown', rpsKey, true);
-      addEventListener('keyup', swallow, true);
-    } else {
-      removeEventListener('keydown', rpsKey, true);
-      removeEventListener('keyup', swallow, true);
-      aHeld = true;
-      if (!u.wasPaused) host.resume();
-    }
-  }
-  function rpsSel(k) {
-    if (!rpsUi) return;
-    rpsUi.sel = (k + 3) % 3;
-    rpsUi.buttons.forEach((b, j) => b.setAttribute('aria-selected', String(j === rpsUi.sel)));
-  }
-  function rpsPick(k) {
-    const u = rpsUi;
-    if (!u || u.v?.phase !== 'pick') return;
-    rpsSel(k);
-    host.post({ type: 'emu-world-rps', id: u.id, hand: k });
-    rpsModal(false);
-  }
-  function rpsPass() {
-    const u = rpsUi;
-    if (!u) return;
-    host.post({ type: 'emu-world-rps', id: u.id, pass: true });
-    rpsModal(false);
-  }
-  function rpsKey(e) {
-    if (!rpsUi?.modal) return;
-    swallow(e);
-    const b = host.keyButton?.(e);
-    const k = e.key;
-    if (k === 'ArrowLeft' || b === 'left') rpsSel(rpsUi.sel - 1);
-    else if (k === 'ArrowRight' || b === 'right') rpsSel(rpsUi.sel + 1);
-    else if (k === '1' || k === '2' || k === '3') rpsPick(Number(k) - 1);
-    else if (k === 'Enter' || k === ' ' || b === 'a') rpsPick(rpsUi.sel);
-    else if (k === 'Escape' || k === 'Backspace' || b === 'b') rpsPass();
-  }
-  function closeRps() {
-    if (!rpsUi) return;
-    rpsModal(false);
-    rpsUi.el.remove();
-    rpsUi = null;
-  }
-
-  // a controller in the menu and the picker: D-pad, A, B (standard mapping)
-  function pollPad() {
-    const box = menu || (rpsUi?.modal ? rpsUi : null);
-    if (rpsUi?.closeAt && performance.now() > rpsUi.closeAt) closeRps();
-    if (rpsUi && !menu) placeBox(rpsUi.el, null);
-    if (rpsUi?.v?.phase === 'pick') rpsUi.bar.style.transform = `scaleX(${Math.max(0, Math.min(1, (rpsUi.v.untilPage - performance.now()) / 10000))})`;
-    if (!box) return;
-    const pad = [...(navigator.getGamepads?.() || [])].find(Boolean);
-    if (!pad) return;
-    const was = box.pad;
-    const now = {
-      a: pad.buttons[0]?.pressed, b: pad.buttons[1]?.pressed, up: pad.buttons[12]?.pressed || pad.axes[1] < -0.5, down: pad.buttons[13]?.pressed || pad.axes[1] > 0.5,
-      left: pad.buttons[14]?.pressed || pad.axes[0] < -0.5, right: pad.buttons[15]?.pressed || pad.axes[0] > 0.5,
-    };
-    box.pad = now;
-    const edge = (k) => now[k] && !was[k] && was[k] !== undefined;
-    if (box === menu) {
-      if (edge('down')) move(1);
-      if (edge('up')) move(-1);
-      if (edge('left')) side(-1);
-      if (edge('right')) side(1);
-      if (edge('a')) choose(menu.sel);
-      else if (edge('b')) closeMenu();
-    } else {
-      if (edge('left')) rpsSel(rpsUi.sel - 1);
-      if (edge('right')) rpsSel(rpsUi.sel + 1);
-      if (edge('a')) rpsPick(rpsUi.sel);
-      else if (edge('b')) rpsPass();
-    }
-  }
-  const padTimer = setInterval(pollPad, 50);
 
   raf = requestAnimationFrame(frame);
   return {
     t,
     setConfig(c) {
       cfg = { ...cfg, ...c, players: c.players || cfg.players, labels: c.labels || cfg.labels, actions: c.actions || cfg.actions };
-      for (const [slot, el] of tags) if (!cfg.players[slot] || slot === cfg.me) (el.remove(), tags.delete(slot));
+      ui.prune();
       if (!cfg.enabled) closeMenu();
       watchKey = '';
       rewatch();
@@ -921,9 +740,7 @@ function world(host, t, rom, dex) {
       followers.delete(slot);
       leads.delete(slot);
       sizes.delete(slot);
-      tags.get(slot)?.remove();
-      tags.delete(slot);
-      if (menu?.slot === slot) closeMenu();
+      ui.gone(slot);
     },
     emote(slot, name) {
       if (!ART[name]) return;
@@ -933,7 +750,12 @@ function world(host, t, rom, dex) {
     rps(v) {
       // (the page's own clock for the countdown: the play view's runs elsewhere)
       if (v && v.phase === 'pick') v = { ...v, untilPage: performance.now() + Math.max(0, v.leftMs ?? 10000) };
-      rpsView(v);
+      ui.rpsView(v);
+    },
+    together(d) {
+      // (a catch's age, from the play view's clock to this page's)
+      const now = performance.now();
+      tg = { ...emptyTogether(), ...d, pops: (d?.pops || []).map((x) => ({ ...x, atPage: now - Math.max(0, x.age || 0) })).filter((x) => now - x.atPage < POP_MS) };
     },
     rpsRound(r) {
       const now = performance.now();
@@ -946,29 +768,52 @@ function world(host, t, rom, dex) {
     onWatched(bytes) {
       // (bytes still on their way for the list before: another length – and a moved SaveBlock1 is checked by readCamera)
       if (!watched || !bytes || bytes.length !== 4 + watched.total) return;
-      watched.bytes = bytes.subarray(4);
+      // a Game Boy shows the scroll its RAM had one frame before the picture (measured, world-e2e --frames): the
+      // bytes of the frame before go with this picture
+      if (gb) {
+        // (by the host's frame number in front of them: a picture sent twice doesn't shift them, a frame without a
+        // picture leaves the older bytes standing in)
+        const f = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+        const cur = bytes.slice(4);
+        if (f !== watched.frame) {
+          watched.before = watched.prev ? watched.bytes : null; // (the frame before that: Gen 1's first frame of a step)
+          watched.bytes = watched.prev || cur;
+          watched.at = watched.prevAt ?? f;
+          watched.prev = cur;
+          watched.prevAt = f;
+          watched.frame = f;
+        }
+      } else watched.bytes = bytes.subarray(4);
       if (!stopped) render(performance.now()); // (the picture these bytes belong to is being drawn right now)
     },
     input(bits) {
       inputBits = bits >>> 0;
+      // (A went down: the menu's check runs when the game had time to answer – even if no picture shows the press)
+      if (aPress.input(!!(inputBits & RETRO_A), performance.now())) {
+        if (ui.modal()) aPress.cancel();
+        else armA();
+      }
     },
     rewatch() {
       watchKey = '';
       watched = null;
       rewatch();
     },
-    menuOpen: () => !!menu || !!rpsUi?.modal,
+    menuOpen: () => ui.modal(),
     debug() {
       const now = performance.now();
-      const it = menu?.items[menu.sel];
+      const me0 = gb && cam ? readPlayer(t, reader(), cam) : null;
       return {
         supported: true, game: t.id, enabled: cfg.enabled, follow: cfg.follow, lead: cfg.lead, cam, shown, drawable: drawable(t, cam, learner.cb2), learned: learner.cb2, perFrame: !!watched?.bytes,
-        menu: menu ? { slot: menu.slot, sel: it?.row ? `emote:${it.row[menu.sub]}` : it?.act } : null,
-        rps: rpsUi ? { id: rpsUi.id, phase: rpsUi.v?.phase, modal: rpsUi.modal, sel: rpsUi.sel, say: rpsUi.say.textContent } : null,
+        ...ui.debug(),
         bubbles: Object.fromEntries([...bubbles].filter(([, b]) => now < b.until).map(([slot, b]) => [slot, b.art])),
         local: cam ? readPlayer(t, reader(), cam) : null, sprite: lastSprite, icons: !!icons,
-        followers: fdraw, own: ownLast, conns,
+        followers: fdraw, own: ownLast, conns, together: tgDrawn,
         occlusion: occ ? { layout: occ.layout, covered } : null, popup,
+        ...(gb ? { gb: { palette: gbObj, ownFollows: gbOwnFollows, grass: me0 && occ?.gb ? occ.grassAt(me0.tx, me0.ty) : null } } : {}),
+        ranges: watched?.ranges || null,
+        renders: ticks, // (tests: how often the overlay draws – the pictures it gets and the page's animation frames)
+        frames: gb && watched ? { shown: watched.frame, bytes: watched.at } : null,
         partners: Object.fromEntries([...tracks].map(([slot, tr]) => {
           const conv = conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null;
           const s = tr.sample(now, conv);
@@ -979,9 +824,8 @@ function world(host, t, rom, dex) {
     stop() {
       stopped = true;
       cancelAnimationFrame(raf);
-      clearInterval(padTimer);
-      closeMenu();
-      closeRps();
+      ui.stop();
+      clearTimeout(aTimer);
       layer.remove();
       style.remove();
       host.watch?.([]);

@@ -116,6 +116,11 @@ struct link_backend {
   size_t (*export_state)(int seat, void **out);
   /** A state in that format into the running seat (a save-state slot loaded while playing alone). */
   bool (*import_state)(int seat, const void *in, size_t len);
+  /**
+   * Optional (the DS): the 3D depth of the seat's frame on screen, for Shared World (native/common/depth.h) – `on` 0
+   * stops keeping it; else a rectangle of 24-bit depths, returns 1 (| 2 W-buffered), 0 nothing kept yet, -1 none.
+   */
+  int (*depth)(int seat, int on, int x, int y, int w, int h, uint32_t *out);
 };
 
 extern const struct link_backend link_backend_mgba;

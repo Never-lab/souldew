@@ -5,7 +5,8 @@
 ## 3.0.0
 
 souldew 3.0 brings multiplayer: the players of a run trade Pokémon and battle each other the way the games meant it –
-in the Cable Club, the Colosseum and the Union Room – and in the Gen 3 games your partners walk around in your game.
+in the Cable Club, the Colosseum and the Union Room – and in the Game Boy and Game Boy Advance games (Gen 1 to 3),
+Platinum and HeartGold/SoulSilver your partners walk around in your game.
 Plus a new play view that gives the game the room it deserves.
 
 - **Trade and battle with your partners – Gen 1 to Gen 5, no restart.** On the board, each partner's card has Trade
@@ -52,6 +53,22 @@ Plus a new play view that gives the game the room it deserves.
 - **Blue or Red with Yellow:** a Game Boy game and a Game Boy Color game link again – Yellow's
   player refused every invite from Red or Blue (“isn't available for this game”), and each seat now runs on its own
   player's console on every computer.
+- **Raids: one trainer, all of you, one shared health bar.** On the board's log, “Raid” asks your partners; they
+  press Join, a short countdown runs, and the next trainer battle each of you walks into is the raid. Every hit in
+  anybody's game comes off one shared HP pool – as a share of each game's HP, so randomized games with other Pokémon
+  work too – and souldew puts the pool into everybody's game while it waits for your move: the opponent's HP bar
+  slides there the game's own way. The trainer is beaten when the pool is empty, in everyone's game at once (the
+  Pokémon that is out keeps 1 HP until your next hit, so the game knocks it out itself). A Pokémon of the trainer's
+  that went down in one game never comes out in the others. Your own team fights normally; whoever's team goes
+  down is out and watches the others in the raid panel and the partner screens. The raid panel in the play view
+  shows the pool per opponent Pokémon and everybody's team; afterwards the result – won or lost, who did the most
+  damage, who's still standing, the time – and one line in the log (“Marius, Tim & Lena won a raid together
+  (1:38 · most damage: Tim)”). Works in Red, Blue, Crystal, FireRed, LeafGreen, Emerald, Platinum, HeartGold and
+  Black 2 (English); not in the 3DS games yet, and the app says why for every other game. A partner on an older 3.0
+  build isn't asked.
+- **Two new host rules:** “Raids” (on by default) and “Deaths in a raid count” (on: a raid is a real battle). With it
+  off, Pokémon that go down in a raid don't count – they stand on the board until you heal them.
+- **Stream tools:** a `raid` event with who took part, won or lost, the MVP, the survivors and the time.
 - **Who's linked shows on the board.** In a run of three or four, while two players trade or battle, the others now
   see “In a link with Tim” on both players' cards right away – Trade and Battle are greyed out with that as the
   reason, instead of an invite that's turned down after the click. “Link all of us” leaves them out, and the Shared
@@ -77,6 +94,15 @@ Plus a new play view that gives the game the room it deserves.
   randomized games show the right one too. “Show my Pokémon following me” in the play view switches yours off on this
   computer – your partners see it either way. It walks through people and doors like the partners do: the game
   doesn't know it's there.
+- **Shared World in 3D: Platinum, HeartGold and SoulSilver.** Your partners now walk in the DS field too – with their
+  own trainer sprite from your ROM, standing on the ground of the 3D map wherever the camera looks: indoors, outdoors,
+  while it eases after you, smaller further away like everything the game draws. souldew uses the game's own camera,
+  so they stay on their tile to the pixel while you both walk. In HeartGold and SoulSilver they're lit like the field –
+  a blue evening, a dark cave – and their Pokémon walks behind them as the game's own follower does; in Platinum it's
+  the party icon. Names, Trade/Battle/Wave with A, the emotes and rock-paper-scissors work as in Gen 3. They walk
+  behind houses, trees, counters, plants and people exactly like the game's own figures: souldew's DS emulator hands
+  over the depth of the 3D picture, pixel for pixel. Surfing partners sit without their Pokémon. Diamond and Pearl
+  follow later.
 - **Rock-paper-scissors with your partners, fair and square.** Walk up to a partner and press A, click their name tag
   or the hand on their tile, or use “Rock-paper-scissors” in the board's log – that last one works in every game, not
   just the Gen 3 ones. Both pick within 10 seconds; souldew only swaps the hands once both have picked (each side first
@@ -85,8 +111,34 @@ Plus a new play view that gives the game the room it deserves.
   small card; the log says “Marius beat Tim at rock-paper-scissors”. A draw is played again; best of 3 from the board.
 - **More bubbles next to Wave:** a heart, “!”, “?” and “GG”, from the same A menu – small pixel art over your head on
   every screen that sees you. A few in a row, then one every few seconds, so nobody floods the screen.
+- **Shared World on the Game Boy: Red, Blue, Yellow, Gold, Silver and Crystal.** Your partners walk in your Gen 1 and
+  Gen 2 games too – with their trainer sprite from your ROM, their name tag and the Pokémon at the front of their team
+  following them (its party icon from your ROM: Gen 2 in the Pokémon's own colours, a shiny one in its shiny ones; Gen
+  1 the game's own icon), across the edge to the next map, and the A menu with Trade, Battle, Wave,
+  rock-paper-scissors and the emotes. They look like the game's own people: on the original Game Boy in its greens, in
+  a Game Boy Color's colours, in Yellow's – and the tall grass covers their legs exactly where it covers yours. Red,
+  Blue and Yellow meet each other, so do Gold, Silver and Crystal. In Yellow, Pikachu already walks behind you: your
+  partners see Pikachu follow you, and souldew adds no second one.
 - **Partners next door:** a partner on a map connected to yours (the route beyond the town's edge) now shows across
   the edge and walks over it smoothly, instead of appearing only once you're on the same map.
+- **See when a partner is in a battle – and watch it.** Their card on the board says “In a battle – wild Zigzagoon”
+  in every game, and in Shared World they stay where the battle began with a small ⚔ over their head. “Watch” (their
+  card, their name tag, or walk up and press A) opens their game live in a window, with the battle under it: their
+  Pokémon and its HP and moves, the opponent and its HP – read by live tracking, so it shows even when there's no
+  picture.
+- **Catches and deaths show in the world** (Shared World). When a partner catches a Pokémon, its icon pops up over
+  their head for a moment; when a partner's Pokémon dies, a small tombstone stands where the battle began, on that map,
+  for everyone, for five minutes. Only what the run records – nothing is made up.
+- **Give your partner an item.** “Give item” in the A menu (or on their card on the board while your game runs) lets
+  you pick from your bag; your partner accepts, and it leaves your game and arrives in theirs – checked on both sides,
+  never in part, never twice, and back in your bag if their game can't take it. Only while you walk around – not in a
+  battle or a link (in the Game Boy and Gen 3 games not with a menu or a text open either). Key items, TMs/HMs and the
+  Master Ball stay with you. The log says “Marius gave Tim a gift: 3 × Potion”; the host's new rule “Gifts between us”
+  (on by default) switches it off for a stricter run. Works in the games whose bag souldew knows – the same as the
+  cheats'.
+- **“Come to me”.** One button in the play view marks where you are for all your partners: in their game an arrow at
+  the edge of the picture points to you when they're on the same map or next door, otherwise their board says “Marius
+  is at Route 110 – come here”. It clears when they arrive, or after a few minutes.
 - **German Emerald (Smaragd) is read live.** souldew showed nothing for it so far: its memory was taken to be laid out
   differently from the English game's. It isn't – every address souldew reads is the same – so the team, the place,
   battles, level caps and badges, the bag (the Poké Ball rule, Rare Candies, Max Repels) and Shared World now work in
@@ -241,6 +293,15 @@ Plus a new play view that gives the game the room it deserves.
   souldew started or the emulator launched, on a busy computer – could go unnoticed until your next in-game save,
   most often a first save into melonDS's own save folder. souldew now notes every save file the moment it starts
   watching, so that save is read like any other.
+- **A quick tap of A opens the Shared World menu every time.** Walking up to a partner and tapping A only counted
+  when one of the drawn pictures happened to show the button held – on a busy computer, or one that draws the game less
+  often, a short tap could fall between two pictures and nothing opened. Now the press counts the moment you make it,
+  and whether the game answered it itself (a sign, someone standing there) is checked on what the game shows right
+  then.
+- **A DS run opens right away.** Opening a run waited for souldew to read the game's own data out of the game file
+  (its types, a ROM hack's own Pokémon) – a few seconds for a DS game, much longer on a slower PC the first time.
+  All that time you showed as offline to your partners, nothing synced and no trade or battle could start. The run
+  now opens at once and that data comes in a moment later.
 - **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
   keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
   2.8.2 in the souldew engine too.

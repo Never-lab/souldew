@@ -44,7 +44,7 @@ const build = (o = {}) => buildRun({ romId: ROM, randomize: false, config: {}, p
 const MINE = {
   typeClause: 'party', dupes: 'both', missedDupes: true, failKillsPair: false, shinyClause: false, gifts: 'free', levelCaps: false,
   cheats: true, lives: 3, livesPool: 'player', typeHelp: false, autoAssign: false, autoDeath: false, startAtBalls: false,
-  linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true, linkWagers: 'off', linkWagerCap: 5000,
+  linkTrades: 'off', linkBattles: 'on', linkBattleDeaths: true, linkWagers: 'off', linkWagerCap: 5000, itemGifts: 'off', raids: 'off', raidDeaths: false,
 };
 
 function mkDoc(by, runId = 't') {
@@ -84,6 +84,8 @@ const slEditors = (value, n, disabled) => (onChange) => [
   UI.LivesRule({ value: value.lives, pool: value.livesPool, players: n, onChange, variant: 'wizard', disabled }),
   UI.SoulLinkAuto({ value, onChange, players: n, disabled }),
   UI.LinkRules({ value, onChange, disabled }), // (3.0: trades and battles between the players – the games that link)
+  UI.RaidRules({ value, onChange, disabled }), // (3.0: raids – one shared HP pool against a trainer)
+  UI.GiftRule({ value, onChange, disabled }), // (3.0: gifts between the players – every game)
   UI.BallsRule({ value: value.startAtBalls, onChange: (v) => onChange({ startAtBalls: v }), players: n, disabled }),
 ];
 
@@ -421,6 +423,7 @@ test('every change of the host goes to the log, in clear words', () => {
     'rule p1 turned off “A missed encounter costs the whole pair” for everyone',
     'rule p1 turned off “Check level caps” for everyone',
     'rule p1 turned off “Enter new catches automatically” for everyone',
+    'rule p1 turned off “Gifts between us” for everyone',
     'rule p1 turned off “Shiny clause: shinies may always be caught and stay unlinked” for everyone',
     'rule p1 turned off “Trades between us (link)” for everyone',
     'rule p1 turned on “Fled or knocked-out encounters count as dupes” for everyone',
