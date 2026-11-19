@@ -7,7 +7,9 @@ import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
-import { players as getPlayers, rules as getRules, slotsOf } from '../lib/run.mjs';
+import { players as getPlayers, rules as getRules, slotsOf, isTogether, togetherGames } from '../lib/run.mjs';
+import { inviteBlock } from '/shared/playtogether.mjs';
+import { gameById, gameTitle } from '../lib/data.mjs';
 import { sameLinkSystem, LINK_SYSTEMS, linkUnavailable } from '/shared/link.mjs';
 import { wagerGame, battleFormats, moneyText, MONEY_MAX } from '/shared/linkbattle.mjs';
 import { useTogether } from '../lib/together.mjs';
@@ -41,6 +43,9 @@ export const reasonText = (code, name) => ({
   linkRejoinBusy: t('linkplay.rejoinBusy', 'The others’ games are in the middle of a wireless exchange right now, so you can’t rejoin – the link has ended.'),
   busy: t('linkplay.busy', '{name} is in another link right now.', { name }),
   linkNoAnswer: t('linkplay.noAnswer', '{name} didn’t answer.', { name }),
+  // Play together, each player in a game of their own (shared/playtogether.mjs linkWith)
+  linkGen: t('linkplay.gen', 'These games can’t link: only games of the same generation meet in the Cable Club or the Union Room.'),
+  linkTradeOnly: t('linkplay.tradeOnly', 'A Game Boy and a Game Boy Color game only trade (Time Capsule) – no battles.'),
 }[code] || serverErrorText({ code }) || t('linkplay.left', 'The link has ended.')); // (a server's code: its own text)
 
 /** Where the players meet in their games for this system. */
@@ -67,6 +72,34 @@ export function linkedText(linkSessions, slot, names) {
   if (!away) return null;
   const name = away.seats.filter((s) => s !== slot).map((s) => names?.[s]?.name || s.toUpperCase()).join(', ');
   return away.kind === 'battle' ? t('linkplay.inBattleWith', 'In a link battle with {name}', { name }) : t('linkplay.inLinkWith', 'In a link with {name}', { name });
+}
+
+/**
+ * Play together: why `me` can't start a `kind` link with `slots` because of the games (shared/playtogether.mjs
+ * inviteBlock) – a sentence naming the partner's game – or null (a SoulLink: always null).
+ */
+export function gamesWhy(doc, manifest, me, slots, kind, names) {
+  if (!isTogether(manifest)) return null;
+  const games = togetherGames(doc, manifest, me);
+  const b = inviteBlock(games, me, slots, kind);
+  if (!b) return null;
+  const name = names?.[b.slot]?.name || b.slot;
+  const game = gameLabelOf(games[b.slot]);
+  return {
+    gen: t('linkplay.genWith', '{name} plays {game} – a game of another generation can’t link with yours.', { name, game }),
+    system: t('linkplay.systemWith', '{name} plays {game} – that can’t link with your game.', { name, game }),
+    hack: t('linkplay.hack', 'Trades and battles over the link aren’t available for this ROM hack – it changed its Pokémon and its link too much to be sure they work.'),
+    battle: t('linkplay.tradeOnlyWith', '{name} plays {game}: Game Boy and Game Boy Color games only trade (Time Capsule) – no battles.', { name, game }),
+  }[b.why] || null;
+}
+
+/** A partner's game as words: "Sapphire", "Unbound (FireRed)", or "Gen 3". */
+export function gameLabelOf(g) {
+  if (!g) return '?';
+  const c = g.root ? gameById(g.root) || gameById(g.id) : null;
+  const title = c ? gameTitle(c) : null;
+  if (g.hack) return title ? `${g.hack} (${title})` : g.hack;
+  return title || t('pt.genN', 'Gen {n}', { n: g.gen });
 }
 
 /** Trade / Battle on a partner's card (the board): only when both can link right now. */
@@ -97,6 +130,9 @@ export function LinkButtons({ slot }) {
   };
   const olderText = t('linkplay.olderApp', '{name} is on an older souldew – trading and battling need souldew 3.0 on both computers', { name });
   const why = !online ? t('linkplay.needOnline', '{name} isn’t online', { name }) : older ? olderText : away || (!direct ? t('linkplay.needConnection', 'No connection to {name} yet', { name }) : null);
+  // (Play together: the two games must be able to meet – said on the button, not after the invite)
+  const tradeWhy = gamesWhy(doc, manifest, me, [slot], 'trade', names);
+  const battleWhy = tradeWhy || gamesWhy(doc, manifest, me, [slot], 'battle', names);
   // a battle may be for money (the run's wager rule): first the challenge – format and wager – then the invite
   const challenge = wagerRules(getRules(doc, manifest)).on && wagerGame(manifest?.game?.id);
   if (setup) {
@@ -105,9 +141,9 @@ export function LinkButtons({ slot }) {
   }
   return html`${away && html`<span class="link-away tiny" data-linked=${slot}><${Icon} name="link" size=${12} />${away}</span>`}
     ${older && html`<span class="link-away tiny" data-older=${slot}><${Icon} name="download" size=${12} />${olderText}</span>`}<div class="row link-buttons">
-    ${linkAllowed(doc, manifest, 'trade') && html`<button class="btn small" disabled=${busy || !idle || !!why} title=${why || t('linkplay.tradeHint', 'Both games open in the link – meet in the Pokémon Center upstairs, as with a cable')}
+    ${linkAllowed(doc, manifest, 'trade') && html`<button class="btn small" disabled=${busy || !idle || !!why || !!tradeWhy} title=${tradeWhy || why || t('linkplay.tradeHint', 'Both games open in the link – meet in the Pokémon Center upstairs, as with a cable')}
       onClick=${() => start('trade')}><${Icon} name="link" size=${14} />${t('linkplay.trade', 'Trade')}</button>`}
-    ${linkAllowed(doc, manifest, 'battle') && html`<button class="btn small" disabled=${busy || !idle || !!why} title=${why || t('linkplay.battleHint2', 'A link battle – by the run’s rules, losing there doesn’t count')}
+    ${linkAllowed(doc, manifest, 'battle') && html`<button class="btn small" disabled=${busy || !idle || !!why || !!battleWhy} title=${battleWhy || why || (isTogether(manifest) ? t('linkplay.battleHintCasual', 'A link battle – just for fun') : t('linkplay.battleHint2', 'A link battle – by the run’s rules, losing there doesn’t count'))}
       onClick=${() => (challenge ? setSetup(true) : start('battle'))}><${Icon} name="bolt" size=${14} />${t('linkplay.battle', 'Battle')}</button>`}
   </div>`;
 }
@@ -179,6 +215,8 @@ export function LinkGroupButton() {
   if (!linkSessions || slots.length < 3 || linkUnavailable(manifest?.game) || !linkAllowed(doc, manifest, 'battle')) return null;
   // (a player linked with others right now waits for the next one; one on an older souldew can't take part)
   const ready = slots.filter((s) => s !== me && onlineSlots?.has?.(s) && linkStatus?.partners?.[s]?.p2p && !linkSessions.linkedElsewhere?.(s) && !together?.olderApp(s));
+  // (Play together: everybody's game must meet everybody else's – four Gen 3 games, four Gen 4 …)
+  const groupWhy = ready.length >= 2 ? gamesWhy(doc, manifest, me, ready, 'battle', getPlayers(doc, manifest)) : null;
   const idle = !linkPlay || ['idle', 'ended', 'rejoinable'].includes(linkPlay.phase);
   const go = async (opts = {}) => {
     setBusy(true);
@@ -197,8 +235,8 @@ export function LinkGroupButton() {
     const names = getPlayers(doc, manifest);
     return html`<${BattleSetup} names=${ready.map((s) => names[s]?.name || s)} seats=${4} onCancel=${() => setSetup(false)} onSend=${(opts) => go(opts)} />`;
   }
-  return html`<button class="btn small" disabled=${busy || !idle || ready.length < 2}
-    title=${t('linkplay.groupHint', 'All of you in one link: multi battles (Gen 3: four players) and the Union Room')}
+  return html`<button class="btn small" disabled=${busy || !idle || ready.length < 2 || !!groupWhy}
+    title=${groupWhy || t('linkplay.groupHint', 'All of you in one link: multi battles (Gen 3: four players) and the Union Room')}
     onClick=${() => (multi ? setSetup(true) : go())}><${Icon} name="link" size=${14} />${t('linkplay.group', 'Link all of us ({n})', { n: ready.length + 1 })}</button>`;
 }
 

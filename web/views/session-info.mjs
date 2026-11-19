@@ -8,7 +8,7 @@ import { t, currentLang } from '../lib/i18n.mjs';
 import { speciesName, speciesFormName, typeLabel, moveName, romTypesNow, pokeapi } from '../lib/data.mjs';
 import {
   party as partyAreas, live, pairState, encounter, levelCap, rules as getRules, dupeOf, players as getPlayers,
-  areaName, causeText, slotsOf, othersOf, openAreas, isNuzlocke, pairTypeClash, typeHelpOn, progression, lives as getLives, livesFor,
+  areaName, causeText, slotsOf, othersOf, openAreas, isNuzlocke, isTogether, pairTypeClash, typeHelpOn, progression, lives as getLives, livesFor,
 } from '../lib/run.mjs';
 import { statusOf, statusLabel, shownLevel } from './party.mjs';
 import { effectiveness, defenseChart, moveInfo, matchup } from '/shared/typechart.mjs';
@@ -58,7 +58,7 @@ export function blockedTypes(doc, rd, me, manifest) {
 export function RunStrip({ mine, onRules }) {
   const { doc, manifest, me, runData } = useApp();
   const [restart, setRestart] = useState(false);
-  if (!doc || !manifest) return null;
+  if (!doc || !manifest || isTogether(manifest)) return null; // (Play together: no cap, no rules to watch)
   const st = doc.get('run:status', null);
   if (st) {
     // ended: no cap or rules to watch anymore – what happened and the way on
@@ -168,7 +168,7 @@ function teamOf(doc, slot, me, mine) {
 export function LinkedPairs({ mine, gen, compact }) {
   const { doc, manifest, me } = useApp();
   if (!doc || !manifest) return null;
-  if (isNuzlocke(manifest)) return html`<${TeamList} mine=${mine} gen=${gen} compact=${compact} />`;
+  if (isNuzlocke(manifest) || isTogether(manifest)) return html`<${TeamList} mine=${mine} gen=${gen} compact=${compact} />`;
   const names = getPlayers(doc, manifest);
   const slots = slotsOf(manifest);
   const team = {};
@@ -471,7 +471,8 @@ export function BattlePanel({ battle, mine, gen, game = '', isRun, collapsed = f
     return { id, info: info && rt?.moves?.[id] ? { ...info, type: rt.moves[id] } : info };
   }).filter((m) => m.info && (!damaging || m.info.power > 0)));
   const foeData = foes.map((f) => ({ f, types: foeTypesOf(f), moves: movesOf(f.moves, true) }));
-  const r = isRun && doc ? getRules(doc, manifest) : null;
+  // (Play together: no catch rules – only the matchup help)
+  const r = isRun && doc && !isTogether(manifest) ? getRules(doc, manifest) : null;
   const solo = isRun && isNuzlocke(manifest);
   // the host can switch the matchup help off for the whole run: then only who's out there and the catch rules stay
   const help = !isRun || typeHelpOn(doc, manifest);

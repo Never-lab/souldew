@@ -76,7 +76,9 @@ const mmss = (ms) => {
 export function PackVersionNote({ manifest }) {
   const version = manifest?.pack?.minVersion;
   if (!version) return null;
-  return html`<p class="warning info">${manifest.randomizer?.enabled !== false && manifest.randomizer?.values?.[TMS_FOLLOW_MOVES] === true
+  return html`<p class="warning info">${manifest.mode === 'together'
+    ? t('invite.needsVersionTogether', 'Play together is new in souldew {version}: everyone needs {version} or newer. A friend on an older version is told to update when they open the invite.', { version })
+    : manifest.randomizer?.enabled !== false && manifest.randomizer?.values?.[TMS_FOLLOW_MOVES] === true
     ? t('invite.needsVersionTms', 'In this run TM compatibility follows the new TM moves: everyone needs souldew {version} or newer to join. Older versions can’t open the invite.', { version })
     : manifest.shiny
     ? t('invite.needsVersionShiny', 'This run changes the shiny rate: everyone needs souldew {version} or newer to join. Older versions can’t open the invite.', { version })

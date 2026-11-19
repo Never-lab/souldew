@@ -110,7 +110,7 @@ function ReportModal({ user, onClose }) {
 /** "Invite {name} to a run": the SoulLinks with a free seat, or a new SoulLink with them. */
 export function InviteModal({ friend, onClose }) {
   const { status, library, navigate, toast, me, doc, linkStatus, manifest } = useApp();
-  const runs = (status?.runs || []).filter((r) => runMode(r) === 'soullink' && slotsOf(r).length > 1 && (r.summary?.status?.state || 'active') === 'active');
+  const runs = (status?.runs || []).filter((r) => runMode(r) !== 'nuzlocke' && slotsOf(r).length > 1 && (r.summary?.status?.state || 'active') === 'active');
   const hosted = useHostedInvites();
   // a seat an invite of this app still holds is not free (an open run: whoever this computer knows is in it)
   const withSeats = runs.map((r) => ({ r, free: r.id === manifest?.id ? seatsLeft(manifest, takenSlots(manifest, { me, doc, linkStatus }), hosted)

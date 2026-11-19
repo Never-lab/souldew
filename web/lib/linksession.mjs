@@ -100,11 +100,12 @@ function collect(box, m) {
  */
 export class LinkSessions {
   constructor({ sync, runId, me, onChange = () => {}, openSession = () => {}, closeSession = () => {}, emu = () => null, ownGame = () => false, fetchImpl = null,
-    rules = () => ({}), onResult = () => {} }) {
+    rules = () => ({}), onResult = () => {}, block = () => null }) {
     // ownGame(): this player's game of this run runs in the fast player right now (a link starts from it, no restart)
     // rules(): the run's rules (the wager rule); onResult(entry): what this computer read of a session's battles – into
-    // the run (web/lib/wager.mjs)
-    Object.assign(this, { sync, runId, me, onChange, openSession, closeSession, emu, ownGame, rules, onResult });
+    // the run (web/lib/wager.mjs); block(seats, kind): why these players' games can't link – a refusal code (Play
+    // together, where every player has a game of their own: shared/playtogether.mjs inviteBlock) – or null
+    Object.assign(this, { sync, runId, me, onChange, openSession, closeSession, emu, ownGame, rules, onResult, block });
     this.fetch = fetchImpl || ((...a) => fetch(...a)); // (tests give each player's page its own server)
     this.state = { phase: 'idle' };
     this.elsewhere = {}; // slot → { seats, kind, at }: players of the run linked with others right now (their 'linked')
@@ -258,6 +259,8 @@ export class LinkSessions {
     if (!c.tool || !c.supported) throw Object.assign(new Error('unsupported'), { code: c.tool ? 'linkSystem' : 'linkMissing' });
     const own = c.slots[this.me];
     if (!own?.rom) throw Object.assign(new Error('missing'), { code: 'linkOwnMissing' });
+    const blocked = this.block(slots, kind);
+    if (blocked) throw Object.assign(new Error('blocked'), { code: blocked });
     this.ownModel = c.model || null;
     const seats = [this.me, ...slots.filter((s) => s !== this.me)];
     const wr = wagerRules(this.rules());
@@ -283,7 +286,8 @@ export class LinkSessions {
     const c = await this.check().catch(() => null);
     const own = c?.slots?.[this.me];
     // (Game Boy and Game Boy Color games share the cable: Blue ↔ Yellow, Gold ↔ Crystal …)
-    const bad = !c?.tool ? 'linkMissing' : !c.supported || !sameLinkSystem(c.system, st.system) ? 'linkSystem' : !own?.rom ? 'linkOwnMissing' : null;
+    const bad = !c?.tool ? 'linkMissing' : !c.supported || !sameLinkSystem(c.system, st.system) ? 'linkSystem' : !own?.rom ? 'linkOwnMissing'
+      : this.block((st.seats || []).filter((s) => s !== this.me), st.kind);
     if (bad) {
       this._send({ t: 'refuse', reason: bad }, { relayToo: true });
       return this._set({ phase: 'ended', error: bad, ended: { reason: bad, mine: true, at: Date.now() } });

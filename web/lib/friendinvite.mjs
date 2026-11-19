@@ -10,7 +10,7 @@
 import { useState, useEffect } from '/vendor/htm-preact.mjs';
 import { api } from './api.mjs';
 import { CodeHost, newFriendCode, suggestSlot, CODE_TTL } from './invitecode.mjs';
-import { slotsOf, runMode } from '/shared/slots.mjs';
+import { slotsOf, runMode, wireMode } from '/shared/slots.mjs';
 
 const TTL_MINUTES = Math.round(CODE_TTL / 60000);
 const hosts = new Map(); // invite id → { id, runId, runName, friend, host, state }
@@ -27,7 +27,9 @@ export function setRequestListener(fn) {
 /** The game an invite names: the catalog title, or what the run calls it. */
 export function runRefOf(manifest, gameTitle = '') {
   const sys = manifest?.game?.system;
-  return { name: String(manifest?.name || '').slice(0, 40), game: String(gameTitle || manifest?.game?.title || '').slice(0, 60), mode: runMode(manifest), system: sys === 'gbc' ? 'gb' : sys || undefined };
+  // (the accounts service knows 'soullink' and 'nuzlocke' only and refuses anything else: a Play together goes as
+  // 'soullink' – a run for friends –, its default name says "… – together", and the join page shows the real mode)
+  return { name: String(manifest?.name || '').slice(0, 40), game: String(gameTitle || manifest?.game?.title || '').slice(0, 60), mode: wireMode(manifest), system: sys === 'gbc' ? 'gb' : sys || undefined };
 }
 
 function startHost(manifest, friend, taken, importers) {
@@ -134,7 +136,7 @@ export function useHostedInvites() {
 
 /** Seats of a run nobody has yet, as far as this computer can tell (status list: who has been live). */
 export function freeSeats(run, mySlot = 'p1') {
-  if (!run || runMode(run) !== 'soullink') return 0;
+  if (!run || runMode(run) === 'nuzlocke') return 0;
   return slotsOf(run).filter((s) => s !== mySlot && !run.summary?.live?.[s]).length;
 }
 
@@ -145,7 +147,7 @@ const OVER = ['expired', 'cancelled', 'locked', 'conflict', 'error'];
  * from sending a 2-seat run three invites – the extra friends would only find every seat gone.
  */
 export function seatsLeft(manifest, taken = [], invites = hostedInvites()) {
-  if (!manifest || runMode(manifest) !== 'soullink') return 0;
+  if (!manifest || runMode(manifest) === 'nuzlocke') return 0;
   const slots = slotsOf(manifest);
   const gone = new Set(taken.filter((s) => slots.includes(s)));
   let open = 0;

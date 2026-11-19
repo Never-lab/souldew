@@ -127,6 +127,10 @@ const TEXTS = {
   linkHack: () => t('linkplay.hack', 'Trades and battles over the link aren’t available for this ROM hack – it changed its Pokémon and its link too much to be sure they work.'),
   linkSeats: () => t('err.linkSeats', 'These players can’t be linked'),
   linkMissing: () => t('linkplay.missing', 'This version of souldew can’t link games yet – update it on both computers.'),
+  // Play together (shared/playtogether.mjs)
+  togetherBuiltIn: () => t('err.togetherBuiltIn', 'Play together runs in souldew’s own player – that way your game keeps one save. Play it here or from the library.'),
+  togetherOneSlot: () => t('err.togetherOneSlot', 'In Play together each computer builds only its own player’s game.'),
+  togetherSystem: () => t('err.togetherSystem', 'Play together needs a game that can link: a Game Boy, Game Boy Advance or DS game.'),
   linkRomMissing: () => t('linkplay.romMissing2', 'A player’s game isn’t on one of the computers – the link needs every player’s game on every computer.'),
   linkSaveDiffers: () => t('linkplay.saveDiffers', 'A save arrived damaged. Try again.'),
   linkStateDiffers: () => t('linkplay.stateDiffers', 'A player’s game arrived damaged. Try again.'),

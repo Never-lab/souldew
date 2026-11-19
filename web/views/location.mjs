@@ -7,7 +7,7 @@ import { t, currentLang } from '../lib/i18n.mjs';
 import { speciesName, gen4data, setRomSpecies, setRomTypes } from '../lib/data.mjs';
 import { readLocation, readMusicInfo, locationLabel, sameLocation, canReadLocation, placeName } from '/shared/live/location.mjs';
 import { watchRomData } from '../lib/romdata.mjs';
-import { pairState, encounter, players as getPlayers, slotsOf, isNuzlocke, genOfRun, setRomPlaces, areaForPlace } from '../lib/run.mjs';
+import { pairState, encounter, players as getPlayers, slotsOf, isNuzlocke, isTogether, genOfRun, setRomPlaces, areaForPlace } from '../lib/run.mjs';
 
 let MAPS = null; // shared/data/maps.json once loaded
 let LOC = null; // { loc2, loc3, loc6, loc7 } for the names
@@ -154,7 +154,7 @@ function chipFor(st, enc) {
 
 function Status({ area }) {
   const { doc, manifest } = useApp();
-  if (!area || !doc || !manifest) return null;
+  if (!area || !doc || !manifest || isTogether(manifest)) return null; // (Play together: no encounters to show)
   const slots = slotsOf(manifest);
   const st = pairState(doc, area, manifest);
   if (isNuzlocke(manifest) || slots.length < 2) {

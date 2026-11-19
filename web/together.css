@@ -65,3 +65,18 @@
 .tg-ping { align-self: flex-start; gap: 6px; }
 .tg-ping.on { color: var(--warn-ink); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 @media (prefers-reduced-motion: reduce) { .tg-card { animation: none; } }
+
+/* ---- Play together's board (views/playtogether.mjs) -------------------------------------------------------------- */
+.together-board .pt-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 12px; }
+.together-board .pt-player.player-tag { flex-direction: column; align-items: stretch; gap: 8px; }
+.together-board .pt-player .who { font-size: 18px; }
+.together-board .pt-facts .fact { white-space: nowrap; }
+.together-board .pt-player .link-buttons { margin-top: 2px; }
+.pt-pair-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.pt-pair-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.pt-pair-who { min-width: 9em; }
+.pt-pair-note { flex-basis: 100%; }
+.pt-chips .chip.off { color: var(--ink-3, var(--ink-2)); opacity: .75; }
+.pt-chips .chip.warn { color: var(--warn-ink); }
+.pt-invite > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; }
+.together-entry .row { flex-wrap: wrap; }
