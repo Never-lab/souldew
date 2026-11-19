@@ -324,7 +324,8 @@ export async function startFakeAccounts({ port = 0 } = {}) {
       people.sort((a, b) => order.indexOf(a.tier) - order.indexOf(b.tier) || a.since.localeCompare(b.since) || a.name.localeCompare(b.name));
       const total = Object.values(counts).reduce((n, v) => n + v, 0);
       const bodyText = JSON.stringify({ updated: iso(f.thanksUpdated || Date.now()), total, counts, people });
-      const etag = `"${sha(bodyText).slice(0, 20)}"`;
+      // like the service: a weak ETag of the content – `updated` (the build time) changes on every build, the ETag doesn't
+      const etag = `W/"${sha(JSON.stringify({ total, counts, people })).slice(0, 20)}"`;
       if (req.headers['if-none-match'] === etag) {
         res.writeHead(304, { ETag: etag, 'Access-Control-Allow-Origin': '*' });
         return res.end();

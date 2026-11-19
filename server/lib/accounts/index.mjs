@@ -450,7 +450,11 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
     keepPrivacy(me);
     session.rememberAccount(brief(me));
     if (patch.privacy?.show_runs === true) uploadStats(true).catch(() => {});
-    if (typeof patch.privacy?.show_on_thanks === 'boolean') thanks.at = 0; // the wall is read again on the next look
+    if (typeof patch.privacy?.show_on_thanks === 'boolean') {
+      // the wall is read again on the next look – also when a read is under way right now (it may predate the change)
+      thanks.at = 0;
+      thanks.gen++;
+    }
     if (patch.privacy?.presence) startHeartbeat(0);
     return self(body);
   });
@@ -723,12 +727,17 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   });
 
   // ---- the Thank you wall (§13) -----------------------------------------------------------------------------------------
-  const thanks = { data: null, etag: null, version: null, at: 0, okAt: null, stale: false, avatars: new Set(), inflight: null };
+  // gen: bumps when the wall must be read again (an own opt-in changed); a read that started before keeps its answer for
+  // its caller but neither satisfies a newer look nor marks the wall fresh. version: a hash of the wall's CONTENT – not
+  // its `updated` time, which the service sets on every rebuild – so "unchanged" means unchanged.
+  const thanks = { data: null, etag: null, version: null, at: 0, okAt: null, stale: false, avatars: new Set(), inflight: null, inflightGen: -1, gen: 0 };
   /** The wall: from the service when the last read is THANKS_MIN_GAP old (If-None-Match), else the one in memory. */
   function readThanks() {
     if (thanks.data && now() - thanks.at < THANKS_MIN_GAP) return Promise.resolve({ data: thanks.data, version: thanks.version, stale: thanks.stale });
-    if (thanks.inflight) return thanks.inflight;
-    thanks.inflight = (async () => {
+    if (thanks.inflight && thanks.inflightGen === thanks.gen) return thanks.inflight;
+    const gen = thanks.gen;
+    const fresh = () => gen === thanks.gen; // no invalidation since this read started
+    const read = (async () => {
       let status = 0;
       try {
         const headers = { Accept: 'application/json' };
@@ -736,7 +745,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
         const r = await fetchImpl(`${service}${API.thanks}`, { headers, redirect: 'error', signal: AbortSignal.timeout(15000) });
         status = r.status;
         if (r.status === 304 && thanks.data) {
-          thanks.at = now();
+          if (fresh()) thanks.at = now();
           thanks.okAt = now();
           thanks.stale = false;
           return { data: thanks.data, version: thanks.version, stale: false };
@@ -747,8 +756,8 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
             const etag = r.headers.get('etag');
             thanks.etag = etag && etag.length <= 100 ? etag : null;
             thanks.data = data;
-            thanks.version = createHash('sha256').update(JSON.stringify(data)).digest('base64url').slice(0, 16);
-            thanks.at = now();
+            thanks.version = thanksVersion(data);
+            if (fresh()) thanks.at = now();
             thanks.okAt = now();
             thanks.stale = false;
             // the pictures of this wall may be shown signed out too (the avatar proxy takes only these)
@@ -760,13 +769,15 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
       } catch {
         status = 0;
       }
-      thanks.at = now() - THANKS_MIN_GAP + 10000; // failing: try again in 10 s at the earliest
+      if (fresh()) thanks.at = now() - THANKS_MIN_GAP + 10000; // failing: try again in 10 s at the earliest
       thanks.stale = true;
       return { data: thanks.data, version: thanks.version, stale: true, status };
     })().finally(() => {
-      thanks.inflight = null;
+      if (thanks.inflight === read) thanks.inflight = null;
     });
-    return thanks.inflight;
+    thanks.inflight = read;
+    thanks.inflightGen = gen;
+    return read;
   }
 
   /** A no-auth GET of the service (the catalog). */
@@ -902,6 +913,11 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   const diagnostics = () => ({ signedIn: session.signedIn, tier: session.signedIn ? own?.tier || session.publicState().account?.tier || 'none' : null });
 
   return { routes, authDone, avatar, close, goOffline, diagnostics, session, setReport, get service() { return service; } };
+}
+
+/** The wall's version for the page's ?have=: its content only (who, which tier and look, the counts) – never `updated`. */
+export function thanksVersion(data) {
+  return createHash('sha256').update(JSON.stringify([data.total, data.counts, data.people])).digest('base64url').slice(0, 16);
 }
 
 const list = (body) => (Array.isArray(body?.items) ? body.items : []);

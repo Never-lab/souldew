@@ -272,7 +272,17 @@ test('/api/account/thanks: signed out works, only opted-in names, ETag to the se
   const again = await get(`/api/account/thanks?have=${first.version}`);
   assert.equal(again.unchanged, true);
   assert.equal(sent.length, 2);
-  assert.match(sent[1], /^"[A-Za-z0-9_-]+"$/, 'the service is asked with its ETag (304, no body)');
+  assert.match(sent[1], /^W\/"[A-Za-z0-9_-]+"$/, 'the service is asked with its ETag (304, no body)');
+
+  // the service rebuilds its wall every minute with a new `updated`: same people, same counts → still unchanged (this
+  // used to hang on the real clock's second – the page's version and the fake's ETag both included `updated`)
+  fake.thanksUpdated = Date.parse('2026-11-19T18:00:00Z');
+  clock += 31000;
+  assert.equal((await get(`/api/account/thanks?have=${first.version}`)).unchanged, true);
+  fake.thanksUpdated = Date.parse('2026-11-19T18:01:00Z');
+  clock += 31000;
+  assert.equal((await get(`/api/account/thanks?have=${first.version}`)).unchanged, true, 'a new build time alone changes nothing');
+  fake.thanksUpdated = null;
 
   // someone opts in: the next read has them
   quiet.privacy.show_on_thanks = true;
@@ -313,7 +323,17 @@ test('/api/account/thanks: signed out works, only opted-in names, ETag to the se
 
 test('the opt-in round trip: signed in, PATCH privacy.showOnThanks reaches the service and comes back', async () => {
   const sup = fake.addUser({ handle: 'newfan', display_name: 'New Fan', entitlement: { tier: 'supporter', until: null, badges: ['supporter'] } });
-  const acc = createAccounts({ secure: null, port: () => 47116, env: { SLS_ACCOUNTS_URL: fake.base, SLS_ACCOUNTS_DEV_ENT_KEY: fake.ent.publicKey }, packaged: false });
+  // the wall's reads can be held (a slow network): a read that started before the opt-in must not count as fresh after it
+  let hold = null;
+  let wallReads = 0;
+  const fetchImpl = async (url, opts) => {
+    if (String(url).endsWith('/v1/thanks')) {
+      wallReads++;
+      if (hold) await hold.promise;
+    }
+    return fetch(url, opts);
+  };
+  const acc = createAccounts({ secure: null, port: () => 47116, env: { SLS_ACCOUNTS_URL: fake.base, SLS_ACCOUNTS_DEV_ENT_KEY: fake.ent.publicKey }, packaged: false, fetchImpl });
   const { url } = acc.session.startLogin();
   fake.nextLogin = sup.id;
   const loc = new URL((await fetch(url, { redirect: 'manual' })).headers.get('location'));
@@ -321,11 +341,27 @@ test('the opt-in round trip: signed in, PATCH privacy.showOnThanks reaches the s
   const me = await routeOf(acc, 'GET', '/api/account')();
   assert.equal(me.me.thanksTier, 'supporter');
   assert.equal(me.me.privacy.showOnThanks, null, 'never answered → the app asks once');
+  // a look at the wall is under way (held) when the player opts in
+  const wallRoute = routeOf(acc, 'GET', '/api/account/thanks');
+  hold = Promise.withResolvers();
+  const slow = wallRoute();
+  const reads = async (n) => {
+    for (let i = 0; i < 500 && wallReads < n; i++) await new Promise((r) => setImmediate(r));
+    return wallReads;
+  };
+  assert.equal(await reads(1), 1);
   const after = await routeOf(acc, 'PATCH', '/api/account/me')('/api/account/me', { privacy: { showOnThanks: true } });
   assert.equal(after.privacy.showOnThanks, true);
   assert.equal(sup.privacy.show_on_thanks, true);
-  const wall = await routeOf(acc, 'GET', '/api/account/thanks')();
+  // the next look doesn't wait on (or reuse) the read from before the change: it asks again
+  const next = wallRoute();
+  assert.equal(await reads(2), 2, 'a new read, not the one from before the change');
+  hold.resolve();
+  hold = null;
+  await slow;
+  const wall = await next;
   assert.ok(wall.thanks.people.some((p) => p.name === 'New Fan'), 'the wall is read again after the change');
+  assert.ok((await wallRoute()).thanks.people.some((p) => p.name === 'New Fan'), 'and the older read finishing late doesn’t bring the old wall back');
   const off = await routeOf(acc, 'PATCH', '/api/account/me')('/api/account/me', { privacy: { showOnThanks: false } });
   assert.equal(off.privacy.showOnThanks, false);
   acc.close();
