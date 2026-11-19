@@ -331,6 +331,14 @@ Plus a new play view that gives the game the room it deserves.
   states, settings and trophies into a “backups” folder next to your data – not your games, which stay where they are.
   Settings › About shows it with “Open backup folder”. It's made once, and only when there's enough free space on the
   disk (if not, souldew says so there and changes nothing for lack of it).
+- **You decide what souldew sends by itself.** souldew collects no personal data, and only two things go out on their
+  own: the anonymous “playing now” count while a game runs, and the update check at start and every four hours. The
+  Windows installer now opens with a privacy page – what souldew sends, what the installer changes on your PC, a link to
+  the privacy policy and a checkbox for each of the two (both ticked as before; a reinstall shows them as you set them).
+  The in-app update installs silently, skips the page and keeps your settings. On every system the welcome tour has the
+  same two switches, and Settings › About has “Check for updates automatically” – off, souldew only looks when you
+  press “Check for updates”. Uninstalling on Windows asks whether your data in %APPDATA%\SoulLink Studio should go
+  too; “No” is the default and keeps it.
 - **What's new, at a glance.** The first start after updating from 2.x shows five short cards – play together, Shared
   World, raids, your handheld and friends – each with a picture of the app. Skip them any time; Help and Settings ›
   General bring them back. New installs get the welcome tour as before.
