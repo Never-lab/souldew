@@ -122,9 +122,18 @@ const HH = existsSync(join(HANDHELD, 'stickers.mjs')) ? {
   looks: existsSync(join(HANDHELD, 'looks.mjs')) ? (await import(pathToFileURL(join(HANDHELD, 'looks.mjs')).href)).LOOKS : null,
 } : null;
 if (HH) {
-  const want = (list) => list.filter((x) => x.tier === 'plus').map((x) => x.id).sort().join(',');
-  if (HH.stickers.map((d) => d.id).sort().join(',') !== want(HH_STICKERS)) throw new Error('handheld/stickers.mjs PLUS_DESIGNS ≠ shared/handheld.mjs souldew+ stickers');
-  if (HH.wraps.map((w) => w.id).sort().join(',') !== want(HH_WRAPS)) throw new Error('handheld/wraps.mjs PLUS_WRAPS ≠ shared/handheld.mjs souldew+ wraps');
+  // the design sources and this checkout must name the same souldew+ stickers and wraps – else they are from different
+  // rounds (exit 3: test/skin-proof.test.mjs skips on that, naming the difference)
+  const want = (list) => list.filter((x) => x.tier === 'plus').map((x) => x.id).sort();
+  const mismatch = (what, have, need) => {
+    const extra = have.filter((id) => !need.includes(id));
+    const missing = need.filter((id) => !have.includes(id));
+    console.error(`catalog mismatch: ${what} ≠ shared/handheld.mjs – only in the design: ${extra.join(', ') || '–'}; only in the app: ${missing.join(', ') || '–'}`);
+    process.exit(3);
+  };
+  const ids = (list) => list.map((x) => x.id).sort();
+  if (ids(HH.stickers).join(',') !== want(HH_STICKERS).join(',')) mismatch('handheld/stickers.mjs PLUS_DESIGNS (souldew+ stickers)', ids(HH.stickers), want(HH_STICKERS));
+  if (ids(HH.wraps).join(',') !== want(HH_WRAPS).join(',')) mismatch('handheld/wraps.mjs PLUS_WRAPS (souldew+ wraps)', ids(HH.wraps), want(HH_WRAPS));
   for (const w of HH.wraps) {
     assertData(w, `wrap ${w.id}`);
     if (!B.BANNERS.some((b) => b.id === w.banner && b.set !== 'basics')) throw new Error(`wrap ${w.id}: its banner ${w.banner} is not a souldew+ banner`);
