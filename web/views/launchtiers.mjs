@@ -8,10 +8,11 @@ import { STICKERS, WRAPS } from '/shared/handheld.mjs';
 
 export function launchTierRows() {
   const plusStickers = STICKERS.filter((s) => s.tier === 'plus').length;
+  const freeStickers = STICKERS.filter((s) => s.tier === 'free').length;
   const plusSkins = WRAPS.filter((w) => w.tier === 'plus').length;
   return [
     ['free', t('launch.tierFree', 'Free'), t('launch.tierFreeWhat', 'The cartridge slides into the console (2D) – on or off.')],
-    ['supporter', t('acct.supporter', 'Supporter'), t('launch.tierSupWhat', 'Your own handheld in 3D, in your theme’s colours – Full, Quick or Off. Dress it with the Plain Dusk skin, the 8 free stickers and the ones you earn; one saved design.')],
+    ['supporter', t('acct.supporter', 'Supporter'), t('launch.tierSupWhat', 'Your own handheld in 3D, in your theme’s colours – Full, Quick or Off. Dress it with the Plain Dusk skin, the {n} free stickers and the ones you earn; one saved design.', { n: freeStickers })],
     ['member', t('launch.tierPlus', 'souldew+ and Legend'), t('launch.tierPlusWhat', 'Everything: Gold, Clear shell and Holo label, {skins} more skins, {stickers} more stickers, holo and glitter, up to 12 designs, Surprise me at start – and now and then a Rare start.', { skins: plusSkins, stickers: plusStickers })],
   ];
 }

@@ -366,14 +366,16 @@ const validPk3 = (m) => m && !m.bad && m.level >= 1 && m.level <= 100 && m.maxHp
  */
 function pk3Run(ram, o, T, state = null) {
   const pids = [];
+  const mons = [];
   let n = 0;
   for (; n < 6; n++) {
     const d = ram.subarray(o + n * 100, o + n * 100 + 100);
     const pid = u32le(d, 0);
     if (!pid && !u32le(d, 4)) break;
     const m = parsePk3(d, T);
-    // (a struct the game is writing right now, or a slot shown twice while the menu swaps two: torn, read again)
-    if (!validPk3(m) || pids.includes(pid)) {
+    // (a struct the game is writing right now, or a slot shown twice while the menu swaps two: torn, read again – a
+    // clone, the same Pokémon twice for good, is no misread: keyClones)
+    if (!validPk3(m) || (pids.includes(pid) && !mons.some((x) => sameClone(x, m)))) {
       if (state && !pids.includes(pid) && m?.bad) {
         const sig = Array.prototype.join.call(d.subarray(0, 32), ',');
         const seen = state.runBad || (state.runBad = {});
@@ -387,6 +389,7 @@ function pk3Run(ram, o, T, state = null) {
     }
     if (state?.runBad) delete state.runBad[n]; // a good read: a Bad Egg there has to be seen three times anew
     pids.push(pid);
+    mons.push(m);
   }
   let empty = true;
   for (let i = n; i < 6; i++) if (ram.subarray(o + i * 100, o + i * 100 + 8).some((b) => b)) empty = false;
@@ -528,7 +531,8 @@ function readGen3(entry, read, T, state = {}) {
     if (m.level < 1 || m.level > 100 || m.hp > m.maxHp) return { invalid: true };
     // Level, HP and stats (80-99) are neither encrypted nor checksummed: a slot the party menu is swapping reads as
     // one mon with the other's numbers – or the same mon twice. Stats over 999 or a duplicate: try again next poll.
-    if (party.some((x) => x.pid === m.pid) || !gen3StatsOk(slot, m.isEgg)) return { torn: true };
+    // (a clone – the same Pokémon twice for good, its data alike – is two Pokémon: keyClones waits one poll for it)
+    if (party.some((x) => x.pid === m.pid && !sameClone(x, m)) || !gen3StatsOk(slot, m.isEgg)) return { torn: true };
     if (state.bad3) delete state.bad3[i]; // a good read: a Bad Egg there has to be seen three times anew
     party.push(m);
   }
@@ -823,8 +827,10 @@ function readPartyCore(read, addr, size, gen, T) {
   const party = [];
   for (let i = 0; i < count; i++) {
     const m = pkMon(raw.subarray(i * size, (i + 1) * size), gen, T);
-    // the same mon twice: read halfway through a swap in the party menu (the copy is done, the old slot not yet)
-    if (!m || party.some((x) => x.pid === m.pid)) return null;
+    // the same PID twice with other data: a misread. The same mon twice is a read halfway through a swap in the party
+    // menu (the copy is done, the old slot not yet) – or a clone (a cloning glitch): keyClones tells them apart (a clone
+    // stays, a swap is gone a poll later)
+    if (!m || party.some((x) => x.pid === m.pid && !sameClone(x, m))) return null;
     party.push(m);
   }
   return party;
@@ -1219,9 +1225,106 @@ export function readSaveFile(entry, file, T) {
  */
 export function readLiveParty(entry, read, T, state = {}) {
   if (!entry) return null;
-  if (entry.gen <= 2) return readGB(entry, read, T, state);
+  if (entry.gen <= 2) return withClones(readGB(entry, read, T, state), state);
   const res = entry.gen >= 6 ? readGen67(entry, read, state) : entry.gen === 3 ? readGen3(entry, read, T, state) : readDS(entry, read, T, state);
-  return res?.party && !settled(res.party, state) ? { torn: true } : res;
+  const out = entry.gen >= 6 ? res : withClones(res, state);
+  return out?.party && !settled(out.party, state) ? { torn: true } : out;
+}
+
+// ---------------------------------------------------------------------------
+// Clones: a cloning glitch (Gen 1–4 – the PC box during a save, a trade cut off at the right moment) leaves the same
+// Pokémon twice in the team: one PID, every lasting detail alike. That is no misread – they are two Pokémon from then on.
+
+/**
+ * What two clones have alike for good: the key (PID / DVs and trainer ID), species, form, where and at what level they
+ * were met, egg, gender, shininess, IVs and nature. What playing changes (HP, level, experience, moves, EVs, item, the
+ * nickname) is left out – two clones drift apart there as soon as one of them fights.
+ */
+const cloneId = (m) => JSON.stringify([m.key, m.species, m.form || 0, m.metLocation ?? null, m.metLevel ?? null, m.eggLocation ?? null, !!m.isEgg,
+  m.gender ?? null, !!m.shiny, m.summary?.ivs ?? m.summary?.dvs ?? null, m.summary?.nature ?? null]);
+/** Are `a` and `b` (same PID) clones – the same Pokémon twice – rather than a misread of one struct as another? */
+export const sameClone = (a, b) => !!a && !!b && a.pid === b.pid && cloneId(a) === cloneId(b);
+/** How alike two readings of a clone are: what tells them apart once they play (higher: more alike). */
+function cloneLikeness(m, f) {
+  if (!f) return 0;
+  return (m.hp === f.hp) + (m.maxHp === f.maxHp) + (m.level === f.level) + (m.status === f.status) + (m.item === f.item)
+    + ((m.moves || []).join() === f.moves) + (m.nickname === f.nickname);
+}
+const cloneFp = (m) => ({ hp: m.hp, maxHp: m.maxHp, level: m.level, status: m.status, item: m.item, moves: (m.moves || []).join(), nickname: m.nickname });
+
+/**
+ * Clones in the team, as two Pokémon for the tracker (a death, a trade, a SoulLink pair – each one's own): the first
+ * keeps the key, each further one gets `<key>~2`, `~3` … Which one is which holds while the team is reordered: each takes
+ * the key whose last reading it matches best (HP, level, status, moves …), its slot only breaking a tie – a clone at
+ * 0 HP never hands its faint to the other. A clone new in the team counts once the next read shows it too (a read in
+ * the middle of a swap in the party menu shows one Pokémon twice for a poll). `state`: the reader's (one per session).
+ * → the party with the clones' keys, or null (read again).
+ */
+export function keyClones(party, state) {
+  const groups = new Map(); // cloneId → indexes in the party
+  party.forEach((m, i) => {
+    if (!m?.key) return;
+    const id = cloneId(m);
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push(i);
+  });
+  const prev = state.clones || {}; // key → [{ key, at: index, fp }] of the last reading that had clones of it
+  const pendingBefore = state.clonesPending || {};
+  const next = {};
+  const pending = {};
+  let wait = false;
+  const out = party.slice();
+  for (const idx of groups.values()) {
+    const base = party[idx[0]].key;
+    const was = prev[base] || null;
+    if (idx.length < 2 && !was) continue;
+    if (idx.length > (was?.length || 1) && pendingBefore[base] !== idx.length) {
+      // more of them than last time: once more, to tell a clone from a swap in progress
+      pending[base] = idx.length;
+      wait = true;
+      continue;
+    }
+    // the keys to hand out: the last reading's (each keeps its own), then new ones
+    const names = (was || []).map((x) => x.key);
+    for (let n = 1; names.length < idx.length; n++) {
+      const k = n === 1 ? base : `${base}~${n}`;
+      if (!names.includes(k)) names.push(k);
+    }
+    // the best match over every way to give them distinct keys (at most 6 clones: a few hundred tries at worst)
+    let best = null;
+    const pick = (i, used, score, chosen) => {
+      if (i === idx.length) {
+        if (!best || score > best.score) best = { score, chosen: chosen.slice() };
+        return;
+      }
+      for (const k of names) {
+        if (used.has(k)) continue;
+        const w = was?.find((x) => x.key === k);
+        used.add(k);
+        chosen.push(k);
+        pick(i + 1, used, score + (w ? cloneLikeness(party[idx[i]], w.fp) * 2 + (w.at === idx[i] ? 1 : 0) : 0), chosen);
+        chosen.pop();
+        used.delete(k);
+      }
+    };
+    pick(0, new Set(), 0, []);
+    idx.forEach((pi, j) => {
+      if (best.chosen[j] !== party[pi].key) out[pi] = { ...party[pi], key: best.chosen[j] };
+    });
+    // (one of them left alone keeps the key it had – the tracker knows it by that one)
+    next[base] = idx.map((pi, j) => ({ key: best.chosen[j], at: pi, fp: cloneFp(party[pi]) }));
+  }
+  state.clonesPending = pending;
+  if (wait) return null;
+  state.clones = next;
+  return out;
+}
+
+/** A reader's result with its clones keyed apart (keyClones) – { torn } while a new clone waits for the next read. */
+function withClones(res, state) {
+  if (!res?.party?.length) return res;
+  const party = keyClones(res.party, state);
+  return party ? { ...res, party } : { torn: true };
 }
 
 /**
@@ -1231,8 +1334,9 @@ export function readLiveParty(entry, read, T, state = {}) {
  */
 function settled(party, state) {
   const known = state.dsStats || new Map();
-  const next = new Map(party.map((m) => [m.pid, `${m.level}:${m.maxHp}`]));
-  const changed = party.some((m) => known.has(m.pid) && known.get(m.pid) !== next.get(m.pid));
+  // (by key: two clones share a PID – keyClones)
+  const next = new Map(party.map((m) => [m.key, `${m.level}:${m.maxHp}`]));
+  const changed = party.some((m) => known.has(m.key) && known.get(m.key) !== next.get(m.key));
   const sig = [...next].join();
   if (changed && state.dsPending !== sig) {
     state.dsPending = sig;
@@ -2287,13 +2391,13 @@ export function withBattleHp(party, battle, state = null) {
   }
   const out = state ? battleOut(state, party, battle) : null;
   if (battle.party) {
-    const byPid = new Map(battle.party.map((m) => [m.pid, m]));
-    return party.map((m) => {
-      const b = byPid.get(m.pid);
+    const twin = battleTwins(party, battle.party);
+    return party.map((m, i) => {
+      const b = twin[i];
       if (!b) return m;
       // (a Pokémon that grew a level in this battle: the battle has its new max HP, the save party the old one until the end)
       const hp = m.maxHp > 0 ? Math.min(b.hp, m.maxHp) : b.hp;
-      if (hp === 0 && m.hp > 0 && out?.size && !out.has(m.pid)) return m;
+      if (hp === 0 && m.hp > 0 && out?.size && !out.has(m.key)) return m;
       return { ...m, hp, ...(b.status !== undefined ? { status: b.status } : {}) };
     });
   }
@@ -2302,14 +2406,33 @@ export function withBattleHp(party, battle, state = null) {
   return party.map((m, i) => (i === a.index ? { ...m, hp: a.hp, ...(a.status !== undefined ? { status: a.status } : {}) } : m));
 }
 
-/** The PIDs of the player's Pokémon that have been out in the battle going on (state.battleOut), with this reading's. */
+/** The keys of the player's Pokémon that have been out in the battle going on (state.battleOut), with this reading's. */
 function battleOut(state, party, battle) {
   const out = state.battleOut || (state.battleOut = new Set());
   for (const a of [battle.active, ...(battle.actives || [])]) {
     const m = a && Number.isInteger(a.index) ? party[a.index] : null;
-    if (m?.pid !== undefined) out.add(m.pid);
+    if (m?.key) out.add(m.key);
   }
   return out;
+}
+
+/**
+ * The battle's party copy, per Pokémon of the team (index → its entry, or undefined): by PID – two clones share theirs,
+ * so the n-th of a PID in the team is the n-th of it in the copy (the battle copies the team in its order).
+ */
+export function battleTwins(party, copy) {
+  const byPid = new Map();
+  for (const b of copy || []) {
+    if (!byPid.has(b?.pid)) byPid.set(b?.pid, []);
+    byPid.get(b?.pid).push(b);
+  }
+  const nth = new Map();
+  return (party || []).map((m) => {
+    if (m?.pid === undefined) return undefined;
+    const k = nth.get(m.pid) || 0;
+    nth.set(m.pid, k + 1);
+    return byPid.get(m.pid)?.[k];
+  });
 }
 
 /**

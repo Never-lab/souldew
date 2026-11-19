@@ -190,11 +190,19 @@ test('no souldew+ look is hard-coded in the public launch scene any more', () =>
 
 test('preview media of a souldew+ sticker are a product shot, never the pixel art 1:1', () => {
   const atlas = buildAtlas(DESIGNS);
-  const pic = stickerPicture(atlas, 'moon', 6);
-  const shot = productShot(pic, { angle: -6, seed: 'moon' });
-  assert.notEqual(shot.w % atlas.rects.moon.w, 0, 'not a whole multiple of the art');
+  // a round badge, and round 7's pixel lettering (a wide bar with text, big letters) – text is the easiest to lift
+  for (const id of ['moon', 'one-hp', 'gg']) previewIsNoCopy(atlas, id);
+  // a wrap's window keeps its frame and stays opaque
+  const win = productShot({ w: 40, h: 30, rgba: new Uint8ClampedArray(40 * 30 * 4).fill(200) }, { angle: 4, opaque: true });
+  assert.deepEqual([win.w, win.h, win.rgba.every((v, i) => i % 4 !== 3 || v === 255)], [40, 30, true]);
+});
+
+function previewIsNoCopy(atlas, id) {
+  const pic = stickerPicture(atlas, id, 6);
+  const shot = productShot(pic, { angle: -6, seed: id });
+  assert.notEqual(shot.w % atlas.rects[id].w, 0, `${id}: not a whole multiple of the art`);
   // downscaled the way a copier would (nearest, back to the art's grid) it is not the sticker's art any more
-  const r = atlas.rects.moon;
+  const r = atlas.rects[id];
   let same = 0, total = 0;
   const k = shot.w / (r.w + 2);
   for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) {
@@ -205,14 +213,11 @@ test('preview media of a souldew+ sticker are a product shot, never the pixel ar
     total++;
     if (atlas.rgba[i] === shot.rgba[o] && atlas.rgba[i + 1] === shot.rgba[o + 1] && atlas.rgba[i + 2] === shot.rgba[o + 2]) same++;
   }
-  assert.ok(same / total < 0.5, `only ${same} of ${total} art pixels survive a naive copy`);
+  assert.ok(same / total < 0.5, `${id}: only ${same} of ${total} art pixels survive a naive copy`);
   // but it still shows the sticker: most of the picture is covered, its edge is soft
   const covered = shot.rgba.filter((v, i) => i % 4 === 3 && v > 200).length;
-  assert.ok(covered > shot.w * shot.h * 0.4);
-  // a wrap's window keeps its frame and stays opaque
-  const win = productShot({ w: 40, h: 30, rgba: new Uint8ClampedArray(40 * 30 * 4).fill(200) }, { angle: 4, opaque: true });
-  assert.deepEqual([win.w, win.h, win.rgba.every((v, i) => i % 4 !== 3 || v === 255)], [40, 30, true]);
-});
+  assert.ok(covered > shot.w * shot.h * 0.4, `${id}: covered`);
+}
 
 const noDisplay = process.platform === 'linux' && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY;
 test('real Chromium: a souldew+ look without its data is "Your colours" to the pixel; with it, the pack\'s code compiles and draws', { skip: noDisplay ? 'no display' : false, timeout: 150000 }, async () => {
