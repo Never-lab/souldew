@@ -24,16 +24,16 @@ const H = 640;
 // on the 1120×640 picture, s: scale, rad: the panel's corner radius (screenshot pixels), z: stacking order.
 const CARDS = {
   together: { accent: '#d77fc6', crops: [
-    { src: 'raid-board-A.png', r: [1990, 160, 503, 212], at: [56, 64], s: 0.92, rad: 24 },
+    { src: 'raid-board-A.png', r: [1990, 380, 503, 190], at: [56, 64], s: 0.92, rad: 24 },
     { src: 'link-linked-A.png', r: [1568, 113, 600, 242], at: [520, 92], s: 0.9, rad: 24, z: 2 },
-    { src: 'link-result-A.png', r: [1180, 113, 986, 326], at: [96, 330], s: 0.88, rad: 24, z: 3 },
+    { src: 'link-result-A.png', r: [1180, 113, 986, 291], at: [96, 340], s: 0.88, rad: 24, z: 3 },
   ] },
   world: { accent: '#6fb39b', crops: [
     { src: 'raid-invite-B.png', r: [1932, 948, 593, 222], at: [44, 196], s: 0.98, rad: 24 },
     { src: 'world-menu-A.png', r: [850, 752, 328, 468], at: [672, 50], s: 1.15, rad: 20, z: 2 },
   ] },
   raid: { accent: '#e7c24f', crops: [
-    { src: 'raid-board-A.png', r: [554, 690, 1308, 112], at: [50, 60], s: 0.78, rad: 12 },
+    { src: 'raid-board-A.png', r: [554, 983, 1308, 112], at: [50, 60], s: 0.78, rad: 12 },
     { src: 'raid-invite-B.png', r: [1929, 114, 598, 294], at: [40, 230], s: 0.86, rad: 24, z: 2 },
     { src: 'raid-battle-A.png', r: [1929, 114, 598, 302], at: [572, 230], s: 0.86, rad: 24, z: 3 },
   ] },
