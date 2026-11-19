@@ -244,8 +244,8 @@ test('location: the Gen 5 Union Room (zone 422, no place in the ROM\'s table) is
   assert.deepEqual([u.id, u.link, u.map], ['link:union', 'union', 422]);
   copy(0x0225929c, 398); // the Pokémon Center downstairs: Accumula Town as before
   assert.equal(readLocation(maps, { id: 'black_us', gen: 5 }, read, { rom: black })?.id, 5);
-  copy(0x0225929c, 150); // (another zone without a place: still nothing on the sign)
-  assert.equal(readLocation(maps, { id: 'black_us', gen: 5 }, read, { rom: black }), null);
+  copy(0x0225929c, 150); // the Colosseum a Union Room battle goes to
+  assert.equal(readLocation(maps, { id: 'black_us', gen: 5 }, read, { rom: black })?.link, 'colosseum');
   // Black 2: the copy behind the main pointer (+0x41B2C), matched by the zone id after it
   ram.fill(0);
   ram.set([0xa0, 0xe1, 0x21, 0x02], 0x24);

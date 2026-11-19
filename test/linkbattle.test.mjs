@@ -150,10 +150,15 @@ test('games: the seat\'s game from its cartridge header (and the live tracker\'s
   }
   assert.equal(L.gameOfEntry({ id: 'soulsilver_us' }), 'hgss');
   assert.equal(L.gameOfEntry({ id: 'pearl_us' }), 'dp');
+  for (const [code, game] of [['IRBO', 'black'], ['IRAO', 'white'], ['IREO', 'black2'], ['IRDO', 'white2'], ['IRBD', null]]) {
+    nds.set([...code].map((c) => c.charCodeAt(0)), 0x0c);
+    assert.equal(L.gameOf('nds', nds), game, code);
+  }
+  assert.equal(L.gameOfEntry({ id: 'white2_us' }), 'white2');
   assert.equal(L.gameOfEntry({ id: 'emerald_us' }), 'emerald');
   assert.equal(L.gameOfEntry({ id: 'crystal_us', wram: { delta: 11 } }), null, 'a hack whose RAM moved');
   assert.equal(L.gameOfEntry({ id: 'heartgold_us~IPKD', scanOnly: true }), null);
-  assert.ok(L.wagerGame('pokemon-emerald') && L.wagerGame('pokemon-firered-de') && !L.wagerGame('pokemon-emerald-de') && L.wagerGame('pokemon-heartgold') && L.wagerGame('pokemon-diamond') && !L.wagerGame('pokemon-platinum-de'));
+  assert.ok(L.wagerGame('pokemon-emerald') && L.wagerGame('pokemon-firered-de') && !L.wagerGame('pokemon-emerald-de') && L.wagerGame('pokemon-heartgold') && L.wagerGame('pokemon-diamond') && !L.wagerGame('pokemon-platinum-de') && L.wagerGame('pokemon-black-2'));
   assert.deepEqual(L.battleFormats('gba', 2), ['single', 'double']);
   assert.deepEqual(L.battleFormats('gb', 2), ['single']);
   assert.deepEqual(L.battleFormats('gba', 4), ['multi']);
@@ -247,6 +252,42 @@ test('outcome, Diamond/Pearl and HeartGold/SoulSilver: their records, plain and 
     g.put(save + off, block2);
     assert.deepEqual(L.countsBetween(a, await L.totals(game, { read: g.read })), game === 'hgss' ? { w: 0, l: 1, d: 0 } : { w: 1, l: 0, d: 0 });
   }
+});
+
+/** A Gen 5 trainer card records block (0x1E0): u32 records from +4, encrypted with the seed in the last word. */
+function records5(rec, seed = 0x13579bdf) {
+  const b = new Uint8Array(0x1e0);
+  for (const [id, v] of Object.entries(rec)) b.set(le32(v), 4 + Number(id) * 4);
+  b.set(le32(seed), 0x1dc);
+  let x = seed;
+  for (let o = 4; o < 0x1dc; o += 2) {
+    x = (Math.imul(x, 0x41c64e6d) + 0x6073) >>> 0;
+    const v = (b[o] | (b[o + 1] << 8)) ^ (x >>> 16);
+    b[o] = v & 0xff; b[o + 1] = v >> 8;
+  }
+  return b;
+}
+
+test('outcome, Gen 5: the trainer card records (12 battles, 13 wins, 14 losses) – as Black\'s recorded Union Room battle left them', async () => {
+  // the winner's and the loser's records before and after the battle, as read from the link host
+  const before = { 0: 4, 3: 7, 4: 5, 5: 2, 6: 1, 10: 1, 24: 6, 26: 153, 29: 1 };
+  const won = { ...before, 3: 8, 12: 1, 13: 1, 24: 7 };
+  const lost = { ...before, 0: 2, 3: 8, 12: 1, 14: 1 };
+  assert.deepEqual(L.decodeRecords(records5(won), 'gen5'), { wins: 1, losses: 0, draws: 0 });
+  assert.deepEqual(L.decodeRecords(records5(lost, 0x2468ace0), 'gen5'), { wins: 0, losses: 1, draws: 0 });
+  // Black: the save data at 0x0221BBAC; Black 2: behind the main pointer
+  const base = 0x0221bbac;
+  const bk = bus({ [base + 0x1da00]: records5(before), [base + 0x19404]: [0x41, 0x00] });
+  const a = await L.totals('black', { read: bk.read });
+  bk.put(base + 0x1da00, records5(won, 0x0badcafe)); // (the game encrypts again with another seed)
+  assert.deepEqual(L.countsBetween(a, await L.totals('black', { read: bk.read })), { w: 1, l: 0, d: 0 });
+  const b2 = bus({ 0x02000024: le32(0x0221e1a0), [0x0221e1a0 + 0x920 + 0x1da00]: records5(before) });
+  assert.equal(await L.totals('black2', { read: b2.read }), null, 'no trainer yet');
+  b2.put(0x0221e1a0 + 0x920 + 0x19404, [0x42, 0x00]);
+  assert.deepEqual(await L.totals('black2', { read: b2.read }), { w: 0, l: 0, d: 0 });
+  // the overworld: anything but the battle flag's battle values
+  assert.equal(await L.fieldIdle('black', bus({ 0x021d0798: [0x00, 0x28], [base + 0x19404]: [0x41, 0x00] }).read), true);
+  assert.equal(await L.fieldIdle('black', bus({ 0x021d0798: [0x00, 0x21], [base + 0x19404]: [0x41, 0x00] }).read), false);
 });
 
 test('result: two seats, a multi battle, several battles, a draw – and counts that don\'t fit are no result', () => {

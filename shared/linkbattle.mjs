@@ -66,9 +66,10 @@ export function gameOf(system, bytes) {
   return null;
 }
 
-// Gen 5's link battle records (PKHeX Record5 ids, measured in the recorded Union Room battles)
-const GEN5_WINS = 0;
-const GEN5_LOSSES = 0;
+// Gen 5's link battle records (Record5 u32 ids, measured in the recorded Union Room battle in Black: both players' 12
+// – the link battles – went up by one, the winner's 13, the loser's 14)
+const GEN5_WINS = 13;
+const GEN5_LOSSES = 14;
 
 // The DS games by game code (US/EU English releases: the other languages keep their static data elsewhere)
 const NDS_GAMES = { CPUE: 'platinum', ADAE: 'dp', APAE: 'dp', IPKE: 'hgss', IPGE: 'hgss', IRBO: 'black', IRAO: 'white', IREO: 'black2', IRDO: 'white2' };
@@ -96,9 +97,11 @@ export const GAMES = {
   platinum: { gen: 4, kind: 'records', savePtr: 0x02101d40, records: 0x61c4, layout: 'pt', trainerName: 0x7c, field: { addr: 0x0224a55a, value: 0x2800 }, money: { savePtr: 0x02101d40, off: 0x90 } },
   // Diamond/Pearl and HeartGold/SoulSilver (US) the same way – the save data's general block at +0x214 / +0x10 (the
   // party offsets of addresses.json), the trainer block +0x64 (money +0x14) and the records (PKHeX SAV4DP / SAV4HGSS
-  // OFS_Record 0x5F08 / 0x4B3C); the overworld values of the battle flag as the ROM matrix read them
-  dp: { gen: 4, kind: 'records', savePtr: 0x02106fc0, records: 0x214 + 0x5f08, layout: 'dp', trainerName: 0x214 + 0x64, field: { addr: 0x0223bb38, value: 0x2000 }, money: { savePtr: 0x02106fc0, off: 0x214 + 0x78 } },
-  hgss: { gen: 4, kind: 'records', savePtr: 0x02111880, records: 0x10 + 0x4b3c, layout: 'hgss', trainerName: 0x10 + 0x64, field: { addr: 0x02246f48, value: 0x2800 }, money: { savePtr: 0x02111880, off: 0x10 + 0x78 } },
+  // OFS_Record 0x5F08 / 0x4B3C) – Diamond's checked live: the trainer, ₽2,400 and plain records behind 0x02106FC0; the
+  // overworld: anything but the battle flag's battle values (Pearl read 0x2000 on a route, Diamond 0x2800 in a Pokémon
+  // Center)
+  dp: { gen: 4, kind: 'records', savePtr: 0x02106fc0, records: 0x214 + 0x5f08, layout: 'dp', trainerName: 0x214 + 0x64, field: { addr: 0x0223bb38, battle: [0x2100, 0x2101] }, money: { savePtr: 0x02106fc0, off: 0x214 + 0x78 } },
+  hgss: { gen: 4, kind: 'records', savePtr: 0x02111880, records: 0x10 + 0x4b3c, layout: 'hgss', trainerName: 0x10 + 0x64, field: { addr: 0x02246f48, battle: [0x2100, 0x2101] }, money: { savePtr: 0x02111880, off: 0x10 + 0x78 } },
   // Gen 5 (US/EU): the game's whole save data is in RAM in the battery save's own layout (PKHeX SAV5BW / SAV5B2W2 blocks):
   // its party block at +0x18E00 – so the save data sits 0x18E08 before the party the live tracker reads (addresses.json:
   // Black 0x022349B4, White +0x20; Black 2/White 2 behind the main pointer, +0x19728) –, the trainer block +0x19400 (its
@@ -118,7 +121,7 @@ export const GAMES = {
 export const RECORDS = {
   pt: { size: 0x1bc, from: 4, to: 0x1b8, sum: 0x1b8, wins: 21, losses: 22 },
   hgss: { size: 0x1c0, from: 8, to: 0x1bc, sum: 0x1bc, wins: 22, losses: 23, draws: 24 },
-  dp: { size: 0xb0, plain: true, wins: 21, losses: 22 },
+  dp: { size: 0xb0, plain: true, wins: 21, losses: 22 }, // (measured: a Diamond ↔ Pearl battle – 20 counts the link battles)
   // Gen 5: 68 u32 + 100 u16 records encrypted from +4 to +0x1DC with the seed in the block's last word – no sum
   gen5: { size: 0x1e0, from: 4, to: 0x1dc, seed: 0x1dc, base: 4, wins: GEN5_WINS, losses: GEN5_LOSSES },
 };
@@ -498,7 +501,7 @@ export async function fieldIdle(game, read, { cam = undefined } = {}) {
   if (g.gen === 3) return !!cam && !cam.battle && !cam.locked && !cam.help && !cam.fade;
   const f = await read(g.field.addr, 2);
   if (!f) return false;
-  if (g.field.battle) return !g.field.battle.includes(u16le(f, 0)) && !!(await saveBase(g, read)); // (Gen 5: no battle)
+  if (g.field.battle) return !g.field.battle.includes(u16le(f, 0)) && !!(await saveBase(g, read)); // (no battle)
   return u16le(f, 0) === g.field.value;
 }
 

@@ -570,15 +570,32 @@ async function main() {
       for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/soullink?run=${runId}`)}; true`);
       await sleep(2500);
       await shot(`${String(n++).padStart(2, '0')}-board-record`);
-      result.checks.recordOnBoard = await everyone(async (i) => /1 : 0|0 : 1/.test(String(await ev(i, `document.querySelector('.h2h')?.textContent || ''`))));
+      // (the head-to-head as the session left it: one battle 1 : 0, several "2 : 0" …)
+      const score = per[want[0]] ? `${Math.max(per[want[0]].w, per[want[0]].l)} : ${Math.min(per[want[0]].w, per[want[0]].l)}` : '1 : 0';
+      const [hi, lo] = score.split(' : ');
+      result.checks.recordOnBoard = await everyone(async (i) => new RegExp(`${hi} : ${lo}|${lo} : ${hi}`).test(String(await ev(i, `document.querySelector('.h2h')?.textContent || ''`))));
       for (const i of all) await ev(i, `location.hash = ${JSON.stringify(`#/play?run=${runId}`)}; true`);
       await sleep(3000);
       if (!flag('save-after')) return;
-      // an in-game save: START, (the menu remembers SAVE), A, YES, YES – then the save file holds the money
+      // an in-game save – Gen 3: START, (the menu remembers SAVE), A, YES, YES; Gen 5: X, SAVE on the touch screen, YES,
+      // YES – then the save file holds the money
       for (const i of all) {
-        for (const [keys, ms] of [[['start'], 120], [[], 900], [['a'], 120], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 6000], [['a'], 120], [[], 1200], [['b'], 120], [[], 600]]) {
+        const g = gameOfRom(romOf(i));
+        const gen5 = ['black', 'white', 'black2', 'white2'].includes(g);
+        const steps = gen5
+          // (a tap may only move the menu's cursor onto SAVE: a second one opens it – on the next screen it lands on the
+          // save summary, where it does nothing)
+          ? [[['x'], 120], [[], 1500], ['touch', 65 / 256, (192 + 141) / 384], [[], 1200], ['touch', 65 / 256, (192 + 141) / 384], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 9000], [['b'], 120], [[], 900]]
+          : [[['start'], 120], [[], 900], [['a'], 120], [[], 1500], [['a'], 120], [[], 1500], [['a'], 120], [[], 6000], [['a'], 120], [[], 1200], [['b'], 120], [[], 600]];
+        for (const [keys, a, b] of steps) {
+          if (keys === 'touch') { // (the stylus: down for a few frames, then up)
+            await emu(i, `e.touch(${a}, ${b}, true)`);
+            await sleep(300);
+            await emu(i, `e.touch(${a}, ${b}, false)`);
+            continue;
+          }
           await emu(i, `e.hold(${JSON.stringify(keys)})`);
-          await sleep(ms);
+          await sleep(a);
         }
       }
       await sleep(8000); // (the battery save settles, then the play view writes it into the run)
@@ -586,8 +603,13 @@ async function main() {
       for (const i of all) {
         const pr = profiles[i];
         const b = Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer()));
+        const g = gameOfRom(romOf(i));
+        if (/\.nds$/i.test(romOf(i))) {
+          savedMoney.push(saveMoneyDS(b, ['black', 'white'].includes(g) ? 'bw' : ['black2', 'white2'].includes(g) ? 'b2w2' : g));
+          continue;
+        }
         const m = saveMoney3(b);
-        savedMoney.push(gameOfRom(romOf(i)) === 'emerald' ? (m.money ^ m.key) >>> 0 : m.money); // (Emerald XORs it; R/S don't)
+        savedMoney.push(g === 'emerald' ? (m.money ^ m.key) >>> 0 : m.money); // (Emerald XORs it; R/S don't)
       }
       result.moneyInSaves = savedMoney;
       result.checks.wagerInSaves = all.every((i) => savedMoney[i] === after[i]);

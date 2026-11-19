@@ -59,7 +59,24 @@ Sandgem Pokémon Center). With FreeBIOS and generated firmware:
 | 4 consoles in one Union Room | ✅ each console sees the other three (two saves used twice, four MACs) |
 | Network lockstep: 2 peers, each running both consoles, 80 ms RTT ± 10 ms jitter, delay 6 | ✅ a recorded 21,978-frame session (load save → Union Room → trade): **0 / 183 hash mismatches**; final saves equal between peers **and equal to the local session** |
 | Same with JIT on both peers | ✅ 0 / 183 mismatches between the peers (JIT timing differs from the interpreter, so the interpreter recording plays out differently; peers must agree on JIT on/off) |
-| Black, White 2, Pearl | boot with FreeBIOS and generated firmware, 3D renders; their Union Rooms were not reached in the spike |
+| Black, White 2, Pearl | boot with FreeBIOS and generated firmware, 3D renders; their Union Rooms were not reached in the spike (Black's since: below) |
+
+## Gen 5 (Black, 19 Nov 2026)
+
+Two Black (US) saves made with the link host and the ROM matrix's plan: Tepig and a Route 1 catch each, saved upstairs
+in Accumula Town's Pokémon Center in front of the Union Room counter. The Union Room only opens with the C-Gear
+(`FE_CGEAR_GET`, event flag 115 – 106 in Black 2/White 2; FlagsEditorEXPlugin's flag list, "Trading Functionality
+Enabled" in PKHeX), which the game gives after the first gym; for the test saves the flag was set in RAM in the save
+data's event block and the game then saved itself (no other change).
+
+| What | Result |
+|---|---|
+| Upper floor, left counter "Pokémon Wireless Club Union Room", the first visit's explanation, saving, entering | ✅ both consoles in zone 422, each sees the other |
+| Talk → Greet / Battle / Trade / Draw / Spin | ✅ |
+| Trade (Gen 5's offer screen: up to three each, pick one of the other's) | ✅ Lillipup ↔ Patrat, both games save after it; the recording replays to byte-identical saves |
+| Trainer card exchange | ✅ |
+| Battle → "Battles for two" → single, no restrictions | ✅ both warp to the Colosseum (zone 150); the battle starts once each stands on their mark (the host the right one, the guest the left one, row 5), team picked on the touch screen; two battles, the same winner – the Union Room's records count them (12/13/14) |
+| C-Gear IR (trainer cards, the IR feature of the C-Gear) | ❌ not in melonDS: its IR cartridge (`NDSCart/CartRetailIR.cpp`, irversion 2 for HG/SS and B/W/B2/W2) answers only the ID command and passes SRAM access through – sending and receiving over IR return nothing, so two consoles never see each other over IR. The C-Gear's wireless (the same local wireless as the Union Room) is what links |
 
 Numbers (frames per second for the whole session, 60 = real time):
 
