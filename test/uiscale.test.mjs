@@ -218,3 +218,11 @@ test('Settings, Help and the texts', () => {
     }
   }
 });
+
+test('the reset key without a keyCode (key/code only) still resets', () => {
+  assert.equal(uiScaleKey({ key: '0', ctrl: true }, false), 'reset');
+  assert.equal(uiScaleKey({ key: '0', code: 'Numpad0', ctrl: true }, false), 'reset');
+  assert.equal(uiScaleKey({ key: '0', meta: true }, true), 'reset');
+  assert.equal(uiScaleKey({ key: '0', ctrl: true, shift: true }, false), null);
+  assert.equal(uiScaleKey({ key: '0' }, false), null);
+});

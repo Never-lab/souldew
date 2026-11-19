@@ -77,6 +77,7 @@ export function uiScaleKey(e, mac) {
   if (k === 48 || k === 96) return shift ? null : 'reset';
   if (e.key === '+') return 'in';
   if (e.key === '-' && !shift) return 'out';
+  if ((e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') && !shift) return 'reset';
   return null;
 }
 
