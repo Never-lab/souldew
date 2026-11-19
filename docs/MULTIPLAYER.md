@@ -484,7 +484,8 @@ GBA-PK's approach injects NPC objects into game RAM per ROM revision, which brea
 | Platinum (US) | **Works** (tested 19 Nov 2026, 2 players, branch `feat/30-world-ds`): partners drawn into the 3D field with their own overworld sprite from the ROM, names, followers (party icons), A → menu, Wave/emotes/rock-paper-scissors both sides – see "Gen 4 (DS)" below |
 | HeartGold / SoulSilver (US) | **Works** (HeartGold tested 19 Nov 2026, 2 players; SoulSilver has the same addresses – xMAP – untested): as Platinum, outdoors with the perspective camera, lit like the field (evening, night, caves), followers are the game's own overworld Pokémon |
 | Diamond / Pearl, other languages of Gen 4 | Not yet: no field addresses verified (pokediamond has no symbol map, and no D/P save on the overworld was at hand). Diamond, Pearl and Platinum are one family (map headers 0–558 are the same), so the rest is ready for them |
-| Gen 1/2, Gen 5, 3DS | Not yet – see the feasibility notes below |
+| Gen 1/2, 3DS | Not yet – see the feasibility notes below |
+| Gen 5 | Dropped for now – see the feasibility notes below |
 
 ### How it works
 
@@ -609,7 +610,13 @@ xMAPs: `sFieldSystem`, `NNS_G3dGlb`, `gSystem`).
 
 - **Gen 1/2 (≈ 4–6 days):** everything is in WRAM, so the 10 Hz mirror and `WATCH` both reach it. Gen 1: `wCurMap` 0xD35E, `wYCoord`/`wXCoord` 0xD361/2 (16 px steps), `wWalkCounter` 0xCFC5 (8 → 0, 2 px per frame) with `wPlayerMovingDirection` 0xD528 for the sub-step, facing `wSpritePlayerStateData1FacingDirection` 0xC109, bike/surf `wWalkBikeSurfState` 0xD700; the player sits at a fixed spot (sprite at 64, 60). Gen 2 (Crystal): `wMapGroup`/`wMapNumber` 0xDCB5/6, `wYCoord`/`wXCoord` 0xDCB7/8, `wPlayerStruct` 0xD4D6 (facing, step offsets), `wPlayerGender` 0xD472, `wPlayerState` 0xD95D (bike/surf). Sprites: 2bpp 16×16 sheets (`RedSprite` 05:4180, Crystal's Chris/Kris sprites) – trivial to decode. The hard part is the colour: Gen 1 on a Color console is coloured by the boot ROM's palette for the title, Gen 2 by its OBJ palettes in ROM (`PAL_NPC_*`) – both reproducible, but to be checked against what Gambatte shows. `hSCX`/`hSCY` are in HRAM, outside the mirror; not needed with the walk counter.
 - **Gen 4:** done for Platinum and HeartGold/SoulSilver – see "Gen 4 (DS)" above. Left: Diamond/Pearl (their `sFieldSystem`, `NNS_G3dGlb` and `gSystem` addresses, verified in a running game – `NNS_G3dGlb` can be found by its first word, `0x17101610`), other languages, depth against the map.
-- **Gen 5 (B/W, B2/W2):** like Gen 4 with a freely tilting camera on many maps: hard; best kept to the board's "Tim is on Route 4".
+- **Gen 5 (B/W, B2/W2): dropped for now** (spike on Black 2 US, 19 Nov 2026). The camera part works the Gen 4 way:
+  Black 2 also hands its field camera to NitroSystem (`NNS_G3dGlb` at 0x02143A0C, found by its first word; a
+  perspective projection), and a marker on a grass tile of Route 19 stayed on its tile while walking with the camera
+  following. The rest has no clean footing: there is no symbol map or decomp for B/W/B2/W2, so the player's position,
+  the field's state (menus, scripts, battles) and the frame counter the timing needs would come from heap pointers found
+  by scanning RAM, not from the game's own symbols as in Gen 4; and the overworld sprites are another format. By the
+  owner's rule (only the clean approach, no workaround) Gen 5 keeps the board's "Tim is on Route 4".
 - **3DS:** research only.
 
 ### Effort for the rest
