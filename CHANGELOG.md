@@ -12,12 +12,12 @@ Plus a new play view that gives the game the room it deserves.
 - **Trade and battle with your partners – Gen 1 to Gen 5, no restart.** On the board, each partner's card has Trade
   and Battle; your partner gets the invite, presses Join, and both games go into the link right from where you are –
   in the middle of a route, a text box, a menu. No reboot, no title screen: walk to the Cable Club (Gen 1–3) or the
-  Union Room (Gen 4 and 5), trade or battle as on real hardware, press “Leave link”, and each game goes on alone from where
-  the link left it. Every player's computer runs all linked consoles in lockstep and only the buttons travel, so it
-  feels like a cable even between two homes; when no direct connection can be made, it goes through a relay server.
-  Tested end to end with Red, Crystal with Silver (cartridge clock included),
-  Emerald with Sapphire and Platinum; different games of a generation link too – souldew finds your partner's game in
-  your library or lets you pick it, checked byte for byte.
+  Union Room (Gen 4 and 5), trade or battle as on real hardware, press “Leave link”, and each game goes on alone from
+  where the link left it. Every player's computer runs all linked consoles in lockstep and only the buttons travel, so
+  it feels like a cable even between two homes; when no direct connection can be made, it goes through a relay server.
+  Tested end to end with Red, Crystal with Silver (cartridge clock included), Emerald with Sapphire, Platinum, Diamond
+  with Pearl and Black; different games of a generation link too – souldew finds your partner's game in your library
+  or lets you pick it, checked byte for byte.
 - **Up to four players where the game has it:** the Gen 3 Multi Battle (two against two) and the Gen 4 Union Room,
   where all four of you see each other and trade in pairs. “Link all of us” on the board starts it.
 - **Made to be safe for your run.** A trade goes into the run's log. Before the link souldew keeps your save; if the
