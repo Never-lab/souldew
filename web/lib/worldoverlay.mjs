@@ -11,7 +11,7 @@
 import {
   worldTable, watchRanges, rangeReader, chainReaders, readCamera, readPlayer, readLocalSprite, drawable, OverworldLearner,
   Track, unpackState, screenPos, facedPartner, gfxFor, kindFor, animFor, readMapView, blockReader, popupRect, GBA_KEY, TILE,
-  Follower, followerHidden, readConnections, inLocalFrame,
+  Follower, followerHidden, readConnections, inLocalFrame, APress,
 } from '/shared/world.mjs';
 import { findMonIcons, monIcon, iconIndex, dexToInternal, NAT } from '/shared/worldicons.mjs';
 import { ART, HAND_ART, artSize, paintArt, artCanvas, INK } from '/lib/worldart.mjs';
@@ -66,7 +66,8 @@ const SPARKLE = ['..#..', '..#..', '##o##', '..#..', '..#..'];
 
 /**
  * Installs window.__world in a player page. `host`: { system, romUrl, read(addr, len), rect() → the picture's box in
- * CSS pixels, watch?(ranges) (native: per-picture bytes), pause(), resume(), paused(), post(msg), keyButton?(e) }.
+ * CSS pixels, watch?(ranges) (native: per-picture bytes), watchedNow?() (native: the newest of those bytes), pause(),
+ * resume(), paused(), post(msg), keyButton?(e) }.
  */
 export function installWorld(host) {
   let st = null; // everything once config() turned it on
@@ -202,8 +203,8 @@ function world(host, t, rom, dex) {
   let cam = null;
   let shown = 0; // opacity
   let menu = null;
-  let aHeld = false;
-  let aAt = 0;
+  const aPress = new APress(); // walking up to a partner and pressing A
+  let aTimer = 0;
   let lastState = 0;
   let raf = 0;
   let stopped = false;
@@ -722,17 +723,45 @@ function world(host, t, rom, dex) {
   }
 
   // ---- walking up to a partner ----------------------------------------------------------------------------------------
+  const aConfirmMs = gb ? A_CONFIRM_GB_MS : A_CONFIRM_MS;
+  // The browser player: the game's held keys, read with every picture. (The fast player tells the buttons themselves:
+  // input() → confirmA, independent of how often pictures are drawn.)
   function interact(now, read, can, list) {
-    const a = !!((cam?.keys || 0) & GBA_KEY.A) || !!(inputBits & RETRO_A);
-    const edge = a && !aHeld;
-    aHeld = a;
+    aPress.sample(!!((cam?.keys || 0) & GBA_KEY.A), now);
+    if (aPress.direct) return;
     if (menu || !can) {
-      aAt = 0;
+      aPress.cancel();
       return;
     }
-    if (edge) aAt = now;
-    if (!aAt || now - aAt < (gb ? A_CONFIRM_GB_MS : A_CONFIRM_MS)) return;
-    aAt = 0;
+    if (aPress.due(now, aConfirmMs)) tryMenu(read, cam, list);
+  }
+
+  /**
+   * The fast player: A went down `aConfirmMs` ago – what the game shows right now (the newest bytes it sent, not the
+   * last picture drawn: that may be older than the press) decides whether it answered the button itself.
+   */
+  function confirmA() {
+    aTimer = 0;
+    if (stopped || !aPress.pending) return;
+    aPress.cancel();
+    const now = performance.now();
+    const fresh = host.watchedNow?.();
+    const read = watched && fresh && fresh.length === 4 + watched.total ? chainReaders(rangeReader(watched.ranges, fresh.subarray(4)), mirror) : reader();
+    const c = readCamera(t, read);
+    if (menu || rpsUi?.modal || !cfg.enabled || !host.ready() || !drawable(t, c, learner.cb2)) return;
+    const list = [...tracks].map(([slot, tr]) => {
+      const s = tr.sample(now, conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null);
+      return { slot, s, pos: s ? screenPos(t, c, s) : null };
+    });
+    tryMenu(read, c, list);
+  }
+  function armA() {
+    clearTimeout(aTimer);
+    aTimer = setTimeout(confirmA, aConfirmMs);
+  }
+
+  /** A was pressed (and the game didn't take it over): the menu of the partner faced, if one stands there. */
+  function tryMenu(read, cam, list) {
     if (cam.locked) return; // the game answered the button itself (a sign, someone standing there)
     const me = readPlayer(t, read, cam);
     if (!me || me.x !== me.tx * TILE || me.y !== me.ty * TILE) return; // only standing still
@@ -894,7 +923,7 @@ function world(host, t, rom, dex) {
     removeEventListener('keydown', onKey, true);
     removeEventListener('keyup', swallow, true);
     removeEventListener('pointerdown', outside, true);
-    aHeld = true; // the A that chose doesn't open it again
+    aPress.swallow(); // the A that chose doesn't open it again
     if (!m.wasPaused) host.resume();
   }
   function swallow(e) {
@@ -997,7 +1026,7 @@ function world(host, t, rom, dex) {
     } else {
       removeEventListener('keydown', rpsKey, true);
       removeEventListener('keyup', swallow, true);
-      aHeld = true;
+      aPress.swallow();
       if (!u.wasPaused) host.resume();
     }
   }
@@ -1146,6 +1175,11 @@ function world(host, t, rom, dex) {
     },
     input(bits) {
       inputBits = bits >>> 0;
+      // (A went down: the menu's check runs when the game had time to answer – even if no picture shows the press)
+      if (aPress.input(!!(inputBits & RETRO_A), performance.now())) {
+        if (menu || rpsUi?.modal) aPress.cancel();
+        else armA();
+      }
     },
     rewatch() {
       watchKey = '';
@@ -1167,6 +1201,7 @@ function world(host, t, rom, dex) {
         occlusion: occ ? { layout: occ.layout, covered } : null, popup,
         ...(gb ? { gb: { palette: gbObj, ownFollows: gbOwnFollows, grass: me0 && occ?.gb ? occ.grassAt(me0.tx, me0.ty) : null } } : {}),
         ranges: watched?.ranges || null,
+        renders: ticks, // (tests: how often the overlay draws – the pictures it gets and the page's animation frames)
         frames: gb && watched ? { shown: watched.frame, bytes: watched.at } : null,
         partners: Object.fromEntries([...tracks].map(([slot, tr]) => {
           const conv = conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null;
@@ -1179,6 +1214,7 @@ function world(host, t, rom, dex) {
       stopped = true;
       cancelAnimationFrame(raf);
       clearInterval(padTimer);
+      clearTimeout(aTimer);
       closeMenu();
       closeRps();
       layer.remove();

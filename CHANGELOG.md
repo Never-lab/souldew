@@ -263,6 +263,11 @@ Plus a new play view that gives the game the room it deserves.
   souldew started or the emulator launched, on a busy computer – could go unnoticed until your next in-game save,
   most often a first save into melonDS's own save folder. souldew now notes every save file the moment it starts
   watching, so that save is read like any other.
+- **A quick tap of A opens the Shared World menu every time.** Walking up to a partner and tapping A only counted
+  when one of the drawn pictures happened to show the button held – on a busy computer, or one that draws the game less
+  often, a short tap could fall between two pictures and nothing opened. Now the press counts the moment you make it,
+  and whether the game answered it itself (a sign, someone standing there) is checked on what the game shows right
+  then.
 - **Everything from 2.8 comes along:** the re-bindable shortcuts (now in Settings › Controls, next to the keyboard
   keys – ⌘I / Ctrl+I stays the dock's), “playing now” under Settings › Online, and the steady fast-forward sound of
   2.8.2 in the souldew engine too.

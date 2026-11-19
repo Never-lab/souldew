@@ -242,7 +242,7 @@ async function plus({ world, hold, shot, log, sleep, until, out, ev, wins, gameR
       await sleep(450);
     }
   }
-  log('next to B', JSON.stringify({ local: (await world(0)).local, own: (await world(0)).own, drawn: (await world(0)).followers }));
+  log('next to B', JSON.stringify({ local: (await world(0)).local, B: await local(1), own: (await world(0)).own, drawn: (await world(0)).followers }));
   await hold(0, ['a'], 120);
   const m = await until('menu', async () => (await world(0))?.menu, 6000);
   for (let n = 0; n < 8 && (await world(0))?.menu?.sel !== 'rps'; n++) { await key(0, 'ArrowDown'); await sleep(120); }
@@ -882,6 +882,16 @@ async function main() {
       setInterval(repel, 2000).unref?.();
     }
     await sleep(1500);
+    // how often each page's overlay draws (the pictures it gets and the page's animation frames – a hidden window may
+    // get few of them; an A press must count all the same) and whether the page thinks it's visible
+    const drawRate = await Promise.all(profiles.map(async (_, i) => {
+      const r0 = (await world(i))?.renders;
+      await sleep(1000);
+      const r1 = (await world(i))?.renders;
+      const vis = await ev(i, `(() => { const f = document.querySelector('.console-screen iframe'); return document.visibilityState + '/' + f?.contentWindow?.document.visibilityState; })()`).catch(() => null);
+      return { perSecond: r1 - r0, visible: vis };
+    }));
+    log('overlay draws', JSON.stringify(drawRate));
     const st = await Promise.all(profiles.map((_, i) => world(i)));
     log('local states', JSON.stringify(st.map((s) => ({ game: s?.game, perFrame: s?.perFrame, local: s?.local, learned: s?.learned, sprite: s?.sprite, cam: s?.cam }))));
     const gameRect = async (i) => {
