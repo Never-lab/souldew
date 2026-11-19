@@ -1878,6 +1878,8 @@
   "linkplay.h2h": "{me} {a} : {b} {name}",
   "linkplay.h2hDraws": "{n} draw|{n} draws",
   "linkplay.h2hHint": "Link battles in this run",
+  "linkplay.inBattleWith": "In a link battle with {name}",
+  "linkplay.inLinkWith": "In a link with {name}",
   "linkplay.invitedBattle": "{name} wants to battle you!",
   "linkplay.invitedTrade": "{name} wants to trade Pokémon with you!",
   "linkplay.join": "Join",

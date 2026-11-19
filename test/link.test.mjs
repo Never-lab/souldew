@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { registerHooks } from 'node:module';
+import { execFileSync } from 'node:child_process';
 import { ownSeat, resolveSeat, pickSeat, loadPicks, partnerBuildRequest, extractTarget } from '../server/lib/linkroms.mjs';
 import { cleanIceServers, linkIceServers, resetLinkIce } from '../server/lib/linkice.mjs';
 import { LIVE_RUNS_URL } from '../server/lib/liveruns.mjs';
@@ -19,9 +20,22 @@ import { command } from '../server/lib/ctr.mjs';
 import { readLocation } from '../shared/live/location.mjs';
 
 const ROOT = new URL('../', import.meta.url).href;
+// The link sessions of a build before the 'linked' announcement (git history; the test using it is skipped without it)
+const OLD_LINKSESSION = `${ROOT}web/lib/linksession.mjs?before-linked`;
+let oldLinkSource = null;
+try {
+  oldLinkSource = execFileSync('git', ['show', '1512c29:web/lib/linksession.mjs'], { cwd: new URL(ROOT), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+} catch {
+  // a checkout without that history
+}
 registerHooks({
+  load(url, ctx, next) {
+    if (url === OLD_LINKSESSION && oldLinkSource) return { format: 'module', source: oldLinkSource, shortCircuit: true };
+    return next(url, ctx);
+  },
   resolve(spec, ctx, next) {
     if (spec.startsWith('/shared/')) return next(ROOT + spec.slice(1), ctx);
+    if (spec === '/vendor/htm-preact.mjs') return next(ROOT + 'node_modules/htm/preact/standalone.module.js', ctx);
     if (spec.startsWith('/vendor/')) return next(ROOT + 'web' + spec, ctx);
     return next(spec, ctx);
   },
@@ -246,13 +260,16 @@ function browserGlobals() {
 }
 
 /** Two pages of one run (p1 = Marius, p2 = Tim): their channel, their servers (fetch), what reached the link hosts. */
-async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200, consoles = null, oldB = false, rules = {} } = {}) {
+async function pair({ missingOnB = false, seamless = false, binary = false, saveStatus = 200, consoles = null, oldB = false, rules = {}, third = null } = {}) {
   const g = browserGlobals();
   const { LinkSessions } = await import('../web/lib/linksession.mjs');
-  const roms = { p1: 'a'.repeat(40), p2: 'b'.repeat(40) };
+  const roms = { p1: 'a'.repeat(40), p2: 'b'.repeat(40), p3: 'c'.repeat(40) };
   const peers = {};
   const net = { delivered: 0, drop: false, log: [] };
+  // third: a third player of the run (p3, not in the session) – 'new' or an older build ('old': web/lib/linksession.mjs
+  // as it was before the 'linked' announcement); the channel then knows every player (sync.others)
   const sync = (slot) => ({
+    ...(third ? { others: ['p1', 'p2', 'p3'].filter((s) => s !== slot) } : {}),
     onLink: (fn) => ((peers[slot] = fn), () => delete peers[slot]),
     sendLink: (msg, to) => {
       // (oldB: B's souldew is an older 3.0 build – it knows no caps and no wager)
@@ -273,7 +290,7 @@ async function pair({ missingOnB = false, seamless = false, binary = false, save
       return true;
     } } : {}),
   });
-  const server = { p1: { cmds: [], starts: [], restores: [], missing: [] }, p2: { cmds: [], starts: [], restores: [], missing: missingOnB ? [{ slot: 'p1', canBuild: false }] : [] } };
+  const server = { p3: { cmds: [], starts: [], restores: [], missing: [] }, p1: { cmds: [], starts: [], restores: [], missing: [] }, p2: { cmds: [], starts: [], restores: [], missing: missingOnB ? [{ slot: 'p1', canBuild: false }] : [] } };
   /** Each player's own local server. */
   const fetchFor = (who) => async (url, opts = {}) => {
     const s = server[who];
@@ -288,10 +305,10 @@ async function pair({ missingOnB = false, seamless = false, binary = false, save
     if (url.startsWith('/api/native/cmd')) { s.cmds.push(new Uint8Array(opts.body)); return { ok: true, arrayBuffer: async () => new ArrayBuffer(0) }; }
     throw new Error(`unexpected ${url}`);
   };
-  const closed = { p1: 0, p2: 0 };
-  const emuState = { p1: null, p2: null };
+  const closed = { p1: 0, p2: 0, p3: 0 };
+  const emuState = { p1: null, p2: null, p3: null };
   // seamless: each player's game runs in the fast player – what the page asked of it is logged
-  const emuLog = { p1: [], p2: [] };
+  const emuLog = { p1: [], p2: [], p3: [] };
   // consoles: every seat's memory (seat → { read(addr, len) }) – every peer's link host runs the same consoles
   const emuFor = (slot) => ({
     linkState: async () => emuState[slot],
@@ -303,13 +320,16 @@ async function pair({ missingOnB = false, seamless = false, binary = false, save
       resumeSolo: async (from) => (emuLog[slot].push(['resume', from ? new TextDecoder().decode(from.state).slice(0, 22) : null]), true),
     } : {}),
   });
-  const results = { p1: [], p2: [] };
-  const mk = (slot) => new LinkSessions({ sync: sync(slot), runId: 'run1', me: slot, onChange: () => {}, openSession: () => {}, closeSession: () => closed[slot]++,
+  const results = { p1: [], p2: [], p3: [] };
+  const changes = { p1: 0, p2: 0, p3: 0 };
+  const OldLinkSessions = third === 'old' ? (await import(OLD_LINKSESSION)).LinkSessions : null;
+  const mk = (slot, Cls = LinkSessions) => new Cls({ sync: sync(slot), runId: 'run1', me: slot, onChange: () => changes[slot]++, openSession: () => {}, closeSession: () => closed[slot]++,
     emu: () => emuFor(slot), ownGame: () => seamless, fetchImpl: fetchFor(slot), rules: () => rules, onResult: (e) => results[slot].push(e) });
   const A = mk('p1'), B = mk('p2');
+  const C = third ? mk('p3', OldLinkSessions || LinkSessions) : null;
   const settle = async (ms = 1700) => { for (let i = 0; i < ms / 50; i++) await new Promise((r) => setTimeout(r, 50)); };
   const as = (slot, fn) => fn; // (each page has its own server now)
-  return { A, B, g, server, net, as, settle, closed, emuState, emuLog, roms, fetchFor, sync, results };
+  return { A, B, C, g, server, net, as, settle, closed, emuState, emuLog, roms, fetchFor, sync, results, changes };
 }
 
 test('linksession: invite → join → every game here → saves → go: both link hosts start with the same seats', async () => {
@@ -397,6 +417,86 @@ test('linksession: states go as bytes when the channel can; a busy player says s
   assert.deepEqual(A.state.snaps, {});
   assert.equal(A.state.models, undefined);
   A.stop(), B.stop();
+});
+
+test('linksession, bystander: the players outside a session see who is linked with whom – until it ends', async () => {
+  const { A, B, C, settle, net, changes } = await pair({ third: 'new' });
+  await A.invite('trade', ['p2']);
+  await settle(100);
+  assert.equal(C.linkedElsewhere('p1'), null, 'only invited: nothing said yet');
+  await B.accept();
+  await settle(3500);
+  assert.equal(A.state.phase, 'running');
+  assert.equal(C.state.phase, 'idle', 'the third player isn\'t part of it');
+  assert.deepEqual(C.linkedElsewhere('p1'), { seats: ['p1', 'p2'], kind: 'trade' });
+  assert.deepEqual(C.linkedElsewhere('p2'), { seats: ['p1', 'p2'], kind: 'trade' });
+  assert.ok(changes.p3 > 0, 'the third player\'s page re-renders');
+  assert.equal(A.linkedElsewhere('p2'), null, 'the seats know their own session');
+  const said = net.log.filter((m) => m.t === 'linked');
+  assert.ok(said.length >= 2 && said.every((m) => m.to === 'p3'), 'told only to the players outside the session');
+  // a heartbeat brings it to a page that wasn't there yet (reload, came online)
+  C.elsewhere = {};
+  A._announce(true);
+  await settle(100);
+  assert.deepEqual(C.linkedElsewhere('p1')?.seats, ['p1', 'p2']);
+  // only ever about the sender itself: a claim for others, or a session with me in it, is dropped
+  await C._in({ t: 'linked', on: true, seats: ['p2', 'p4'], kind: 'battle', from: 'p1' });
+  await C._in({ t: 'linked', on: true, seats: ['p1', 'p3'], kind: 'battle', from: 'p1' });
+  await C._in({ t: 'linked', on: true, seats: ['p4', 'p4'], kind: 'battle', from: 'p4' });
+  assert.deepEqual(C.linkedElsewhere('p1'), { seats: ['p1', 'p2'], kind: 'trade' });
+  assert.equal(C.linkedElsewhere('p4'), null);
+  // the session ends: cleared right away
+  A.leave('left');
+  await settle(300);
+  assert.equal(C.linkedElsewhere('p1'), null);
+  assert.equal(C.linkedElsewhere('p2'), null);
+  // a seat that went quiet (crash, closed page) is no longer shown after a while
+  await C._in({ t: 'linked', on: true, seats: ['p1', 'p2'], kind: 'battle', from: 'p2' });
+  assert.equal(C.linkedElsewhere('p2')?.kind, 'battle');
+  C.elsewhere.p2.at -= 11000;
+  assert.equal(C.linkedElsewhere('p2'), null);
+  const before = changes.p3;
+  C._expire();
+  assert.deepEqual(C.elsewhere, {});
+  assert.equal(changes.p3, before + 1);
+  A.stop(), B.stop(), C.stop();
+});
+
+test('board: a partner linked with others – "In a link with Tim" on their card, Trade / Battle wait (the reason as their hint)', async () => {
+  const { linkedText } = await import('../web/views/linkplay.mjs');
+  const names = { p1: { name: 'Marius' }, p2: { name: 'Tim' }, p3: { name: 'Lou' }, p4: { name: 'Robin' } };
+  const sessions = (e) => ({ linkedElsewhere: (s) => e[s] || null });
+  assert.equal(linkedText(sessions({ p1: { seats: ['p1', 'p2'], kind: 'trade' } }), 'p1', names), 'In a link with Tim');
+  assert.equal(linkedText(sessions({ p2: { seats: ['p1', 'p2'], kind: 'trade' } }), 'p2', names), 'In a link with Marius');
+  assert.equal(linkedText(sessions({ p1: { seats: ['p1', 'p2', 'p4'], kind: 'battle' } }), 'p1', names), 'In a link battle with Tim, Robin');
+  assert.equal(linkedText(sessions({}), 'p1', names), null, 'not linked: nothing');
+  assert.equal(linkedText(null, 'p1', names), null);
+  assert.equal(linkedText({}, 'p1', names), null, '(a page without the announcement)');
+});
+
+test('linksession, bystander: an older 3.0 build ignores the announcement – idle, after a session, or in its own', { skip: !oldLinkSource && 'no git history' }, async () => {
+  const { A, B, C, settle, net } = await pair({ third: 'old' });
+  assert.equal(typeof C.linkedElsewhere, 'undefined', 'the build before it');
+  await A.invite('trade', ['p2']);
+  await settle(100);
+  await B.accept();
+  await settle(3500);
+  assert.equal(A.state.phase, 'running');
+  assert.ok(net.log.some((m) => m.t === 'linked' && m.to === 'p3'), 'it was told');
+  assert.equal(C.state.phase, 'idle');
+  assert.ok(!net.log.some((m) => m.from === 'p3'), 'and said nothing back');
+  // in a session of its own (with a fourth player) and after one: still untouched
+  C._new({ phase: 'running', sid: 'own', seats: ['p3', 'p4'], kind: 'battle' });
+  await C._in({ t: 'linked', on: true, seats: ['p1', 'p2'], kind: 'trade', from: 'p1' });
+  await C._in({ t: 'linked', on: false, from: 'p1' });
+  assert.equal(C.state.phase, 'running');
+  C._set({ phase: 'ended' });
+  await C._in({ t: 'linked', on: true, seats: ['p1', 'p2'], kind: 'trade', from: 'p1' });
+  assert.equal(C.state.phase, 'ended');
+  assert.ok(!net.log.some((m) => m.from === 'p3'));
+  A.leave('left');
+  await settle(300);
+  A.stop(), B.stop(), C.stop();
 });
 
 test('linksession: our save that can\'t be read stops the start (a partner would boot a blank cartridge)', async () => {

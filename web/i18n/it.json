@@ -793,6 +793,8 @@
   "linkplay.preparing": "Preparazione del link: controllo dei giochi, scambio dei salvataggi …",
   "linkplay.saveDiffers": "Un salvataggio è arrivato danneggiato. Riprova.",
   "linkplay.busy": "{name} è già in un altro collegamento.",
+  "linkplay.inLinkWith": "In collegamento con {name}",
+  "linkplay.inBattleWith": "In una lotta in link con {name}",
   "linkplay.challenge": "Sfida",
   "linkplay.challengeFor": "Sfida per {amount}",
   "linkplay.challengeTitle": "Sfida {name}",

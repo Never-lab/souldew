@@ -1525,6 +1525,7 @@ html.pad-nav .cart:focus .cart-title { color: var(--focus); }
 .wager-input { display: inline-flex; align-items: center; gap: 4px; }
 .wager-input input { width: 88px; }
 .h2h { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.link-away { display: inline-flex; align-items: center; gap: 4px; color: var(--ink-2); }
 .battle-invite .chip { margin-left: 6px; }
 .battle-invite .chip.wager, .link-stake { color: var(--warn-ink); }
 .link-result { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; background: var(--shell-2); border: 1px solid var(--edge); }

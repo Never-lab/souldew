@@ -793,6 +793,8 @@
   "linkplay.preparing": "Preparando el link: comprobando los juegos, intercambiando partidas guardadas …",
   "linkplay.saveDiffers": "Una partida guardada llegó dañada. Vuelve a intentarlo.",
   "linkplay.busy": "{name} está ahora en otra conexión.",
+  "linkplay.inLinkWith": "Conectado con {name}",
+  "linkplay.inBattleWith": "En un combate en link con {name}",
   "linkplay.challenge": "Desafiar",
   "linkplay.challengeFor": "Desafiar por {amount}",
   "linkplay.challengeTitle": "Desafiar a {name}",
