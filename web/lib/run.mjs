@@ -2,9 +2,10 @@
 // (incl. Definitive HG) use a curated route list with level caps, every other game builds its
 // area list on the fly from the catch locations the players report.
 import { PROGRESSION, VANILLA_CAPS, areaForMetLocation, levelCapFor, gymCapsFamily, vanillaCapFor, romCapFor, prettyTrainer } from '/shared/routes.mjs';
-import { gen4data, speciesName, pokeapi, giftItemName, itemNameByKey } from './data.mjs';
+import { gen4data, speciesName, pokeapi, giftItemName, itemNameByKey, gameById as catalogGame } from './data.mjs';
 import { t, currentLang } from './i18n.mjs';
-import { ALL_SLOTS, slotsOf, runMode, isNuzlocke, othersOf } from '/shared/slots.mjs';
+import { ALL_SLOTS, slotsOf, runMode, isNuzlocke, isTogether, othersOf, runSection } from '/shared/slots.mjs';
+import { gameInfo, cleanGameInfo } from '/shared/playtogether.mjs';
 import { DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, rulesWithDefaults, cheatGroups } from '/shared/rules.mjs';
 import { CHEATS, cheatAllowed } from '/shared/live/cheats.mjs';
 import { placeName } from '/shared/live/location.mjs';
@@ -13,7 +14,7 @@ import { livesLeft, livesOf, deathsIn, poolOf } from '/shared/lives.mjs';
 import { hostSlotOf, canEditRules, SOULLINK_RULE_KEYS } from '/shared/hostrules.mjs';
 import { cleanSummary } from '/shared/monstats.mjs';
 
-export { ALL_SLOTS, slotsOf, runMode, isNuzlocke, othersOf, DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, hostSlotOf, canEditRules };
+export { ALL_SLOTS, slotsOf, runMode, isNuzlocke, isTogether, othersOf, runSection, DEFAULT_RULES, RULE_PRESETS, NUZLOCKE_RULES, hostSlotOf, canEditRules };
 // Runs from before 1–4 players were always a pair – the default where no slots/manifest are passed.
 const PAIR = ['p1', 'p2'];
 
@@ -324,6 +325,7 @@ function missedMsg(doc, manifest, area, species) {
  * shows it). The boss segment it died in is kept for the stats. In a deathless Nuzlocke the first death ends the run.
  */
 export function markDead(doc, manifest, area, { slot, cause = '', level = null, killer = null, place = null, feedId = undefined } = {}) {
+  if (isTogether(manifest)) return false; // (Play together: nothing ever dies)
   const p = doc.get(`pair:${area}`) || {};
   if (p.state === 'dead') return false;
   const segment = levelCap(doc, manifest, slot || 'p1').boss?.key ?? null;
@@ -826,7 +828,7 @@ export function wipedSlot(doc, slots = ALL_SLOTS, manifest = Array.isArray(slots
  * and markExtraDead() reopen a run whose cause they undo. `feedId`: a fixed id for the log line (endByLives).
  */
 export function failRun(doc, manifest, slot, reason = 'wipe', { area = null, extra = null } = {}, feedId = undefined) {
-  if (doc.get('run:status')) return false;
+  if (doc.get('run:status') || isTogether(manifest)) return false; // (Play together can't fail)
   const rule = reason === 'blackout' && runMode(manifest) === 'nuzlocke' ? rules(doc, manifest).blackout : null;
   doc.set('run:status', { state: 'failed', at: Date.now(), by: slot, auto: true, note: null, reason, ...(area ? { area } : extra ? { extra } : {}), ...(rule ? { rule } : {}) });
   const name = players(doc, manifest)[slot]?.name || slot.toUpperCase();
@@ -976,6 +978,7 @@ export function pairTypeClash(doc, manifest, rd, me, species, at = Date.now()) {
 }
 
 export function checks(doc, manifest, rd) {
+  if (isTogether(manifest)) return []; // (no rules to break in Play together)
   const r = rules(doc, manifest);
   const out = [];
   const pn = players(doc, manifest);
@@ -1328,7 +1331,65 @@ export function logSaveImport(doc, manifest, slot, { undo = false } = {}) {
  * snapshot ended a Nuzlocke, 'lives' when one of its deaths took the last life (any mode; SoulLinks otherwise end
  * through wipedSlot/failRun as before).
  */
+/**
+ * Play together: every player's game as the partners announced it (`game:<slot>`, shared/playtogether.mjs gameInfo) –
+ * this computer's own from its run (always current) – { slot: info | null }.
+ */
+export function togetherGames(doc, manifest, me = null) {
+  const own = me && manifest?.outputs?.[me] ? gameInfo(manifest.game, catalogGame(manifest.game?.id)) : null;
+  return Object.fromEntries(slotsOf(manifest).map((s) => [s, s === me && own ? own : cleanGameInfo(doc?.get?.(`game:${s}`, null))]));
+}
+
+/**
+ * The id a run player's save states and "where you left off" go by in the play view: the run's own – or, in Play
+ * together, the library game's (its free play's), so the states are one set with the game's save (shared/playtogether.mjs).
+ */
+export function runStateId(manifest, me) {
+  const lib = isTogether(manifest) ? manifest?.outputs?.[me]?.library : null;
+  return typeof lib === 'string' && lib ? lib : `run-${manifest?.id}-${me}`;
+}
+
+/** This computer's player tells the others which game they play (Play together): once, and again when it changes. */
+export function announceGame(doc, manifest, me) {
+  if (!doc || !isTogether(manifest) || !manifest.outputs?.[me]) return false;
+  const info = gameInfo(manifest.game, catalogGame(manifest.game?.id));
+  if (JSON.stringify(doc.get(`game:${me}`, null)) === JSON.stringify(info)) return false;
+  doc.set(`game:${me}`, info);
+  return true;
+}
+
+const NOTHING = () => ({ inbox: [], alerts: [], newCatches: [], deaths: [], failed: null });
+
+/**
+ * Play together (shared/playtogether.mjs): what the tracker writes of a player's game – their live team, badges and
+ * play time for the board, the partners (Shared World followers, gifts, raids, watching) and the stream overlay. No
+ * encounter, no death, no level cap, nothing that can end the run; a new badge goes to the log (the one line a
+ * friend's game adds there besides trades, battles, raids and gifts). The same "no flicker" guards as applySnapshot:
+ * an empty party (title screen, reset) and an older save file under fresh live data change nothing.
+ */
+export function applyTogether(doc, manifest, slot, snap) {
+  if (snap.source !== 'save' && !(snap.party || []).length && !(snap.boxes || []).length) return NOTHING();
+  const prev = live(doc, slot);
+  if (snap.source === 'save' && prev?.source === 'live' && Date.now() - (prev.at || 0) < LIVE_FRESH) return NOTHING();
+  const party = (snap.party || []).map((m) => liveMon(m, null, false));
+  const badges = snap.badges ?? prev?.badges ?? 0;
+  const best = Math.max(prev?.badgesBest ?? 0, prev?.badges || 0);
+  const firstRead = snap.badges !== undefined && prev && !prev.badgesRead && snap.source !== 'save';
+  if (prev && badges > best && !firstRead) feedMsg(doc, manifest, { type: 'badge', slot, msg: msg('feed.badge', 'Earned badge #{n}!', { n: badges }) });
+  const next = {
+    source: snap.source || 'live', trainer: snap.trainer || prev?.trainer || '', badges,
+    ...(snap.badges !== undefined || prev?.badgesRead ? { badgesRead: true } : {}),
+    ...(Math.max(best, badges) > badges ? { badgesBest: best } : {}),
+    playTime: snap.playTime || prev?.playTime || null, party,
+    boxCount: snap.boxes ? snap.boxes.length : prev?.boxCount ?? null, game: snap.game || prev?.game || null,
+  };
+  const { at, ...was } = prev || {};
+  if (JSON.stringify(was) !== JSON.stringify(next) || !at || Date.now() - at > 30000) doc.set(`live:${slot}`, { ...next, at: Date.now() });
+  return NOTHING();
+}
+
 export function applySnapshot(doc, manifest, gen, slot, snap, { auto = true, rd = null, battle = null, held = null } = {}) {
+  if (isTogether(manifest)) return applyTogether(doc, manifest, slot, snap);
   // The party is never empty once the game has started – an empty live party is the title screen, a reset or a
   // save being loaded. Applying it would wipe the team (the partner sees warnings), drop the badges to 0 and then
   // announce every badge as "newly earned" once the game is loaded again.

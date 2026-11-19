@@ -8,7 +8,7 @@ import { t, ago } from '../lib/i18n.mjs';
 import { api } from '../lib/api.mjs';
 import { serverErrorText } from '../lib/errors.mjs';
 import { gameById, gameTitle, speciesName, hackById, itemName, moveName } from '../lib/data.mjs';
-import { players as getPlayers, live, othersOf, runMode, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, logWagerPaid, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
+import { players as getPlayers, live, othersOf, runMode, runSection, runStateId, isTogether, missedQuestion, openAreas, markMissed, locationChoices, areaForCatch, genOfRun, profileOf, rules as getRules, logCheat, logWagerPaid, slotsOf, levelCap, pairState, areaName, dupeOf, areaForPlace, encounter, beforeBalls } from '../lib/run.mjs';
 import { findEntry, readLiveParty, readLiveBattle, playerBattle, withBattleHp, confirmFaints, inBattleFlag, LiveTables, expandedEntry } from '/shared/live/parse.mjs';
 import { applyCheat, cheatsFor, cheatBlock, cheatAllowed, bagLayoutKey, CHEATS, readBalls, locateCtrBag } from '/shared/live/cheats.mjs';
 import { CheatMenu, cheatConfirmText, cheatDoneText, cheatFailText } from './cheatmenu.mjs';
@@ -25,6 +25,7 @@ import { FeatureCheck, romFeatures } from '/shared/live/features.mjs';
 import { gymCapsFamily } from '/shared/routes.mjs';
 import { shiftEntry } from '/shared/live/romwram.mjs';
 import { RulesTab } from './board.mjs';
+import { ChoicesTab } from './playtogether.mjs';
 import { LaunchStage, insertCover } from './launchstage.mjs';
 import { CartInsert } from './cartinsert.mjs';
 import { launchConfig, launchRightsNow } from '../lib/handheld/look.mjs';
@@ -110,7 +111,7 @@ function useTarget() {
     return {
       kind: 'run', key: `run-${manifest.id}-${me}`, system: manifest.game?.system || 'nds', code: manifest.game?.code, title: manifest.game?.title,
       rom: `/api/runs/${manifest.id}/file?inline=1&name=${encodeURIComponent(out.rom)}`, name: out.rom.replace(/\.\w+$/, ''),
-      saveUrl: `/api/runs/${manifest.id}/save/${me}`, stateId: `run-${manifest.id}-${me}`, label: manifest.name, gameId: manifest.game?.id,
+      saveUrl: `/api/runs/${manifest.id}/save/${me}`, stateId: runStateId(manifest, me), label: manifest.name, gameId: manifest.game?.id,
       runId: manifest.id, params: { run: manifest.id },
       // the run's game may call more Pokémon shiny (shared/shiny.mjs) – the live reader counts them as the game does
       shinyOdds: shinyThreshold(manifest.shiny),
@@ -686,7 +687,7 @@ export function GameSession({ session, mode }) {
     close: () => {
       const full = modeRef.current === 'full';
       // a run's game goes back to its overview (SoulLink / Nuzlocke), free play to the play page
-      closeSession(() => full && navigate(isRun ? runMode(manifest) : 'play'));
+      closeSession(() => full && navigate(isRun ? runSection(manifest) : 'play'));
     },
     expand: () => navigate('play', target.params),
   };
@@ -1282,7 +1283,7 @@ export function GameSession({ session, mode }) {
   const askRef = useRef(null);
   askRef.current = (q) => {
     // (the game shows places, but where this battle was isn't known: no guess – #80)
-    if (!doc || !manifest || !me || q.placeLost) return false;
+    if (!doc || !manifest || !me || q.placeLost || isTogether(manifest)) return false; // (Play together: no encounters)
     const seen = liveRead.current;
     return missedQuestion(doc, manifest, runData, me, { foe: q.foe, wild: true, from: q.from, newMonAt: missedTr.current.caughtAt(q), boxes: seen.boxes, partySize: seen.party, here: q.here });
   };
@@ -1293,7 +1294,7 @@ export function GameSession({ session, mode }) {
   // why fleeing there "didn't count"
   const dupeRef = useRef(null);
   dupeRef.current = (q) => {
-    if (!doc || !manifest || !me || doc.get('run:status', null) || missedTr.current.caughtAt(q) || !q.foe?.species || beforeBalls(doc, manifest, me)) return false;
+    if (!doc || !manifest || !me || isTogether(manifest) || doc.get('run:status', null) || missedTr.current.caughtAt(q) || !q.foe?.species || beforeBalls(doc, manifest, me)) return false;
     if (!dupeOf(doc, manifest, runData, q.foe.species, me)) return false;
     const at = q.here ? areaForPlace(doc, manifest, genOfRun(manifest, runData), q.here) : null;
     return !at || !encounter(doc, at, me);
@@ -1958,7 +1959,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
     ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}`;
   const battleEl = battle?.enemy && html`<${BattlePanel} battle=${battle} mine=${myParty} gen=${gameGen} game=${liveGame} isRun=${isRun}
     collapsed=${panelPrefs.collapsed} onPrefs=${setPanelPrefs} hitsOpen=${panelPrefs.hits} noMoves=${features?.moves === 'no'} />`;
-  const groups = isRun && names && !solo;
+  const groups = isRun && names && !solo && !isTogether(manifest);
   const teamEl = html`
     <${LiveStatus} status=${liveState.status} phase=${phase} names=${names} me=${me} others=${others}
       extra=${html`${worldOk && worldSupported && html`<${WorldToggle} on=${worldOn} onChange=${setWorldOn} live=${worldNear} follow=${followOn} onFollow=${worldOwnFollow ? setFollowOn : null} />`}
@@ -2028,7 +2029,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
     </div>
     ${inserting && html`<${CartInsert} target=${target} color=${game?.color} sound=${status?.config?.sounds !== false}
       onDone=${() => { setInserting(false); focusGame(); }} />`}
-    <${RulesDrawer} open=${rulesOpen && full} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${RulesTab} />
+    <${RulesDrawer} open=${rulesOpen && full} onClose=${() => { setRulesOpen(false); focusGame(); }} RulesTab=${isRun && isTogether(manifest) ? ChoicesTab : RulesTab} />
     ${mode === 'mini' && html`<button class="mini-open" onClick=${(e) => { e.currentTarget.blur(); actions.expand(); }} aria-label=${t('play.backToGameNamed', 'Back to the game: {name}', { name: target.label })}>
       <span class="mini-open-label"><${Icon} name="play" size=${14} />${t('play.backToGame', 'Back to the game')}</span></button>`}
   </div>`;

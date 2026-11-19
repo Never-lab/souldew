@@ -460,8 +460,8 @@ test('the board: the host changes the rules, everyone else sees them read-only w
   assert.match(board, /<\$\{HostRulesNote\} host=\$\{hostName\} mine=\$\{mine\} players=\$\{n\} \/>/);
   for (const part of ['<${SoulLinkRules} value=${r} onChange=${set} players=${n} disabled=${locked} />', 'disabled=${locked}\n',
     '<${SoulLinkAuto} value=${r} onChange=${set} players=${n} solo=${solo} disabled=${locked} />']) assert.ok(board.includes(part), part);
-  // the play view's rules drawer is the same tab
-  assert.match(src('web/views/play.mjs'), /RulesTab=\$\{RulesTab\}/);
+  // the play view's rules drawer is the same tab (a Play together's: its choices – views/playtogether.mjs)
+  assert.match(src('web/views/play.mjs'), /RulesTab=\$\{isRun && isTogether\(manifest\) \? ChoicesTab : RulesTab\}/);
   assert.match(text(UI.HostRulesNote({ host: 'Lou', mine: false })), /Set by the host · Lou created this run and sets the rules for everyone – only Lou can change them/);
   assert.match(text(UI.HostRulesNote({ host: 'Lou', mine: true })), /You’re the host/);
 });

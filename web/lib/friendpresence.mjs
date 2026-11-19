@@ -7,7 +7,7 @@
 import { reportPresence } from './account.mjs';
 import { gameById, hackById } from './data.mjs';
 import { locationName } from './run.mjs';
-import { slotsOf, runMode } from '/shared/slots.mjs';
+import { slotsOf, runMode, wireMode } from '/shared/slots.mjs';
 import { shortGameName } from '/shared/social.mjs';
 
 const ASK_KEY = 'sl-ask-to-join';
@@ -45,13 +45,13 @@ export function presenceFrom({ route, session, manifest, doc, me, taken = [] }) 
   if (target) {
     const game = { title: shortTitle({ gameId: target.gameId || manifest?.game?.id, hackId: target.runId ? manifest?.game?.hackId : null, title: target.label }), system: target.system };
     if (target.runId && manifest?.id === target.runId) {
-      const soullink = runMode(manifest) === 'soullink';
+      const soullink = runMode(manifest) !== 'nuzlocke'; // (a SoulLink or a Play together: friends can join)
       const freeSlot = soullink && slotsOf(manifest).some((s) => !taken.includes(s));
       const where = doc?.get?.(`where:${me}`, null);
       const location = where?.id != null ? locationName(where.gen, where.id) : null;
       return {
         state: 'in_run', game,
-        run: { name: manifest.name || '', mode: runMode(manifest), freeSlot, joinable: freeSlot && askToJoinAllowed() },
+        run: { name: manifest.name || '', mode: wireMode(manifest), freeSlot, joinable: freeSlot && askToJoinAllowed() },
         ...(location ? { location: String(location).slice(0, 40) } : {}),
       };
     }

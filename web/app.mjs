@@ -10,8 +10,9 @@ import { applySkin, refreshPack } from './lib/cosmetics/index.mjs';
 import { initFavourites } from './lib/favourites.mjs';
 import { initHandheld, prewarm as prewarmHandheld } from './lib/handheld/look.mjs';
 import { detectLayout, resolveHotkeys, accelerator } from './lib/controls.mjs';
-import { applySnapshot, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, logLinkBattle, rules as getRules, lives as getLives, livesFor, settleLives, revealHeld, startRules, HELD_PREFIX } from './lib/run.mjs';
+import { applySnapshot, applyTogether, isTogether, runSection, runStateId, togetherGames, announceGame, snapshotFromSave, players as getPlayers, areaName, feedText, othersOf, slotsOf, runMode, checks, loadLocationTables, genOfRun, wipedSlot, failRun, logLinkTrade, logLinkBattle, rules as getRules, lives as getLives, livesFor, settleLives, revealHeld, startRules, HELD_PREFIX } from './lib/run.mjs';
 import { attachRps } from './lib/worldrps.mjs';
+import { inviteBlock, BLOCK_CODE } from '/shared/playtogether.mjs';
 import { RpsCards } from './views/rps.mjs';
 import { attachRaid, detachRaid, raidFor, raidRules } from './lib/raid.mjs';
 import { RaidCards } from './views/raid.mjs';
@@ -222,7 +223,7 @@ function RailRun({ manifest, names, me, onlineSlots, linkStatus, session, naviga
   const playing = session?.target.runId === manifest.id;
   const built = !!manifest.outputs?.[me];
   // not built yet (joined, game still to build): the run's page has the next step
-  const open = () => (built ? navigate('play', { run: manifest.id }) : navigate(runMode(manifest), { run: manifest.id }));
+  const open = () => (built ? navigate('play', { run: manifest.id }) : navigate(runSection(manifest), { run: manifest.id }));
   const action = playing ? t('play.backToGame', 'Back to the game') : built ? t('rail.openGame', 'Click to play') : t('rail.openRun', 'Click to open the run');
   if (runMode(manifest) === 'nuzlocke') {
     return html`<button type="button" class="power" onClick=${open} title=${`${t('rail.soloHint', 'Solo Nuzlocke – nobody to connect with')} · ${action}`}>
@@ -469,6 +470,9 @@ function App() {
   // ---- active run ----------------------------------------------------------------
   // a name typed when joining can arrive after the run's doc is open (the build finishes later): apply it then too
   useEffect(() => applyJoinName(doc, manifest), [doc, manifest]);
+  // Play together: which game this computer's player plays, for the partners' "who can link with whom" (again after a
+  // join's build – the run's game is ours from then on)
+  useEffect(() => { announceGame(doc, manifest, me); }, [doc, manifest, me]);
   useEffect(() => {
     // Drop everything of the previous run before loading the next one.
     setDoc(null);
@@ -666,7 +670,8 @@ function App() {
   }, [ready, boot, runCount, me]);
   useEffect(() => {
     // an invite that's open but not built yet isn't this computer's run: nothing it shows counts (shared/trophies.mjs)
-    if (!runDoc || !runStarted(manifest)) return undefined;
+    // (Play together counts for no trophy – server/lib/trophies.mjs)
+    if (!runDoc || !runStarted(manifest) || isTogether(manifest)) return undefined;
     return watchRun(runDoc, manifest, me, (sp) => runData?.types?.(sp, me) || []);
   }, [runDoc, manifest, me, runData]);
   useEffect(() => onTrophyUnlock(({ fresh, backfilled, state }) => {
@@ -709,7 +714,8 @@ function App() {
     // A raid (web/lib/raid.mjs) with "Deaths in a raid count" off: while this player's raid battle runs, what the game
     // shows isn't applied; a Pokémon that went down in it is taken as standing until it's healed (it is at 0 HP in the
     // game until a Pokémon Center – a raid is a real battle)
-    const rh = raidFor(doc);
+    const together = isTogether(manifest); // (Play together: only the live team is written – lib/run.mjs applyTogether)
+    const rh = together ? null : raidFor(doc);
     if (rh && snap.source === 'live' && !raidRules(getRules(doc, manifest)).deaths) {
       if (rh.inRaidBattle()) {
         rh.spare(snap.party);
@@ -732,6 +738,7 @@ function App() {
     // The game itself still in link mode after its session (left inside a Cable Club / Colosseum – Gen 2 even fights
     // the partner's team it received once more, alone): the same rule as during the session.
     if (snap.linkedGame && snap.source === 'live' && !getRules(doc, manifest)?.linkBattleDeaths) return null;
+    if (together) return applyTogether(doc, manifest, me, snap);
     // An ended run stays as it ended: playing on (for fun, or after a wipe) records nothing anymore.
     if (doc.get('run:status')) return null;
     const res = applySnapshot(doc, manifest, genOfRun(manifest, runData), me, snap, { rd: runData, battle, held });
@@ -841,6 +848,12 @@ function App() {
     const lp = new LinkSessions({
       sync: link, runId: manifest.id, me, emu: nativeEmu, ownGame,
       rules: () => getRules(doc, manifest),
+      // Play together: every player has a game of their own – which of them can link (shared/playtogether.mjs)
+      block: (slots, kind) => {
+        if (!isTogether(manifest)) return null;
+        const b = inviteBlock(togetherGames(doc, manifest, me), me, slots, kind);
+        return b ? BLOCK_CODE[b.why] || 'linkSystem' : null;
+      },
       // what this computer read of a session's battles (web/lib/wager.mjs): compared with the partners' in the run
       onResult: (entry) => doc.set(`lb:${entry.sid}:${me}`, entry),
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
@@ -858,7 +871,7 @@ function App() {
         startSession({
           kind: 'run', key: `link-${st.id}`, soloKey: `run-${manifest.id}-${me}`, system: manifest.game?.system, code: manifest.game?.code, title: manifest.game?.title,
           rom: `/api/runs/${manifest.id}/file?inline=1&name=${encodeURIComponent(out.rom)}`, name: out.rom.replace(/\.\w+$/, ''),
-          saveUrl: `/api/runs/${manifest.id}/save/${me}`, stateId: `run-${manifest.id}-${me}`, label: manifest.name, gameId: manifest.game?.id,
+          saveUrl: `/api/runs/${manifest.id}/save/${me}`, stateId: runStateId(manifest, me), label: manifest.name, gameId: manifest.game?.id,
           runId: manifest.id, params: { run: manifest.id }, link,
         });
         navigate('play', { run: manifest.id });
@@ -1068,7 +1081,7 @@ function App() {
   // game fills the page, it is the one marked as here.
   const sectionOf = (id) => {
     const r = id === manifest?.id ? manifest : status?.runs?.find((x) => x.id === id);
-    return r ? runMode(r) : 'soullink';
+    return r ? runSection(r) : 'soullink';
   };
   const playingIn = session ? (session.target.runId ? sectionOf(session.target.runId) : 'library') : null;
   const here = route.route === 'handheld' ? 'settings' // (Settings › Play › Launch animation › Your handheld)
@@ -1079,7 +1092,7 @@ function App() {
   const NAV = [
     { id: 'library', label: t('nav.library', 'Library'), icon: 'library', accent: '#e0a458' },
     // the board's to-do count shows at the section of the open run
-    { id: 'soullink', label: t('nav.soullink', 'SoulLink'), icon: 'link', count: manifest && runMode(manifest) === 'soullink' ? warnCount : 0, accent: '#d77fc6' },
+    { id: 'soullink', label: t('nav.soullink', 'SoulLink'), icon: 'link', count: manifest && runSection(manifest) === 'soullink' ? warnCount : 0, accent: '#d77fc6' },
     { id: 'nuzlocke', label: t('nav.nuzlocke', 'Nuzlocke'), icon: 'nuzlocke', count: manifest && runMode(manifest) === 'nuzlocke' ? warnCount : 0, accent: '#e8735f' },
     { id: 'link', label: t('nav.link', 'Connection'), icon: 'signal', accent: '#6f9bff' },
     // signed in only: the souldew account's friends (green: how many are online; the badge: requests and invites)

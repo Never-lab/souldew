@@ -355,14 +355,15 @@ export function SoulLinkRules({ value: r, onChange, players: n = 2, variant = 'b
  * Trades and battles between the players (link sessions, docs/MULTIPLAYER.md) – for the games that link (Gen 1–4 on
  * the fast player's emulators), set by the host like every rule. value: the rules; onChange(patch).
  */
-export function LinkRules({ value: r, onChange, disabled = false }) {
+export function LinkRules({ value: r, onChange, disabled = false, casual = false }) {
   const set = (patch) => !disabled && onChange(patch);
+  // casual: Play together – no pair links to keep, nothing that can die
   return html`<div class="stack-s">
     <${RuleCheck} checked=${r.linkTrades !== 'off'} onChange=${(v) => set({ linkTrades: v ? 'on' : 'off' })} disabled=${disabled}
-      label=${t('rules.linkTrades', 'Trades between us (link)')} hint=${t('rules.linkTradesHint', 'The real in-game trade in the Pokémon Center – a traded Pokémon keeps its link.')} />
+      label=${t('rules.linkTrades', 'Trades between us (link)')} hint=${casual ? t('rules.linkTradesHintCasual', 'The real in-game trade in the Pokémon Center.') : t('rules.linkTradesHint', 'The real in-game trade in the Pokémon Center – a traded Pokémon keeps its link.')} />
     <${RuleCheck} checked=${r.linkBattles !== 'off'} onChange=${(v) => set({ linkBattles: v ? 'on' : 'off' })} disabled=${disabled}
       label=${t('rules.linkBattles', 'Battles between us (link)')} hint=${t('rules.linkBattlesHint2', 'A link battle in the Colosseum or the Union Room.')} />
-    ${r.linkBattles !== 'off' && html`<${RuleCheck} checked=${!!r.linkBattleDeaths} onChange=${(v) => set({ linkBattleDeaths: v })} disabled=${disabled}
+    ${r.linkBattles !== 'off' && !casual && html`<${RuleCheck} checked=${!!r.linkBattleDeaths} onChange=${(v) => set({ linkBattleDeaths: v })} disabled=${disabled}
       label=${t('rules.linkBattleDeaths', 'Losing a link battle counts as deaths')} hint=${t('rules.linkBattleDeathsHint', 'Off: a link battle is just for fun – Pokémon that go down there are fine afterwards.')} />`}
     ${r.linkBattles !== 'off' && html`<${RuleCheck} checked=${r.linkWagers !== 'off'} onChange=${(v) => set({ linkWagers: v ? 'on' : 'off' })} disabled=${disabled}
       label=${t('rules.linkWagers', 'Wagers in link battles')} hint=${t('rules.linkWagersHint', 'The challenger may put in-game money on a battle – the loser’s game pays the winner’s. Money only, never Pokémon or items.')} />`}
@@ -376,12 +377,12 @@ export function LinkRules({ value: r, onChange, disabled = false }) {
  * Raids (docs/MULTIPLAYER.md › "Raid"): the players fight the same trainer together with one shared HP pool – set by
  * the host like every rule. value: the rules; onChange(patch).
  */
-export function RaidRules({ value: r, onChange, disabled = false }) {
+export function RaidRules({ value: r, onChange, disabled = false, casual = false }) {
   const set = (patch) => !disabled && onChange(patch);
   return html`<div class="stack-s">
     <${RuleCheck} checked=${r.raids !== 'off'} onChange=${(v) => set({ raids: v ? 'on' : 'off' })} disabled=${disabled}
       label=${t('rules.raids', 'Raids')} hint=${t('rules.raidsHint', 'Fight the next trainer together: every hit in anybody’s game comes off one shared HP pool, so it’s beaten in everyone’s game at once.')} />
-    ${r.raids !== 'off' && html`<${RuleCheck} checked=${r.raidDeaths !== false} onChange=${(v) => set({ raidDeaths: v })} disabled=${disabled}
+    ${r.raids !== 'off' && !casual && html`<${RuleCheck} checked=${r.raidDeaths !== false} onChange=${(v) => set({ raidDeaths: v })} disabled=${disabled}
       label=${t('rules.raidDeaths', 'Deaths in a raid count')} hint=${t('rules.raidDeathsHint', 'A raid is a real battle. Off: Pokémon that go down in it don’t count – heal them at a Pokémon Center.')} />`}
   </div>`;
 }
@@ -445,4 +446,23 @@ export function RulesSummary({ rules: r, players: n = 2 }) {
     [t('rules.sumBalls', 'Nothing counts before the first Poké Balls'), on(!!r.startAtBalls)],
   ];
   return html`<dl class="rule-summary">${rows.map(([k, v]) => html`<div><dt>${k}</dt><dd>${v}</dd></div>`)}</dl>`;
+}
+
+/**
+ * Play together's choices (shared/rules.mjs TOGETHER_RULE_KEYS) – the host's, read-only for the others: what the players
+ * can do together. Nothing of a challenge: no deaths, encounters, caps. value: the rules; onChange(patch).
+ */
+export function TogetherChoices({ value: r, onChange, disabled = false, hostName = '' }) {
+  const set = (patch) => !disabled && onChange(patch);
+  return html`<div class="stack">
+    <${LinkRules} value=${r} onChange=${set} disabled=${disabled} casual />
+    <${RaidRules} value=${r} onChange=${set} disabled=${disabled} casual />
+    <${GiftRule} value=${r} onChange=${set} disabled=${disabled} />
+    <div class="stack-s">
+      <${RuleCheck} checked=${!!r.cheats} onChange=${(v) => set(cheatsSwitch(r, v))} disabled=${disabled}
+        label=${t('nzr.cheatsAll', 'Allow cheats')} hint=${t('pt.cheatsHint', 'From the play screen’s cheats menu: items into your bag and money – in your own game, which you also play alone. Every use is written to the log.')} />
+      <${CheatSetRule} value=${r} onChange=${set} disabled=${disabled} />
+    </div>
+    <${TypeHelpRule} value=${r.typeHelp} locked=${disabled} hostName=${hostName} onChange=${(v) => set({ typeHelp: v })} />
+  </div>`;
 }

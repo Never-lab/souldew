@@ -9,7 +9,7 @@ import { html, useState, useEffect } from '/vendor/htm-preact.mjs';
 import { useApp } from '../lib/ui.mjs';
 import { Icon } from '../lib/icons.mjs';
 import { t } from '../lib/i18n.mjs';
-import { slotsOf, runMode } from '/shared/slots.mjs';
+import { slotsOf, runMode, runSection } from '/shared/slots.mjs';
 
 const HIDE_KEY = 'sl-firststeps-hidden';
 const SKIP_KEY = 'sl-firststeps-skipped';
@@ -89,7 +89,7 @@ export function useFirstSteps(mode) {
   };
   const firstRun = runs.find((r) => Object.keys(r.outputs || {}).length) || runs[0];
   // a run's board sits in the section of its mode (SoulLink or Nuzlocke)
-  const toBoard = () => (firstRun ? navigate(runMode(firstRun), { run: firstRun.id }) : navigate('soullink'));
+  const toBoard = () => (firstRun ? navigate(runSection(firstRun), { run: firstRun.id }) : navigate('soullink'));
   const steps = [
     { id: 'game', title: t('fs.game', 'Add your game'), text: t('fs.gameText', 'Drop the ROM of a Pokémon game you own into the library (or pick a folder).'),
       action: t('fs.gameGo', 'Open the library'), go: () => navigate('library') },

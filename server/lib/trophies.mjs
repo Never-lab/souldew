@@ -93,7 +93,9 @@ function refreshRuns(state) {
   const idle = new Set();
   for (const m of listRuns()) {
     present.add(m.id);
-    if (!runStarted(m)) {
+    // (a Play together is the player's own game with friends, no challenge – it counts for no trophy and no profile
+    // stat: its badges and catches are the library game's, which other runs may play too – shared/playtogether.mjs)
+    if (!runStarted(m) || m.mode === 'together') {
       // (a digest an older version made of it goes – the invite wasn't a run of this computer's yet)
       idle.add(m.id);
       delete state.runs[m.id];

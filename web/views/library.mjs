@@ -14,6 +14,7 @@ import { addedToLibrary, addedMessage, unpackToast } from '../lib/libadded.mjs';
 import { patchTitle } from '/shared/patchname.mjs';
 import { updateVersionLabel } from '../lib/ctrupdate.mjs';
 import { ImportSaveButton } from './saveimport.mjs';
+import { togetherRomBlock } from '/shared/playtogether.mjs';
 
 const SYS = { gb: 'GB', gbc: 'GBC', gba: 'GBA', nds: 'DS', '3ds': '3DS' };
 
@@ -442,7 +443,7 @@ function CoverActions({ coverId, own, offer }) {
 }
 
 /** "New SoulLink" and its solo sibling "New Nuzlocke" for a game or ROM hack. */
-function NewRunButtons({ gameId, hackId, patchId, romId, close }) {
+function NewRunButtons({ gameId, hackId, patchId, romId, close, togetherRom = null }) {
   const { navigate } = useApp();
   const go = (view) => {
     close?.();
@@ -453,6 +454,8 @@ function NewRunButtons({ gameId, hackId, patchId, romId, close }) {
   return html`<div class="row lib-new">
     <button class="btn go" onClick=${() => go('soullink')}><${Icon} name="link" size=${16} />${t('lib.newSoulLink', 'New SoulLink')}</button>
     <button class="btn nuz" onClick=${() => go('nuzlocke')}><${Icon} name="ball" size=${16} />${t('lib.newNuzlocke', 'New Nuzlocke')}</button>
+    ${togetherRom && !togetherRomBlock(togetherRom) && html`<button class="btn" title=${t('pt.libHint', 'This game, its save and your friends – trade, battle and see each other, no challenge rules')}
+      onClick=${() => { close?.(); navigate('soullink', { together: '', rom: togetherRom.id }); }}><${Icon} name="friends" size=${16} />${t('pt.start', 'Play together')}</button>`}
   </div>`;
 }
 
@@ -687,7 +690,7 @@ function GameDetail({ id, onClose, openHack }) {
         </dl>
         ${rom
           ? html`<${PlayButtons} romId=${rom.id} system=${g.system} close=${onClose} />
-            <${NewRunButtons} gameId=${g.id} close=${onClose} />
+            <${NewRunButtons} gameId=${g.id} close=${onClose} togetherRom=${rom} />
             <${ExportFiles} save=${save} saveId=${rom.id} system=${g.system} label=${gameTitle(g)} links=${[
               { href: libDownload({ id: rom.id }), label: t('lib.exportRom', 'Save ROM'), title: rom.name },
               saveLink(rom.id, save),
@@ -972,7 +975,7 @@ function RomDetail({ id, onClose, openHack }) {
           : html`<p class="small muted">${t('lib.unknownRom', 'This ROM is not in the catalog (maybe a hack or another region). You can still play it.')}</p>
             <${RomHackAction} rom=${r} onLinked=${openHack} />`}
         <${PlayButtons} romId=${r.id} system=${r.system} close=${onClose} />
-        ${r.customHack && html`<${NewRunButtons} gameId=${r.gameId} romId=${r.id} close=${onClose} />`}
+        ${r.customHack && html`<${NewRunButtons} gameId=${r.gameId} romId=${r.id} close=${onClose} togetherRom=${r} />`}
         <${ExportFiles} save=${save} saveId=${r.id} system=${r.system} label=${title} links=${[
           { href: libDownload({ id: r.id }), label: t('lib.exportRom', 'Save ROM'), title: r.name },
           saveLink(r.id, save),

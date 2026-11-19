@@ -4,7 +4,7 @@
 // is on (config.presence !== false), the local server sends the bot one small JSON every minute:
 //   POST <the bot>/presence  { sid, system, mode, v }   (the bot = LIVE_RUNS_URL, server/lib/liveruns.mjs)
 //   sid    a random id made when the game starts – new for every game, never written to disk, tied to nothing
-//   system gb | gba | nds | 3ds          mode solo | nuzlocke | soullink          v the app version
+//   system gb | gba | nds | 3ds          mode solo | nuzlocke | soullink (Play together: solo)    v the app version
 // and { sid, stop: true } when the game closes, the setting is switched off or the app quits. No name, no account,
 // no game title, no run data, no ROM, no file path. When the bot can't be reached nothing happens (no retries, no
 // error, no log line) – the next heartbeat simply tries again.
@@ -18,10 +18,14 @@ const MIN_GAP_MS = 30_000; // the same heartbeat again sooner (a reload, two pag
 const QUIET_MS = 3 * 60_000; // no word from the page this long (crashed, closed): the game counts as closed
 const TIMEOUT_MS = 8000;
 
-/** The page's report → { system, mode } or null (not a game souldew counts). */
+/**
+ * The page's report → { system, mode } or null (not a game souldew counts). A Play together game (mode 'together') is
+ * the player's own library game played with friends: the bot knows only the three modes above (it refuses anything
+ * else), so it counts as 'solo' – free play of a library game – until the bot learns a mode of its own.
+ */
 export function presenceOf(body) {
   const system = SYSTEMS[body?.system];
-  const mode = MODES.includes(body?.mode) ? body.mode : null;
+  const mode = body?.mode === 'together' ? 'solo' : MODES.includes(body?.mode) ? body.mode : null;
   return system && mode ? { system, mode } : null;
 }
 

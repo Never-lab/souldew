@@ -21,6 +21,7 @@ import { saveCover, deleteCover, coverFile, customCovers, coverUrl, COVER_LIMIT 
 import { inspectCtr, ncchSizeOf } from './lib/ctrrando.mjs';
 import { shinySupport, isOriginalRom } from './lib/shiny.mjs';
 import { packFormatState, packMinVersion } from '../shared/runpack.mjs';
+import { okLibraryId } from '../shared/playtogether.mjs';
 import { isHostKey, unsigned } from '../shared/hostrules.mjs';
 import { signRules, isHostComputer } from './lib/hostkey.mjs';
 import { shinyThreshold } from '../shared/shiny.mjs';
@@ -233,6 +234,8 @@ const keyOf = (s) => createHash('sha1').update(String(s)).digest('hex').slice(0,
 
 /** Save files of solo games (not part of a run) live here, keyed by the library id. */
 const SOLO_SAVES = join(DATA_DIR, DEV ? 'runs/.saves' : 'Saves');
+/** A library game's battery save (its free play's – and a Play together run's that plays it). */
+export const librarySavePath = (id) => join(SOLO_SAVES, `${keyOf(id)}.sav`);
 
 // ---- save states of the built-in emulator (server/lib/statefiles.mjs) -----------------
 const STATE_DIR = join(SOLO_SAVES, 'states');
@@ -442,6 +445,11 @@ function handleExport(req, res, path, url) {
     else if (what === 'spoiler') name = out?.log;
     else if (what === 'save') {
       const sav = defaultSavePath(manifest, slot);
+      // (Play together: the library game's own save, outside the run folder – named after the run's game file)
+      if (sav && runMode(manifest) === 'together') {
+        if (!existsSync(sav)) return send(res, 404, { error: 'No save file yet', code: 'noSaveYet' });
+        return sendDownload(req, res, String(out?.rom || 'Save').replace(/\.\w+$/, '.sav'), sav);
+      }
       name = sav ? basename(sav) : null;
     }
     else if (what === 'pack') {
@@ -616,8 +624,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       const path = system === '3ds' ? null : defaultSavePath(manifest, slot);
       if (system !== '3ds' && !path) throw httpError(409, 'No ROM for this player', 'noRomForPlayer');
       const titles = (catalog().games || []).find((g) => g.id === manifest.game?.id)?.titleIds || null;
+      // (Play together: the library game's own save – its backups go where that game's always go)
+      const lib = runMode(manifest) === 'together' ? manifest.outputs[slot].library : null;
       return {
-        system, gameId, path, runId, slot, manifest, backupDir: join(runDir(runId), 'backups'), key: slot,
+        system, gameId, path, runId, slot, manifest, ...(lib ? { backupDir: join(SOLO_SAVES, 'backups'), key: keyOf(lib) } : { backupDir: join(runDir(runId), 'backups'), key: slot }),
         archive: () => (system === '3ds' ? ctrSaveArchives(join(saveDirFor(ctrKey), 'Azahar', 'sdmc', 'Nintendo 3DS'), titles)[0] || null : null),
         // the fast player / 3DS player on this save – or an external emulator, which writes the run's save next to its ROM
         running: () => (system === '3ds' ? (sessionOn(ctr.current) && sameFile(ctr.current.save, saveDirFor(ctrKey)) ? 'player' : false)
@@ -1353,7 +1363,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       let manifest = await buildRun({ ...body, identity, config: loadConfig() }, (l) => log.push(l), (p) => (track.progress = p));
       // "Start from my intro save": the player on this computer (introSlot) begins with the intro save of the game –
       // only theirs, and only while they have no save in this run yet
-      if (body.introSave === true && ALL_SLOTS.includes(body.introSlot)) {
+      // (never in Play together: the slot's save is the player's own game – an intro save would replace its progress)
+      if (body.introSave === true && ALL_SLOTS.includes(body.introSlot) && runMode(manifest) !== 'together') {
         const started = applyIntroSave(manifest.id, body.introSlot, { savePath: defaultSavePath });
         if (started) {
           manifest = started;
@@ -1753,6 +1764,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
       const manifest = readManifest(runId);
       const out = manifest?.outputs?.[slot];
       if (!out) throw httpError(409, 'The ROM for this player hasn’t been built yet', 'romNotBuilt');
+      // Play together plays the library game's own save (shared/playtogether.mjs): an outside emulator would write a
+      // second one next to the run's copy of the ROM – play it in souldew, or from the library
+      if (runMode(manifest) === 'together') throw httpError(409, 'Play together runs in souldew’s own player – your game’s save stays one', 'togetherBuiltIn');
       romPath = typeof out.rom === 'string' && out.rom ? runPath(runId, out.rom) : null;
       if (!romPath) throw httpError(409, 'The ROM for this player hasn’t been built yet', 'romNotBuilt');
       // melonDS writes "<ROM name>.sav" next to the ROM – or into the save folder set in its own settings
@@ -2420,6 +2434,9 @@ export function readDoc(runId) {
  * name in run.json that would leave the run's folder.
  */
 export function defaultSavePath(manifest, slot) {
+  // Play together (shared/playtogether.mjs › save model): the slot plays the library game's own battery save
+  const lib = runMode(manifest) === 'together' ? manifest?.outputs?.[slot]?.library : null;
+  if (lib !== undefined && lib !== null) return okLibraryId(lib) && manifest.outputs[slot].rom ? librarySavePath(lib) : null;
   const rom = manifest?.outputs?.[slot]?.rom;
   if (typeof rom !== 'string' || !/\.(nds|gba|gbc|gb|sgb)$/i.test(rom)) return null;
   return runPath(manifest.id, rom.replace(/\.(nds|gba|gbc|gb|sgb)$/i, '.sav'));

@@ -112,9 +112,32 @@ export const RULE_PRESETS = {
 };
 export const NUZLOCKE_RULES = { ...CLASSIC, autoAssign: true, sounds: true };
 
-/** The run's rules: the stored `rules` over the defaults of its mode ('soullink' | 'nuzlocke'). */
+// "Play together" (mode 'together', shared/playtogether.mjs): the players' own games, no challenge. The host decides
+// only what the players can do together (TOGETHER_RULE_KEYS); everything a challenge counts is off for good
+// (TOGETHER_FIXED wins over anything stored – a doc value written by hand, or a SoulLink's rules carried over, can never
+// turn on deaths, encounters, caps or a run that fails).
+export const TOGETHER_RULE_KEYS = ['linkTrades', 'linkBattles', 'linkWagers', 'linkWagerCap', 'raids', 'itemGifts', 'cheats', 'cheatSet', 'typeHelp'];
+export const TOGETHER_FIXED = {
+  typeClause: 'off', dupes: 'off', missedDupes: false, shinyClause: false, gifts: 'free', giftsCount: false, levelCaps: false,
+  failKillsPair: false, autoAssign: false, autoDeath: false, lives: 0, livesPool: 'shared', startAtBalls: false,
+  // a link battle or a raid is just for fun: nothing that goes down there "dies" – nothing ever does in this mode
+  linkBattleDeaths: false, raidDeaths: false,
+  // the save is the player's own library save (shared/playtogether.mjs › save model): importing one is done in the
+  // library, never through the run – no rule for it
+  saveImports: false,
+  blackout: 'off', deathless: false,
+};
+/** A new Play together's host choices: everything together is on (wagers and gifts too), cheats off until the host says. */
+export const togetherDefaults = () => Object.fromEntries(TOGETHER_RULE_KEYS.map((k) => [k, k === 'cheatSet' ? 'all' : DEFAULT_RULES[k]]));
+
+/** The run's rules: the stored `rules` over the defaults of its mode ('soullink' | 'nuzlocke' | 'together'). */
 export function rulesWithDefaults(stored, mode) {
   const s = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+  if (mode === 'together') {
+    const r = { ...DEFAULT_RULES, cheatSet: 'all' };
+    for (const k of TOGETHER_RULE_KEYS) if (s[k] !== undefined && s[k] !== null) r[k] = s[k];
+    return { ...r, ...TOGETHER_FIXED };
+  }
   const r = { ...(mode === 'nuzlocke' ? { ...DEFAULT_RULES, ...NUZLOCKE_RULES } : DEFAULT_RULES), ...s };
   // `giftsCount` (true/false) came first; `gifts` is the same rule with a third option
   if (s.gifts === undefined && s.giftsCount !== undefined) r.gifts = s.giftsCount ? 'area' : 'free';
