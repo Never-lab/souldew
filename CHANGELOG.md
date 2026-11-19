@@ -68,6 +68,18 @@ Plus a new play view that gives the game the room it deserves.
   (1:38 · most damage: Tim)”). Works in Red, Blue, Crystal, FireRed, LeafGreen, Emerald, Platinum, HeartGold and
   Black 2 (English); not in the 3DS games yet, and the app says why for every other game. A partner on an older 3.0
   build isn't asked.
+- **Play together: your own game with friends, no challenge.** Next to SoulLink and Nuzlocke there's a third way to
+  play: “Play together” in the SoulLink section, or on a game in your library. Everyone plays their normal game with
+  its own save – what you do together is there when you play the game alone from the library, and the other way round.
+  Invite friends with the code or as souldew friends; each of them picks a game of their own, the same as yours or
+  another one (Emerald, Sapphire and FireRed in one group is fine). Then it's everything multiplayer has – trades and
+  battles in the link rooms (wagers too, if the host allows them), seeing each other walk around, emotes,
+  rock-paper-scissors, watching each other's battles, gifts, “Come to me” and raids – and nothing of a challenge: no
+  encounter rules, no deaths, no level caps, no run that can fail, no log full of catches. The board shows every
+  player's game and team and who can trade, battle or see whom (the same generation links; seeing each other needs
+  games with the same maps). The host decides what's allowed, cheats included. It doesn't earn trophies – those are
+  for challenge runs. Needs souldew 3.0 on every computer; a friend on 2.8 is told to update when they open the
+  invite.
 - **Two new host rules:** “Raids” (on by default) and “Deaths in a raid count” (on: a raid is a real battle). With it
   off, Pokémon that go down in a raid don't count – they stand on the board until you heal them.
 - **Stream tools:** a `raid` event with who took part, won or lost, the MVP, the survivors and the time.

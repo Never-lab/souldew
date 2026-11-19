@@ -112,7 +112,7 @@ Every data endpoint takes `?lang=en|de|fr|es|it` for Pokémon, item and place na
 
 Field notes:
 
-- `run.mode`: `soullink` (2–4 players) or `nuzlocke` (one player). `run.gen`: 1–5. `run.status`: `null` while the
+- `run.mode`: `soullink` (2–4 players), `nuzlocke` (one player) or `together` (3.0, Play together: 2–4 players in their own games, no challenge – no encounters, deaths or a status; teams, badges and the log as usual). `run.gen`: 1–5. `run.status`: `null` while the
   run is on, else `{ state: "failed" | "won" | "ended", reason, at, by }` – `reason` when souldew ended it: `wipe`,
   `blackout`, `deathless` or `lives`.
 - `run.rules`: the run's rules with souldew's defaults filled in (SoulLink: `typeClause`, `dupes`, `shinyClause`,

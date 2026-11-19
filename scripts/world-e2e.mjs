@@ -35,6 +35,8 @@
 //                              [--tgds]      (the DS: playing together's ⚔, catch, tombstone, "come here" and the A menu
 //                                             on A's picture, from data handed to A's overlay)
 //                              [--clip]      (a muted clip of A's picture: B walks away and around, A walks and turns)
+//                              [--play-together] (a Play together run instead of a SoulLink – shared/playtogether.mjs:
+//                                             every player builds only their own game and plays their library save)
 // The DS (Gen 4) is driven frame-exactly through the fast player's step() – a tap turns, six frames walk a tile.
 //                              [--plus]      (followers, emotes and rock-paper-scissors: B walks with A's and B's
 //                                             Pokémon following – a strip and a muted clip; A challenges B from the
@@ -866,7 +868,13 @@ async function main() {
     const rom = pick(libA, 0);
     const players = Object.fromEntries(SLOTS.map((s, i) => [s, { name: profiles[i].name }]));
     // (--together marks a death: from the start, not after the first Poké Balls)
-    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players, buildFor: SLOTS, gameId: rom.gameId, name: 'World test', rules: args.includes('--together') ? { startAtBalls: false } : {} });
+    // (--play-together: a Play together run – shared/playtogether.mjs: each player builds only their own game, and its save
+    // is their library game's)
+    const playTogether = args.includes('--play-together');
+    const mode = playTogether ? 'together' : 'soullink';
+    const libIds = [rom.id];
+    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode, players, buildFor: playTogether ? ['p1'] : SLOTS, gameId: rom.gameId, name: 'World test',
+      rules: args.includes('--together') ? { startAtBalls: false } : {}, ...(playTogether ? { host: 'p1' } : {}) });
     const runId = built.manifest.id;
     const run = await api(A, `/api/runs/${runId}`);
     const pack = run.manifest?.pack || run.pack;
@@ -874,10 +882,14 @@ async function main() {
       if (!i) continue;
       const lib = await api(pr, '/api/library');
       const imported = await api(pr, '/api/runs/import', { pack });
-      await api(pr, '/api/runs/build', { runId: imported.id, romId: pick(lib, i).id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i], ...SLOTS.filter((s) => s !== SLOTS[i])], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: pick(lib, i).gameId });
+      await api(pr, '/api/runs/build', { runId: imported.id, romId: pick(lib, i).id, randomize: false, values: {}, seeds: {}, players: pack.players,
+        buildFor: playTogether ? [SLOTS[i]] : [SLOTS[i], ...SLOTS.filter((s) => s !== SLOTS[i])], name: pack.name, mode, expectedOutputs: pack.outputs, gameId: pick(lib, i).gameId });
+      libIds[i] = pick(lib, i).id;
       await api(pr, `/api/runs/${runId}/me`, { slot: SLOTS[i] }).catch(() => null);
     }
-    for (const [i, pr] of profiles.entries()) await api(pr, `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(readFileSync(saves[i])), 'PUT');
+    for (const [i, pr] of profiles.entries()) {
+      await api(pr, playTogether ? `/api/saves/solo?id=${encodeURIComponent(libIds[i])}` : `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(readFileSync(saves[i])), 'PUT');
+    }
     log('run', runId, 'on', profiles.length, 'computers');
 
     const show = args.includes('--show');

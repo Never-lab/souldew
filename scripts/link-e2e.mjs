@@ -46,6 +46,10 @@
 //                            their page never sees the invite, asking A to trade meanwhile is answered "in another
 //                            link", the session goes on; with --seamless their own game keeps running untouched; they
 //                            get the trade / battle result in the run's log afterwards)
+//        [--together]       (a Play together run instead of a SoulLink – shared/playtogether.mjs: each player's save goes
+//                            into their library game, the run reads it from there, and after the session the library
+//                            game's own save must hold the session's result: checks runSaveIsLibrarySave,
+//                            librarySaveHasSession)
 //        [--port-base 7401] (the players' servers listen on it and the next three ports)
 //        [--show]
 //
@@ -338,6 +342,8 @@ async function main() {
   const seats = Number(opt('players', '2'));
   // (--bystander: one more player in the run who isn't in the session – their computer, page and game must stay out of it)
   const bystander = flag('bystander');
+  const together = flag('together');
+  const libIds = []; // (--together: each player's library game id – its save is the run's)
   const people = seats + (bystander ? 1 : 0);
   const frames = Math.floor(readFileSync(script).length / (4 + 4 * seats));
   const rtc = opt('rtc', '1763200000000');
@@ -414,7 +420,10 @@ async function main() {
     log('library', rom.name, rom.gameId, rom.system);
     // (every player builds only their own game, as a DS run does when it's joined: the others' are found by SHA-1)
     const players = Object.fromEntries(profiles.map((pr, i) => [SLOTS[i], { name: pr.name }]));
-    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode: 'soullink', players, buildFor: ['p1'], gameId: rom.gameId, name: 'Link test', rules: {} });
+    // --together: a Play together run (shared/playtogether.mjs) – every player's save is their library game's own
+    const mode = together ? 'together' : 'soullink';
+    const built = await api(A, '/api/runs/build', { romId: rom.id, randomize: false, mode, players, buildFor: ['p1'], gameId: rom.gameId, name: 'Link test', rules: {}, ...(together ? { host: 'p1' } : {}) });
+    libIds[0] = rom.id;
     const runId = built.manifest.id;
     const run = await api(A, `/api/runs/${runId}`);
     const pack = run.manifest?.pack || run.pack;
@@ -422,13 +431,23 @@ async function main() {
       if (!i) continue;
       const imported = await api(pr, '/api/runs/import', { pack });
       const lib = await api(pr, '/api/library');
-      await api(pr, '/api/runs/build', { runId: imported.id, romId: own(lib, i).id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i]], name: pack.name, mode: 'soullink', expectedOutputs: pack.outputs, gameId: own(lib, i).gameId });
+      await api(pr, '/api/runs/build', { runId: imported.id, romId: own(lib, i).id, randomize: false, values: {}, seeds: {}, players: pack.players, buildFor: [SLOTS[i]], name: pack.name, mode, expectedOutputs: pack.outputs, gameId: own(lib, i).gameId });
+      libIds[i] = own(lib, i).id;
     }
+    if (together) result.pack = { format: pack.format, minVersion: pack.minVersion, mode: pack.mode };
     const pre = {};
     for (const [i, pr] of profiles.entries()) {
       const bytes = readFileSync(opt(`save${i + 1}`) || opt('save1')); // (the bystander may play a copy of A's save)
-      await api(pr, `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(bytes), 'PUT');
+      // (Play together: the game's progress is in the library – the player's normal save, played alone so far)
+      await api(pr, together ? `/api/saves/solo?id=${encodeURIComponent(libIds[i])}` : `/api/runs/${runId}/save/${SLOTS[i]}`, new Uint8Array(bytes), 'PUT');
       pre[pr.id] = sha(bytes);
+    }
+    if (together) { // the run reads the library save: the same bytes both ways
+      result.checks.runSaveIsLibrarySave = true;
+      for (const [i, pr] of profiles.entries()) {
+        const viaRun = Buffer.from(await fetch(`${pr.base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer()));
+        if (sha(viaRun) !== pre[pr.id]) result.checks.runSaveIsLibrarySave = false;
+      }
     }
     log('run', runId, 'built on', N, 'computers');
 
@@ -911,6 +930,13 @@ async function main() {
     const saves = [];
     for (const i of all) saves.push(Buffer.from(await fetch(`${profiles[i].base}/api/runs/${runId}/save/${SLOTS[i]}`, APP).then((r) => r.arrayBuffer())));
     saves.forEach((b, i) => writeFileSync(join(out, `after-${profiles[i].id}.sav`), b));
+    if (together) { // the session's save is the library game's: what the player finds when they play it alone later
+      const libSaves = [];
+      for (const i of all) libSaves.push(Buffer.from(await fetch(`${profiles[i].base}/api/saves/solo?id=${encodeURIComponent(libIds[i])}`, APP).then((r) => r.arrayBuffer())));
+      result.checks.librarySaveHasSession = all.every((i) => libSaves[i].equals(saves[i]) && sha(libSaves[i]) !== pre[profiles[i].id]);
+      // the board's view of the pair (views/playtogether.mjs): who can trade, battle, see whom
+      result.boardPairs = await ev(0, `[...document.querySelectorAll('.pt-pair-list li')].map((li) => li.textContent.replace(/\\s+/g, ' ').trim())`).catch(() => null);
+    }
     if (seamless) { // and A plays on (after the saves were taken): a few buttons – close a text box, walk – alone now
       const stripPlay = strip(0, 'play', 4000);
       for (const [keys, ms] of [[['a'], 150], [[], 700], [['a'], 150], [[], 700], [['b'], 150], [[], 400], [['down'], 1200], [[], 300]]) {

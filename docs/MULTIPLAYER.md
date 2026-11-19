@@ -2,7 +2,7 @@
 
 Status: **every generation from Gen 1 to Gen 5 links in the app – without restarting anybody's game** (15 November 2026, branches `feat/multiplayer` and `feat/mp-seamless`; Gen 5 on 19 November, `feat/30-link-gen5`; §1, §4a). This document is the plan for souldew 3.0: players of a run (and friends they invite) trade Pokémon and battle each other **the authentic in-game way** (Cable Club, Colosseum, Union Room), and see each other walking around in their own games.
 
-There are no public lobbies. Multiplayer happens between the players of a run, over the peer channel the run already has.
+There are no public lobbies. Multiplayer happens between the players of a run, over the peer channel the run already has – a SoulLink, or (since 19 November 2026) a **Play together** run: the same multiplayer without any challenge, every player in their own normal game (§16).
 
 Contents:
 1. [What works today](#1-what-works-today)
@@ -20,6 +20,7 @@ Contents:
 13. [Plan and effort](#13-plan-and-effort)
 14. [Decisions for the owner](#14-decisions-for-the-owner)
 15. [Raid: one trainer, one shared HP pool](#15-raid)
+16. [Play together: no challenge, your own games](#16-play-together)
 
 ---
 
@@ -965,4 +966,39 @@ game's next hit – after it, the bar slides as everywhere else:
 **Ideas not built.** A named boss (a gym leader or the Elite Four from the game's trainer table – `romcaps.mjs`
 already finds them; the games of a pair run have different tables); raids in the Shared World A menu; a “Win a raid”
 trophy (trophies are counted from run digests, which don't carry raids yet).
+
+## 16. Play together
+
+Built in November 2026 (branch `feat/30-together-mode`; `shared/playtogether.mjs`, `web/views/playtogether.mjs`,
+`scripts/link-e2e.mjs --together`, `scripts/world-e2e.mjs --play-together`, `test/playtogether.test.mjs`).
+
+**What it is.** A third run mode next to SoulLink and Nuzlocke, `mode: 'together'` – for players who just want to play
+with friends: trade, battle, see each other in the Shared World, raid, give items, play rock-paper-scissors. Everything
+multiplayer has, nothing of a challenge. It is a run like a SoulLink underneath (invite code, friends invites, the run's
+peer channel and doc, the host's signed choices, the board, "Link all of us"), so every multiplayer part works unchanged.
+
+**Decisions.**
+
+| Question | Decision |
+|---|---|
+| Which save each player plays | **The library game's own battery save, directly** (option a). A Play together slot records the library entry it was built from (`outputs[slot].library` – the id the free play of that game uses, `<romId>` or `<romId>\|<patchId>`), and the server's run save path for that slot *is* the library save (`server/app.mjs defaultSavePath` → `librarySavePath`). One file, no copy that could drift: what is played together is there when the game is played alone, and the other way round. Every writer of a run save goes through that one path – the play view, the link session's write-back (seamless too, `/api/link/start` reads the local seat's save from it), the out-of-step restore (`/api/link/restore`: back to the pre-session bytes, `….link-<date>.sav` kept next to the save), a save import (backups in the library's backup folder). A run copy seeded from the library save and written back (option b) was rejected: two copies, and any write-back moment (on close, on desync, after a crash, with the game open solo at the same time) is a chance to lose progress. |
+| Save states, "where you left off" | The library game's (`web/lib/run.mjs runStateId`): one set with the save. "Where you left off" is only resumed while the battery save on disk is the one it was taken with (play view `sl-auto-*`), so an older state can never roll newer progress back – after a session the library's state simply isn't offered. |
+| What could still write a second copy | Refused or never done for a Play together: an intro save (`applyIntroSave`, it would replace the game's progress), an outside emulator (`/api/emulators/*/launch` → 409 `togetherBuiltIn`, it writes a save next to the run's ROM), a randomizer or shiny patch (forced off in `buildInto` – the run's ROM is the library ROM byte for byte, an APFS clone), and building any slot but this computer's own (`togetherOneSlot`: two slots here would share one library save). Deleting the run moves its folder to the trash; the game's save is untouched. |
+| Different games per player | Any game of a system the link host runs (GB, GBC, GBA, DS; no 3DS – no link there yet). Each player announces theirs in the doc (`game:<slot>`, `gameInfo`). `linkWith(a, b)`: the same generation trades and battles (Gen 3: all five games; Gen 4: D/P/Pt/HG/SS; Gen 5: B/W/B2/W2); Gen 1 ↔ Gen 2 only trades in the Time Capsule and is marked untested; Gen 4 ↔ Gen 5 (both DS) can't; Shared World needs the same map family with Shared World support (Ruby ↔ Sapphire, FR ↔ LG, R/B/Y, G/S/C, HG ↔ SS). The board shows every pair; Trade/Battle/"Link all of us" are disabled with the reason, and an invite that still arrives (a stale page) is refused (`LinkSessions` `block` → `linkGen`, `linkTradeOnly`, `linkSystem`). A partner whose game isn't announced yet doesn't block – their app's own check answers. ROMs still never travel: for a trade each player needs the other's game in the library (said on the board; plain games are found by CRC, else "Pick your copy"). |
+| Rules | The host's choices only (`TOGETHER_RULE_KEYS`: trades, battles, wagers and their cap, raids, gifts, cheats and which, type help). Everything a challenge counts is fixed off and wins over anything stored (`TOGETHER_FIXED`: no encounter linking, deaths, failing, level caps, type or dupes clause, lives, "first Poké Balls", link-battle or raid deaths). The tracker writes only the live team, badges and play time (`applyTogether`); a new badge is the one log line it adds besides trades, battles, raids, gifts and chat. `markDead`, `failRun` and `checks` do nothing in this mode. |
+| Trophies, profile stats | None. Trophies are challenge achievements, and a Play together's badges and catches are the library game's (several runs may play the same game) – counting them would double them. `server/lib/trophies.mjs` skips the mode, so the account stats do too. |
+| Partners on 2.8 | The run pack is `run-pack@5` with `minVersion 3.0.0`: 2.8.x refuses it with "This run needs souldew 3.0.0 or newer" (file) or "This run needs a newer souldew" (code). The host's invite says so. |
+| Stream overlay | Teams, places, the feed and badges as usual; the alive/dead/caught counters are left out. The stream API reports `mode: "together"`. |
+| "Playing now" (bot) and friend presence | The bot accepts only solo/nuzlocke/soullink and refuses anything else, so a Play together game counts as `solo` (free play of a library game – `server/lib/presence.mjs`). The accounts service knows `soullink`/`nuzlocke` only: friend presence and friend invites send `soullink` (`wireMode`); the run's default name ends in "– together", so an invite card still says what it is, and the join page shows the real mode. Both services could learn `together` later (outside this branch). |
+| Entry points | The SoulLink section: "Play together" next to "Join with code" (and an intro card while there are no runs), a shelf "Playing together"; a game's page in the library: "Play together" next to New SoulLink / New Nuzlocke. The wizard has three short steps (game, players, choices); joining picks your own game and shows what it can do with the host's. |
+
+**End to end** (19 November 2026, M-series Mac, scratch profiles, muted and hidden):
+
+| Run | Result |
+|---|---|
+| `link-e2e --together`, Emerald ↔ Sapphire Cable Club trade (the recording's saves put into each player's *library* game) | ✅ the run read the library save before the session (`runSaveIsLibrarySave`), equal hashes, both saves as recorded, the library games' saves are the session's (`librarySaveHasSession`), the trade in the log on both computers; the board showed "Trades ✓ Battles ✓ See each other ✗" for the pair |
+| `world-e2e --play-together`, Emerald ↔ Emerald in Oldale's Pokémon Center | ✅ partners drawn with followers, the A menu (Trade, Battle, Give item, rock-paper-scissors, emotes), Wave seen on the other side; the side column shows the team, no SoulLink pairs or run strip |
+
+Not run: 3–4 players in one Play together, mixed generations in a real session (only refused by the unit tests), the
+"Pick your copy" path between two different games, a Play together over two computers.
 
