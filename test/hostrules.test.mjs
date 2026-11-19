@@ -326,6 +326,44 @@ test('clocks a day or more apart: the host’s changes still reach everyone, and
   assert.ok(unguarded.entries.rules.t <= Date.now() + DAY);
 });
 
+test('a signed host entry beats any unsigned rules entry, whatever the timestamps (the same millisecond, a clock ahead)', async () => {
+  const m = await build({ rules: MINE });
+  const signed = signRules(structuredClone(m), { ...MINE, dupes: 'player' }, { after: m.rules.rev });
+  for (const ahead of [0, 1, 60000]) {
+    // the partner's computer holds an unsigned entry (its own edit, or one from before it knew the key) for the very
+    // millisecond the host signs for – or later – and from a device id that wins the tie
+    const partner = mkDoc('zzzz-partner', m.id);
+    partner.merge({ rules: { v: { ...MINE, dupes: 'both' }, t: signed.rev + ahead, by: 'zzzz-partner' } }, null, { own: true });
+    partner.hostKey = m.hostKey;
+    partner.guard = WH.hostGuard(partner, m.id);
+    partner.outranks = WH.hostOutranks(partner);
+    partner.merge({ rules: { v: signed, t: signed.rev, by: 'aaaa-host' } });
+    await settle();
+    assert.equal(R.rules(partner, m).dupes, 'player', `the host's signed rules (unsigned entry ${ahead} ms ahead)`);
+    assert.ok(H.signedFor(partner.entries.rules.v, partner.entries.rules.t));
+    // and an unsigned entry can't push them out again – not from the link, not written on this computer
+    partner.merge({ rules: { v: { ...MINE, dupes: 'both' }, t: signed.rev + 120000, by: 'zzzz-partner' } });
+    partner.set('rules', { ...MINE, dupes: 'both' });
+    await settle();
+    assert.equal(R.rules(partner, m).dupes, 'player');
+  }
+  // a forged signature still doesn't get in that way
+  const partner = mkDoc('zzzz-partner', m.id);
+  partner.merge({ rules: { v: { ...MINE, dupes: 'both' }, t: signed.rev, by: 'zzzz-partner' } }, null, { own: true });
+  partner.hostKey = m.hostKey;
+  partner.guard = WH.hostGuard(partner, m.id);
+  partner.outranks = WH.hostOutranks(partner);
+  partner.merge({ rules: { v: { ...signed, sig: randomBytes(64).toString('base64url') }, t: signed.rev, by: 'aaaa-host' } });
+  await settle();
+  assert.equal(R.rules(partner, m).dupes, 'both');
+  // without the host's key (a solo run, a run whose host is still on 2.8.1): the newest entry, as before
+  const solo = mkDoc('zzzz-partner', m.id);
+  solo.outranks = WH.hostOutranks(solo);
+  solo.merge({ rules: { v: { ...MINE, dupes: 'both' }, t: signed.rev + 5, by: 'zzzz-partner' } });
+  solo.merge({ rules: { v: signed, t: signed.rev, by: 'aaaa-host' } });
+  assert.equal(solo.get('rules').dupes, 'both');
+});
+
 test('the server signs only on the host’s computer; a joined run learns a key once, never another', async () => {
   const { startServer } = await import('../server/app.mjs');
   const { server, url } = await startServer({ port: 0, background: false });
