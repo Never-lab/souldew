@@ -252,6 +252,8 @@ test('location: the Gen 5 Union Room (zone 422, no place in the ROM\'s table) is
   const b2 = { ...black, family: 'b2w2', code: 'IREO' };
   copy(0x0221e1a0 + 0x41b2c, 422);
   assert.equal(readLocation(maps, { id: 'black2_us', gen: 5 }, read, { rom: b2 })?.link, 'union');
+  // White 2: the same zones, but not run in a link room yet – no sign there
+  assert.equal(readLocation(maps, { id: 'white2_us', gen: 5 }, read, { rom: { ...b2, code: 'IRDO' } })?.link, undefined);
 });
 
 // ---- the trade's log entry --------------------------------------------------------------------------------------------

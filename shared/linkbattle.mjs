@@ -71,8 +71,11 @@ export function gameOf(system, bytes) {
 const GEN5_WINS = 13;
 const GEN5_LOSSES = 14;
 
-// The DS games by game code (US/EU English releases: the other languages keep their static data elsewhere)
-const NDS_GAMES = { CPUE: 'platinum', ADAE: 'dp', APAE: 'dp', IPKE: 'hgss', IPGE: 'hgss', IRBO: 'black', IRAO: 'white', IREO: 'black2', IRDO: 'white2' };
+// The DS games by game code (US/EU English releases: the other languages keep their static data elsewhere). Each one's
+// link battles, wager and in-game save checked in a recorded session (docs/MULTIPLAYER.md › "Battle results and
+// wagers"). White 2 (IRDO) isn't one yet: its save data, money and records read right in a running White 2, but no link
+// battle of it was recorded – no results and no wagers until one is
+const NDS_GAMES = { CPUE: 'platinum', ADAE: 'dp', APAE: 'dp', IPKE: 'hgss', IPGE: 'hgss', IRBO: 'black', IRAO: 'white', IREO: 'black2' };
 
 /**
  * Per game: how its link battles end (`kind` 'events' – watched while the session runs; 'sram' / 'records' – counted
@@ -101,6 +104,7 @@ export const GAMES = {
   // overworld: anything but the battle flag's battle values (Pearl read 0x2000 on a route, Diamond 0x2800 in a Pokémon
   // Center)
   dp: { gen: 4, kind: 'records', savePtr: 0x02106fc0, records: 0x214 + 0x5f08, layout: 'dp', trainerName: 0x214 + 0x64, field: { addr: 0x0223bb38, battle: [0x2100, 0x2101] }, money: { savePtr: 0x02106fc0, off: 0x214 + 0x78 } },
+  // (HeartGold ↔ SoulSilver recorded 19 Nov 2026: the records 22/23 and the money read live, the wager paid and saved)
   hgss: { gen: 4, kind: 'records', savePtr: 0x02111880, records: 0x10 + 0x4b3c, layout: 'hgss', trainerName: 0x10 + 0x64, field: { addr: 0x02246f48, battle: [0x2100, 0x2101] }, money: { savePtr: 0x02111880, off: 0x10 + 0x78 } },
   // Gen 5 (US/EU): the game's whole save data is in RAM in the battery save's own layout (PKHeX SAV5BW / SAV5B2W2 blocks):
   // its party block at +0x18E00 – so the save data sits 0x18E08 before the party the live tracker reads (addresses.json:
@@ -108,10 +112,11 @@ export const GAMES = {
   // name +4), the trainer card records +0x1DA00, the money the misc block's first word (+0x21200 / B2W2 +0x21100).
   // Found in Black's RAM (melonDS, the link host): the event block of the battery save byte for byte at 0x0223BCAC, the
   // party at 0x022349B4 – the save data at 0x0221BBAC. The overworld: anything but the battle flag's battle values.
+  // Checked live in recorded sessions (19 Nov 2026): White's save data at 0x0221BBCC (its trainer, ₽4,000 = its save
+  // file's), Black 2's behind the main pointer – each one's records 12/13/14, money and in-game save after a wager
   black: { gen: 5, kind: 'records', save: { at: 0x0221bbac }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021d0798, battle: [0x2100, 0x2101] }, money: { off: 0x21200 } },
   white: { gen: 5, kind: 'records', save: { at: 0x0221bbcc }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021d07b8, battle: [0x2100, 0x2101] }, money: { off: 0x21200 } },
   black2: { gen: 5, kind: 'records', save: { ptr: 0x02000024, add: 0x920 }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021b5138, battle: [0x2100, 0x2101] }, money: { off: 0x21100 } },
-  white2: { gen: 5, kind: 'records', save: { ptr: 0x02000024, add: 0x920 }, records: 0x1da00, layout: 'gen5', trainerName: 0x19404, field: { addr: 0x021b5178, battle: [0x2100, 0x2101] }, money: { off: 0x21100 } },
 };
 
 /**
@@ -142,7 +147,7 @@ export function gameOfEntry(entry) {
   if (id === 'platinum_us') return 'platinum';
   if (/^(diamond|pearl)_us$/.test(id)) return 'dp';
   if (/^(heartgold|soulsilver)_us$/.test(id)) return 'hgss';
-  if (/^(black|white|black2|white2)_us$/.test(id)) return id.slice(0, -3);
+  if (/^(black|white|black2)_us$/.test(id)) return id.slice(0, -3);
   return null;
 }
 
@@ -150,7 +155,7 @@ export function gameOfEntry(entry) {
  * Can a run of this catalog game (manifest.game.id) battle for a wager? The games above in the languages their
  * addresses are known for (Emerald DE and Gen 1/2 in other languages keep their memory elsewhere; Platinum: US only).
  */
-export const wagerGame = (id) => /^pokemon-(red|blue|yellow|gold|silver|crystal|ruby|sapphire|emerald|firered|leafgreen|diamond|pearl|platinum|heartgold|soulsilver|black|white|black-2|white-2)$/.test(String(id || ''))
+export const wagerGame = (id) => /^pokemon-(red|blue|yellow|gold|silver|crystal|ruby|sapphire|emerald|firered|leafgreen|diamond|pearl|platinum|heartgold|soulsilver|black|white|black-2)$/.test(String(id || ''))
   || /^pokemon-(ruby|sapphire|firered|leafgreen)-de$/.test(String(id || ''));
 
 /** The battle formats a link battle can be (picked in the game; the invite names it): per system and seats. */

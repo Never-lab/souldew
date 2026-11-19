@@ -342,11 +342,12 @@ const GEN5_MAIN_PTR = 0x02000024;
 // Gen 5: the Union Room behind the left counter of the Pokémon Center's upper floor (zone 422) and the Colosseum a
 // battle from it takes both players to (150 "Battles for two"; 151 its twin, the room "Battles for four" goes to) – the
 // three zones the ROM's zone → place table gives no place (0). Measured in Black in the link host (two consoles: the
-// copy below read 422 in the Union Room, 150 in the battle's room); Black 2/White 2's zones 150, 151 and 422 have the
-// same maps and scripts (their zone headers differ from Black's only in the fields every zone of theirs shifts).
+// copy below read 422 in the Union Room, 150 in the battle's room); read the same way in a running White and Black 2
+// (19 Nov 2026, recorded sessions with Black). White 2's zones 150, 151 and 422 have the same maps and scripts, but
+// White 2 wasn't run in a link room yet: no sign there until it is (gen5Link's `code`).
 const GEN5_ROOMS = { 150: 'colosseum', 151: 'colosseum', 422: 'union' };
 const GEN5_LINK = { bw: GEN5_ROOMS, b2w2: GEN5_ROOMS };
-const gen5Link = (fam, zones) => (zones && GEN5_LINK[fam]?.[zones[0]] ? linkRoom(GEN5_LINK[fam][zones[0]], zones[0]) : null);
+const gen5Link = (fam, zones, code = '') => (zones && GEN5_LINK[fam]?.[zones[0]] && !/^IRD/i.test(code) ? linkRoom(GEN5_LINK[fam][zones[0]], zones[0]) : null);
 const BW_HEADER = 48;
 const BW_HEADER_AT = [0x0225929c, 0x022592bc]; // Black US, White US
 // The search for the copy: every BW_SCAN_MS, after BW_SCAN_SLOW_AFTER searches without a hit only every BW_SCAN_SLOW_MS
@@ -603,7 +604,7 @@ function b2w2CopyZones(read, rom, ctx) {
 /** Black 2/White 2: the place from the copy of the current zone's header – the zone's, else its parent's. */
 function readB2W2(read, rom, ctx) {
   const zones = b2w2CopyZones(read, rom, ctx);
-  const link = gen5Link('b2w2', zones);
+  const link = gen5Link('b2w2', zones, rom.code);
   if (link) return link;
   for (const zone of zones || []) {
     const id = Number.isInteger(zone) && zone < rom.mapLoc.length ? rom.mapLoc[zone] : null;
