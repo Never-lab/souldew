@@ -527,6 +527,8 @@ export function LibraryView() {
           <button class="btn primary big" onClick=${() => navigate('play', { rom: ownedBy.get(featured.id).id })}><${Icon} name="play" size=${16} />${t('lib.play', 'Play')}</button>
           <button class="btn big" onClick=${() => navigate('soullink', { new: featured.id })}><${Icon} name="link" size=${16} />${t('lib.newSoulLink', 'New SoulLink')}</button>
           <button class="btn big" onClick=${() => navigate('nuzlocke', { new: featured.id })}><${Icon} name="ball" size=${16} />${t('lib.newNuzlocke', 'New Nuzlocke')}</button>
+          ${!togetherRomBlock(ownedBy.get(featured.id)) && html`<button class="btn big" title=${t('pt.libHint', 'This game, its save and your friends – trade, battle and see each other, no challenge rules')}
+            onClick=${() => navigate('soullink', { together: '', rom: ownedBy.get(featured.id).id })}><${Icon} name="friends" size=${16} />${t('pt.start', 'Play together')}</button>`}
           <button class="btn ghost" onClick=${() => setOpen({ kind: 'game', id: featured.id })}>${t('lib.details', 'Details')}</button>
         </div>
       </div>
