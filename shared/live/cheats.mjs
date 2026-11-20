@@ -9,7 +9,8 @@
 // image). Works on any memory source with read(addr, len) / write(addr, bytes) on console bus addresses – the 3DS
 // player's write answers later (a Promise: the native host writes between two frames), the others right away.
 
-import { GAMES, gameOfEntry, locateMoney } from '../linkbattle.mjs';
+import { GAMES, gameOfEntry, locateMoney, camIdle } from '../linkbattle.mjs';
+import { worldTable, readCamera } from '../world.mjs';
 import { cheatGroups } from '../rules.mjs';
 
 export { CHEAT_GROUPS } from '../rules.mjs';
@@ -761,14 +762,38 @@ export function addMaxRepels(entry, mem, state, count = 10) {
   return addItem(entry, mem, state, MAX_REPEL[entry?.gen], count, { pocket: 'items' });
 }
 
+const worldTables = new WeakMap(); // game entry → its Shared World table (or null)
+/**
+ * May a cheat be written into this game right now? Gen 3: only while the player stands in the overworld with nothing
+ * holding them – the same check wagers are paid by (shared/linkbattle.mjs camIdle, the Shared World's camera reader):
+ * Emerald and FireRed/LeafGreen move their save blocks on a map change, and a bag or money found a moment earlier would
+ * be written where the game no longer reads. A Gen 3 game without a Shared World table (a hack) and the other
+ * generations: yes, as before (their bag and money don't move).
+ */
+export function cheatIdle(entry, read) {
+  if (entry?.gen !== 3 || typeof read !== 'function') return true;
+  if (!worldTables.has(entry)) worldTables.set(entry, worldTable(entry) || null);
+  const t = worldTables.get(entry);
+  if (!t) return true;
+  let cam = null;
+  try {
+    cam = readCamera(t, read);
+  } catch {
+    cam = null;
+  }
+  return camIdle(cam);
+}
+
 /**
  * Use one of CHEATS by its id: its item into its pocket – `amount` of it (default: the cheat's own count) –, or the
  * money (`amount`: ₽ to add, or 'max'; moneyCheat). Only a cheat this game can get (cheatSupported): one that wasn't
- * checked in this game's bag isn't written at all.
+ * checked in this game's bag isn't written at all. { error: 'busy' }: not now – a Gen 3 game not in the overworld
+ * (cheatIdle).
  */
 export function applyCheat(id, entry, mem, state, { amount, untried = false } = {}) {
   const c = CHEATS[id];
   if (!c || !cheatSupported(entry, id, { untried })) return { error: 'unsupported' };
+  if (!cheatIdle(entry, mem.read)) return { error: 'busy' };
   if (c.money) return moneyCheat(entry, mem, state, amount ?? MONEY_STEPS[0], { untried });
   const n = Number.isInteger(amount) && amount > 0 ? Math.min(999, amount) : c.count;
   // (a DS bag with nothing in it yet – Diamond right after the starter, Black before the Town Map – where it can only be

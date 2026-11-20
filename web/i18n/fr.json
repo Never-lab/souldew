@@ -4438,5 +4438,6 @@
   "rail.signInPending": "Termine la connexion dans ton navigateur – clique pour le rouvrir",
   "rail.signInWaiting": "En attente …",
   "rail.withDiscord": "avec Discord",
-  "plus.lookOff2": "La tienne – mais les animations de lancement sont désactivées (Paramètres › Jouer)"
+  "plus.lookOff2": "La tienne – mais les animations de lancement sont désactivées (Paramètres › Jouer)",
+  "cheat.busy": "Ton jeu est occupé en ce moment – un combat, un menu, un texte ou un changement d’écran. Réessaie dans un instant, quand tu te trouves sur la carte."
 }

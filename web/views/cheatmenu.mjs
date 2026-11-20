@@ -54,6 +54,8 @@ export function cheatFailText(id, res, { gen = 0, where = '' } = {}) {
         : res.why === 'empty' ? t('cheat.notFoundEmptyDs', 'Your bag is still empty, and souldew can’t be sure yet where the game keeps it. Pick up or buy any item first, then try again.')
           : t('cheat.notFound', 'Your bag wasn’t found in the game’s memory just now. Try again outside of menus and battles.'),
     changed: t('cheat.changed', 'The game changed your bag just then – try again.'),
+    // (Gen 3: not while a battle, a menu, a text or a screen change holds the player – shared/live/cheats.mjs cheatIdle)
+    busy: t('cheat.busy', 'Your game is busy right now – a battle, a menu, a text or a screen change. Try again in a moment, while you stand in the overworld.'),
     full: t('cheat.full', 'The bag pocket is full – make room and try again.'),
     max: isMoney ? t('cheat.moneyFull', 'You already have the most money the game holds ({money}).', { money: money(MONEY_MAX) })
       : t('cheat.maxItem', 'Your bag already holds as many of this item as the game allows ({what}).', { what: cheatItemText(id, res.before) }),

@@ -14,6 +14,7 @@ import {
 import { DEFAULT_RULES, NEW_RUN_RULES, LEGACY_CHEAT_GROUPS, cheatGroups, cheatSetOf, rulesWithDefaults } from '../shared/rules.mjs';
 import { SOULLINK_RULE_KEYS, soulLinkDefaults, soulLinkRulesFrom } from '../shared/hostrules.mjs';
 import { GB_GIFT_ITEMS } from '../shared/giftitems.mjs';
+import { worldTable } from '../shared/world.mjs';
 
 const ROOT = new URL('../', import.meta.url).href;
 registerHooks({
@@ -223,6 +224,39 @@ test('Gen 3: balls into the Poké Ball pocket, healing items into Items – encr
   m.poke(sb1 + 0x600, slot(4, 3));
   assert.deepEqual(applyCheat('pokeBall', RUBY, m, {}, { amount: 99 }), { ok: true, before: 3, after: 99, added: 96 });
   assert.equal(u16(m, sb1 + 0x602), 99);
+});
+
+test('Gen 3: a cheat only while you stand in the overworld – never during a fade, a menu or text, a battle or a replay', async () => {
+  // Emerald and FireRed/LeafGreen move their save blocks on a map change (behind a fade): a bag found a moment earlier
+  // would be written where the game no longer reads (the same check wagers are paid by)
+  for (const [e, L] of [[EMERALD, EM], [FR, FRL]]) {
+    const t = worldTable(e);
+    const hold = {
+      fade: [t.paletteFade + 4, [0x00, 0x04, 0, 0x80]], // (the palette fade running, half way)
+      locked: [t.lock, [1]], // (a menu, a text, a script)
+      battle: [t.inBattle.addr, [t.inBattle.mask]],
+      ...(t.help ? { help: [t.help, [1]] } : {}),
+      ...(t.questLog ? { replay: [t.questLog, [2]] } : {}),
+    };
+    for (const [why, [addr, on]] of Object.entries(hold)) {
+      const { m, sb1, k } = gen3(L);
+      m.poke(addr, on);
+      assert.deepEqual(applyCheat('masterBall', e, m, {}, { amount: 10 }), { error: 'busy' }, `${e.id}: ${why}`);
+      assert.deepEqual(await applyCheat('money', e, m, {}, { amount: 1000 }), { error: 'busy' }, `${e.id}: ${why} (money)`);
+      assert.equal(m.writes, 0, `${e.id}: nothing written (${why})`);
+      m.poke(addr, on.map(() => 0)); // let go: it goes in
+      assert.deepEqual(applyCheat('masterBall', e, m, {}, { amount: 10 }), { ok: true, before: 0, after: 10, added: 10 }, `${e.id}: after ${why}`);
+      assert.deepEqual([u16(m, sb1 + L.balls), u16(m, sb1 + L.balls + 2) ^ k], [1, 10]);
+    }
+    // the save block pointer moving (out of the RAM it can be in): no camera, no cheat
+    const { m } = gen3(L);
+    m.poke(L.sb1Ptr, le32(0));
+    assert.deepEqual(applyCheat('masterBall', e, m, {}, { amount: 10 }), { error: 'busy' });
+  }
+  // the toast says what to do
+  assert.match(M.cheatFailText('masterBall', { error: 'busy' }, { gen: 3 }).text, /Try again in a moment/);
+  // the other generations (their bag doesn't move) and a game without a Shared World table: as before
+  assert.equal(applyCheat('masterBall', RED, memory(), {}).error, 'notFound');
 });
 
 /** A Gen 4/5 bag: a key item, a TM, a Potion in Medicine. */

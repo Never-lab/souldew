@@ -526,6 +526,7 @@
   "cause.wild": "wild battle",
   "cheat.add": "Add",
   "cheat.amount": "How many",
+  "cheat.busy": "Your game is busy right now – a battle, a menu, a text or a screen change. Try again in a moment, while you stand in the overworld.",
   "cheat.changed": "The game changed your bag just then – try again.",
   "cheat.confirmItem": "Add {what} to your bag?",
   "cheat.confirmMoney": "Add {money} to your money?",

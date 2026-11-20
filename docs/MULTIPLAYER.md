@@ -451,7 +451,8 @@ part of the hash.
   tables for little gain. Money only buys items, so it is harmless in a Nuzlocke-type run.
 - **Settlement** (`WagerPay`, from the play view's live loop): once the player stands in the overworld of their own
   game, alone (no link, no battle; Gen 1 `wIsInBattle`/`wLinkState` 0, Gen 2 `wBattleMode`/`wLinkMode`/`wScriptRunning`
-  0, Gen 3 the Shared World's camera reader: not locked, no fade, Gen 4 the battle flag's overworld value), the money
+  0, Gen 3 the Shared World's camera reader – `camIdle`: not locked, no fade, no battle, no help screen, no FR/LG quest-log
+  replay; cheats ask the same –, Gen 4 the battle flag's overworld value), the money
   goes into RAM through the cheat path (the fast player's WRITE between two frames), is read back, and read again
   1.5 s later: still the old sum (Emerald moved its save blocks just then) → it goes in again; anything else → done.
   Gen 1 3-byte BCD, Gen 2 3-byte big-endian, Gen 3 u32 XORed with SaveBlock2's key (Emerald, FR/LG; R/S plain), Gen 4

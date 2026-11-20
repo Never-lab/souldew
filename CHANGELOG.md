@@ -410,6 +410,9 @@ Plus a new play view that gives the game the room it deserves.
 - **Cheats in the fast player say “added” only when the game really has it.** The check after a cheat now reads the
   game's own memory instead of souldew's copy of it, so a write the game lost is reported as not working; a wager
   paid into the game is checked the same way.
+- **Cheats in Ruby, Sapphire, Emerald, FireRed and LeafGreen** wait until you stand in the overworld – not during a
+  battle, a menu, a text or a screen change, when the game may be moving its data around. Otherwise souldew says to
+  try again in a moment.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

@@ -489,6 +489,14 @@ export async function addMoney(game, read, write, delta) {
  * Is the player standing in the overworld – no battle, no link, no menu or script holding them (where the game says
  * so)? Money only goes in then. Gen 3 asks the Shared World's reader (`cam`: shared/world.mjs readCamera's result).
  */
+/**
+ * Gen 3: does the Shared World's camera reading (shared/world.mjs readCamera) show the player standing in the overworld,
+ * nothing holding them – no battle, no fade, no script, menu or text (locked), no help screen, no FR/LG quest-log replay?
+ * Emerald and FireRed/LeafGreen move their save blocks on a map change (behind a fade): money or a bag written then
+ * would land where the game no longer reads. Wagers (fieldIdle) and cheats (shared/live/cheats.mjs) both ask this.
+ */
+export const camIdle = (cam) => !!cam && !cam.battle && !cam.locked && !cam.help && !cam.replay && !cam.fade;
+
 export async function fieldIdle(game, read, { cam = undefined } = {}) {
   const g = GAMES[game];
   if (!g) return false;
@@ -506,7 +514,7 @@ export async function fieldIdle(game, read, { cam = undefined } = {}) {
     const v = await Promise.all(g.idle.map((a) => read(a, 1)));
     return v.every((b) => b && b[0] === 0) && (await loaded());
   }
-  if (g.gen === 3) return !!cam && !cam.battle && !cam.locked && !cam.help && !cam.fade;
+  if (g.gen === 3) return camIdle(cam);
   const f = await read(g.field.addr, 2);
   if (!f) return false;
   if (g.field.battle) return !g.field.battle.includes(u16le(f, 0)) && !!(await saveBase(g, read)); // (no battle)
