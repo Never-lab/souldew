@@ -7,10 +7,20 @@ import { api } from './api.mjs';
 import { openExternal } from './ui.mjs';
 import { ACCENTS } from '/shared/social.mjs';
 
-let state = { loaded: false, session: { signedIn: false, persistent: true, condition: null, pending: false, account: null }, me: null, pending: null, service: '' };
+// loaded: the local server answered once. known: its answer is final – the server has read the saved sign-in
+// (session.loaded). Until then "signed out" only means "not read yet" (the keychain may still be asking), and nothing
+// may act on it: no souldew+ pack is removed, no "signed out" decision is made (cosmeticsPackAccess waits for it).
+let state = { loaded: false, known: false, session: { signedIn: false, persistent: true, condition: null, pending: false, account: null }, me: null, pending: null, service: '' };
 let inflight = null;
+let again = null; // a reload asked for while one was on its way – its answer may be older than what changed
+let recheck = 0;
+const RECHECK_MS = 1000;
 const subs = new Set();
-const notify = () => subs.forEach((fn) => fn(state));
+const knownSubs = new Set();
+const notify = () => {
+  subs.forEach((fn) => fn(state));
+  if (state.known) for (const fn of [...knownSubs]) fn(state);
+};
 const set = (patch) => {
   state = { ...state, ...patch };
   notify();
@@ -18,17 +28,47 @@ const set = (patch) => {
 
 /** Ask the local server again (signed in? the own profile, the counters). */
 export function reloadAccount() {
-  if (inflight) return inflight;
+  if (inflight) {
+    // the server told us something changed after this request left: one more, once it is back
+    again ||= inflight.then(() => {
+      again = null;
+      return reloadAccount();
+    });
+    return again;
+  }
   inflight = api.get('/api/account').then((r) => {
-    set({ loaded: true, session: r.session, me: r.me, brief: r.brief, pending: r.pending, service: r.service });
+    // a server without the flag (older) has read it before it answered
+    set({ loaded: true, known: r.session?.loaded !== false, session: r.session, me: r.me, brief: r.brief, pending: r.pending, service: r.service });
     return state;
   }).catch(() => {
-    set({ loaded: true });
+    set({ loaded: true }); // no answer: still not known
     return state;
   }).finally(() => {
     inflight = null;
+    // the server tells the page when it has read the saved sign-in (event 'account'); the event stream may not be
+    // connected yet then (or reconnecting), so ask again now and then while it isn't known
+    clearTimeout(recheck);
+    if (!state.known && typeof setTimeout === 'function') {
+      recheck = setTimeout(() => reloadAccount(), RECHECK_MS);
+      recheck?.unref?.();
+    }
   });
   return inflight;
+}
+
+/** Whether the account is known (the server has read the saved sign-in) – "signed out" is final only then. */
+export const accountKnown = () => !!state.known;
+/** Resolves (with the state) once the account is known; asks the server if nobody has yet. */
+export function whenAccountKnown() {
+  if (state.known) return Promise.resolve(state);
+  return new Promise((resolve) => {
+    const fn = (s) => {
+      knownSubs.delete(fn);
+      resolve(s);
+    };
+    knownSubs.add(fn);
+    if (!inflight && !recheck) reloadAccount();
+  });
 }
 
 export const accountState = () => state;
@@ -240,10 +280,13 @@ const accessOf = (dl, key, until) => ({
  *                       preview only: { …, expiresAt, preview: true }. Throws with e.code ('rate_limited',
  *                       'limit_reached', 'none') when the service says no; null when signed out.
  * Throws when it can't tell (counts as offline).
+ * Waits until the account is known: right after start the server may still be reading the saved sign-in, and the
+ * "signed out" it says meanwhile would wipe a member's pack (which is then downloaded again). signedOut(opts): what a
+ * signed-out player gets instead of null (the app: the dev pack, when the local server has one).
  */
-export async function cosmeticsPackAccess({ purpose = 'pack' } = {}) {
-  if (!state.loaded) await reloadAccount();
-  if (!signedIn()) return null;
+export async function cosmeticsPackAccess({ purpose = 'pack', signedOut = null } = {}) {
+  await whenAccountKnown();
+  if (!signedIn()) return signedOut ? signedOut({ purpose }) : null;
   if (purpose === 'preview') {
     const packs = await api.get('/api/account/packs');
     const pack = (packs.items || []).find((p) => p.previewable);

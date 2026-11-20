@@ -4,12 +4,12 @@
 import { useEffect, useRef } from '/vendor/htm-preact.mjs';
 import { api } from './api.mjs';
 import { t } from './i18n.mjs';
-import { useAccount, onPending, onSignedIn, useOnlineFriends, accountState, cosmeticsPackAccess } from './account.mjs';
+import { useAccount, onPending, onSignedIn, useOnlineFriends, accountState } from './account.mjs';
 import { reportFrom } from './friendpresence.mjs';
 import { setRequestListener, allowFriend } from './friendinvite.mjs';
 import { authTexts } from './authtexts.mjs';
 import { takenSlots } from '../views/invitecode.mjs';
-import { setPackAccessProvider, setPlusHandler, refreshPack, forgetPack } from './cosmetics/index.mjs';
+import { setPlusHandler, refreshPack, forgetPack } from './cosmetics/index.mjs';
 
 const SEEN_KEY = 'sl-social-seen';
 const loadSeen = () => {
@@ -32,17 +32,19 @@ export function useSocial({ ready, route, session, manifest, doc, me, linkStatus
   const on = ready && !!acct.session?.signedIn;
   const online = useOnlineFriends(on);
 
-  // souldew+ cosmetics: the pack comes through this account; every "Get souldew+" (theme picker, locked items in the
-  // profile editor, a friend's souldew+ banner) leads to the souldew+ page – signed in or not, never a pop-up
+  // souldew+ cosmetics: the pack comes through this account (app.mjs sets the provider at boot – it waits until the
+  // account is known); every "Get souldew+" (theme picker, locked items in the profile editor, a friend's souldew+
+  // banner) leads to the souldew+ page – signed in or not, never a pop-up
   const wasOn = useRef(false);
   useEffect(() => {
     if (!ready) return;
-    setPackAccessProvider(on ? cosmeticsPackAccess : null); // signed out: the cosmetics module's own default
     setPlusHandler(() => navigate('plus'));
+    // nothing before the account is known: "signed out" then only means the saved sign-in is still being read
+    if (!acct.known) return;
     if (on) refreshPack().catch(() => {});
     else if (wasOn.current) forgetPack().catch(() => {}); // signed out just now: the membership's pack goes
     wasOn.current = on;
-  }, [on, ready]);
+  }, [on, ready, acct.known]);
 
   // "You're signed in" – wherever the player is when the browser hands the sign-in back
   useEffect(() => onSignedIn(() => toast({ kind: 'ok', title: authTexts().okTitle, text: t('acct.welcome', 'Welcome, {name}.', { name: accountState().me?.name || accountState().brief?.name || '' }) })), []);

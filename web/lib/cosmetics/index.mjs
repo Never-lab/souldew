@@ -7,7 +7,7 @@ import { hintKey, collectionKey, EARNED_COLLECTION } from './strings.mjs';
 export { applySkin, previewSkin, endPreview, listSkins, skinState, onSkinChange, applyStoredSkin } from './skins.mjs';
 export { mountBanner, mountNameplate, bannerStats } from './banners/runtime.mjs';
 export { mountFrame, frameStats, sizing as frameSizing } from './frames/runtime.mjs';
-export { refreshPack, forgetPack, packState, setPackAccessProvider, getPackAccess, startPackPreview, endPackPreview, GRACE_MS } from './pack/client.mjs';
+export { refreshPack, forgetPack, packState, setPackAccessProvider, getPackAccess, devPackAccess, startPackPreview, endPackPreview, GRACE_MS } from './pack/client.mjs';
 export { setReducedMotion } from './motion.mjs';
 export { setPlusHandler, openPlus } from './plus.mjs';
 export { onChange, owned, has, setEarnedTrophies };

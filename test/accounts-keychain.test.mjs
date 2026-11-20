@@ -68,10 +68,16 @@ test('no saved sign-in: the keychain is never asked – not at start, not for th
   const secure = fakeKeychain();
   const store = createTokenStore(secure, { file: FILE });
   const changes = [];
-  const s = createSession({ store, port: () => 1, fetchImpl: offline, env: { SLS_ACCOUNTS_URL: SERVICE }, onChange: (x) => changes.push(x) });
+  let told = 0;
+  const s = createSession({ store, port: () => 1, fetchImpl: offline, env: { SLS_ACCOUNTS_URL: SERVICE }, onChange: (x) => changes.push(x), onLoaded: () => told++ });
+  assert.equal(s.publicState().loaded, false, 'before the read: "signed out" means "not known yet"');
   await s.load();
   assert.equal(s.signedIn, false);
+  assert.equal(told, 1, 'the page still hears that the account is known now (its "signed out" is final)');
+  await s.load();
+  assert.equal(told, 1, 'once');
   const st = s.publicState();
+  assert.equal(st.loaded, true);
   assert.equal(st.signedIn, false);
   assert.equal(st.persistent, true, 'not known to be impossible – the page shows no "no keychain" note');
   assert.equal(st.condition, null);
@@ -87,8 +93,9 @@ test('a saved sign-in: read once, in the background – never while the session 
   secure.gate.hold(); // the keychain prompt is open
   const store = createTokenStore(secure, { file: FILE });
   const changes = [];
+  let told = 0;
   const fetchImpl = async () => ({ status: 200, json: async () => ({ id: 'u_kim' }), headers: new Headers() });
-  const s = createSession({ store, port: () => 1, fetchImpl, env: { SLS_ACCOUNTS_URL: SERVICE }, onChange: (x) => changes.push(x) });
+  const s = createSession({ store, port: () => 1, fetchImpl, env: { SLS_ACCOUNTS_URL: SERVICE }, onChange: (x) => changes.push(x), onLoaded: () => told++ });
   assert.equal(secure.calls.available + secure.calls.decrypt, 0, 'creating the session reads nothing');
   assert.equal(s.signedIn, false);
   const loading = s.load();
@@ -96,11 +103,14 @@ test('a saved sign-in: read once, in the background – never while the session 
   await tick(5);
   assert.equal(s.signedIn, false, '"signed out" while the prompt is open');
   assert.equal(s.publicState().signedIn, false);
+  assert.equal(s.publicState().loaded, false, '… but not known yet: the page must not act on it (a souldew+ pack would be wiped)');
   secure.gate.release();
   await loading;
   assert.equal(s.signedIn, true);
   assert.equal(s.publicState().account.handle, 'kimchi');
   assert.equal(changes.at(-1).signedIn, true, 'the page is told (and reloads its account view)');
+  assert.equal(changes.at(-1).loaded, true);
+  assert.equal(told, 0, 'told once – through onChange');
   // the token stays in memory: requests, the page's state and another load don't go back to the keychain
   for (let i = 0; i < 3; i++) assert.equal((await s.request('/v1/me')).status, 200);
   s.publicState();
@@ -118,6 +128,7 @@ test('the keychain says no (macOS "Deny"): signed out, a calm note to sign in ag
   assert.equal(s.signedIn, false);
   assert.equal(s.publicState().condition, 'unreadable', 'Settings › Account: "souldew couldn’t read your saved sign-in – sign in again"');
   assert.equal(changes.at(-1).condition, 'unreadable');
+  assert.equal(changes.at(-1).loaded, true, 'a real "signed out": known');
   assert.equal(existsSync(FILE), false, 'the unreadable blob goes');
   // the next start: nothing saved – the keychain isn't asked again
   const next = fakeKeychain();
@@ -196,6 +207,7 @@ test('server start never waits for the keychain: up at once, "signed out" while 
     const st = await get(base, '/api/account');
     assert.equal(st.status, 200);
     assert.equal(st.body.session.signedIn, false);
+    assert.equal(st.body.session.loaded, false, 'the page learns it is not known yet');
     assert.equal(secure.calls.available, 0, 'the page\'s status doesn\'t start the read either');
     assert.equal((await get(base, '/api/status')).status, 200, 'the rest of the app answers');
     started.loadAccount();
@@ -212,6 +224,7 @@ test('server start never waits for the keychain: up at once, "signed out" while 
     await waiting;
     const after = await get(base, '/api/account');
     assert.equal(after.body.session.signedIn, true);
+    assert.equal(after.body.session.loaded, true);
     assert.equal(after.body.brief.handle, 'kimchi');
     assert.equal(secure.calls.decrypt, 1);
   } finally {

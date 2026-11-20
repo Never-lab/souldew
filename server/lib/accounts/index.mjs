@@ -125,6 +125,9 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
       }
       emit('account', { kind: 'session' });
     },
+    // the saved sign-in is read and nothing changed (nobody was signed in): the page still hears it – its "signed out"
+    // is certain only from now on (web/lib/account.mjs accountKnown)
+    onLoaded: () => emit('account', { kind: 'session' }),
   });
 
   /** The pack key is gone or changed: the cached envelopes are useless (and must not linger) – wipe them. */

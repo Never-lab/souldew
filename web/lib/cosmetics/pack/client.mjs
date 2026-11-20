@@ -47,8 +47,15 @@ async function devProvider({ purpose = 'pack' } = {}) {
   }
 }
 
+/** The dev pack's access (or null) – what the app hands a signed-out player (web/lib/account.mjs cosmeticsPackAccess). */
+export const devPackAccess = devProvider;
+
 let provider = devProvider;
-/** The account client's hook (see the top of this file). Passing null restores the dev / signed-out default. */
+/**
+ * The account client's hook (see the top of this file). Passing null restores the dev / signed-out default.
+ * A provider answers null only when the player is REALLY signed out or without souldew+ – that wipes the cache. While
+ * the account isn't known yet (the saved sign-in is still being read) it waits instead (the app's does).
+ */
 export function setPackAccessProvider(fn) {
   provider = typeof fn === 'function' ? fn : devProvider;
 }

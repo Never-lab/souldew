@@ -6,7 +6,7 @@ import { loadData, RunData, speciesName } from './lib/data.mjs';
 import { SyncLink, PARTNER_TTL } from './lib/sync.mjs';
 import { setLang, guessLang, t, onLangChange } from './lib/i18n.mjs';
 import { applyTheme, applyStoredTheme } from './lib/theme.mjs';
-import { applySkin, refreshPack } from './lib/cosmetics/index.mjs';
+import { applySkin, refreshPack, setPackAccessProvider, devPackAccess } from './lib/cosmetics/index.mjs';
 import { initFavourites } from './lib/favourites.mjs';
 import { initHandheld, prewarm as prewarmHandheld } from './lib/handheld/look.mjs';
 import { detectLayout, resolveHotkeys, accelerator } from './lib/controls.mjs';
@@ -62,7 +62,7 @@ import { ThanksView } from './views/thanks.mjs';
 import { ThanksAsk } from './views/thanksask.mjs';
 import { HandheldView } from './views/handheld.mjs';
 import { railGroups, FOOT_SECTIONS } from './lib/railnav.mjs';
-import { accountEvent, useAccount, signIn, cancelSignIn } from './lib/account.mjs';
+import { accountEvent, useAccount, signIn, cancelSignIn, cosmeticsPackAccess } from './lib/account.mjs';
 import { useSocial } from './lib/socialapp.mjs';
 import { Avatar } from './views/social.mjs';
 import { initUiScale, watchUiScaleKeys, useUiScale, setUiScale, stepUi, suggestUiScale, uiScaleKeys } from './lib/uiscale.mjs';
@@ -481,6 +481,9 @@ function App() {
       initFavourites(s.config?.favourites); // the starred looks in the cosmetics pickers
       initHandheld(s.config?.handheld); // "Your handheld" in the launch animation (a local setting)
       prewarmHandheld(); // three.js and the sticker atlas at idle, so the first launch spends no time loading them
+      // the pack comes through the account – and only once the account is known: until the server has read the saved
+      // sign-in (keychain, in the background) the player only looks signed out, and that must not wipe a member's pack
+      setPackAccessProvider((o) => cosmeticsPackAccess({ ...o, signedOut: devPackAccess }));
       refreshPack().catch((e) => console.warn('souldew+ pack', e));
       const lang = await setLang(s.config?.lang || guessLang());
       sendMenuLabels(s.config?.controls || null);

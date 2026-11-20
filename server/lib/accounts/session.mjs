@@ -56,14 +56,19 @@ export function sameSecret(a, b) {
 /**
  * store: ./store.mjs createTokenStore(); port(): the local server's port (the loopback the service redirects to).
  * fetchImpl / env / now: for tests. onChange(publicState) is called whenever signed-in / offline / expired changes.
+ * onLoaded() is called once load() is done when onChange wasn't (nothing saved, or a sign-in that finished meanwhile) –
+ * either way the page learns that the account is known now (publicState().loaded).
  */
-export function createSession({ store, port, fetchImpl = fetch, env = process.env, now = Date.now, onChange = () => {}, toAccount = () => null, platform = process.platform } = {}) {
+export function createSession({ store, port, fetchImpl = fetch, env = process.env, now = Date.now, onChange = () => {}, onLoaded = () => {}, toAccount = () => null, platform = process.platform } = {}) {
   const base = accountsBase(env);
   // { access, accessExp, refresh, sid, service, account } – read from the store by load(), never at creation: reading
   // it may mean the keychain, and the keychain may mean a password prompt the server must not wait for. Once read it
   // stays here in memory – no request reads the keychain again.
   let saved = null;
   let loading = null;
+  // load() is done: until then "signed out" only means "not read yet" – the page must not act on it (a souldew+
+  // member's pack would be wiped and downloaded again at every start)
+  let loaded = false;
   let pending = null; // { state, verifier, at, bad }
   let refreshing = null;
   // what the page is told besides signed-in or not: 'offline' (no answer), 'expired' (the session ended elsewhere),
@@ -92,6 +97,7 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
       condition: saved ? (['offline', 'suspended'].includes(condition) ? condition : null) : ['expired', 'unreadable'].includes(condition) ? condition : null,
       pending: !!pending && now() - pending.at < LOGIN_TTL,
       account: saved?.account || null,
+      loaded,
     };
   }
 
@@ -152,13 +158,15 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
           // nothing stored
         }
       }
+      loaded = true;
       // a sign-in that finished meanwhile is newer than what was saved
-      if (saved) return;
+      if (saved) return onLoaded();
       if (next) {
         saved = next;
         condition = null;
         changed();
       } else if (failed) setCondition('unreadable');
+      else onLoaded(); // nothing saved: signed out – now for certain
     })();
     return loading;
   }
