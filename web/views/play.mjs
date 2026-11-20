@@ -287,7 +287,7 @@ const GEN = { gb: 1, gbc: 2, gba: 3, nds: 4 };
  * you open another section: `mode` "full" fills the Play page, "mini" floats in the corner.
  */
 export function GameSession({ session, mode }) {
-  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, reloadStatus, runData, linkSessions, linkPlay, linkStatus, library, wagerRef } = useApp();
+  const { manifest, doc, me, applySnap, revealDeaths, ballsSeen, toast, docVersion, onlineSlots, navigate, closeSession, link, status, reloadStatus, runData, linkSessions, linkPlay, linkStatus, library, wagerRef, lastMoment } = useApp();
   const payRef = useRef(null); // link battle wagers into this game (web/lib/wagerpay.mjs) – only the player's own run game
   const target = session.target;
   // the launch animation (Settings › Play › Launch animation) – what the membership allows at this moment (shared/
@@ -946,6 +946,19 @@ export function GameSession({ session, mode }) {
       }
     };
     const onVisibility = () => document.visibilityState === 'hidden' && persist();
+    // Closed from the UI (lib/lastmoment.mjs): the last battery save and "where you left off" while the player is still
+    // there – the fast player and the 3DS player answer getState through their frame, which the cleanup below is too
+    // late for. The close waits for the state's bytes (returned); their upload goes on after the frame is gone.
+    let lastTaken = false;
+    const offLast = lastMoment?.set(() => {
+      if (stopped || !loadedOk) return null;
+      lastTaken = true;
+      const bytes = !target.link?.discard ? readSave() : null;
+      if (bytes) persist(bytes);
+      const st = grabState();
+      saveAuto(st);
+      return st;
+    });
     window.addEventListener('sl-save-now', flushNow);
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('beforeunload', onPageHide);
@@ -1259,6 +1272,7 @@ export function GameSession({ session, mode }) {
     })();
     return () => {
       stopped = true;
+      offLast?.();
       if (payRef.current) payRef.current = null;
       if (wagerRef?.current) wagerRef.current.money = null;
       // the game closes: every death held for the game to show is shown now (recorded already)
@@ -1276,7 +1290,7 @@ export function GameSession({ session, mode }) {
       // final flush: read now (the frame is about to go), upload after whatever is still in flight
       const bytes = loadedOk && !target.link?.discard ? readSave() : null;
       if (bytes) persist(bytes);
-      saveAuto(loadedOk ? grabState() : null);
+      if (!lastTaken) saveAuto(loadedOk ? grabState() : null); // (closed another way: the window, a link session's end …)
     };
   }, [phase, target.key]);
 

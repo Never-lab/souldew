@@ -34,6 +34,7 @@ import { PlayView, GameSession, ExternalFeed } from './views/play.mjs';
 import { LinkSessions } from './lib/linksession.mjs';
 import { LinkBar } from './views/linkplay.mjs';
 import { unsavedProgress, unsavedTexts } from './views/savestates.mjs';
+import { lastMoment } from './lib/lastmoment.mjs';
 import { LinkView } from './views/link.mjs';
 import { SettingsView, gpuFallbackText, settingsLink } from './views/settings.mjs';
 import { GuideView } from './views/guide.mjs';
@@ -320,6 +321,9 @@ function App() {
   const [pendingRun, setPendingRun] = useState(null); // run switch waiting for "close the game?"
   const sessionRef = useRef(null);
   sessionRef.current = session;
+  // the game's last moment before a close from the UI (lib/lastmoment.mjs): the play view takes "where you left off" then
+  const lastRef = useRef(null);
+  if (!lastRef.current) lastRef.current = lastMoment();
   const [, setLangTick] = useState(0);
   const linkRef = useRef(null);
   const linkPlayRef = useRef(null); // trades and battles (web/lib/linksession.mjs)
@@ -452,10 +456,13 @@ function App() {
   }, []);
   // Closing from the UI: asks first when there is progress since the last in-game save.
   const [pendingClose, setPendingClose] = useState(null); // { after } – close waiting for "not saved in-game"
+  // The game ends once the play view has its last state ("where you left off" – a moment, see lib/lastmoment.mjs).
   const closeSession = useCallback((after) => {
     if (unsavedProgress()) return setPendingClose({ after });
-    endSession();
-    after?.();
+    lastRef.current.close(() => {
+      endSession();
+      after?.();
+    });
   }, []);
   const setMe = useCallback((slot, id = runIdRef.current) => {
     setMeState(slot);
@@ -1050,7 +1057,7 @@ function App() {
     status, reloadStatus, library, reloadLibrary, runId, setRunId, manifest, missingRun, reloadManifest, doc: runDoc, docVersion, runData, me, setMe,
     navigate, route, link: linkRef.current, linkStatus, linkPlay, linkSessions: linkPlayRef.current, partnerOnline, onlineSlots, connect, disconnect, inbox, setInbox, applySnap, revealDeaths, ballsSeen, toast, liveInfo,
     externalRun, setExternalRun,
-    session, startSession, endSession, closeSession, offerRestart, wagerRef,
+    session, startSession, endSession, closeSession, offerRestart, wagerRef, lastMoment: lastRef.current,
   };
 
   if (!ready) {
@@ -1188,12 +1195,12 @@ function App() {
         // a board of the other run was asked for: back to the overview instead of waiting for a run that won't open
         else if (rp.run && rp.run !== runId) navigate(route.route);
       }}>${t('play.lockKeep', 'Keep playing')}</button>
-        <button class="btn primary" onClick=${() => { const id = pendingRun.id; setPendingRun(null); endSession(); switchRun(id); }}>${t('play.lockSwitch', 'Close game & switch')}</button>`}>
+        <button class="btn primary" onClick=${() => { const id = pendingRun.id; setPendingRun(null); lastRef.current.close(() => { endSession(); switchRun(id); }); }}>${t('play.lockSwitch', 'Close game & switch')}</button>`}>
       <p class="muted">${t('play.lockTextRun', '{game} belongs to the run that is open now. To open another run, close the game first – your progress is saved and it continues where you left off.', { game: session?.target.label || '' })}</p>
       ${pendingRun && unsavedProgress() && html`<p class="warning">${unsavedTexts(unsavedProgress()).text}</p>`}
     <//>
     <${Modal} open=${!!pendingClose} onClose=${() => setPendingClose(null)} title=${unsavedTexts(unsavedProgress()).title}
-      footer=${html`<button class="btn ghost" onClick=${() => { const p = pendingClose; setPendingClose(null); endSession(); p?.after?.(); }}>${unsavedTexts().close}</button>
+      footer=${html`<button class="btn ghost" onClick=${() => { const p = pendingClose; setPendingClose(null); lastRef.current.close(() => { endSession(); p?.after?.(); }); }}>${unsavedTexts().close}</button>
         <button class="btn primary" onClick=${() => { setPendingClose(null); if (session) navigate('play', session.target.params); }}>${t('unsaved.back', 'Back to the game')}</button>`}>
       <p class="muted">${unsavedTexts(unsavedProgress()).text}</p>
     <//>

@@ -410,6 +410,10 @@ Plus a new play view that gives the game the room it deserves.
 - **Cheats in Ruby, Sapphire, Emerald, FireRed and LeafGreen** wait until you stand in the overworld – not during a
   battle, a menu, a text or a screen change, when the game may be moving its data around – and not on the title
   screen or the Continue menu, where a new game would throw it away. Otherwise souldew says to try again in a moment.
+- **“Close game” keeps where you left off in the fast player and the 3DS player too.** Closing a game there (or
+  switching to another game or run) left no “where you left off” of that moment – the next start went back to the
+  last one souldew had kept while you played, up to two minutes earlier, or to your in-game save. Now the game closes
+  once that moment is kept, a split second later, and the next start picks up right there.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
