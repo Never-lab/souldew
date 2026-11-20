@@ -205,8 +205,15 @@ const CONTROLLER_HEALTHBARUPDATE = 24;
 const FIRST_BATTLE = 0x10;
 const BMON = { size: 0x58, species: 0, hp: 0x28, level: 0x2a, maxHp: 0x2c, pid: 0x48 };
 // gBattleTypeFlags: DOUBLE, LINK, TRAINER, … – raids only in a trainer battle that isn't a link, a recorded one, the
-// Battle Frontier's or the Safari Zone's
-const BT = { double: 0x01, link: 0x02, trainer: 0x08, safari: 0x80, recorded: 0x01000000, frontier: 0x00100000 | 0x00200000 | 0x00400000 };
+// Safari Zone's or one of the challenge facilities' (`facility`, per game: the bits above 8 differ – pokeemerald and
+// pokefirered include/constants/battle.h). The same bits as the live reader's (shared/live/parse.mjs: bit 16 is
+// Emerald's Battle Dome and FireRed's Poké Dude).
+const BT = { double: 0x01, link: 0x02, trainer: 0x08, safari: 0x80, recorded: 0x01000000 };
+// Emerald: BATTLE_TYPE_FRONTIER – BATTLE_TOWER (1 << 8), DOME 16, PALACE 17, ARENA 18, FACTORY 19, PIKE 20, PYRAMID 21
+// (bit 22 is INGAME_PARTNER: Steven at the Space Center – an ordinary trainer battle)
+GBA_TABLES.emerald.facility = 0x100 | 0x10000 | 0x20000 | 0x40000 | 0x80000 | 0x100000 | 0x200000;
+// FireRed/LeafGreen: BATTLE_TOWER (1 << 8, never set) and TRAINER_TOWER (1 << 19, the Sevii Islands' challenge)
+GBA_TABLES.frlg.facility = 0x100 | 0x80000;
 
 function gbaTable(entry) {
   if (entry?.id === 'firered_us' || entry?.id === 'leafgreen_us') return GBA_TABLES.frlg;
@@ -230,7 +237,7 @@ function viewGBA(entry, read, state, T) {
   const tf = read(T.typeFlags, 4);
   if (!tf) return null;
   const flags = le32(tf);
-  if (!(flags & BT.trainer) || flags & (BT.link | BT.safari | BT.recorded)) return null;
+  if (!(flags & BT.trainer) || flags & (BT.link | BT.safari | BT.recorded | (T.facility || 0))) return null;
   const raw = read(T.enemyParty, 600);
   const idx = read(T.partyIndexes, 8);
   const bm = read(T.battleMons, BMON.size * 4);

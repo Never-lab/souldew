@@ -429,6 +429,39 @@ test('FireRed: the rival\'s battle – quiet only at the action / move menu with
   assert.equal(H.raidView(e, b.read, {}), null);
 });
 
+test('Gen 3: no raid in the challenge facilities – Emerald\'s Battle Frontier and Pyramid, FireRed\'s Trainer Tower (their own bits)', () => {
+  // pokeemerald / pokefirered include/constants/battle.h: the bits above 8 mean different things in the two games
+  const view = (id, T, flags) => {
+    const e = entryOf(id);
+    const b = gbaBus();
+    b.put(Number(e.inBattle.addr), [Number(e.inBattle.mask || 2)]);
+    b.put(T.typeFlags, le32b(flags));
+    const mon = new Uint8Array(100);
+    mon.set(le32b(0x12345678), 0);
+    mon[0x54] = 50;
+    mon.set([90, 0], 0x56);
+    mon.set([90, 0], 0x58);
+    b.put(T.enemyParty, mon);
+    b.put(T.partyIndexes, [0, 0, 0, 0]);
+    const bm = new Uint8Array(0x58);
+    bm.set([90, 0], 0x28);
+    bm.set([90, 0], 0x2c);
+    bm.set(le32b(0x12345678), 0x48);
+    b.put(T.battleMons + 0x58, bm);
+    return H.raidView(e, b.read, {});
+  };
+  const EM = { typeFlags: 0x02022fec, enemyParty: 0x02024744, partyIndexes: 0x0202406e, battleMons: 0x02024084 };
+  const FR = { typeFlags: 0x02022b4c, enemyParty: 0x0202402c, partyIndexes: 0x02023bce, battleMons: 0x02023be4 };
+  assert.ok(view('emerald_us', EM, 0x08), 'an ordinary trainer battle');
+  assert.ok(view('emerald_us', EM, 0x08 | 0x400000), 'Steven at your side (INGAME_PARTNER): an ordinary one too');
+  for (const [bit, what] of [[0x100, 'Battle Tower'], [0x10000, 'Dome'], [0x20000, 'Palace'], [0x40000, 'Arena'], [0x80000, 'Factory'], [0x100000, 'Pike'], [0x200000, 'Pyramid']]) {
+    assert.equal(view('emerald_us', EM, 0x08 | bit), null, `Emerald: ${what}`);
+  }
+  assert.ok(view('firered_us', FR, 0x08));
+  assert.equal(view('firered_us', FR, 0x08 | 0x80000), null, 'FireRed: the Trainer Tower');
+  assert.equal(view('leafgreen_us', FR, 0x08 | 0x80000), null, 'LeafGreen: the Trainer Tower');
+});
+
 test('support per game: the verified ones; other versions and the 3DS say why', () => {
   for (const id of ['red_us', 'blue_us', 'crystal_us', 'emerald_us', 'firered_us', 'leafgreen_us', 'platinum_us', 'heartgold_us', 'black2_us']) assert.equal(H.raidSupport(entryOf(id)).ok, true, id);
   for (const id of ['yellow_us', 'gold_us', 'ruby_us', 'emerald_de', 'diamond_us', 'soulsilver_us', 'black_us', 'white2_us']) assert.deepEqual(H.raidSupport(entryOf(id)), { ok: false, why: 'version' }, id);

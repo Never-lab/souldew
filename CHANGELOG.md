@@ -416,6 +416,8 @@ Plus a new play view that gives the game the room it deserves.
 - **souldew+ in your language:** the colour themes' descriptions and the names of the banner and frame collections
   (“Four Seasons”, “Earned” …) are translated now, and the battle and rock-paper-scissors cards write the level and
   “vs” the way your language does.
+- Raids skip the challenge facilities: Emerald's Battle Frontier and Battle Pyramid and the Trainer Tower in
+  FireRed and LeafGreen – an ordinary trainer battle, Steven at your side included, still counts.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
