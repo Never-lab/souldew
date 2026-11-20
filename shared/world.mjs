@@ -78,6 +78,7 @@ export function worldTable(entry, rev = 0, code = '') {
       : null,
     // ROM addresses of this revision (unknown revisions: the overworld callback is learned, the tables are searched)
     overworldCb2: rom?.overworldCb2 ? (hex(rom.overworldCb2) | 1) >>> 0 : 0,
+    fieldCb2s: fieldCallbacks(entry),
     graphicsInfo: rom?.graphicsInfo ? hex(rom.graphicsInfo) : 0,
     spritePalettes: rom?.spritePalettes ? hex(rom.spritePalettes) : 0,
     avatars: (w.avatars || []).map(([kind, male, female]) => ({ kind, gfx: [male, female] })),
@@ -85,6 +86,28 @@ export function worldTable(entry, rev = 0, code = '') {
     anchor: { x: 112, y: 72 },
     screen: { w: 240, h: 160 },
   };
+}
+
+/**
+ * Every overworld callback this entry's ROMs can have (each game code and revision it matches), or null when one of them
+ * isn't known (FireRed/LeafGreen in French, Italian, Spanish). readCamera's `field` asks these, so it holds whichever
+ * revision runs – the cheats and wagers build their table without the ROM header (revision 0).
+ */
+function fieldCallbacks(entry) {
+  const rom = entry?.world?.rom;
+  const m = entry?.match;
+  if (!rom || !m) return null;
+  const codes = [].concat(m.gameCode ?? '');
+  const revs = [].concat(m.softwareVersion ?? 0);
+  const out = new Set();
+  for (const code of codes) {
+    for (const rev of revs) {
+      const r = rom[`${code}:${rev}`] || rom[String(rev)];
+      if (!r?.overworldCb2) return null;
+      out.add((hex(r.overworldCb2) | 1) >>> 0);
+    }
+  }
+  return out.size ? [...out] : null;
 }
 
 /** SaveBlock1's address (Emerald and FR/LG move it around: gSaveBlock1Ptr; Ruby/Sapphire: fixed). */
@@ -174,7 +197,8 @@ export const chainReaders = (...readers) => (addr, len) => {
 
 /**
  * The camera, per picture: { sb1, map, tx, ty (the camera's tile), cx, cy (its world pixels), keys, cb2, locked, fade
- * (0 = clear … 16 = black/white), battle } – or null when SaveBlock1 isn't there yet (title screen, intro).
+ * (0 = clear … 16 = black/white), battle, field (the overworld callback runs) } – or null when SaveBlock1 isn't there
+ * yet (title screen, intro).
  */
 export function readCamera(t, read, prior = null) {
   if (t?.gen <= 2) return gbReadCamera(t, read, prior);
@@ -213,6 +237,9 @@ export function readCamera(t, read, prior = null) {
     // FR/LG's help screen (L/R) runs over the overworld without locking it or changing the callback
     help: !!(help && help[0]),
     replay: !!(ql && (ql[0] === 2 || ql[0] === 3)),
+    // the game's overworld callback running (true), another one – the title screen, the Continue menu, a battle's or a
+    // menu's own screen (false) – or null where this revision's isn't known (shared/linkbattle.mjs camIdle)
+    field: t.fieldCb2s && ok(main, 4) ? t.fieldCb2s.includes(u32(main, 0)) : null,
   };
 }
 

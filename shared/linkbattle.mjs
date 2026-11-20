@@ -495,7 +495,9 @@ export async function addMoney(game, read, write, delta) {
  * Emerald and FireRed/LeafGreen move their save blocks on a map change (behind a fade): money or a bag written then
  * would land where the game no longer reads. Wagers (fieldIdle) and cheats (shared/live/cheats.mjs) both ask this.
  */
-export const camIdle = (cam) => !!cam && !cam.battle && !cam.locked && !cam.help && !cam.replay && !cam.fade;
+// (`field` false: another main callback than the overworld's – Emerald and FR/LG load the save at boot, so the title
+// screen and the Continue menu read like a player standing still; a bag or money written there is gone with New Game)
+export const camIdle = (cam) => !!cam && cam.field !== false && !cam.battle && !cam.locked && !cam.help && !cam.replay && !cam.fade;
 
 export async function fieldIdle(game, read, { cam = undefined } = {}) {
   const g = GAMES[game];

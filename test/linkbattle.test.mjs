@@ -516,6 +516,12 @@ test('wager: never into a game on its title screen – Gen 1/2 read as "idle" th
   assert.equal(await L.fieldIdle('goldsilver', bus({ 0xda22: [0xff] }).read), false, 'garbage is no team');
   assert.equal(await L.fieldIdle('redblue', bus({ 0xd163: [0] }).read), false);
   assert.equal(await L.fieldIdle('yellow', bus({ 0xd162: [6] }).read), true);
+  // Gen 3: Emerald and FR/LG load the save at boot – the title screen and the Continue menu hold nobody (no lock, no
+  // fade): only the overworld's own callback counts (shared/world.mjs readCamera `field`; null where it isn't known)
+  const cam = { battle: false, locked: false, help: false, replay: false, fade: 0 };
+  assert.equal(await L.fieldIdle('emerald', bus({}).read, { cam: { ...cam, field: false } }), false, 'the main menu');
+  assert.equal(await L.fieldIdle('emerald', bus({}).read, { cam: { ...cam, field: true } }), true, 'the overworld');
+  assert.equal(await L.fieldIdle('frlgEu', bus({}).read, { cam: { ...cam, field: null } }), true, 'callback unknown: as before');
   const doc = memDoc();
   doc.set('lb:abc123:p1', entry({}));
   doc.set('lb:abc123:p2', entry({}));

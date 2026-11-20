@@ -194,8 +194,11 @@ test('Gen 2: the balls into the Ball pocket – its 12 slots, never past them in
 });
 
 /** A Gen 3 bag behind the save block pointers (Emerald / FireRed), quantities XOR the key's low half, money XOR all of it. */
-function gen3(L, { key = 0x1234abcd, sb1 = 0x02025a00, sb2 = 0x02024a00, money = 3000 } = {}) {
+function gen3(L, { key = 0x1234abcd, sb1 = 0x02025a00, sb2 = 0x02024a00, money = 3000, entry = null } = {}) {
   const m = memory();
+  // (`entry`: the game's main callback is its overworld's – a player standing in the overworld, shared/world.mjs readCamera)
+  const t = entry && worldTable(entry);
+  if (t?.fieldCb2s) m.poke(t.main + 4, le32(t.fieldCb2s[0]));
   const k = key & 0xffff;
   m.poke(L.sb1Ptr, le32(sb1));
   m.poke(L.sb2Ptr, le32(sb2));
@@ -210,7 +213,7 @@ const FRL = { sb1Ptr: 0x03005008, sb2Ptr: 0x0300500c, keyOff: 0xf20, money: 0x29
 
 test('Gen 3: balls into the Poké Ball pocket, healing items into Items – encrypted like the game keeps them', () => {
   for (const [e, L] of [[EMERALD, EM], [EMERALD_DE, EM], [FR, FRL]]) {
-    const { m, sb1, k } = gen3(L);
+    const { m, sb1, k } = gen3(L, { entry: e });
     assert.deepEqual(applyCheat('masterBall', e, m, {}, { amount: 10 }), { ok: true, before: 0, after: 10, added: 10 }, e.id);
     assert.deepEqual([u16(m, sb1 + L.balls), u16(m, sb1 + L.balls + 2) ^ k], [1, 10]);
     assert.deepEqual(applyCheat('maxRevive', e, m, {}, { amount: 99 }), { ok: true, before: 0, after: 99, added: 99 });
@@ -222,6 +225,7 @@ test('Gen 3: balls into the Poké Ball pocket, healing items into Items – encr
   const m = memory();
   m.poke(sb1 + 0x490, le32(3000));
   m.poke(sb1 + 0x600, slot(4, 3));
+  m.poke(worldTable(RUBY).main + 4, le32(worldTable(RUBY).fieldCb2s[0])); // (standing in the overworld)
   assert.deepEqual(applyCheat('pokeBall', RUBY, m, {}, { amount: 99 }), { ok: true, before: 3, after: 99, added: 96 });
   assert.equal(u16(m, sb1 + 0x602), 99);
 });
@@ -239,7 +243,7 @@ test('Gen 3: a cheat only while you stand in the overworld – never during a fa
       ...(t.questLog ? { replay: [t.questLog, [2]] } : {}),
     };
     for (const [why, [addr, on]] of Object.entries(hold)) {
-      const { m, sb1, k } = gen3(L);
+      const { m, sb1, k } = gen3(L, { entry: e });
       m.poke(addr, on);
       assert.deepEqual(applyCheat('masterBall', e, m, {}, { amount: 10 }), { error: 'busy' }, `${e.id}: ${why}`);
       assert.deepEqual(await applyCheat('money', e, m, {}, { amount: 1000 }), { error: 'busy' }, `${e.id}: ${why} (money)`);
@@ -249,10 +253,30 @@ test('Gen 3: a cheat only while you stand in the overworld – never during a fa
       assert.deepEqual([u16(m, sb1 + L.balls), u16(m, sb1 + L.balls + 2) ^ k], [1, 10]);
     }
     // the save block pointer moving (out of the RAM it can be in): no camera, no cheat
-    const { m } = gen3(L);
+    const { m } = gen3(L, { entry: e });
     m.poke(L.sb1Ptr, le32(0));
     assert.deepEqual(applyCheat('masterBall', e, m, {}, { amount: 10 }), { error: 'busy' });
   }
+  // the title screen and the Continue menu (checked live in Emerald, fast player): the save is loaded at boot, nothing
+  // holds the player – but the main callback isn't the overworld's, and New Game would throw the cheat away
+  for (const [e, L] of [[EMERALD, EM], [EMERALD_DE, EM], [FR, FRL]]) {
+    const t = worldTable(e);
+    const { m, sb1, k } = gen3(L, { entry: e });
+    m.poke(t.main + 4, le32(0x0800aa91)); // (another callback: the title screen's, the main menu's)
+    assert.deepEqual(applyCheat('masterBall', e, m, {}, { amount: 10 }), { error: 'busy' }, `${e.id}: main menu`);
+    assert.deepEqual(await applyCheat('money', e, m, {}, { amount: 1000 }), { error: 'busy' }, `${e.id}: main menu (money)`);
+    assert.equal(m.writes, 0);
+    // every revision's overworld counts – the cheats read no ROM header (FireRed / LeafGreen 1.1: another address)
+    for (const cb2 of t.fieldCb2s) {
+      m.poke(t.main + 4, le32(cb2));
+      assert.equal(applyCheat('masterBall', e, m, {}, { amount: 1 }).ok, true, `${e.id}: ${cb2.toString(16)}`);
+    }
+    assert.deepEqual([u16(m, sb1 + L.balls), u16(m, sb1 + L.balls + 2) ^ k], [1, t.fieldCb2s.length]);
+  }
+  assert.equal(worldTable(FR).fieldCb2s.length, 2, 'FireRed 1.0 and 1.1');
+  // a language whose overworld callback isn't known (FireRed French): no callback check, the rest as before
+  const FR_FR = entry({ platform: 'gba', code: 'BPRF' });
+  assert.equal(worldTable(FR_FR).fieldCb2s, null);
   // the toast says what to do
   assert.match(M.cheatFailText('masterBall', { error: 'busy' }, { gen: 3 }).text, /Try again in a moment/);
   // the other generations (their bag doesn't move) and a game without a Shared World table: as before

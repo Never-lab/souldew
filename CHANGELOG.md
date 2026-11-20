@@ -411,8 +411,9 @@ Plus a new play view that gives the game the room it deserves.
   game's own memory instead of souldew's copy of it, so a write the game lost is reported as not working; a wager
   paid into the game is checked the same way.
 - **Cheats in Ruby, Sapphire, Emerald, FireRed and LeafGreen** wait until you stand in the overworld – not during a
-  battle, a menu, a text or a screen change, when the game may be moving its data around. Otherwise souldew says to
-  try again in a moment.
+  battle, a menu, a text or a screen change, when the game may be moving its data around – and not on the title
+  screen or the Continue menu, where a new game would throw it away. Otherwise souldew says to try again in a moment.
+  A wager is paid into these games by the same rule.
 - **souldew+ in your language:** the colour themes' descriptions and the names of the banner and frame collections
   (“Four Seasons”, “Earned” …) are translated now, and the battle and rock-paper-scissors cards write the level and
   “vs” the way your language does.
