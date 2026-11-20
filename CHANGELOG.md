@@ -337,7 +337,9 @@ Plus a new play view that gives the game the room it deserves.
   ending exactly on the game. It runs next to the game's start and never makes it wait; a click or any key skips it; it
   is silent. Settings › Play › Launch animation: with Supporter “Your colours” (in your theme's colours) with Full /
   Quick / Off; with souldew+ (and Legend) also Gold, Clear shell (four colours), Holo label, and now and then – one
-  start in 64 – a Rare start. With reduced motion it is a short fade.
+  start in 64 – a Rare start. With reduced motion it is a short fade. It plays smoothly from its first frame to the
+  game: the device, its light and every look are made ready before it appears, the game's sound and “where you left
+  off” (a DS game's too) start under it without costing it a frame, and the hand-over is one clean cut.
 - **Without a membership your games start as before:** the cartridge slides into the console and clicks in – On or Off
   in Settings › Play › Launch animation, with a quiet line about the 3D one.
 - **Your handheld.** Dress that device: one skin for all of them (made from a banner), up to 8 stickers per device out

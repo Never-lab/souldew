@@ -23,6 +23,7 @@ import { withSurface, NSTK } from './surface.mjs';
 import { DEVICES, PX, partsOf, surfacesOf, unfold } from './geometry.mjs';
 import { wrapArt, previewArt } from './wrap.mjs';
 import { effectiveLook, effectiveCart, finishIndex } from './looks.mjs';
+import { glassCoat, GLASS_COAT, pixelRatioFor } from './steady.mjs';
 
 export { DEVICES };
 
@@ -371,7 +372,9 @@ export async function createScene(canvas, o) {
   // which loads in the same thread – the game's start must never wait for the device)
   const pause = async (what) => { o.mark?.(what); if (o.yieldTo) await o.yieldTo(); }; // where the parts sit (geometry.mjs – the faces cut round the same numbers)
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: !!o.keep });
-  renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+  // the launch draws within a pixel budget (o.pixelBudget, steady.mjs): the push-in must not outrun the GPU
+  const ratio = (w, h) => (o.pixelBudget ? pixelRatioFor(w, h, devicePixelRatio || 1, o.pixelBudget) : Math.min(2, devicePixelRatio || 1));
+  renderer.setPixelRatio(ratio(o.w, o.h));
   renderer.setSize(o.w, o.h, false);
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -424,7 +427,7 @@ export async function createScene(canvas, o) {
     : new THREE.MeshPhysicalMaterial({ color: shellColor.clone().multiplyScalar(0.32), roughness: 0.55, clearcoat: 0.3 }), P));
   const keyM = fadeable(withPulse(gold ? physical({ roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2, ...gold.keys })
     : new THREE.MeshPhysicalMaterial({ color: shellColor.clone().lerp(new THREE.Color('#1b1b20'), 0.62), roughness: 0.38, clearcoat: 0.6, clearcoatRoughness: 0.2, metalness: 0 }), P));
-  const glassM = fadeable(new THREE.MeshPhysicalMaterial({ color: '#060708', roughness: 0.22, metalness: 0, clearcoat: 0.35, clearcoatRoughness: 0.1, envMapIntensity: 0.6 }));
+  const glassM = fadeable(new THREE.MeshPhysicalMaterial({ color: '#060708', roughness: 0.22, metalness: 0, clearcoat: GLASS_COAT, clearcoatRoughness: 0.1, envMapIntensity: 0.6 }));
   const slotM = fadeable(new THREE.MeshStandardMaterial({ color: '#050506', roughness: 0.9 }));
   const clearWord = look === 'clear' ? LK.clear.word : null;
   const wordM = fadeable(new THREE.MeshPhysicalMaterial({ color: gold ? new THREE.Color(gold.word.color) : shellColor.clone().multiplyScalar(clearWord?.shade ?? 0.55), roughness: 0.22, clearcoat: 1, alphaMap: wordTex('souldew'), transparent: true, depthWrite: false, opacity: clearWord?.opacity ?? 0.9 }));
@@ -672,6 +675,9 @@ export async function createScene(canvas, o) {
 
   // the clear shell shows the board inside (its recipe comes with the souldew+ pack)
   if (look === 'clear') {
+    // (the launch: the transmission pass – the scene drawn once more for what shows through the plastic, which blurs it
+    // anyway – at half the canvas's resolution: the heaviest look keeps its frames in time; steady.mjs pixelRatioFor)
+    if (o.pixelBudget) renderer.transmissionResolutionScale = 0.5;
     const B = LK.clear.board;
     const [map, mask] = boardTex(fold ? dev.W - 14 : dev.W - 16, fold ? dev.D - 14 : dev.D - 16, B);
     const bm = withPulse(physical(B.material, { map, emissive: new THREE.Color(o.pulse || B.material.emissive || '#ffffff'), emissiveMap: mask, emissiveIntensity: 0 }), P);
@@ -981,7 +987,7 @@ ${LK.holo.glsl}
     glareM.opacity = 0.55 * (s.led || 0) * (1 - (s.fade || 0)) * (1 - 0.85 * (s.glassOff || 0));
     // glass reflections fade as the camera pushes in (the play view has no glass)
     glassM.envMapIntensity = 0.6 * (1 - (s.glassOff || 0));
-    glassM.clearcoat = 0.35 * (1 - (s.glassOff || 0));
+    glassM.clearcoat = glassCoat(s.glassOff || 0); // (never 0: that would be another shader, compiled mid-push – steady.mjs)
     // the screen's own light on the plastic and the room
     root.updateMatrixWorld(true);
     const sc = worldOf(screenMeshes[0], new THREE.Vector3(0, 0, 0));
@@ -1099,8 +1105,29 @@ ${LK.holo.glsl}
     // in parallel where the driver can (KHR_parallel_shader_compile): the main thread stays free meanwhile
     if (o.yieldTo && renderer.compileAsync) await renderer.compileAsync(scene, cam);
     else renderer.compile(scene, cam);
-    for (const x of hidden) x.visible = false;
     o.mark?.('compiled');
+    // and one frame drawn with everything in it, while the canvas is still invisible: compile() leaves out the passes
+    // three.js adds while drawing (the Clear shell's transmission pass draws the cartridge and the board with shaders of
+    // their own) and uploads no texture – the label, the board and the wrap went up on the frame they first came into
+    // view (25–85 ms, the cartridge's drop)
+    if (o.yieldTo) {
+      await pause('warm');
+      // – at the moments whose state the GPU hasn't drawn yet (o.warmAt: the latch's light, the screens on, the shell
+      // fading, the hand-over; the GPU's first draw of a new state is slow too, once per app start), the first frame last
+      for (const at of [...(o.warmAt || []), 0]) {
+        apply(at); // (it hides what isn't in that moment: shown again just for this frame)
+        const culled = [], shown = [];
+        scene.traverse((x) => {
+          if (!x.visible) { shown.push(x); x.visible = true; }
+          if (x.isMesh && x.frustumCulled) { culled.push(x); x.frustumCulled = false; }
+        });
+        renderer.render(scene, cam);
+        for (const x of culled) x.frustumCulled = true;
+        for (const x of shown) x.visible = false;
+      }
+      o.mark?.('warmed');
+    }
+    for (const x of hidden) x.visible = false;
   }
   // the backing's size and place (final rectangle, in body coordinates)
   {
@@ -1143,7 +1170,7 @@ ${LK.holo.glsl}
   return {
     render, project, scaleAt, anchors, screensAt, renderer, debug: { scene, cart, parts, key, HH, cam, apply },
     pick, uToScreen, regions, setStickers, hh: HH,
-    resize(w, h) { o.w = w; o.h = h; renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); FC = null; }, // (the editor's stage)
+    resize(w, h) { o.w = w; o.h = h; renderer.setPixelRatio(ratio(w, h)); renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix(); FC = null; }, // (the editor's stage)
     /** the play view's screen rectangle moved (its layout settled while the animation ran): the match-cut follows it */
     setFinal(f) { o.final = f; FC = null; },
     dispose() { // free the GPU at once (a launch must leave nothing behind: no context, no textures, no programs)

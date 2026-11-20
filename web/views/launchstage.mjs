@@ -16,6 +16,8 @@ import { launchLook, devKey, RARE_ODDS } from '/shared/handheld.mjs';
 import { loadScene, lookNow, sceneWrap, shellColor, CLEAR, playableLook, launchRightsNow, paidLooks, previewConfig } from '../lib/handheld/look.mjs';
 import { placeLayout } from '../lib/handheld/geometry.mjs';
 import { coverOf } from './library.mjs';
+import { startTrace } from '../lib/handheld/launchtrace.mjs';
+import { warmAudio, afterHandover, settle, budgetFor } from '../lib/handheld/steady.mjs';
 
 /** The picture on the cartridge's label: the player's own cover first, then the catalog's (a hack: its base game). */
 export function insertCover(library, target, manifest) {
@@ -55,8 +57,9 @@ function liveCanvas(frame, L) {
 /** How long the set-up waits for the game's first frame before it builds anyway (a slow start: a DS / 3DS game). */
 const BUILD_WAIT = 300;
 
-/** Measurements of the last launch (set-up, frames) – for the recordings and diagnostics. */
-export const launchStats = { last: null };
+/** Measurements of the last launch (set-up, frames; `trace` with the opt-in trace, lib/handheld/launchtrace.mjs) – for
+ * the recordings and diagnostics. */
+export const launchStats = { last: null, trace: null };
 
 /**
  * cfg: launchConfig(status.config). target: the session's target (system). frame: the game's iframe ref. ready: the
@@ -66,6 +69,8 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
   const root = useRef(null);
   const live = useRef({ ready, onDone });
   live.current = { ready, onDone };
+  const traced = useRef(null);
+  useEffect(() => { if (ready) traced.current?.mark('game ready'); }, [ready]);
 
   useLayoutEffect(() => {
     const el = root.current;
@@ -73,6 +78,9 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
     const cs = host.querySelector('.console-screen');
     const mounted = performance.now();
     const marks = [];
+    const trace = startTrace(mounted);
+    traced.current = trace;
+    if (live.current.ready) trace?.mark('game ready');
     let alive = true;
     let scene = null;
     let raf = 0;
@@ -85,8 +93,11 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       if (cs) cs.style.opacity = '';
       removeEventListener('keydown', finish, true);
       removeEventListener('resize', finish);
-      scene?.dispose();
+      // the scene is freed once the game's picture is up – not on the hand-over's frame (steady.mjs)
+      const gone = scene;
       scene = null;
+      if (gone) afterHandover(() => gone.dispose());
+      trace?.end(600, (tr) => { launchStats.trace = tr; });
       live.current.onDone?.();
     };
     // the play view's screen waits under the stage (its black box must not flash before the device is there)
@@ -111,6 +122,13 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       const rare = !reduced && rights.rare && !!LK?.rare && Math.random() < 1 / RARE_ODDS;
       const look = lookNow(Math.random, rights);
       const wrap = V.look === 'theme' ? sceneWrap(look.skin) : null;
+      // the browser's audio service starts now, while nothing moves yet – not with the game's sound under the device
+      // (steady.mjs warmAudio; once the play view's first picture is painted). A preview has no game: no sound to warm.
+      if (!picture) {
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+        if (!alive) return;
+        if (warmAudio()) trace?.mark('audio warmed');
+      }
       // The set-up (≈ 100 ms of script and the GPU's shader work) waits for the game's first frame, at most BUILD_WAIT ms:
       // the player page loads in the same thread and on the same GPU, and measured on an M1 every millisecond of set-up
       // inside its start showed up in the game's first frame (GBA 160 → 300 ms). Waiting, the game starts exactly as
@@ -134,9 +152,10 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       scene = await S.createScene(el.querySelector('canvas'), {
         sys, lk, w, h, final, dark, look: V.look, looks: LK, shell, cartLook: V.cart, cartColor, cover, title,
         clearTint: CLEAR[cfg.clear] || CLEAR.atomic, pulse, glow: rare ? LK.rare.glow : '#dfe8ff', warm: rare, plan: plan.plan,
-        picture: picture || (() => liveCanvas(frame?.current, L)), atlas,
+        picture: picture || (() => liveCanvas(frame?.current, L)), atlas, pixelBudget: budgetFor(V.look),
+        warmAt: reduced ? [] : [plan.L + 40, plan.power[0] + 200, plan.H0 - 120, plan.H0],
         hh: { skin: wrap?.skin || null, recipe: wrap?.recipe || null, reduced },
-        yieldTo: () => new Promise((r) => setTimeout(r, 0)), mark: (what) => marks.push([what, Math.round(performance.now() - mounted)]),
+        yieldTo: () => new Promise((r) => setTimeout(r, 0)), mark: (what) => { marks.push([what, Math.round(performance.now() - mounted)]); trace?.mark(what); },
       });
       if (!alive) { scene?.dispose(); scene = null; return; }
       scene.setStickers(placeLayout(look.stickers[devKey(system)] || [], scene.regions(), atlas?.rects || {}));
@@ -214,29 +233,41 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       // ---- the clock: one for the scene and the layers. At the hand-over it waits for the game's first frame. ----
       const hold = reduced ? 400 : plan.H0;
       const geo = { w, h, f: final };
-      let t0 = performance.now();
+      let t0 = null; // the clock starts on the first frame that shows (not before render(0) below)
       let held = 0;
       const frames = [];
-      let prev = t0;
+      let prev = 0;
       const tick = (now) => {
         if (!alive) return;
+        const w0 = trace ? performance.now() : 0;
+        if (t0 === null) t0 = prev = now;
         let t = now - t0;
+        let note = '';
         if (t >= hold && !live.current.ready && held < 20000) { // the game isn't there yet: the lit panel holds
           held += now - prev;
           t0 += now - prev;
           t = hold;
+          note = 'hold';
         }
         frames.push(now - prev);
         prev = now;
         // the play view's layout may still settle (the dock, the bar): the last frame must land on the screen as it is
         const b2 = host.getBoundingClientRect(), r2 = cs.getBoundingClientRect();
         const W2 = Math.round(b2.width), H2 = Math.round(b2.height);
-        if (W2 !== geo.w || H2 !== geo.h) { geo.w = W2; geo.h = H2; scene.resize(W2, H2); }
+        if (W2 !== geo.w || H2 !== geo.h) { geo.w = W2; geo.h = H2; scene.resize(W2, H2); note += ' resize'; }
         const f2 = { x: r2.left - b2.left, y: r2.top - b2.top, w: r2.width, h: r2.height };
-        if (Math.abs(f2.x - geo.f.x) + Math.abs(f2.y - geo.f.y) + Math.abs(f2.w - geo.f.w) + Math.abs(f2.h - geo.f.h) > 0.5) { geo.f = f2; scene.setFinal(f2); }
+        if (Math.abs(f2.x - geo.f.x) + Math.abs(f2.y - geo.f.y) + Math.abs(f2.w - geo.f.w) + Math.abs(f2.h - geo.f.h) > 0.5) { geo.f = f2; scene.setFinal(f2); note += ' final'; }
         t = Math.min(T, t);
         scene.render(t);
         for (const a of anims) a.currentTime = t;
+        if (trace) { // a shader built on this frame (renderer.info: the programs three.js holds)
+          const np = scene.renderer.info.programs?.length || 0, nt = scene.renderer.info.memory?.textures || 0;
+          if (np > programs) note += ` +${np - programs} program (${scene.renderer.info.programs.slice(programs).map((q) => q.name || String(q.cacheKey).slice(0, 60)).join(' / ')})`;
+          if (nt > textures) note += ` +${nt - textures} texture`;
+          programs = np;
+          textures = nt;
+          trace.anim(now, t, note.trim(), performance.now() - w0);
+        }
         if (t >= T) {
           const at = scene.screensAt(plan.H0);
           const r4 = (q) => [q.x, q.y, q.w, q.h].map((v) => Math.round(v * 10) / 10);
@@ -248,7 +279,21 @@ export function LaunchStage({ cfg, system, dsLayout, ctrLayout, frame, ready, co
       };
       scene.render(0);
       for (const a of anims) a.currentTime = 0;
-      raf = requestAnimationFrame(tick);
+      trace?.mark('first render');
+      // the clock waits for the first frames to come in time (the GPU's first-use work – the device is invisible at t = 0)
+      const calm = settle(performance.now());
+      const steady = (now) => {
+        if (!alive) return;
+        if (calm.step(now)) {
+          trace?.mark('settled');
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+        scene.render(0);
+        raf = requestAnimationFrame(steady);
+      };
+      let programs = scene.renderer.info.programs?.length || 0, textures = scene.renderer.info.memory?.textures || 0;
+      raf = requestAnimationFrame(steady);
     })().catch((e) => {
       console.warn('launch animation', e);
       finish(); // no WebGL, a module that didn't load …: the game simply shows
