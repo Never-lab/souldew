@@ -154,7 +154,10 @@ test('the event that says "known" can be missed (event stream not connected yet)
   const boot = C.refreshPack();
   await tick(60);
   srv.account.loaded = true; // … and no event reaches the page
-  await boot; // the account client's own re-check (about a second)
+  // The re-check timer is unref()'d (it must never keep the app's server alive); in the browser that means nothing,
+  // here Node would see an empty event loop and end the test – a plain interval keeps it running meanwhile.
+  const keepAlive = setInterval(() => {}, 100);
+  try { await boot; } finally { clearInterval(keepAlive); } // the account client's own re-check (about a second)
   assert.equal(srv.deletes(), 0);
   assert.deepEqual(srv.downloads, []);
   assert.equal(C.packState().entitled, true);
