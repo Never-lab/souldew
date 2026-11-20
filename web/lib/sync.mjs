@@ -132,7 +132,7 @@ function relayGroup(clients) {
     },
   };
 }
-const NO_SCREEN ={ known: false, active: false, mode: null, url: null, blob: null, at: 0, since: 0, system: null };
+const NO_SCREEN = { known: false, active: false, held: false, mode: null, url: null, blob: null, at: 0, since: 0, system: null };
 
 /** Message carrying one still picture of the sender's game. */
 export function screenFrame(from, bytes, mime, system, at = Date.now()) {
@@ -924,8 +924,11 @@ export class SyncLink {
   // stop watching); as soon as one watcher is reachable over the relay only (or asked for pictures because the
   // video never arrived), everybody gets a small encrypted JPEG every 1.5 s instead – one broadcast on our own
   // relay topic (never retained) that every watcher reads. One format for all keeps the sender simple; mixed
-  // links are rare. Paused game / hidden window → the video track is disabled and no pictures are sent.
-  // Viewer: watchPartnerScreen(fn, slot) → fn({ slot, known, active, mode, stream, url, blob, at, since, system }).
+  // links are rare. Hidden window / no game → the video track is disabled and no pictures are sent. A game that is only
+  // paused (the pause button, Shared World's A menu, a rock-paper-scissors round) keeps its picture: the track stays on
+  // (a still canvas sends next to nothing) and the state says `held` – a disabled track would send black frames, and
+  // turning it back on starts the encoder over at a low, blurry quality.
+  // Viewer: watchPartnerScreen(fn, slot) → fn({ slot, known, active, held, mode, stream, url, blob, at, since, system }).
   // Several at once (one per partner, views/partnerscreen.mjs) is fine: every partner is a peer of its own in the
   // mesh, so each video arrives on its own connection (peerStreams per slot), and each partner decides video or
   // pictures for itself – one partner on the relay only sends pictures while the others' videos keep running.
@@ -934,7 +937,8 @@ export class SyncLink {
    * @param {object} source
    *   getStream?: () => MediaStream|null|Promise   live video of the game (P2P path)
    *   getSnapshot?: ({ maxW, quality, type }) => Promise<Blob|null>   small still picture (relay path)
-   *   isActive?: () => boolean   false while the game is paused / not running
+   *   isActive?: () => boolean   false while no game is running (nothing to show)
+   *   isPaused?: () => boolean   the game is there but stands still – the picture is kept, the partners see it held
    *   system?: 'nds'|'gba'|'gbc'|'gb'
    */
   startScreenShare(source = {}) {
@@ -999,8 +1003,10 @@ export class SyncLink {
     // throttling) – so in the app only the emulator decides; in a browser a hidden tab really stops.
     let active = typeof document === 'undefined' || !document.hidden || !!globalThis.sls?.native;
     const backgrounded = !active; // tab in the background: the game may well run, there's just no picture
+    let held = false;
     try {
       if (active && s.src.isActive) active = !!s.src.isActive();
+      held = active && !!s.src.isPaused?.();
     } catch {
       active = false; // emulator iframe gone / not ready
     }
@@ -1016,10 +1022,12 @@ export class SyncLink {
     if (s.stream) for (const tr of s.stream.getVideoTracks()) tr.enabled = mode === 'stream';
     if (mode === 'stream' && (s.limited.size < s.streamPeers.size || s.limitN !== s.streamPeers.size)) this._limitBitrate(s);
     const now = Date.now();
-    if (mode !== s.mode || (wanted && now - s.lastState > SCREEN.wantEvery)) {
+    held = held && !!mode;
+    if (mode !== s.mode || held !== !!s.held || (wanted && now - s.lastState > SCREEN.wantEvery)) {
       s.mode = mode;
+      s.held = held;
       s.lastState = now;
-      await this._screenSend({ kind: 'screen-state', from: this.slot, active: !!mode, mode, system: s.src.system || null, ...(backgrounded ? { paused: true } : {}) });
+      await this._screenSend({ kind: 'screen-state', from: this.slot, active: !!mode, mode, system: s.src.system || null, ...(backgrounded ? { paused: true } : {}), ...(held ? { held: true } : {}) });
     }
     if (mode === 'image') await this._sendFrame(s);
   }
@@ -1044,6 +1052,14 @@ export class SyncLink {
         tr.stop();
         stream.removeTrack(tr);
       });
+      // pixel art: keep every pixel sharp and give up frames under load, never the resolution
+      for (const tr of stream.getVideoTracks()) {
+        try {
+          if ('contentHint' in tr) tr.contentHint = 'detail';
+        } catch {
+          // read-only in this browser
+        }
+      }
       s.stream = stream;
     }
     for (const peer of [...s.streamPeers]) {
@@ -1242,7 +1258,8 @@ export class SyncLink {
     const ps = this.screens[slot] || NO_SCREEN;
     if (msg.kind === 'screen-state') {
       const mode = msg.active ? (msg.mode === 'stream' ? 'stream' : 'image') : null;
-      const patch = { known: true, active: !!msg.active, paused: !msg.active && !!msg.paused, mode, system: typeof msg.system === 'string' ? msg.system : ps.system };
+      // held: the partner's game is paused – their picture stands still but is still theirs (older apps never say so)
+      const patch = { known: true, active: !!msg.active, paused: !msg.active && !!msg.paused, held: !!msg.active && !!msg.held, mode, system: typeof msg.system === 'string' ? msg.system : ps.system };
       if (mode === 'stream' && ps.mode !== 'stream') patch.since = Date.now();
       if (mode !== 'image') Object.assign(patch, { url: null, blob: null });
       this._emitScreen(slot, patch);

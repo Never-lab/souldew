@@ -1359,6 +1359,7 @@
   "ps.alt": "Cosa vede {name} in questo momento",
   "ps.bigger": "Più grande",
   "ps.connecting": "Collegamento all’immagine di {name} …",
+  "ps.held": "in pausa",
   "ps.live": "live",
   "ps.moveHint": "Trascina per spostare",
   "ps.noPicture": "Nessuna immagine da {name} al momento",

@@ -24,6 +24,7 @@ import {
 import { tileColumns } from '../lib/playlayout.mjs';
 import { rpsFor } from '../lib/worldrps.mjs';
 import { artUrl } from '../lib/worldart.mjs';
+import { keepable, pictureLayers } from '../lib/pshold.mjs';
 
 const PREF = 'sl-partnerscreen'; // per computer – see lib/pslayout.mjs (runLayout)
 const STALE_MS = 20000; // a still picture older than this means the partner stopped sending
@@ -59,10 +60,9 @@ export function emuScreenSource(getEmu, system) {
     system,
     getStream: () => emu()?.captureStream?.(15) || null,
     getSnapshot: (opts) => emu()?.snapshot?.(opts) || null,
-    isActive: () => {
-      const e = emu();
-      return !!e && !e.paused();
-    },
+    isActive: () => !!emu(),
+    // paused (the pause button, Shared World's A menu, rock-paper-scissors): the picture stands still but stays
+    isPaused: () => !!emu()?.paused?.(),
   };
 }
 
@@ -143,31 +143,119 @@ function message(view, name) {
         : t('ps.notPlaying', '{name} isn’t playing right now', { name });
 }
 
-/** The picture: video, still or why there is none. */
+const GRAB_MS = 500; // how often the running video's frame is kept as "the last good picture"
+
+/**
+ * Copies `src` (a <video> or <img>) into the `hold` canvas when the frame isn't (nearly) black – lib/pshold.mjs.
+ * `probe` is a tiny canvas for the brightness check.
+ */
+function grab(src, hold, probe) {
+  const w = src.videoWidth || src.naturalWidth;
+  const h = src.videoHeight || src.naturalHeight;
+  if (!hold || !w || !h) return false;
+  try {
+    probe.width = 16;
+    probe.height = 16;
+    const p = probe.getContext('2d', { willReadFrequently: true });
+    p.drawImage(src, 0, 0, 16, 16);
+    if (!keepable(p.getImageData(0, 0, 16, 16).data)) return false;
+    if (hold.width !== w || hold.height !== h) {
+      hold.width = w;
+      hold.height = h;
+    }
+    const x = hold.getContext('2d');
+    x.imageSmoothingEnabled = false;
+    x.drawImage(src, 0, 0, w, h);
+    return true;
+  } catch {
+    return false; // no frame yet
+  }
+}
+
+/**
+ * The picture: video, still or why there is none. It never goes black while it is only late: the last good frame
+ * stays (lib/pshold.mjs) until the next one has drawn, and under the message when the picture stopped.
+ */
 export function Picture({ info, name, onMeasure }) {
   const { stream, imageMode, live, view } = info;
   const video = useRef(null);
+  const img = useRef(null);
+  const hold = useRef(null);
+  const probe = useRef(null);
+  const [hasHold, setHasHold] = useState(false);
+  // { el, src }: the element that has drawn a picture of src (stream / still URL) – a new element (it went and came
+  // back) has drawn nothing yet, even for the same stream
+  const [drawn, setDrawn] = useState(null);
+  const source = stream || (imageMode ? view.url : null);
+  const keep = useCallback((el) => {
+    probe.current ||= document.createElement('canvas');
+    if (grab(el, hold.current, probe.current)) setHasHold(true);
+  }, []);
+  const ready = !!source && drawn?.src === source && !!drawn.el && drawn.el === (stream ? video.current : img.current);
+  const L = pictureLayers({ live, stream, imageMode, ready, hasHold });
+
   useEffect(() => {
     const el = video.current;
-    if (!el) return;
-    if (el.srcObject !== stream) el.srcObject = stream;
-    if (stream) el.play?.().catch(() => {});
-  }, [stream, live]);
+    if (!el) return undefined;
+    if (el.srcObject !== stream) {
+      if (el.srcObject && el.videoWidth) keep(el); // the old stream's last frame, before it goes
+      el.srcObject = stream;
+    }
+    if (!stream) return undefined;
+    el.play?.().catch(() => {});
+    // shown from its first drawn frame on; until then (and whenever it stalls) the kept frame is there
+    let stop = false;
+    let first = true;
+    let last = 0;
+    let rvfc = 0;
+    const onFrame = () => {
+      if (stop) return;
+      if (first) setDrawn({ el, src: stream });
+      first = false;
+      const now = Date.now();
+      if (now - last >= GRAB_MS) {
+        last = now;
+        keep(el);
+      }
+      if (el.requestVideoFrameCallback) rvfc = el.requestVideoFrameCallback(onFrame);
+    };
+    let iv = null;
+    if (el.requestVideoFrameCallback) rvfc = el.requestVideoFrameCallback(onFrame);
+    else {
+      el.addEventListener('loadeddata', onFrame, { once: true });
+      iv = setInterval(() => !stop && el.readyState >= 2 && keep(el), GRAB_MS);
+    }
+    return () => {
+      stop = true;
+      if (el.videoWidth) keep(el); // (the element may go now – live → not live)
+      if (rvfc) el.cancelVideoFrameCallback?.(rvfc);
+      el.removeEventListener('loadeddata', onFrame);
+      clearInterval(iv);
+    };
+  }, [stream, live, keep]);
+
   const measure = (w, h) => w && h && onMeasure?.(w / h);
+  const onImg = (e) => {
+    measure(e.target.naturalWidth, e.target.naturalHeight);
+    setDrawn({ el: e.target, src: view.url });
+    keep(e.target);
+  };
   return html`
-    ${live && stream && html`<video ref=${video} autoplay muted playsinline disablepictureinpicture
+    <canvas ref=${hold} class=${`ps-hold ${L.hold ? '' : 'off'} ${L.dim ? 'dim' : ''}`} aria-hidden="true"></canvas>
+    ${L.video && html`<video ref=${video} class=${ready || !hasHold ? '' : 'wait'} autoplay muted playsinline disablepictureinpicture
       onLoadedMetadata=${(e) => measure(e.target.videoWidth, e.target.videoHeight)} onResize=${(e) => measure(e.target.videoWidth, e.target.videoHeight)}></video>`}
-    ${live && !stream && imageMode && html`<img src=${view.url} alt=${t('ps.alt', 'What {name} sees right now', { name })} onLoad=${(e) => measure(e.target.naturalWidth, e.target.naturalHeight)} />`}
-    ${!live && html`<span class="ps-msg" role="status">${message(view, name)}</span>`}`;
+    ${L.img && html`<img ref=${img} src=${view.url} class=${ready || !hasHold ? '' : 'wait'} alt=${t('ps.alt', 'What {name} sees right now', { name })} onLoad=${onImg} />`}
+    ${L.msg && html`<span class=${`ps-msg ${L.dim ? 'on-hold' : ''}`} role="status">${message(view, name)}</span>`}`;
 }
 
 /** Name, live dot and age of a picture – the header of a tile and of a window. */
 function Label({ slot, name, info }) {
   const secs = Math.round((info?.age || 0) / 1000);
-  const fresh = !!info?.stream || secs < 4;
+  const held = !!info?.view?.held; // their game is paused: the picture stands still
+  const fresh = !held && (!!info?.stream || secs < 4);
   return html`<span class=${`ps-dot ${!info?.live ? 'off' : fresh ? '' : 'stale'}`} aria-hidden="true"></span>
     <b class=${`px ps-name who-${slot}`}>${name}</b>
-    ${info?.live && html`<span class="ps-age mono">${fresh ? t('ps.live', 'live') : t('ps.ago', '{n} s ago', { n: secs })}</span>`}`;
+    ${info?.live && html`<span class="ps-age mono">${held ? t('ps.held', 'paused') : fresh ? t('ps.live', 'live') : t('ps.ago', '{n} s ago', { n: secs })}</span>`}`;
 }
 
 /** Views of the given partners (one subscription each) and the ticking age of still pictures. */

@@ -184,6 +184,12 @@ Plus a new play view that gives the game the room it deserves.
   link (several videos at once work) or small stills over the relay; with three watchers the video bitrate per watcher
   goes down so the upload stays about the same. Tiles and windows never take the keyboard or the controller from the
   game. On the folded strip partners whose names start alike get two letters (“Mi”, “Ma”).
+- **A partner's game no longer goes black when they pause.** Opening Shared World's A menu, a rock-paper-scissors
+  round or the pause button turned their picture off: your tile went black with “… isn't playing right now” for a
+  moment and came back blurry. Now their picture stays, standing still and marked “paused”, and their video goes on
+  without a restart. While a picture is only late (a new video starting, a switch to stills, a partner on an older
+  version) the tile keeps the last good frame instead of a black box, dimmed under the message when the picture
+  stopped. The video keeps every game pixel sharp under load and drops frames instead.
 - **The linked groups along the bottom dock are a tracker table:** the players as rows, every group of the run as a
   column in the game's order – alive, waiting, dead or failed at a glance, each player's Pokémon in the player's
   colour, a link line through the column, the group of the place you are at (or the latest encounter) marked and

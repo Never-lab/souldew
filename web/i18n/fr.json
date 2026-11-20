@@ -1359,6 +1359,7 @@
   "ps.alt": "Ce que {name} voit en ce moment",
   "ps.bigger": "Agrandir",
   "ps.connecting": "Connexion à l’image de {name} …",
+  "ps.held": "en pause",
   "ps.live": "en direct",
   "ps.moveHint": "Faire glisser pour déplacer",
   "ps.noPicture": "Pas d’image de {name} pour l’instant",

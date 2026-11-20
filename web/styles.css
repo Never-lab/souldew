@@ -923,6 +923,13 @@ ol.steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column;
 .ps-screen { position: relative; flex: 1; min-height: 0; margin: 0 6px 6px; border-radius: 6px; background: #000; overflow: hidden; box-shadow: inset 0 0 0 1px #000, 0 0 0 1px #ffffff08; }
 .ps-screen img, .ps-screen video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; background: #000; pointer-events: none; }
 .ps-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 10px; text-align: center; color: var(--ink-3); font-size: 12px; line-height: 1.35; }
+/* a partner's last good frame (views/partnerscreen.mjs Picture): under a video / still that hasn't drawn yet, dimmed
+   under the message when the picture stopped – never a black box while the picture is only late */
+.ps-hold { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; image-rendering: pixelated; background: #000; }
+.ps-hold.off { visibility: hidden; }
+.ps-hold.dim { filter: brightness(0.38) saturate(0.6); }
+.pt-screen video.wait, .pt-screen img.wait, .ps-screen video.wait, .ps-screen img.wait, .tg-screen video.wait, .tg-screen img.wait { opacity: 0; }
+.ps-msg.on-hold { color: #ebe6da; text-shadow: 0 1px 2px #000, 0 0 8px #000; }
 /* the resize grip: the bottom corner that faces into the play area */
 .ps-grip { position: absolute; bottom: 0; width: 18px; height: 18px; touch-action: none; z-index: 1; opacity: 0.55; transition: opacity 0.15s ease; }
 .ps-grip.right { right: 0; cursor: nwse-resize; background: linear-gradient(135deg, transparent 0 55%, var(--ink-3) 55% 62%, transparent 62% 72%, var(--ink-3) 72% 79%, transparent 79%); }

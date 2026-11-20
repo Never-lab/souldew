@@ -3078,6 +3078,7 @@
   "ps.bigger": "Bigger",
   "ps.connecting": "Connecting to {name}’s picture …",
   "ps.dock": "Back to the panel",
+  "ps.held": "paused",
   "ps.inWindow": "{name} – in a window",
   "ps.live": "live",
   "ps.moveHint": "Drag to move",
