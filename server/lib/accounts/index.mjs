@@ -71,6 +71,31 @@ function serviceError(r) {
 }
 
 /**
+ * A response's body, but never more than `max` bytes: null as soon as it is longer – whether its Content-Length said so
+ * or not (a chunked answer is read only that far and then dropped).
+ */
+export async function readCapped(r, max) {
+  const reader = r.body?.getReader?.();
+  if (!reader) {
+    const b = Buffer.from(await r.arrayBuffer());
+    return b.length > max ? null : b;
+  }
+  const parts = [];
+  let n = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    n += value.length;
+    if (n > max) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  return Buffer.concat(parts, n);
+}
+
+/**
  * secure: Electron's safeStorage wrapper (./store.mjs) or null; port(): this server's port; emit(event, data): the
  * page's event stream; openExternal(url): the system browser (desktop app) – without it the page opens the URL;
  * focus(): bring the app window forward. onPackKeyChange(): the souldew+ pack key changed or went away (tier dropped, key
@@ -870,9 +895,10 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
         const r = await fetchImpl(src, { redirect: 'error', signal: AbortSignal.timeout(10000) });
         const len = Number(r.headers.get('content-length'));
         if (!r.ok || (Number.isFinite(len) && len > AVATAR_MAX)) return fail(404);
-        const buf = Buffer.from(await r.arrayBuffer());
-        const type = imageType(buf);
-        if (!type || buf.length > AVATAR_MAX) return fail(404);
+        // (no length said – a chunked answer: read no further than a picture can be)
+        const buf = await readCapped(r, AVATAR_MAX);
+        const type = buf && imageType(buf);
+        if (!type) return fail(404);
         hit = { type, buf };
         avatars.set(src, hit);
         if (avatars.size > AVATAR_CACHE) avatars.delete(avatars.keys().next().value);

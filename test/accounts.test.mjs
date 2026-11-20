@@ -716,3 +716,19 @@ test('short game names (profile stats, presence, invites): every game keeps a na
   assert.equal(social.shortGameName('Pokémon Black Version 2'), 'Black 2');
   assert.equal(social.shortGameName('Pokémon White Version 2'), 'White 2');
 });
+
+test('avatars: a picture without a length is read no further than a picture may be (512 KB) – an endless answer is dropped', async () => {
+  const { readCapped } = await import('../server/lib/accounts/index.mjs');
+  let pulled = 0;
+  const endless = () => new Response(new ReadableStream({ pull: (c) => { pulled++; c.enqueue(new Uint8Array(64 * 1024)); } }));
+  assert.equal(await readCapped(endless(), 512 * 1024), null);
+  assert.ok(pulled <= 12, `stopped right after the cap (${pulled} chunks)`);
+  const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3);
+  const small = new Response(new ReadableStream({ start: (c) => { c.enqueue(png.subarray(0, 4)); c.enqueue(png.subarray(4)); c.close(); } }));
+  assert.deepEqual([...(await readCapped(small, 512 * 1024))], [...png], 'a picture in pieces: whole');
+  assert.equal(await readCapped(new Response(new Uint8Array(600 * 1024)), 512 * 1024), null);
+  // the proxy reads through it
+  const src = readFileSync(new URL('../server/lib/accounts/index.mjs', import.meta.url), 'utf8');
+  assert.match(src, /const buf = await readCapped\(r, AVATAR_MAX\)/);
+  assert.doesNotMatch(src.slice(src.indexOf('async function avatar(')), /^[^\n]*Buffer\.from\(await r\.arrayBuffer\(\)\)[^\n]*$/m);
+});
