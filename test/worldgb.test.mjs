@@ -505,3 +505,13 @@ test('SharedWorld: Yellow’s own Pikachu following you goes out as your followe
   assert.deepEqual(sent.at(-1).m.w[8].f, [4, 0], 'Pikachu back in its ball: the lead again');
   w.stop();
 });
+
+test('Gen 2: a script alone (the few frames one runs when a step ends) is told apart from a map being entered', () => {
+  const run = crystal({ script: 1 });
+  const c = W.readCamera(run.t, run.mem.read);
+  assert.deepEqual([c.locked, c.scripted], [true, true], 'still locked: the A menu waits for it');
+  const entering = crystal({ script: 1, status: 0 });
+  assert.equal(W.readCamera(entering.t, entering.mem.read).scripted, false);
+  const free = crystal();
+  assert.deepEqual([W.readCamera(free.t, free.mem.read).locked, W.readCamera(free.t, free.mem.read).scripted], [false, false]);
+});

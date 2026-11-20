@@ -298,6 +298,53 @@ async function smooth({ world, hold, emu, ev, log, sleep, until, out, profiles, 
     await sleep(500);
     await holds(0, [[['left', ...run], 400]]);
   });
+  // --cross: A walks to the edge of the map (around what's in the way) and on into the connected map – the follower
+  // goes along over the connection
+  if (args.includes('--cross')) {
+    const conns = (await world(0))?.conns;
+    const local = async () => (await world(0))?.local;
+    const here = await local();
+    const map0 = here?.map;
+    const keyOf = { 2: 'up', 1: 'down', 3: 'left', 4: 'right' };
+    // the nearest edges first (water or a wall in the way: the next one)
+    const dist = (c) => ({ 2: here.ty, 1: conns.h - here.ty, 3: here.tx, 4: conns.w - here.tx })[c.dir];
+    const tries = (conns?.list || []).filter((x) => keyOf[x.dir]).sort((a, b) => dist(a) - dist(b));
+    if (!tries.length) log('no connection on A’s map', JSON.stringify(conns));
+    for (const c of tries) {
+      const key = keyOf[c.dir];
+      const side = key === 'up' || key === 'down' ? ['left', 'right'] : ['up', 'down'];
+      const near = (s) => s.map !== map0 || ({ up: s.ty <= 1, down: s.ty >= conns.h - 2, left: s.tx <= 1, right: s.tx >= conns.w - 2 })[key];
+      let k = 0;
+      let blocked = 0;
+      for (let n = 0; n < 60 && blocked < 14; n++) {
+        const s = await local();
+        if (!s || near(s)) break;
+        await hold(0, [key], 150);
+        await sleep(420);
+        const t = await local();
+        if (t && s && t.tx === s.tx && t.ty === s.ty) {
+          blocked++;
+          await hold(0, [side[k % 2]], 150);
+          await sleep(420);
+          const u = await local();
+          if (u && u.tx === t.tx && u.ty === t.ty) k++;
+        }
+      }
+      const s = await local();
+      if (!s || !near(s)) continue;
+      await sleep(800);
+      await mark('A crosses into the next map', async () => {
+        await setKeys(0, [key], true);
+        for (let n = 0; n < 12 && (await local())?.map === map0; n++) await sleep(150);
+        await sleep(700);
+        await setKeys(0, [], false);
+      });
+      log('crossed', JSON.stringify({ from: map0, now: (await local())?.map, dir: key }));
+      if ((await local())?.map !== map0) break;
+    }
+  }
+  const speed = await Promise.all([0, 1].map((i) => emu(i, 'JSON.stringify({ fps: e.perf().fps, speed: e.perf().speed })')));
+  log('game speed', speed.join(' '));
   const traces = {};
   for (const [i, id] of [[0, 'A'], [1, 'B']]) {
     const entries = JSON.parse(await emu(i, 'JSON.stringify(w.trace() || [])'));
@@ -305,7 +352,8 @@ async function smooth({ world, hold, emu, ev, log, sleep, until, out, profiles, 
     writeFileSync(join(out, `trace-${id}.json`), JSON.stringify(traces[id]));
   }
   const game = (await world(0))?.game || '';
-  const cadence = /red|blue|yellow|gold|silver|crystal/.test(game) ? 2 : 1;
+  // (the Game Boy games and the DS field move the picture every other frame)
+  const cadence = /red|blue|yellow|gold|silver|crystal|platinum|heartgold|soulsilver/.test(game) ? 2 : 1;
   const motion = { game, cadence, A: report(traces.A, { cadence }), B: report(traces.B, { cadence }) };
   writeFileSync(join(out, 'motion.json'), JSON.stringify(motion, null, 1));
   for (const id of ['A', 'B']) {

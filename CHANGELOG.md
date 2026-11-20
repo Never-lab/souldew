@@ -355,6 +355,15 @@ Plus a new play view that gives the game the room it deserves.
   often, a short tap could fall between two pictures and nothing opened. Now the press counts the moment you make it,
   and whether the game answered it itself (a sign, someone standing there) is checked on what the game shows right
   then.
+- **Shared World: partners and followers walk as smoothly as the game itself.** Your partners, their Pokémon and
+  your own Pokémon now step exactly with the pictures of your game – no more standing still for a few frames and then
+  catching up, creeping ahead before a walk, slowing into a stop, cutting corners diagonally, or jumping back after a
+  short break in the connection. Your own follower in the Game Boy Advance games no longer stutters at every tile
+  (souldew read your position a few frames late), and it walks on with you over a route's edge into the next town
+  instead of starting again on your heels. In the Game Boy games and on the DS a partner walking beside you keeps their
+  place instead of shaking by a pixel, a partner running in HeartGold/SoulSilver runs evenly, your follower no longer
+  vanishes for a moment when you turn back through it, and in Gold, Silver and Crystal partners no longer blink away
+  each time you stop walking. Measured picture by picture in Emerald, Sapphire, Platinum, HeartGold, Red and Crystal.
 - **A DS run opens right away.** Opening a run waited for souldew to read the game's own data out of the game file
   (its types, a ROM hack's own Pokémon) – a few seconds for a DS game, much longer on a slower PC the first time.
   All that time you showed as offline to your partners, nothing synced and no trade or battle could start. The run

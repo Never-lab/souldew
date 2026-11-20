@@ -37,7 +37,7 @@ function memory() {
 }
 
 /** Emerald on the overworld: SaveBlock1 at 0x02025000, the player at (x, y) on map 0.3 walking `ox` px of a step. */
-function emerald({ x = 10, y = 7, ox = 0, oy = 0, map = [0, 3], facing = W.DIR.S, gfx = 0, flags = 1, gender = 0, locked = 0, fade = 0, battle = 0, cb2 } = {}) {
+function emerald({ x = 10, y = 7, ox = 0, oy = 0, map = [0, 3], facing = W.DIR.S, gfx = 0, flags = 1, gender = 0, locked = 0, fade = 0, battle = 0, cb2, objX = x, objY = y } = {}) {
   const t = W.worldTable(entry('BPEE'), 0);
   const mem = memory();
   const sb1 = 0x02025000;
@@ -55,8 +55,8 @@ function emerald({ x = 10, y = 7, ox = 0, oy = 0, map = [0, 3], facing = W.DIR.S
   o[1] = 0x80; // trackedByCamera
   o[2] = 1; // isPlayer
   o[5] = gfx;
-  [o[0x10], o[0x11]] = mem.u16(x + 7);
-  [o[0x12], o[0x13]] = mem.u16(y + 7);
+  [o[0x10], o[0x11]] = mem.u16(objX + 7);
+  [o[0x12], o[0x13]] = mem.u16(objY + 7);
   o[0x18] = facing;
   mem.put(t.objectEvents, o);
   return { t, mem, sb1 };
@@ -137,6 +137,21 @@ test('the camera: SaveBlock1 pos plus the camera object’s sub-tile offset (wal
   assert.equal(W.readCamera(bad.t, bad.mem.read), null);
   const none = memory();
   assert.equal(W.readCamera(still.t, none.read), null);
+});
+
+test('the player mid-step: the camera’s pixels while the object’s tile still lags a tile behind (no stall, no jump)', () => {
+  // Emerald walking south from tile 5 to 6, as measured: SaveBlock1's pos says 6 from the step's first frame on, the
+  // camera counts 1…15 px, the player object's currentCoords (from the RAM mirror) still say 5 for the first frames
+  const ys = [];
+  for (let k = 1; k <= 16; k++) {
+    const oy = k % 16;
+    const { t, mem } = emerald({ y: 6, oy, objY: k <= 6 ? 5 : 6, facing: W.DIR.S });
+    ys.push(W.readPlayer(t, mem.read).y);
+  }
+  assert.deepEqual(ys, Array.from({ length: 16 }, (_, k) => 80 + k + 1), 'one pixel every frame');
+  // a cutscene that moved the camera elsewhere (more than a tile away): the player's own tile
+  const far = emerald({ x: 20, y: 6, objX: 10, objY: 6 });
+  assert.equal(W.readPlayer(far.t, far.mem.read).x, 160);
 });
 
 test('the player: facing, avatar kind and gender from the graphics id, running', () => {
