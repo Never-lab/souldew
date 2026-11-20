@@ -9,6 +9,8 @@
 import { CATALOG, content, onChange, owned, has } from './state.mjs';
 import { b64encode } from './pack/format.mjs';
 import { syncTitleBar } from '../theme.mjs';
+import { t } from '../i18n.mjs';
+import { hintKey } from './strings.mjs';
 
 const KEY = 'sl-skin';
 const MIME = { woff2: 'font/woff2', woff: 'font/woff', svg: 'image/svg+xml', png: 'image/png', webp: 'image/webp' };
@@ -123,7 +125,7 @@ export function onSkinChange(fn) {
 
 /** The catalog's skins: { id, name, hint, group: 'dark' | 'light', plus, sw, owned, available } */
 export function listSkins() {
-  return CATALOG.skins.map((s) => ({ id: s.id, name: s.name, hint: s.hint, group: s.group, plus: s.plus, sw: s.sw, owned: owned('skins', s.id), available: has('skins', s.id) }));
+  return CATALOG.skins.map((s) => ({ id: s.id, name: s.name, hint: t(hintKey(s.id), s.hint), group: s.group, plus: s.plus, sw: s.sw, owned: owned('skins', s.id), available: has('skins', s.id) }));
 }
 
 // the pack changed (loaded, re-verified, wiped): drop what was injected, re-resolve, honour a pending wish

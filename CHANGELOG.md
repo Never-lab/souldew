@@ -413,6 +413,9 @@ Plus a new play view that gives the game the room it deserves.
 - **Cheats in Ruby, Sapphire, Emerald, FireRed and LeafGreen** wait until you stand in the overworld – not during a
   battle, a menu, a text or a screen change, when the game may be moving its data around. Otherwise souldew says to
   try again in a moment.
+- **souldew+ in your language:** the colour themes' descriptions and the names of the banner and frame collections
+  (“Four Seasons”, “Earned” …) are translated now, and the battle and rock-paper-scissors cards write the level and
+  “vs” the way your language does.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

@@ -201,21 +201,21 @@ export function BattleStrip({ slot, variant = 'panel' }) {
   const hp = b.active?.maxHp > 0 && b.active.hp !== null ? { hp: b.active.hp, max: b.active.maxHp } : mon ? { hp: mon.hp, max: mon.maxHp } : null;
   if (variant !== 'panel') {
     return html`<div class="tg-strip" title=${kind}>${art('battle', slot, 1)}
-      <span class="ellipsis">${mon ? `${mon.nick || speciesName(mon.species)} ` : ''}<span class="muted">vs</span> ${speciesName(foe.species)}${foe.level ? ` · Lv ${foe.level}` : ''}</span>
+      <span class="ellipsis">${mon ? `${mon.nick || speciesName(mon.species)} ` : ''}<span class="muted">${t('common.vs', 'vs')}</span> ${speciesName(foe.species)}${foe.level ? ` · ${t('common.lv', 'Lv')} ${foe.level}` : ''}</span>
       ${foe.maxHp > 0 && foe.hp !== null && html`<span class="tg-hp"><${HpBar} hp=${foe.hp} max=${foe.maxHp} /></span>`}</div>`;
   }
   const moves = (mon?.moves || []).filter(Boolean).slice(0, 4);
   return html`<div class="tg-battle" aria-label=${kind}>
     <div class="tg-side">
       ${mon && html`<${Sprite} id=${mon.species} shiny=${mon.shiny} gen=${gen} size=${56} form=${mon.form || 0} />`}
-      <div class="stack-s grow"><b class="small">${mon ? mon.nick || speciesName(mon.species) : nameOf(doc, manifest, slot)}${mon?.level ? html` <span class="tiny muted">Lv ${mon.level}</span>` : ''}</b>
+      <div class="stack-s grow"><b class="small">${mon ? mon.nick || speciesName(mon.species) : nameOf(doc, manifest, slot)}${mon?.level ? html` <span class="tiny muted">${t('common.lv', 'Lv')} ${mon.level}</span>` : ''}</b>
         ${hp?.max > 0 && hp.hp !== null && html`<${HpBar} hp=${hp.hp} max=${hp.max} /><span class="tiny mono muted">${hp.hp}/${hp.max}</span>`}
         ${moves.length > 0 && html`<span class="tiny muted ellipsis">${moves.map((m) => moveName(m) || `#${m}`).join(' · ')}</span>`}</div>
     </div>
     <span class="tg-vs">${art('battle', slot, 2)}<span class="tiny muted">${kind}</span></span>
     <div class="tg-side">
       <${Sprite} id=${foe.species} shiny=${foe.shiny} gen=${gen} size=${56} form=${foe.form || 0} />
-      <div class="stack-s grow"><b class="small">${speciesName(foe.species)}${foe.level ? html` <span class="tiny muted">Lv ${foe.level}</span>` : ''}</b>
+      <div class="stack-s grow"><b class="small">${speciesName(foe.species)}${foe.level ? html` <span class="tiny muted">${t('common.lv', 'Lv')} ${foe.level}</span>` : ''}</b>
         ${foe.maxHp > 0 && foe.hp !== null ? html`<${HpBar} hp=${foe.hp} max=${foe.maxHp} /><span class="tiny mono muted">${foe.hp}/${foe.maxHp}</span>`
           : html`<span class="tiny faint">${t('tg.noHp', 'HP shows once {name} updates souldew', { name: nameOf(doc, manifest, slot) })}</span>`}</div>
     </div>

@@ -68,7 +68,7 @@ function Card({ g, hub, name }) {
     </div>`}
     ${last && html`<div class="rps-vs" aria-hidden="true">
       <img class=${last.winner && last.winner !== me ? 'lose' : ''} src=${artUrl(HAND_ART[last.mine], color(me), 4)} alt="" />
-      <span class="tiny muted">vs</span>
+      <span class="tiny muted">${t('common.vs', 'vs')}</span>
       <img class=${last.winner && last.winner === me ? 'lose' : ''} src=${artUrl(HAND_ART[last.theirs], color(g.other), 4)} alt="" />
     </div>`}
     ${picking && html`<div class="rps-time" aria-hidden="true"><i style=${`width:${(left / RPS.pickMs) * 100}%`}></i></div>`}

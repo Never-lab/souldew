@@ -36,7 +36,7 @@ plays. What each tier gets: `shared/handheld.mjs` › `launchTier` / `launchRigh
 
 | Name | What it does |
 |---|---|
-| `catalog()` | `{ banners, frames, nameplates, skins, collections }`. Each item is `{ id, name, collection, collectionName, rarity, pairsWith, plus, owned, available, sw, … }`. `owned` means usable now; `available` means the content is in memory (owned, or from a preview pack). This catalog is public data: names and swatches only, no art or recipes. |
+| `catalog()` | `{ banners, frames, nameplates, skins, collections }`. Each item is `{ id, name, collection, collectionName, rarity, pairsWith, plus, owned, available, sw, … }`. `owned` means usable now; `available` means the content is in memory (owned, or from a preview pack). This catalog is public data: names and swatches only, no art or recipes. `collectionName`, the collections' `name` and the skins' `hint` come in the player's language (`strings.mjs`: keys `plus.coll.<banners\|frames>.<id>` and `plus.hint.<id>`, added to the dictionaries by `scripts/extract-i18n.mjs`); the items' own names stay as they are. |
 | `packState()` | `{ entitled, preview, previewUntil, previewLoading, until, packVersion, loading, error }`. `error` is one of `null`, `'offline'`, `'expired'`, `'key'`, `'signature'`, `'manifest'`, `'decrypt'`, `'hash'`, `'watermark'` or `'download'`. |
 | `startPackPreview()` / `endPackPreview()` | The 15-minute live theme preview for non-members (see below). |
 | `refreshPack()` / `forgetPack()` | Loads or re-checks the pack, or forgets it right away (sign-out). The app calls `refreshPack()` at boot, and it re-checks every 6 h and at `until`. |

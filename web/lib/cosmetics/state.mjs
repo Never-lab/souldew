@@ -3,6 +3,7 @@
 import FREE_BANNERS from './content/banners-free.mjs';
 import EARNED_BANNERS from './content/banners-earned.mjs';
 import CATALOG from './content/catalog.mjs';
+import { EARNED_COLLECTION } from './strings.mjs';
 
 export { CATALOG, EARNED_BANNERS };
 
@@ -61,9 +62,10 @@ export function onChange(fn) {
   return () => listeners.delete(fn);
 }
 
-/** The earned banners as catalog entries: free, owned once their trophy is on this computer. */
+/** The earned banners as catalog entries: free, owned once their trophy is on this computer. (The collection's name in
+ *  the player's language: catalog() in index.mjs.) */
 export const EARNED_CATALOG = EARNED_BANNERS.map((b) => ({
-  id: b.id, name: b.name, collection: 'earned', collectionName: 'Earned', rarity: 'earned', plus: false, earned: true, trophy: b.trophy, pairsWith: [],
+  id: b.id, name: b.name, collection: EARNED_COLLECTION.id, collectionName: EARNED_COLLECTION.name, rarity: 'earned', plus: false, earned: true, trophy: b.trophy, pairsWith: [],
   sw: [...new Set(Object.values(b.pal))].filter((c) => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 6),
 }));
 const EARNED_BY_ID = new Map(EARNED_CATALOG.map((b) => [b.id, b]));
