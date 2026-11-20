@@ -68,7 +68,11 @@ const seatSaves = { want: 0, got: null, res: null };
 // bookkeeping – until Chromium ended the page after ~30 000 of them: a long DS plan in the ROM matrix, and in the end
 // a long play session.) Each command's promise resolves false when the server refused it.
 const MAX_BATCH = 8 * 1024 * 1024; // (a save state goes alone)
-const queue = []; // { bytes, done }
+// A big payload (a save state: a DS one is ≈ 20 MB) goes as a Blob – copied once, when the command is made – not
+// concatenated into a new array and copied again into the request: "where you left off" loads while the launch
+// animation runs, and those copies were 40–55 ms on the main thread, a dropped frame of the device.
+const BLOB_AT = 256 * 1024;
+const queue = []; // { bytes: Uint8Array | Blob (header + payload), len, done }
 let inFlight = false;
 const idle = [];
 function sendQueued() {
@@ -80,16 +84,20 @@ function sendQueued() {
   }
   const batch = [];
   let size = 0;
-  while (queue.length && (!batch.length || size + queue[0].bytes.length <= MAX_BATCH)) {
+  while (queue.length && (!batch.length || size + queue[0].len <= MAX_BATCH)) {
     const c = queue.shift();
     batch.push(c);
-    size += c.bytes.length;
+    size += c.len;
   }
-  const body = new Uint8Array(size);
-  let o = 0;
-  for (const c of batch) {
-    body.set(c.bytes, o);
-    o += c.bytes.length;
+  let body;
+  if (typeof Blob === 'function' && batch.some((c) => c.bytes instanceof Blob)) body = new Blob(batch.map((c) => c.bytes)); // (no copy: Blobs of Blobs)
+  else {
+    body = new Uint8Array(size);
+    let o = 0;
+    for (const c of batch) {
+      body.set(c.bytes, o);
+      o += c.len;
+    }
   }
   inFlight = true;
   fetch(`/api/native/cmd?id=${st.id}`, { method: 'POST', headers: { 'x-soullink': '1' }, body })
@@ -105,13 +113,16 @@ function sendQueued() {
     });
 }
 function cmd(type, payload = new Uint8Array(0)) {
-  const b = new Uint8Array(8 + payload.length);
+  const big = payload.length >= BLOB_AT && typeof Blob === 'function';
+  const b = new Uint8Array(big ? 8 : 8 + payload.length);
   const v = new DataView(b.buffer);
   v.setUint32(0, type, true);
   v.setUint32(4, payload.length, true);
-  b.set(payload, 8);
+  if (!big) b.set(payload, 8);
+  // (either way the bytes are this moment's: the Blob holds its own copy, as the array does)
+  const bytes = big ? new Blob([b, payload]) : b;
   return new Promise((done) => {
-    queue.push({ bytes: b, done });
+    queue.push({ bytes, len: 8 + payload.length, done });
     sendQueued();
   });
 }
@@ -964,7 +975,8 @@ window.__emu = {
     if (st.ended || LINK_SESSION) return Promise.resolve(false);
     tellAudio('clear');
     tellAudio({ type: 'cut' });
-    return ask(waiters.loaded, CMD.LOAD, u8 instanceof Uint8Array ? u8 : new Uint8Array(u8), false);
+    // (the play view's bytes come from its own window: not an instanceof here – a view on them, not a copy)
+    return ask(waiters.loaded, CMD.LOAD, ArrayBuffer.isView(u8) ? new Uint8Array(u8.buffer, u8.byteOffset, u8.byteLength) : new Uint8Array(u8), false);
   },
   async screenshot() {
     const b = await snapshot({ maxW: 4096, type: 'image/png' });
