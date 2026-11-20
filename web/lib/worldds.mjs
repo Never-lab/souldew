@@ -6,7 +6,7 @@
 //
 // The fast player (web/lib/nativeplayer.mjs) sends the bytes this needs with every picture (WATCH); the heap objects
 // they live in move with every map load, so the pointers are read from the RAM mirror now and then and watched anew.
-import { Track, unpackState, Follower, followerHidden, DIR, chainReaders, rangeReader, APress } from '/shared/world.mjs';
+import { Track, unpackState, Follower, followerHidden, DIR, chainReaders, rangeReader, APress, PictureClock, pixelSnapper, StepGate } from '/shared/world.mjs';
 import { edgeArrow } from '/shared/together.mjs';
 import {
   dsWorldTable, dsPointers, dsWatchRanges, dsReadFrame, Displayed, billboard, project, dsPlayer, dsDrawable, dsMapKey,
@@ -134,6 +134,13 @@ function worldDs(host, t, gfx) {
   let near = 0;
   let ticks = 0;
   let drawnDebug = {};
+  // the game's pictures set the time everything is drawn at (shared/world.mjs PictureClock)
+  const clock = new PictureClock();
+  let drawT = 0;
+  const snap = pixelSnapper(); // (world units that step evenly – shared/world.mjs wholePx)
+  // (partners step when the field does – every other frame while you walk: shared/world.mjs StepGate)
+  const gate = new StepGate();
+  let trace = null; // diagnostics (trace(true)): per drawn picture where each sprite went
   const awayLog = []; // (diagnostics: on the field ⇄ away)
   let lastA = null; // (diagnostics: the last A press and what came of it)
   let lastOnField = null;
@@ -237,6 +244,16 @@ function worldDs(host, t, gfx) {
 
   /** `fresh`: a new picture's bytes came (the snapshot queue moves on); else the same picture is drawn again. */
   function render(now, fresh) {
+    if (fresh) clock.picture(now, watched?.frameNo ?? null);
+    drawT = clock.at(now);
+    draw(drawT, fresh);
+    if (trace && trace.length < 40000) {
+      const me = dsPlayer(t, shown);
+      trace.push({ v: document.timeline?.currentTime ?? null, t: Math.round(now * 100) / 100, d: Math.round(drawT * 100) / 100, p: fresh ? 1 : 0, f: watched?.frameNo ?? null, me: me ? [me.x, me.y] : null,
+        at: Object.fromEntries(Object.entries(drawnDebug).map(([k, d]) => [k, [d.x, d.y, d.frame, ...(d.w || [])]])) });
+    }
+  }
+  function draw(now, fresh) {
     if (!(++ticks % 30)) rewatch();
     if (fresh) {
       depthNow = depthNext;
@@ -246,7 +263,7 @@ function worldDs(host, t, gfx) {
       // (the pointers moved – a new map: watch the new ones right away)
       if (latest && latest.field === false && ptr) rewatch();
     }
-    if (now - lastState >= STATE_MS) {
+    if (now - lastState >= STATE_MS - 4) { // (on the pictures' clock: every 4th picture)
       lastState = now;
       sendState();
     }
@@ -256,10 +273,11 @@ function worldDs(host, t, gfx) {
     const me = dsPlayer(t, shown);
     if (fresh && can && me && now - tintAt > 400) relight(me);
     const key = me ? me.map : -1;
+    const partT = gate.at(now, fresh, me?.x, me?.y, me?.map);
     // the partners where the picture is now; their followers walk on even while nothing is drawn
     const list = [];
     for (const [slot, tr] of tracks) {
-      const s0 = tr.sample(now);
+      const s0 = tr.sample(partT);
       // (a partner in a battle stays where it began, with a ⚔ – their follower is in the battle with them)
       const s = standIn(s0, tr, null, !!tg.battles[slot]);
       const here = !!s && !s.hidden && s.fam === t.fam && s.map === key;
@@ -289,9 +307,10 @@ function worldDs(host, t, gfx) {
       for (const p of list) {
         if (!p.here) continue;
         const sheet = sheetFor(p.s.kind, p.s.gender);
-        const bb = billboard(m, p.s.x, p.s.h ?? me?.h ?? 0, p.s.y, sheet.w, sheet.h, t.foot);
+        const [sx, sy] = snap(p.slot, p.s.x, p.s.y);
+        const bb = billboard(m, sx, p.s.h ?? me?.h ?? 0, sy, sheet.w, sheet.h, t.foot);
         if (!bb || bb.x > DS_SCREEN.w + 8 || bb.x + bb.w < -8 || bb.y > DS_SCREEN.h + 8 || bb.y + bb.h < -24) continue;
-        sprites.push({ type: 'partner', slot: p.slot, s: p.s, sheet, bb, at: [p.s.x, p.s.h ?? me?.h ?? 0, p.s.y] });
+        sprites.push({ type: 'partner', slot: p.slot, s: p.s, sheet, bb, at: [sx, p.s.h ?? me?.h ?? 0, sy] });
         const f = followers.get(p.slot)?.last;
         const fs = followerFor(leads.get(p.slot));
         if (f && !f.hidden && fs && !followerHidden(p.s)) addFollower(sprites, p.slot, f, fs, leads.get(p.slot), p.s.h ?? me?.h ?? 0);
@@ -491,9 +510,10 @@ function worldDs(host, t, gfx) {
   }
 
   function addFollower(list, slot, f, sheet, lead, h) {
-    const bb = billboard(shown, f.x, h, f.y, sheet.w, sheet.h, t.foot);
+    const [fx, fy] = snap(`f:${slot}`, f.x, f.y);
+    const bb = billboard(shown, fx, h, fy, sheet.w, sheet.h, t.foot);
     if (!bb) return;
-    list.push({ type: 'follower', slot, f, sheet, lead, bb, at: [f.x, h, f.y] });
+    list.push({ type: 'follower', slot, f, sheet, lead, bb, at: [fx, h, fy] });
   }
 
   /** One billboard; `cut`: the local player in front of it (their figure is cut out of it). */
@@ -511,19 +531,19 @@ function worldDs(host, t, gfx) {
       anim.set(sp.slot, k);
       const i = dsAvatarFrame(sheet, s.facing, s.moving, k.dist, s.speed || 0, s.kind);
       img = canvasOf(sheet.frames[i].rgba, sheet.w, sheet.h);
-      drawnDebug[sp.slot] = { x: Math.round(bb.x), y: Math.round(bb.y), k: Math.round(bb.k * 100) / 100, frame: i, cut: !!cut };
+      drawnDebug[sp.slot] = { x: Math.round(bb.x), y: Math.round(bb.y), k: Math.round(bb.k * 100) / 100, frame: i, cut: !!cut, w: [sp.at[0], sp.at[2]] };
     } else if (sp.type === 'tomb') {
       img = canvasOf(sheet.frames[0].rgba, sheet.w, sheet.h);
     } else if (sheet.kind === 'overworld') {
       const i = dsFollowerFrame(sheet, sp.f.facing ?? DIR.S, sp.f.moving, sp.f.dist ?? 0);
       img = canvasOf(sheet.frames[i].rgba, sheet.w, sheet.h);
-      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: i };
+      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: i, w: [sp.at[0], sp.at[2]] };
     } else {
       // a party icon: two frames, it looks left – mirrored walking right; stands on the tile like a sprite
       const fr = sp.f.frame & 1;
       img = canvasOf(sheet.frames[fr].rgba, 32, 32);
       flip = sp.f.flip;
-      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: fr };
+      drawnDebug[`f:${sp.slot}`] = { x: Math.round(bb.x), y: Math.round(bb.y), species: sp.lead?.species, frame: fr, w: [sp.at[0], sp.at[2]] };
     }
     // (scale 1 – the interiors and most of the outdoors near the player: whole pixels, crisp like the game's own)
     const k = bb.k;
@@ -604,7 +624,9 @@ function worldDs(host, t, gfx) {
     // (HGSS: the Pokémon the game walks behind you is what your partners see following you)
     const fm = r?.follow;
     const gameLead = fm?.active && fm.species > 0 && fm.species <= 493 ? { species: fm.species, shiny: fm.shiny, form: fm.form } : null;
-    host.post({ type: 'emu-world', st: onField ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size: null, drawn: cfg.enabled && dsDrawable(shown), near, gameLead });
+    // (age: how long ago the picture this reading belongs to showed – the play view stamps the state with that moment)
+    const age = Math.max(0, Math.min(200, performance.now() - (clock.t ?? performance.now())));
+    host.post({ type: 'emu-world', st: onField ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size: null, drawn: cfg.enabled && dsDrawable(shown), near, age, gameLead });
   }
 
   // ---- walking up to a partner ------------------------------------------------------------------------------------------
@@ -661,8 +683,10 @@ function worldDs(host, t, gfx) {
       if (stopped || slot === cfg.me) return;
       const s = unpackState(wire);
       if (!s) return;
-      if (!tracks.has(slot)) tracks.set(slot, new Track({ snapPx: 3 * DS_TILE }));
+      // (a player stands on a tile's centre in the DS games)
+      if (!tracks.has(slot)) tracks.set(slot, new Track({ snapPx: 3 * DS_TILE, grid: { size: DS_TILE, origin: DS_TILE / 2 } }));
       tracks.get(slot).push(s, performance.now());
+      if (trace && trace.length < 40000) trace.push({ w: wire, rx: Math.round(performance.now() * 100) / 100, slot }); // (diagnostics: what came in, when)
       if (s.ext && 'follower' in s.ext) leads.set(slot, s.ext.follower);
     },
     gone(slot) {
@@ -695,6 +719,7 @@ function worldDs(host, t, gfx) {
     onWatched(bytes) {
       if (!watched || !bytes || bytes.length !== 4 + watched.total) return;
       watched.bytes = bytes.subarray(4);
+      watched.frameNo = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
       if (!stopped) render(performance.now(), true);
     },
     input(bits) {
@@ -719,6 +744,13 @@ function worldDs(host, t, gfx) {
       rewatch();
     },
     menuOpen: () => ui.modal(),
+    trace(on) {
+      if (on === true) trace = [];
+      else if (on === false) trace = null;
+      const out = trace;
+      if (on === undefined && trace) trace = [];
+      return out;
+    },
     debug() {
       const now = performance.now();
       const me = dsPlayer(t, latest);

@@ -98,10 +98,12 @@ function saveBlock1(t, read) {
 
 /**
  * The byte ranges the overlay needs with every picture (the native player's WATCH, web/lib/nativeplayer.mjs): the
- * camera's sub-tile offset, SaveBlock1's pos and map, the keys, the screen state. `sb1`: SaveBlock1's address now
- * (it moves – the overlay asks again when it does).
+ * camera's sub-tile offset, SaveBlock1's pos and map, the keys, the screen state, the player's object (where you are
+ * for your follower and your partners – from the RAM mirror, ten times a second, it lagged the camera by up to a few
+ * tiles). `sb1`: SaveBlock1's address now (it moves – the overlay asks again when it does); `spriteId`/`objId`: the
+ * player's sprite and object event (gPlayerAvatar).
  */
-export function watchRanges(t, sb1, spriteId = null) {
+export function watchRanges(t, sb1, spriteId = null, objId = null) {
   if (!t) return [];
   if (t.gen <= 2) return gbWatchRanges(t);
   const r = [
@@ -115,8 +117,9 @@ export function watchRanges(t, sb1, spriteId = null) {
   if (sb1) r.push([sb1, 8]); // pos (x, y), location (mapGroup, mapNum)
   if (t.inBattle) r.push([t.inBattle.addr, 1]);
   if (t.questLog) r.push([t.questLog, 1]);
-  r.push([t.playerAvatar + 4, 2]); // the player's sprite and object event ids
+  r.push([t.playerAvatar, 8]); // running, the player's sprite and object event ids, gender
   if (t.sprites && Number.isInteger(spriteId) && spriteId < 64) r.push([t.sprites + spriteId * 0x44, 0x44]);
+  if (Number.isInteger(objId) && objId < 16) r.push([t.objectEvents + objId * 0x24, 0x24]);
   return r;
 }
 
@@ -229,8 +232,11 @@ export function readPlayer(t, read, cam = readCamera(t, read)) {
   const ctx = s16(o, 0x10) - 7;
   const cty = s16(o, 0x12) - 7;
   // the camera follows the player (trackedByCamera): its pixels are the player's; else (a cutscene moved the camera)
-  // the player's own tile
-  const follows = (o[1] & 0x80) && ctx === cam.tx && cty === cam.ty;
+  // the player's own tile. (At the start of every step the camera's tile – SaveBlock1's pos – moves on a few frames
+  // before the object's currentCoords do, and the object comes from the RAM mirror, which is older still: a tile
+  // apart is the same player mid-step – going by the tile there held the follower and the partners' picture of you
+  // for 3–6 frames each tile, then jumped them 6–7 px.)
+  const follows = (o[1] & 0x80) && Math.abs(ctx - cam.tx) + Math.abs(cty - cam.ty) <= 1;
   const gfx = o[5];
   let kind = 'walk';
   let gender = av[7] & 1;
@@ -486,20 +492,152 @@ export function changed(a, b) {
 
 // ---- interpolation -------------------------------------------------------------------------------------------------
 /**
+ * The overlay's clock, one tick per game picture: the time a picture belongs to, taken from when the pictures arrive
+ * (smoothed – they come a few milliseconds early or late) and the host's frame number in front of their bytes (a
+ * picture the page never drew still counts). Everything souldew draws moves with the game's pictures: sampled at
+ * this time, a partner steps exactly when the game's own sprites and background do – on the animation frames between
+ * two pictures nothing moves, as nothing in the game does. `at(now)`: the time to draw at; once pictures stop coming
+ * (a pause, the A menu) it runs on with the real clock.
+ */
+export class PictureClock {
+  constructor({ frameMs = FRAME_MS } = {}) {
+    this.frameMs = frameMs;
+    this.per = frameMs; // ms per game frame, as measured (a slow computer runs the game slower)
+    this.t = null;
+    this.frame = null;
+    this.seenAt = 0;
+  }
+
+  /** A new game picture shows at `now` (`frame`: the host's frame number, if known) – its time on this clock. */
+  picture(now, frame = null) {
+    let df = 1;
+    if (Number.isFinite(frame) && Number.isFinite(this.frame)) df = frame - this.frame;
+    if (Number.isFinite(frame)) this.frame = frame;
+    if (df === 0 && this.t !== null) return this.t; // (the same picture again)
+    if (this.t === null || df < 0 || df > 600) {
+      this.t = now;
+    } else {
+      const was = this.t;
+      const ran = this.at(now); // (pictures that stopped for a while: on from where the clock ran to)
+      // (never ahead of the moment the picture came: a host that ran several frames between two pictures – a busy
+      // computer catching up – counts them, but they took no more time than went by; ahead, the partners ran ahead
+      // and jumped back when the clock started over)
+      const pred = Math.min(Math.max(this.t + df * this.per, ran), now + this.per / 2);
+      const err = now - pred;
+      if (err > 120) this.t = Math.max(ran, now - 60); // (a long stall)
+      else {
+        // (gently: on a busy computer pictures arrive ±10 ms – followed closely, the clock's own steps would wobble by
+        // 10 %, and so would a partner's walking speed)
+        this.t = pred + err * 0.03;
+        if (df <= 4) this.per = Math.min(this.frameMs * 4, Math.max(this.frameMs / 4, this.per + (err / df) * 0.002));
+      }
+      this.t = Math.max(was, this.t); // (and never back)
+    }
+    this.seenAt = now;
+    return this.t;
+  }
+
+  at(now) {
+    if (this.t === null) return now;
+    const late = now - this.seenAt - 3 * this.per;
+    return late > 0 ? this.t + late : this.t;
+  }
+}
+
+/**
+ * Whole pixels for a position that moves in fractions (a partner between two of their states, their follower): the
+ * step the position made since the picture before, rounded – not the position rounded. At a constant speed of one
+ * pixel a frame a position halfway between two pixels rounded now up, now down (a frame standing, then a double step);
+ * this keeps one pixel a frame and stays within ¾ px of the true place. `last`: { v, px } of the picture before (or
+ * null: a position seen anew).
+ */
+export function wholePx(last, v) {
+  if (!last || !Number.isFinite(last.v) || Math.abs(v - last.v) > 2 * TILE) return Math.round(v);
+  const px = last.px + Math.round(v - last.v);
+  return Math.abs(v - px) <= 0.75 ? px : Math.round(v);
+}
+
+/**
+ * wholePx for a sprite's x and y, kept per sprite: snap(key, x, y) → [x, y] in whole pixels. Round a corner the two
+ * axes share the frame's step (each rounded on its own made a diagonal double step there).
+ */
+export function pixelSnapper() {
+  const last = new Map();
+  return (key, x, y) => {
+    const l = last.get(key);
+    let px = wholePx(l?.x, x);
+    let py = wholePx(l?.y, y);
+    if (l && Math.abs(x - l.x.v) + Math.abs(y - l.y.v) <= 2 * TILE) {
+      const n = Math.round(Math.abs(x - l.x.v) + Math.abs(y - l.y.v));
+      if (Math.abs(px - l.x.px) + Math.abs(py - l.y.px) > n && px !== l.x.px && py !== l.y.px) {
+        // (one axis keeps its pixel this frame: the one that stays closer to its true place)
+        if (Math.abs(x - l.x.px) <= Math.abs(y - l.y.px)) px = l.x.px;
+        else py = l.y.px;
+      }
+    }
+    last.set(key, { x: { v: x, px }, y: { v: y, px: py } });
+    return [px, py];
+  };
+}
+
+/**
+ * When partners move: with every game picture – but while you walk in a game that moves its picture only on some
+ * frames (the Game Boy games and the DS field every other one), only on those: on a frame where your camera stood
+ * mid-step they wait with it. A partner walking beside you then keeps their place next to you, instead of shaking
+ * by a pixel against you and the ground. `at(now, fresh, x, y, map)`: the time to sample partners at – `now` the
+ * pictures' clock, `fresh` a new game picture, x/y/map your own position on it (null: unknown).
+ */
+export class StepGate {
+  constructor() {
+    this.key = null;
+    this.held = false;
+    this.moved = false;
+    this.t = null;
+  }
+
+  at(now, fresh, x = null, y = null, map = null) {
+    if (fresh) {
+      // (walking: your picture moved on the picture before and stands on this one)
+      const known = Number.isFinite(x) && Number.isFinite(y);
+      const key = known ? `${map}:${x}:${y}` : null;
+      const same = known && key === this.key;
+      this.held = same && this.moved;
+      this.moved = known && !same && this.key !== null;
+      this.key = key;
+    } else if (this.t !== null && now - this.t > 3 * FRAME_MS) this.held = false; // (no pictures: a pause – on with the clock)
+    if (!this.held || this.t === null || now < this.t) this.t = now;
+    return this.t;
+  }
+}
+
+// how fast a player goes (px per game frame) before a track has measured it: walking 1, running and riding 2
+const SPEED = { walk: 1, run: 2, mach: 2, acro: 2, bike: 2, surf: 2, dive: 1 };
+
+/**
  * One partner's track: the states as they arrive, sampled at any moment. The render time trails the newest state by a
  * little more than the usual gap between messages, so there is (almost) always a state on both sides to interpolate
  * between; past the newest one it extrapolates for a short while, then holds. A map change or a jump of more than
  * a few tiles (a warp, Fly) snaps instead of sliding.
+ *
+ * Players move like the game moves them: along the tile grid at a constant speed, starting and stopping on a tile.
+ * The states (10–15 a second) don't say when between two of them a walk began or ended – a straight line from the
+ * standing state to the first walking one crept for up to a second, one into the stop slowed down: so a stretch that
+ * starts from standing begins as late as the walking speed allows, one that ends a walk goes on at the speed it had,
+ * and a stretch round a corner goes round it (along the grid, not across). `grid`: { size, origin } – where players
+ * stand (the DS: tile centres).
  */
 export class Track {
-  constructor({ maxExtrapolate = 150, snapPx = 3 * TILE } = {}) {
+  constructor({ maxExtrapolate = 150, snapPx = 3 * TILE, grid = { size: TILE, origin: 0 } } = {}) {
     this.buf = [];
     this.offset = null; // our clock minus theirs (smallest seen = least delayed message)
     this.gaps = [];
     this.lastSeq = -1;
     this.maxExtrapolate = maxExtrapolate;
     this.snapPx = snapPx;
+    this.grid = grid;
     this.seenAt = 0;
+    this.speeds = new Map(); // `kind:run` → px per ms, measured while walking
+    this.busy = false; // walking at the last sample (the delay changes only gently then)
   }
 
   /** A state from the network, `now` on our clock. Old or repeated ones (out of order) are dropped. */
@@ -508,8 +646,12 @@ export class Track {
     this.lastSeq = st.seq;
     this.seenAt = now;
     const off = now - st.t;
-    // the offset follows a clock that drifts or a path that got slower – slowly, so jitter doesn't shake it
-    this.offset = this.offset === null || off < this.offset ? off : this.offset + Math.min(2, (off - this.offset) * 0.01);
+    // the offset follows a clock that drifts or a path that got slower – slowly, so jitter doesn't shake it; a faster
+    // message takes it down at once while the partner stands, by a millisecond a message while they walk (at once, the
+    // picture jumped ahead by the difference)
+    if (this.offset === null) this.offset = off;
+    else if (off < this.offset) this.offset = this.busy ? Math.max(off, this.offset - 1) : off;
+    else this.offset += Math.min(2, (off - this.offset) * 0.01);
     const last = this.buf[this.buf.length - 1];
     if (last) {
       const gap = st.t - last.t;
@@ -519,33 +661,133 @@ export class Track {
         this.gaps.push(gap);
         if (this.gaps.length > 20) this.gaps.shift();
       }
+      this._learn(this.buf[this.buf.length - 2], last, st);
     }
     this.buf.push(st);
     if (this.buf.length > 64) this.buf.shift();
     return true;
   }
 
-  /** How far behind the newest state the picture runs (ms): 1.5 typical gaps, 60–600 ms. */
+  /** Is world pixel `v` where a player stands (on the grid)? */
+  _onGrid(v) {
+    const g = this.grid.size;
+    return (((v - this.grid.origin) % g) + g) % g === 0;
+  }
+
+  /** The walking speed, from a stretch in the middle of a walk (off the grid at both ends, moving before it). */
+  _learn(p, a, n) {
+    if (!p || p.hidden || a.hidden || n.hidden || p.map !== a.map || a.map !== n.map || p.fam !== n.fam) return;
+    const T = n.t - a.t;
+    const d = Math.abs(n.x - a.x) + Math.abs(n.y - a.y);
+    const pd = Math.abs(a.x - p.x) + Math.abs(a.y - p.y);
+    if (!(T > 0) || T > SEND.idleMs * 0.9 || !d || d > this.snapPx || !pd || a.t - p.t > SEND.idleMs * 0.9) return;
+    if (this._onGrid(a.x) && this._onGrid(a.y)) return;
+    if (this._onGrid(n.x) && this._onGrid(n.y)) return;
+    const key = `${n.kind}:${n.run ? 1 : 0}`;
+    const v = d / T;
+    const was = this.speeds.get(key);
+    this.speeds.set(key, was ? was + (v - was) * 0.2 : v);
+  }
+
+  /** px per ms a player of this kind walks – measured, else the game's usual speed. */
+  speedOf(st) {
+    return this.speeds.get(`${st.kind}:${st.run ? 1 : 0}`) || (st.run && st.kind === 'walk' ? SPEED.run : SPEED[st.kind] || 1) / FRAME_MS;
+  }
+
+  /** The usual gap between two states (ms). */
+  get gap() {
+    if (!this.gaps.length) return 66;
+    return [...this.gaps].sort((a, b) => a - b)[Math.floor(this.gaps.length / 2)];
+  }
+
+  /**
+   * How far behind the newest state the picture runs (ms): 1.5 typical gaps, plus the half-window a straight walk is
+   * evened out over (smoothMs) – 60–600 ms.
+   */
   get delay() {
-    if (!this.gaps.length) return 120;
+    if (!this.gaps.length) return 120 + this.smoothMs;
     const g = [...this.gaps].sort((a, b) => a - b)[Math.floor(this.gaps.length * 0.75)];
-    return Math.min(600, Math.max(60, g * 1.5 + 16));
+    return Math.min(600, Math.max(60, g * 1.5 + 16 + this.smoothMs));
+  }
+
+  /** Half the window a straight walk is evened out over: one usual gap (≤ 100 ms). */
+  get smoothMs() {
+    return Math.min(100, this.gaps.length ? this.gap : 66);
   }
 
   /**
    * The delay the picture uses at `now`: follows `delay`, but never faster than half a millisecond per millisecond, so
    * a change in the network's rhythm slows the partner down or speeds them up a little instead of making them jump.
+   * While the partner walks it holds (half a millisecond per millisecond made a walking partner 50 % faster or slower
+   * for a moment – a stutter, and on whole pixels a double step) – unless the states run out: then it grows by a tenth
+   * of a millisecond per millisecond. Asked for an earlier moment than before (a second caller with an older clock) it
+   * stays as it is.
    */
   renderDelay(now) {
     const target = this.delay;
-    if (this._rd === undefined || !Number.isFinite(this._rdAt) || now < this._rdAt) {
+    if (this._rd === undefined || !Number.isFinite(this._rdAt)) {
       this._rd = target;
-    } else {
-      const step = (now - this._rdAt) * 0.5;
+      this._rdAt = now;
+    } else if (now > this._rdAt) {
+      const rate = !this.busy ? 0.5 : this.starved && target > this._rd ? 0.1 : 0;
+      const step = (now - this._rdAt) * rate;
       this._rd = this._rd < target ? Math.min(target, this._rd + step) : Math.max(target, this._rd - step);
+      this._rdAt = now;
     }
-    this._rdAt = now;
     return this._rd;
+  }
+
+  /**
+   * How far along the stretch a → n the player is at render time `rt` (0…1) and at what speed (px per ms), given the
+   * state before it (`p`): a walk that ended inside the stretch went on at its speed and then stood; one that began
+   * inside it began as late as the walking speed allows. Only a stretch slower than the walk itself is reshaped.
+   */
+  _progress(p, a, n, d, rt, nn = null) {
+    const T = n.t - a.t;
+    const lin = Math.min(1, Math.max(0, (rt - a.t) / T));
+    const pd = p ? Math.abs(a.x - p.x) + Math.abs(a.y - p.y) : 0;
+    const pT = p ? a.t - p.t : 0;
+    const standing = this._onGrid(a.x) && this._onGrid(a.y);
+    // (the walk goes on past n the same way: n was no stop – a game that moves unevenly within a tile, HeartGold's
+    // running, is slow at a tile's edge without standing there)
+    const goesOn = !!nn && !nn.hidden && nn.map === n.map && nn.fam === n.fam && nn.t > n.t && nn.t - n.t < SEND.idleMs * 0.9
+      && Math.sign(nn.x - n.x) === Math.sign(n.x - a.x) && Math.sign(nn.y - n.y) === Math.sign(n.y - a.y) && (nn.x !== n.x || nn.y !== n.y);
+    if (p && pd > 0 && pd <= this.snapPx && pT > 0 && pT < SEND.idleMs * 0.9 && !standing) {
+      // mid-step at a: the walk went on at its speed – into the stop at n (the only place it could stand)
+      const v = pd / pT;
+      if (d / T < 0.8 * v && !goesOn) return { k: Math.min(1, Math.max(lin, (v * (rt - a.t)) / d)), v };
+      return { k: lin, v: d / T };
+    }
+    // standing at a (or the state before was long ago): the walk began as late as its speed lets it arrive on time.
+    // (Walking on, a state can fall on a tile's edge too: there only a stretch much slower than walking stood first.)
+    const v = Math.max(this.speedOf(n), d / T);
+    const rest = !(p && pd > 0 && pd <= this.snapPx && pT > 0 && pT < SEND.idleMs * 0.9);
+    if (d / T < (rest ? 0.8 : 0.6) * v) return { k: Math.max(0, 1 - (v * (n.t - rt)) / d), v };
+    return { k: lin, v: d / T };
+  }
+
+  /**
+   * The point `k` (0…1) of the way from a to n along the grid: both coordinates changed – the player went round a
+   * corner, one axis after the other (first the one a is between two tiles on, else the one walked before a, else the
+   * one away from where n faces). Returns { x, y, dir } (dir: the way it goes there, 1–4).
+   */
+  _along(p, a, n, k) {
+    const dx = n.x - a.x;
+    const dy = n.y - a.y;
+    const sx = Math.sign(dx);
+    const sy = Math.sign(dy);
+    const dirOf = (ax) => (ax === 'x' ? (sx > 0 ? DIR.E : DIR.W) : sy > 0 ? DIR.S : DIR.N);
+    if (!dx || !dy) return { x: a.x + dx * k, y: a.y + dy * k, dir: dirOf(dx ? 'x' : 'y') };
+    let first;
+    if (!this._onGrid(a.x)) first = 'x';
+    else if (!this._onGrid(a.y)) first = 'y';
+    else if (p && p.x !== a.x && p.y === a.y) first = 'x';
+    else if (p && p.y !== a.y && p.x === a.x) first = 'y';
+    else first = n.facing === DIR.E || n.facing === DIR.W ? 'y' : 'x';
+    const d1 = first === 'x' ? Math.abs(dx) : Math.abs(dy);
+    const s = k * (Math.abs(dx) + Math.abs(dy));
+    if (first === 'x') return s <= d1 ? { x: a.x + sx * s, y: a.y, dir: dirOf('x') } : { x: n.x, y: a.y + sy * (s - d1), dir: dirOf('y') };
+    return s <= d1 ? { x: a.x, y: a.y + sy * s, dir: dirOf('y') } : { x: a.x + sx * (s - d1), y: n.y, dir: dirOf('x') };
   }
 
   /**
@@ -564,36 +806,123 @@ export class Track {
     };
     const same = (p, q) => p.fam === q.fam && (conv ? !!p.local && !!q.local : p.map === q.map);
     const rt = now - this.offset - this.renderDelay(now); // render time on the sender's clock
+    let out = this._sample(b, rt, at, same);
+    if (out?.moving) out = this._even(b, rt, at, same, out);
+    if (now >= (this._busyAt ?? -Infinity)) {
+      this.busy = !!out?.moving;
+      this.starved = rt > b[b.length - 1].t; // (past the newest state: guessing)
+      this._busyAt = now;
+    }
+    return out;
+  }
+
+  /**
+   * A straight walk evened out: the mean position over a window of two usual gaps around `rt`, never reaching past
+   * where the walk began, turned or stopped (there the window narrows to nothing – starts, stops and corners stay
+   * exact). A game that moves its players unevenly within a tile – HeartGold/SoulSilver run 8, 4, 4, 0 units a frame
+   * – gave states 12 and 4 units apart by turns, and the partner ran fast and slow by turns; a walk at an even speed
+   * is the same with or without it.
+   */
+  _even(b, rt, at, same, out) {
+    let i = b.length - 1;
+    while (i > 0 && b[i].t > rt) i--;
+    if (i >= b.length - 1) return out; // (past the newest: no window)
+    const st = (k) => (b[k] ? at(b[k]) : null);
+    // one stretch k → k+1: its way (sign of x, y), and when the walk in it moves – a stretch from standing begins
+    // late, one into a stop ends early (shaped: it ends the run of even stretches)
+    const seg = (k) => {
+      const a = st(k);
+      const n = st(k + 1);
+      if (!a || !n || a.hidden || n.hidden || !same(a, n) || !(n.t > a.t) || n.t - a.t > SEND.idleMs * 0.9) return null;
+      const d = Math.abs(n.x - a.x) + Math.abs(n.y - a.y);
+      if (!d || d > this.snapPx || (n.x !== a.x && n.y !== a.y)) return null;
+      const p = st(k - 1);
+      const { v } = this._progress(p && !p.hidden && same(p, a) ? p : null, a, n, d, a.t, st(k + 2));
+      const shaped = Math.abs(v - d / (n.t - a.t)) > 1e-9;
+      return { dir: `${Math.sign(n.x - a.x)}:${Math.sign(n.y - a.y)}`, shaped, from: shaped ? Math.max(a.t, n.t - d / v) : a.t, to: shaped ? Math.min(n.t, a.t + d / v) : n.t, a, n, d, v };
+    };
+    const cur = seg(i);
+    if (!cur) return out;
+    let from = cur.from;
+    let to = cur.to;
+    if (!cur.shaped || cur.a.t + cur.d / cur.v >= cur.n.t - 1e-6) {
+      // back while the stretches before go the same way evenly (a shaped one – the start – ends it, counted)
+      for (let k = i - 1; k >= 0; k--) {
+        const q = seg(k);
+        if (!q || q.dir !== cur.dir) break;
+        from = q.from;
+        if (q.shaped) break;
+      }
+    }
+    if (!cur.shaped) {
+      for (let k = i + 1; k < b.length - 1; k++) {
+        const q = seg(k);
+        if (!q || q.dir !== cur.dir) break;
+        to = q.to;
+        if (q.shaped) break;
+      }
+    }
+    // (the newest state on a tile may be the stop: the walk's speed into it)
+    const last = st(b.length - 1);
+    if (to >= last.t - 1e-6 && this._onGrid(last.x) && this._onGrid(last.y)) {
+      const q = seg(b.length - 2);
+      if (q && q.dir === cur.dir) to = Math.min(to, q.a.t + q.d / Math.max(q.v, this.speedOf(q.n)));
+    }
+    const h = Math.min(this.smoothMs, rt - from, to - rt);
+    if (!(h > 1)) return out;
+    let x = 0;
+    let y = 0;
+    const N = 8;
+    for (let m = 0; m <= N; m++) {
+      const q = this._sample(b, rt - h + (2 * h * m) / N, at, same);
+      x += q.x;
+      y += q.y;
+    }
+    return { ...out, x: x / (N + 1), y: y / (N + 1) };
+  }
+
+  _sample(b, rt, at, same) {
     let i = b.length - 1;
     while (i > 0 && b[i].t > rt) i--;
     const a = at(b[i]);
     const n = b[i + 1] ? at(b[i + 1]) : null;
     if (a.t > rt) return { ...a, moving: false }; // older than anything we have: the oldest
     if (a.hidden) return { ...a, moving: false };
+    const p = b[i - 1] ? at(b[i - 1]) : null;
+    const prev = p && !p.hidden && same(p, a) ? p : null;
     if (n && !n.hidden && same(a, n) && n.t > a.t) {
       const d = Math.abs(n.x - a.x) + Math.abs(n.y - a.y);
       if (d > this.snapPx) return { ...a, moving: false };
-      const k = (rt - a.t) / (n.t - a.t);
-      // (speed in pixels per game frame: 1 walking, 2 running or cycling, more on the Mach Bike)
+      if (!d) return { ...a, facing: rt - a.t < (n.t - a.t) / 2 ? a.facing : n.facing, moving: false };
+      const nn = b[i + 2] ? at(b[i + 2]) : null;
+      const { k, v } = this._progress(prev, a, n, d, rt, nn);
+      const pos = this._along(prev, a, n, k);
       const h = Number.isFinite(a.h) && Number.isFinite(n.h) ? { h: a.h + (n.h - a.h) * k } : {};
-      return { ...a, ...h, x: a.x + (n.x - a.x) * k, y: a.y + (n.y - a.y) * k, facing: d > 0 ? n.facing : k < 0.5 ? a.facing : n.facing, moving: d > 0, speed: d / Math.max(1, (n.t - a.t) / FRAME_MS) };
+      const moving = k > 0 && k < 1;
+      // (speed in pixels per game frame: 1 walking, 2 running or cycling, more on the Mach Bike)
+      return { ...a, ...h, x: pos.x, y: pos.y, facing: moving ? pos.dir : k >= 1 ? n.facing : a.facing, moving, speed: v * FRAME_MS };
     }
     if (n) return { ...a, moving: false }; // the next one is on another map / hidden: hold until it's due
-    // past the newest: keep going the way it went, for a moment (a held direction keeps walking in the game too)
-    const p = b[i - 1] ? at(b[i - 1]) : null;
-    if (p && !p.hidden && same(p, a) && a.t > p.t && rt - a.t < this.maxExtrapolate) {
-      const vx = (a.x - p.x) / (a.t - p.t);
-      const vy = (a.y - p.y) / (a.t - p.t);
-      if (Math.abs(vx) + Math.abs(vy) > 0 && Math.abs(a.x - p.x) + Math.abs(a.y - p.y) <= this.snapPx) {
-        const dt = rt - a.t;
-        // never past the tile it was heading for: a stop must not overshoot and snap back
-        const tx = vx > 0 ? Math.ceil(a.x / TILE) * TILE : vx < 0 ? Math.floor(a.x / TILE) * TILE : a.x;
-        const ty = vy > 0 ? Math.ceil(a.y / TILE) * TILE : vy < 0 ? Math.floor(a.y / TILE) * TILE : a.y;
-        const clamp = (v, lim, dir) => (dir > 0 ? Math.min(v, lim) : dir < 0 ? Math.max(v, lim) : v);
-        const x = clamp(a.x + vx * dt, tx, vx);
-        const y = clamp(a.y + vy * dt, ty, vy);
-        return { ...a, x, y, moving: x !== a.x || y !== a.y, speed: (Math.abs(vx) + Math.abs(vy)) * FRAME_MS };
-      }
+    // past the newest: keep going the way it went, for a moment (a held direction keeps walking in the game too) – at
+    // the speed it ended with (a stretch that began from standing: walking speed, not its average), then wait there
+    // (going back to the newest state after the moment snapped the partner back by up to 9 px)
+    const pd = prev ? Math.abs(a.x - prev.x) + Math.abs(a.y - prev.y) : 0;
+    if (prev && a.t > prev.t && pd > 0 && pd <= this.snapPx && (a.x === prev.x || a.y === prev.y)) {
+      const pp = b[i - 2] ? at(b[i - 2]) : null;
+      const v = this._progress(pp && !pp.hidden && same(pp, prev) ? pp : null, prev, a, pd, a.t).v;
+      const vx = (Math.sign(a.x - prev.x) * v) || 0;
+      const vy = (Math.sign(a.y - prev.y) * v) || 0;
+      const dt = Math.min(rt - a.t, this.maxExtrapolate);
+      // never past the tile it was heading for: a stop must not overshoot and snap back
+      const g = this.grid.size;
+      const o = this.grid.origin;
+      const tx = vx > 0 ? Math.ceil((a.x - o) / g) * g + o : vx < 0 ? Math.floor((a.x - o) / g) * g + o : a.x;
+      const ty = vy > 0 ? Math.ceil((a.y - o) / g) * g + o : vy < 0 ? Math.floor((a.y - o) / g) * g + o : a.y;
+      const clamp = (val, lim, dir) => (dir > 0 ? Math.min(val, lim) : dir < 0 ? Math.max(val, lim) : val);
+      const x = clamp(a.x + vx * dt, tx, vx);
+      const y = clamp(a.y + vy * dt, ty, vy);
+      const going = rt - a.t < this.maxExtrapolate && (x !== tx || !vx) && (y !== ty || !vy);
+      return { ...a, x, y, facing: a.facing, moving: going, speed: v * FRAME_MS };
     }
     return { ...a, moving: false };
   }
@@ -744,9 +1073,21 @@ export class Follower {
     this.flip = false;
   }
 
+  /**
+   * The frame moved under the leader (the local player crossed into a connected map: the same ground, other
+   * coordinates): the path goes along, `dx`/`dy` further – the follower walks on instead of starting again on them.
+   */
+  rekey(key, dx, dy) {
+    if (this.key === null || !this.trail.length) return;
+    for (const p of this.trail) (p.x += dx), (p.y += dy);
+    if (this.pos) (this.pos.x += dx), (this.pos.y += dy);
+    this.key = key;
+  }
+
   _reset(x, y, behind) {
     const [dx, dy] = STEP[behind] || [0, 0];
     this.trail = behind ? [{ x: x - dx * this.gap, y: y - dy * this.gap }, { x, y }] : [{ x, y }];
+    this.out = !!behind; // (put onto the leader: hidden until they step away from it)
     if (behind === DIR.E) this.flip = true;
     else if (behind === DIR.W) this.flip = false;
     this.pos = null;
@@ -795,7 +1136,10 @@ export class Follower {
     if (dx > 0.01) this.flip = true;
     else if (dx < -0.01) this.flip = false;
     this.pos = { x: px, y: py };
-    return { x: px, y: py, moving: moved > 0.01, flip: this.flip, frame: Math.floor(this.dist / 8) & 1, hidden: Math.abs(px - x) + Math.abs(py - y) < 6 };
+    // hidden only while it waits on the leader after a door or a warp – not when the leader turns back and walks
+    // through it (it vanished for a few frames there)
+    if (Math.abs(px - x) + Math.abs(py - y) >= 6) this.out = true;
+    return { x: px, y: py, moving: moved > 0.01, flip: this.flip, frame: Math.floor(this.dist / 8) & 1, hidden: !this.out && Math.abs(px - x) + Math.abs(py - y) < 6 };
   }
 }
 

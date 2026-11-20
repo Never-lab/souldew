@@ -37,6 +37,10 @@
 //                              [--clip]      (a muted clip of A's picture: B walks away and around, A walks and turns)
 //                              [--play-together] (a Play together run instead of a SoulLink – shared/playtogether.mjs:
 //                                             every player builds only their own game and plays their library save)
+//                              [--smooth [--capture]] (smooth motion: B walks off, stops, turns, taps and runs, A and B
+//                                             walk side by side, A alone with the follower – the overlay's trace of
+//                                             every drawn sprite and its metrics (scripts/world-motion.mjs) to out;
+//                                             --capture: A's picture as shown, smooth-A.mp4)
 // The DS (Gen 4) is driven frame-exactly through the fast player's step() – a tap turns, six frames walk a tile.
 //                              [--plus]      (followers, emotes and rock-paper-scissors: B walks with A's and B's
 //                                             Pokémon following – a strip and a muted clip; A challenges B from the
@@ -211,6 +215,200 @@ async function clip({ world, log, sleep, out, wins, gameRect, ds, hold }) {
   log('clip frames', n, 'in', secs.toFixed(1), 's', JSON.stringify((await world(0))?.drawn || (await world(0))?.partners));
   await new Promise((res) => spawn('ffmpeg', ['-loglevel', 'error', '-y', '-framerate', String(Math.max(1, Math.round(n / secs))), '-i', join(dir, 'f%04d.png'), '-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2', '-pix_fmt', 'yuv420p', '-an', join(out, 'clip.mp4')]).on('exit', res).on('error', res));
 }
+
+/**
+ * Smooth motion (--smooth): every sprite souldew draws – B on A's picture, B's follower, A's own follower – must walk
+ * like the game's own: the overlay's trace (per drawn picture, web/lib/worldoverlay.mjs trace()) while B walks off
+ * after standing, stops, turns and runs, while A and B walk side by side, and while A walks alone with the follower.
+ * The traces go to out/trace-A.json and out/trace-B.json with the scenarios marked, the metrics (scripts/world-motion.mjs)
+ * to out/motion.json. --capture: A's picture as shown (game + overlay, one image per animation frame) during the
+ * side-by-side walk, as out/smooth-A.mp4.
+ */
+async function smooth({ world, hold, emu, ev, log, sleep, until, out, profiles, setKeys, isDs }) {
+  const { report } = await import('./world-motion.mjs');
+  if (opt('lead')) {
+    const lead = { species: Number(opt('lead')), shiny: false, form: 0 };
+    await sleep(4000);
+    for (const [i] of profiles.entries()) await ev(i, `(() => { const w = window.__slWorld; if (w && !w.lead) { w.update({ lead: ${JSON.stringify(lead)} }); return 'injected'; } return 'had one'; })()`).then((r) => log('lead', i, r));
+  }
+  await until('leads known', async () => {
+    const [a, b] = [await world(0), await world(1)];
+    return a?.lead && a.partners?.p2?.lead && b?.partners?.p1?.lead;
+  }, 45000).catch(() => log('leads not known – followers may be missing'));
+  const now = (i) => emu(i, 'performance.now()');
+  const marks = { A: [], B: [] };
+  const mark = async (name, fn) => {
+    const from = [await now(0), await now(1)];
+    await fn();
+    await sleep(900);
+    const to = [await now(0), await now(1)];
+    marks.A.push({ name, from: from[0], to: to[0] });
+    marks.B.push({ name, from: from[1], to: to[1] });
+    log('scenario', name);
+  };
+  // a held key (or several) for `ms`, then a held set changed without letting go (a turn while walking)
+  const holds = async (i, seq) => {
+    for (const [keys, ms] of seq) { await setKeys(i, keys, true); await sleep(ms); }
+    await setKeys(i, [], false);
+  };
+  const run = ['b']; // (running shoes; the Game Boy games have none – B does nothing there)
+  // into the open first (the saves stand by a counter, a wall or a door): B three tiles down, A two down and two left
+  await Promise.all([hold(1, ['down'], 800), (async () => { await hold(0, ['down'], 550); await sleep(300); await hold(0, ['left'], 550); })()]);
+  await sleep(1200);
+  for (const i of [0, 1]) await emu(i, '(w.trace(true), true)');
+  await sleep(1500);
+  await mark('B idle-walk-stop', async () => {
+    await sleep(1500);
+    await hold(1, ['left'], 780);
+    await sleep(1200);
+    await hold(1, ['right'], 780);
+  });
+  await mark('B turns', () => holds(1, [[['down'], 270], [['right'], 270], [['up'], 270], [['left'], 270]]));
+  await mark('B taps', async () => {
+    for (const d of ['left', 'right', 'left', 'right']) { await hold(1, [d], 120); await sleep(500); }
+  });
+  await mark('B runs', async () => {
+    await holds(1, [[['left', ...run], 420]]);
+    await sleep(700);
+    await holds(1, [[['right', ...run], 420]]);
+  });
+  // A's picture recorded as it is shown (--capture): the game's picture under the overlay, every animation frame
+  const capture = args.includes('--capture');
+  if (capture) await emu(0, CAPTURE_JS);
+  await mark('A+B side by side', async () => {
+    await Promise.all([hold(0, ['left'], 800), hold(1, ['left'], 800)]);
+    await sleep(600);
+    await Promise.all([hold(0, ['right'], 800), hold(1, ['right'], 800)]);
+  });
+  if (capture) {
+    const n = await emu(0, 'w.__cap.stop()');
+    const meta = JSON.parse(await emu(0, 'JSON.stringify({ w: w.__cap.w, h: w.__cap.h, n: w.__cap.frames.length })'));
+    const chunks = [];
+    for (let k = 0; k < meta.n; k += 20) chunks.push(Buffer.from(await emu(0, `w.__cap.chunk(${k}, 20)`), 'base64'));
+    writeFileSync(join(out, 'smooth-A.rgba'), Buffer.concat(chunks));
+    log('captured', n, 'frames', JSON.stringify(meta));
+    const scale = Math.max(1, Math.floor(720 / meta.h));
+    await new Promise((res) => spawn('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${meta.w}x${meta.h}`, '-r', '60', '-i', join(out, 'smooth-A.rgba'),
+      '-vf', `scale=${meta.w * scale}:${meta.h * scale}:flags=neighbor`, '-c:v', 'libx264', '-crf', '16', '-pix_fmt', 'yuv420p', '-an', join(out, 'smooth-A.mp4')]).on('exit', res).on('error', res));
+  }
+  await mark('A alone with the follower', async () => {
+    await hold(0, ['left'], 520);
+    await sleep(900);
+    await holds(0, [[['down'], 270], [['right'], 540], [['up'], 270]]);
+    await sleep(700);
+    await holds(0, [[['right', ...run], 400]]);
+    await sleep(500);
+    await holds(0, [[['left', ...run], 400]]);
+  });
+  // --cross: A walks to the edge of the map (around what's in the way) and on into the connected map – the follower
+  // goes along over the connection
+  if (args.includes('--cross')) {
+    const conns = (await world(0))?.conns;
+    const local = async () => (await world(0))?.local;
+    const here = await local();
+    const map0 = here?.map;
+    const keyOf = { 2: 'up', 1: 'down', 3: 'left', 4: 'right' };
+    // the nearest edges first (water or a wall in the way: the next one)
+    const dist = (c) => ({ 2: here.ty, 1: conns.h - here.ty, 3: here.tx, 4: conns.w - here.tx })[c.dir];
+    const tries = (conns?.list || []).filter((x) => keyOf[x.dir]).sort((a, b) => dist(a) - dist(b));
+    if (!tries.length) log('no connection on A’s map', JSON.stringify(conns));
+    for (const c of tries) {
+      const key = keyOf[c.dir];
+      const side = key === 'up' || key === 'down' ? ['left', 'right'] : ['up', 'down'];
+      const near = (s) => s.map !== map0 || ({ up: s.ty <= 1, down: s.ty >= conns.h - 2, left: s.tx <= 1, right: s.tx >= conns.w - 2 })[key];
+      let k = 0;
+      let blocked = 0;
+      for (let n = 0; n < 60 && blocked < 14; n++) {
+        const s = await local();
+        if (!s || near(s)) break;
+        await hold(0, [key], 150);
+        await sleep(420);
+        const t = await local();
+        if (t && s && t.tx === s.tx && t.ty === s.ty) {
+          blocked++;
+          await hold(0, [side[k % 2]], 150);
+          await sleep(420);
+          const u = await local();
+          if (u && u.tx === t.tx && u.ty === t.ty) k++;
+        }
+      }
+      const s = await local();
+      if (!s || !near(s)) continue;
+      await sleep(800);
+      await mark('A crosses into the next map', async () => {
+        await setKeys(0, [key], true);
+        for (let n = 0; n < 12 && (await local())?.map === map0; n++) await sleep(150);
+        await sleep(700);
+        await setKeys(0, [], false);
+      });
+      log('crossed', JSON.stringify({ from: map0, now: (await local())?.map, dir: key }));
+      if ((await local())?.map !== map0) break;
+    }
+  }
+  const speed = await Promise.all([0, 1].map((i) => emu(i, 'JSON.stringify({ fps: e.perf().fps, speed: e.perf().speed })')));
+  log('game speed', speed.join(' '));
+  const traces = {};
+  for (const [i, id] of [[0, 'A'], [1, 'B']]) {
+    const entries = JSON.parse(await emu(i, 'JSON.stringify(w.trace() || [])'));
+    traces[id] = { gen: (await world(i))?.gen || null, ds: !!isDs, marks: marks[id], entries };
+    writeFileSync(join(out, `trace-${id}.json`), JSON.stringify(traces[id]));
+  }
+  const game = (await world(0))?.game || '';
+  // (the Game Boy games and the DS field move the picture every other frame)
+  const cadence = /red|blue|yellow|gold|silver|crystal|platinum|heartgold|soulsilver/.test(game) ? 2 : 1;
+  const motion = { game, cadence, A: report(traces.A, { cadence }), B: report(traces.B, { cadence }) };
+  writeFileSync(join(out, 'motion.json'), JSON.stringify(motion, null, 1));
+  for (const id of ['A', 'B']) {
+    for (const [name, sprites] of Object.entries(motion[id])) {
+      for (const [key, m] of Object.entries(sprites)) log('motion', id, name, key, JSON.stringify({ frames: m.frames, moving: m.moving, usual: m.usual, steps: m.steps, stalls: m.stalls, jumps: m.jumps, backs: m.backs, uneven: m.uneven, offbeat: m.offbeat }));
+    }
+  }
+}
+
+// In A's player page: a copy of every shown picture – the game's picture with the overlay over it – taken after each
+// animation frame's drawing (a timeout from inside the frame runs once it is painted), for the --capture clip.
+const CAPTURE_JS = `(() => {
+  const W = f.contentWindow;
+  const cap = w.__cap = { frames: [], on: true, w: 0, h: 0 };
+  const c = W.document.createElement('canvas');
+  const x = c.getContext('2d');
+  const tick = () => {
+    if (!cap.on) return;
+    W.requestAnimationFrame(tick);
+    W.setTimeout(() => {
+      const pic = w.picture();
+      const layers = W.document.querySelectorAll('.sw-layer');
+      const ov = layers[layers.length - 1]?.querySelector('canvas');
+      if (!pic || !ov || cap.frames.length > 1800) return;
+      const ow = ov.width;
+      const oh = ov.height;
+      if (c.width !== ow || c.height !== oh) (c.width = ow, c.height = oh, cap.w = ow, cap.h = oh);
+      const img = x.createImageData(ow, oh);
+      const d = img.data;
+      for (let yy = 0; yy < oh; yy++) for (let xx = 0; xx < ow; xx++) {
+        const i = yy * pic.w + xx;
+        const o = (yy * ow + xx) * 4;
+        if (pic.fmt === 0) { d[o] = pic.px[i * 4 + 2]; d[o + 1] = pic.px[i * 4 + 1]; d[o + 2] = pic.px[i * 4]; }
+        else { const v = pic.px[i * 2] | (pic.px[i * 2 + 1] << 8); d[o] = ((v >> 11) * 255) / 31; d[o + 1] = (((v >> 5) & 63) * 255) / 63; d[o + 2] = ((v & 31) * 255) / 31; }
+        d[o + 3] = 255;
+      }
+      x.putImageData(img, 0, 0);
+      x.globalAlpha = Number(ov.style.opacity || 1);
+      x.drawImage(ov, 0, 0);
+      x.globalAlpha = 1;
+      cap.frames.push(new Uint8Array(x.getImageData(0, 0, ow, oh).data.buffer));
+    }, 0);
+  };
+  W.requestAnimationFrame(tick);
+  cap.stop = () => { cap.on = false; return cap.frames.length; };
+  cap.chunk = (k, n) => {
+    const parts = cap.frames.slice(k, k + n);
+    let s = '';
+    for (const p of parts) for (let i = 0; i < p.length; i += 0x8000) s += String.fromCharCode.apply(null, p.subarray(i, i + 0x8000));
+    return W.btoa(s);
+  };
+  return true;
+})()`;
 
 /**
  * The followers, emotes and rock-paper-scissors (--plus). A and B play the same game family on the same map.
@@ -1101,6 +1299,11 @@ async function main() {
     if (args.includes('--frames')) {
       const bad = await frames({ emu, log, sleep, out });
       finish(bad ? 1 : 0);
+      return;
+    }
+    if (args.includes('--smooth')) {
+      await smooth({ world, hold, emu, ev, log, sleep, until, out, profiles, setKeys, isDs });
+      finish(0);
       return;
     }
     if (args.includes('--plus')) {

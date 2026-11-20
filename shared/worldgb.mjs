@@ -169,6 +169,8 @@ export function gbReadCamera(t, read, prior = null) {
     cb2: 0,
     // a script runs (a person talking, a sign, the START menu, a warp), or the map isn't being played (entering it)
     locked: (script?.[0] ?? 0) !== 0 || (status?.[0] ?? 2) !== 2,
+    // (only a script: the game runs one for a few frames when a step ends in some places – Route 29 – too)
+    scripted: (script?.[0] ?? 0) !== 0 && (status?.[0] ?? 2) === 2,
     fade: 0,
     battle: !!(battle && battle[0] & t.inBattle.mask),
     help: false,

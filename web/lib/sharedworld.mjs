@@ -170,7 +170,8 @@ export class SharedWorld {
       // (Yellow: the game's own Pikachu follows – the partners see that one, as you do)
       this.gameLead = d.gameLead && d.gameLead.species > 0 ? d.gameLead : null;
       if (Array.isArray(d.size)) this.size = d.size;
-      this._send(d.st);
+      // (stamped with the moment the game showed it: the page says how long ago that was)
+      this._send(d.st, Number.isFinite(d.age) ? Math.max(0, Math.min(200, d.age)) : 0);
       const n = Number(d.near) || 0;
       if (n !== this.near) this.onNear((this.near = n));
     } else if (d?.type === 'emu-world-act' && typeof d.slot === 'string') {
@@ -230,19 +231,22 @@ export class SharedWorld {
   }
 
   /** Sends the state when it changed (≤ 15/s) or as a heartbeat (1/s); the relay gets one every 2 s at most. */
-  _send(st) {
+  _send(st, age = 0) {
     if (!this.sync) return;
     const now = this.now();
     const s = this.sent;
     const diff = changed(st, s?.st);
     if (s && !diff && now - s.at < SEND.idleMs) return;
-    if (s && diff && now - s.at < SEND.minMs) return;
+    // (on a 66 ms beat, not 66 ms after the last one: the page posts every 66 ms, and one that came a millisecond early
+    // was dropped – the gaps were 66 or 133 ms at random, and the partners' delay jumped between them)
+    if (s && diff && now < this.beat - SEND.minMs * 0.25) return;
     // standing hidden (a battle, a menu screen): one message says so, then quiet but for the heartbeat
     // (who follows me and my map's size: when they change, and with the heartbeat for whoever came later)
     const ext = packExt({ follower: this.gameLead || this.lead || null, size: this.size });
     const ek = JSON.stringify(ext);
     const extDue = ek !== this.extKey || now - this.extAt >= SEND.idleMs;
-    const w = packState(st, ++this.seq, now, extDue ? ext : null);
+    const at = now - age; // (the moment the game showed this state)
+    const w = packState(st, ++this.seq, at, extDue ? ext : null);
     if (extDue) {
       this.extKey = ek;
       this.extAt = now;
@@ -252,12 +256,13 @@ export class SharedWorld {
     const direct = this.sync.sendWorld({ t: 'p', w });
     const needRelay = others.some((slot) => !direct.has(slot) && this.sync.status?.partners?.[slot]);
     if (needRelay && relayDue) {
-      this.sync.sendWorld({ t: 'p', w: extDue ? w : packState(st, this.seq, now, ext) }, { relay: true });
+      this.sync.sendWorld({ t: 'p', w: extDue ? w : packState(st, this.seq, at, ext) }, { relay: true });
       this.stats.relayed++;
     }
     this.stats.sent++;
     this.stats.bytes += JSON.stringify(w).length + 20;
     this.sent = { st, at: now, relayAt: needRelay && relayDue ? now : s?.relayAt ?? null };
+    this.beat = Math.max(now, this.beat || 0) + SEND.minMs;
   }
 
   _in(m) {

@@ -11,7 +11,7 @@
 import {
   worldTable, watchRanges, rangeReader, chainReaders, readCamera, readPlayer, readLocalSprite, drawable, OverworldLearner,
   Track, unpackState, screenPos, facedPartner, gfxFor, kindFor, animFor, readMapView, blockReader, popupRect, GBA_KEY, TILE,
-  Follower, followerHidden, readConnections, inLocalFrame, APress, startOnce,
+  Follower, followerHidden, readConnections, inLocalFrame, APress, startOnce, PictureClock, pixelSnapper, StepGate,
 } from '/shared/world.mjs';
 import { findMonIcons, monIcon, iconIndex, dexToInternal, NAT } from '/shared/worldicons.mjs';
 import { ART, HAND_ART, artSize } from '/lib/worldart.mjs';
@@ -78,6 +78,8 @@ export function installWorld(host) {
     menuOpen: () => !!st?.menuOpen?.(),
     /** tests / diagnostics */
     state: () => st?.debug() || null,
+    /** diagnostics: trace(true) records every drawn picture's sprite positions, trace() hands them over (and clears) */
+    trace: (on) => st?.trace?.(on) ?? null,
     /** tests: the picture the overlay was drawn for (the native player's last one) */
     picture: () => host.picture?.() || null,
     stop: () => st?.stop(),
@@ -165,8 +167,12 @@ function world(host, t, rom, dex) {
   const ownFollower = new Follower();
   const connCache = new Map();
   let conns = null; // this map's size and connections, this picture
+  let frameMap = null; // the map whose frame the followers' paths are in, and its size
+  let frameSize = null;
   let fdraw = {}; // diagnostics: the followers drawn this picture
   let ownLast = null; // diagnostics: your own follower this picture
+  let trace = null; // diagnostics (trace(true)): per drawn picture where each sprite went – [{ v, t, p, f, cam, me, at }]
+  let traced = {}; // (this picture's: slot → [x, y] drawn, 'f:slot' its follower)
   const spriteCache = {};
   const frameCache = new Map();
   // the Game Boy games (shared/worldgb.mjs): sprites and icons as colour numbers, coloured with the palette of the moment
@@ -177,6 +183,14 @@ function world(host, t, rom, dex) {
   let gbPalKey = '';
   let gbOwnFollows = false; // Yellow: the game's own Pikachu walks behind you
   const learner = new OverworldLearner();
+  // the game's pictures set the time everything is drawn at (shared/world.mjs PictureClock): partners and followers
+  // step with the game's own sprites, not with the screen's refresh between two pictures
+  const clock = new PictureClock();
+  let drawT = 0; // this picture's time
+  const gate = new StepGate(); // (partners step when your picture does – shared/world.mjs StepGate)
+  let partT = 0; // the time partners are drawn at
+  let scripted = 0; // (Gen 2: pictures in a row a script runs)
+  const snap = pixelSnapper(); // (whole pixels that step evenly – shared/world.mjs wholePx)
   let watched = null; // { ranges, sb1, spriteId, bytes } – the native player's per-picture bytes
   let watchKey = '';
   let cam = null;
@@ -202,7 +216,7 @@ function world(host, t, rom, dex) {
   const ui = createWorldUi({
     host, layer, screen: t.screen, getCfg: () => cfg,
     anchor: (slot) => {
-      const p = tracks.get(slot)?.sample(performance.now());
+      const p = tracks.get(slot)?.sample(partT || performance.now());
       const pos = p && cam ? screenPos(t, cam, p) : null;
       return pos ? { x: pos.x + TILE / 2, top: pos.y - 20, bottom: pos.y + TILE + 6 } : null;
     },
@@ -335,9 +349,10 @@ function world(host, t, rom, dex) {
     }
     const p = t.saveBlock1Ptr ? host.read(t.saveBlock1Ptr, 4) : null;
     const sb1 = t.saveBlock1 || (p && p.length === 4 ? (p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)) >>> 0 : 0);
-    const av = host.read(t.playerAvatar + 4, 1);
+    const av = host.read(t.playerAvatar + 4, 2);
     const spriteId = av && av.length ? av[0] : null;
-    const key = `${sb1}:${spriteId}:${active()}`;
+    const objId = av && av.length > 1 ? av[1] : null;
+    const key = `${sb1}:${spriteId}:${objId}:${active()}`;
     if (key === watchKey) return;
     watchKey = key;
     if (!active()) {
@@ -345,7 +360,7 @@ function world(host, t, rom, dex) {
       if (!host.watch([])) watchKey = '';
       return;
     }
-    const ranges = watchRanges(t, sb1 >= 0x02000000 && sb1 < 0x02040000 ? sb1 : 0, spriteId);
+    const ranges = watchRanges(t, sb1 >= 0x02000000 && sb1 < 0x02040000 ? sb1 : 0, spriteId, objId);
     watched = { ranges, bytes: null, total: ranges.reduce((n, r) => n + r[1], 0) };
     if (!host.watch(ranges)) watchKey = ''; // (the game isn't running yet: again later)
   }
@@ -428,10 +443,21 @@ function world(host, t, rom, dex) {
     render(now);
   }
   /** One picture of the overlay – every animation frame, and again right when the native player shows a new picture. */
-  function render(now) {
+  function render(now, fresh = false) {
+    traced = {};
+    if (fresh) clock.picture(now, watched?.frameNo ?? null);
+    drawT = clock.at(now);
+    draw(drawT, fresh);
+    if (trace && trace.length < 40000) {
+      trace.push({ v: document.timeline?.currentTime ?? null, t: Math.round(now * 100) / 100, d: Math.round(drawT * 100) / 100, p: fresh ? 1 : 0, f: watched?.frameNo ?? null,
+        cam: cam ? [cam.cx, cam.cy] : null, at: traced });
+    }
+  }
+  function draw(now, fresh = false) {
     if (!(++ticks % 30)) rewatch();
     const read = reader();
     cam = readCamera(t, read, gb && watched?.before ? rangeReader(watched.ranges, watched.before) : null);
+    partT = gate.at(now, fresh, cam?.cx, cam?.cy, cam?.map);
     if (!t.overworldCb2 && !gb) learner.feed(cam);
     if (gb) {
       // Gen 1: the colours of the moment, from your own sprite on the picture; Yellow: is its Pikachu following you?
@@ -440,22 +466,39 @@ function world(host, t, rom, dex) {
     }
     // this map's size and the maps connected to it (partners next door are drawn across the edge)
     conns = cam ? readConnections(t, read, rom, cam.map, connCache) : null;
+    // crossing into a connected map: everything in your map's frame moves by where the old map lies in the new one –
+    // the followers' paths along with it (they started again on their players, as after a door)
+    if (cam && frameMap !== null && cam.map !== frameMap) {
+      const o = conns && conns.map === cam.map ? inLocalFrame(conns, { map: frameMap, x: 0, y: 0 }, frameSize) : null;
+      if (o) {
+        ownFollower.rekey(`L${cam.map}`, o.x, o.y);
+        for (const f of followers.values()) if (f.key === `L${frameMap}`) f.rekey(`L${cam.map}`, o.x, o.y);
+      }
+    }
+    if (cam) {
+      frameMap = cam.map;
+      if (conns && conns.map === cam.map) frameSize = [conns.w, conns.h];
+    }
     // the partners see us even while our switch is off (it says what *we* see)
-    if (now - lastState >= STATE_MS) {
+    if (now - lastState >= STATE_MS - 4) { // (on the pictures' clock: every 4th picture)
       lastState = now;
       sendState(read, cfg.enabled && drawable(t, cam, learner.cb2));
     }
     const rect = placeLayer();
-    const can = drawable(t, cam, learner.cb2);
+    // (Gold, Silver and Crystal run a script for 4–6 frames when a step ends here and there: the partners and the
+    // followers blinked away each time – a script that runs on for more than 8 pictures holds the player, as before)
+    if (fresh) scripted = cam?.scripted ? scripted + 1 : 0;
+    const can = drawable(t, cam?.scripted && scripted <= 8 ? { ...cam, locked: false } : cam, learner.cb2);
     const me = cam ? readPlayer(t, read, cam) : null;
     // the trails go on while nothing is drawn (a menu here): the followers are where they belong when it closes
     const list = [];
     for (const [slot, tr] of tracks) {
       const conv = conns ? (st) => inLocalFrame(conns, st, sizes.get(slot)) : null;
-      const s0 = tr.sample(now, conv);
+      const s0 = tr.sample(partT, conv);
       // (a partner in a battle stays where it began, with a ⚔ – their follower is in the battle with them)
       const s = standIn(s0, tr, conv, !!tg.battles[slot]);
-      const pos = can && cfg.enabled && s ? screenPos(t, cam, s) : null;
+      const at = s && !s.hidden ? snap(slot, s.x, s.y) : null;
+      const pos = can && cfg.enabled && s ? screenPos(t, cam, at ? { ...s, x: at[0], y: at[1] } : s) : null;
       list.push({ slot, s, pos });
       followTrail(slot, s0, conv ? `L${cam?.map}` : s0?.map);
     }
@@ -575,7 +618,8 @@ function world(host, t, rom, dex) {
   function addFollower(list, slot, f, lead, elev) {
     const ic = iconFor(lead);
     if (!ic) return;
-    const pos = { x: t.anchor.x + (f.x - cam.cx), y: t.anchor.y + (f.y - cam.cy) };
+    const [fx, fy] = snap(`f:${slot}`, f.x, f.y);
+    const pos = { x: t.anchor.x + (fx - cam.cx), y: t.anchor.y + (fy - cam.cy) };
     if (pos.x < -48 || pos.y < -48 || pos.x > t.screen.w + 32 || pos.y > t.screen.h + 48) return;
     list.push({ kind: 'follower', slot, pos, f, ic, lead, elev });
   }
@@ -592,6 +636,7 @@ function world(host, t, rom, dex) {
     const n = drawSprite(ic.frames[fr], ic.rgba[fr], ic.w, ic.h, x, y, f.flip, p.elev, gb && grassAt(f.x, f.y));
     p.box = { x: x + left, y: y + ic.top, w: right - left + 1, h: ic.bottom - ic.top + 1 };
     fdraw[p.slot] = { species: p.lead.species, x: Math.round(p.pos.x), y: Math.round(p.pos.y), flip: f.flip, frame: fr, moving: f.moving, covered: n };
+    traced[`f:${p.slot}`] = [x + left, y, fr]; // (its pixels' left edge: a mirrored icon starts elsewhere)
     // a shiny one sparkles now and then (a Gen 2 icon has its shiny colours; Gen 1 has no shiny ones)
     if (p.lead.shiny && !gb) {
       const k = (now % 2400) / 2400;
@@ -626,6 +671,7 @@ function world(host, t, rom, dex) {
     const x = Math.round(p.pos.x + TILE / 2 - a.w / 2);
     const y = Math.round(p.pos.y + TILE - a.h) + (t.spriteDy || 0);
     covered[p.slot] = drawSprite(a.frames[i], a.rgba[i], a.w, a.h, x, y, c.flip, s.elev, gb && grassAt(s.x, s.y));
+    traced[p.slot] = [x, y, i];
     p.box = { x, y, w: a.w, h: a.h };
   }
 
@@ -663,7 +709,10 @@ function world(host, t, rom, dex) {
     // (and the size of this map: a partner on the map north or west of it places us by it)
     const size = conns && cam && conns.map === cam.map ? [conns.w, conns.h] : null;
     // (Yellow's Pikachu walking behind you in the game: your partners see that one follow you, as you do)
-    host.post({ type: 'emu-world', st: onOverworld ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size, drawn: can, near, gameLead: gbOwnFollows ? { species: 25, shiny: false, form: 0 } : null });
+    // (age: how long ago the picture these bytes belong to showed – the play view stamps the state with that moment,
+    // so the partners see your steps evenly spaced however late this message goes out)
+    const age = Math.max(0, Math.min(200, performance.now() - (clock.t ?? performance.now())));
+    host.post({ type: 'emu-world', st: onOverworld ? { ...me, fam: t.fam } : { hidden: true, fam: t.fam }, size, drawn: can, near, age, gameLead: gbOwnFollows ? { species: 25, shiny: false, form: 0 } : null });
   }
 
   // ---- walking up to a partner ----------------------------------------------------------------------------------------
@@ -733,6 +782,7 @@ function world(host, t, rom, dex) {
       if (!s) return;
       if (!tracks.has(slot)) tracks.set(slot, new Track());
       tracks.get(slot).push(s, at);
+      if (trace && trace.length < 40000) trace.push({ w: wire, rx: Math.round(performance.now() * 100) / 100, slot }); // (diagnostics: what came in, when)
       // what changes seldom comes now and then: who follows them, how big their map is
       if (s.ext && 'follower' in s.ext) leads.set(slot, s.ext.follower);
       if (s.ext?.size) sizes.set(slot, s.ext.size);
@@ -787,7 +837,8 @@ function world(host, t, rom, dex) {
           watched.frame = f;
         }
       } else watched.bytes = bytes.subarray(4);
-      if (!stopped) render(performance.now()); // (the picture these bytes belong to is being drawn right now)
+      watched.frameNo = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true);
+      if (!stopped) render(performance.now(), true); // (the picture these bytes belong to is being drawn right now)
     },
     input(bits) {
       inputBits = bits >>> 0;
@@ -803,6 +854,13 @@ function world(host, t, rom, dex) {
       rewatch();
     },
     menuOpen: () => ui.modal(),
+    trace(on) {
+      if (on === true) trace = [];
+      else if (on === false) trace = null;
+      const out = trace;
+      if (on === undefined && trace) trace = [];
+      return out;
+    },
     debug() {
       const now = performance.now();
       const me0 = gb && cam ? readPlayer(t, reader(), cam) : null;
