@@ -592,3 +592,32 @@ test('Platinum: the opponent\'s party HP in its encrypted block; the one out fro
   put(Number(e.inBattle.addr), le16b(0x2800));
   assert.equal(H.raidView(e, read, {}), null, 'the overworld: the battle\'s memory keeps its bytes, the word decides');
 });
+
+test('a write that waits for the game (Gen 3: the party copy once the HP bar has slid) is left out when the game never gets there', async () => {
+  const ROOT = new URL('../', import.meta.url).href;
+  const { registerHooks } = await import('node:module');
+  registerHooks({ resolve: (spec, ctx, next) => next(spec.startsWith('/shared/') ? new URL(`.${spec}`, ROOT).href : spec === '/vendor/htm-preact.mjs' ? new URL('./node_modules/htm/preact/standalone.module.js', ROOT).href : spec, ctx) });
+  const { writeInOrder } = await import('../web/lib/raid.mjs');
+  const b = gbaBus();
+  const idle = 0x08035a98 | 1;
+  const list = [
+    { addr: 0x02023be4 + 0x58 + 0x28, bytes: Uint8Array.of(10, 0) },
+    { addr: 0x0202402c + 0x56, bytes: Uint8Array.of(10, 0), wait: { addr: 0x03004fe0 + 4, value: idle, ms: 120 } },
+  ];
+  const wrote = [];
+  const write = async (a, bytes) => (wrote.push(a), b.put(a, bytes), true);
+  // the opponent's controller still in its HP bar handler after the wait: the party copy is not written
+  b.put(0x03004fe0 + 4, le32b(0x08038844 | 1));
+  assert.equal(await writeInOrder(list, b.read, write), true);
+  assert.deepEqual(wrote, [0x02023be4 + 0x58 + 0x28], 'only the battle\'s HP');
+  assert.deepEqual([...b.read(0x0202402c + 0x56, 2)], [0, 0]);
+  // idle again in time: written
+  wrote.length = 0;
+  b.put(0x03004fe0 + 4, le32b(idle));
+  assert.equal(await writeInOrder(list, b.read, write), true);
+  assert.deepEqual(wrote, [0x02023be4 + 0x58 + 0x28, 0x0202402c + 0x56]);
+  // a refusal stops the rest
+  wrote.length = 0;
+  assert.equal(await writeInOrder(list, b.read, async (a) => (wrote.push(a), false)), false);
+  assert.deepEqual(wrote, [0x02023be4 + 0x58 + 0x28]);
+});

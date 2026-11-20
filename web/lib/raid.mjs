@@ -28,6 +28,20 @@ async function waitFor(read, { addr, value, ms = 3000 }) {
     await sleep(50);
   }
 }
+/**
+ * One HP change's writes, in order (shared/live/raidhp.mjs raidWrites). A write that waits for the game first (Gen 3:
+ * the party copy once the HP bar the game slides from it got there) is left out when the game doesn't get there in
+ * time – written while the bar still slides, it would move the bar's start under it; the battle's own HP is in
+ * already, and the bar follows the next hit. → false: the host refused a write.
+ */
+export async function writeInOrder(list, read, write) {
+  for (const x of list) {
+    if (x.wait && !(await waitFor(read, x.wait))) continue;
+    const ok = await write(x.addr, x.bytes);
+    if (ok === false || ok?.ok === false) return false;
+  }
+  return true;
+}
 const TICK_MS = 1000;
 
 /** The run's raid rules: allowed at all ('raids', default on), and whether Pokémon that go down count ('raidDeaths', default on). */
@@ -299,16 +313,11 @@ export class RaidHub {
       this.writing = true;
       try {
         for (const w of res.writes) {
-          for (const x of raidWrites(entry, read, this.gameState, view, w.idx, w.hp)) {
-            // a write that waits for the game first (Gen 3: the party copy once its HP bar has slid there)
-            if (x.wait) await waitFor(read, x.wait);
-            const ok = await write(x.addr, x.bytes);
-            if (ok === false || ok?.ok === false) {
-              // the host refused it: this game takes no more writes
-              p.quit();
-              this._seat(r.id, (s) => ({ ...s, out: s.out || { why: 'desync', at: this.now(), lc: nextClock(seats) } }));
-              return res;
-            }
+          if (!(await writeInOrder(raidWrites(entry, read, this.gameState, view, w.idx, w.hp), read, write))) {
+            // the host refused it: this game takes no more writes
+            p.quit();
+            this._seat(r.id, (s) => ({ ...s, out: s.out || { why: 'desync', at: this.now(), lc: nextClock(seats) } }));
+            return res;
           }
         }
       } finally {
