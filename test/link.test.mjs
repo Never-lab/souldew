@@ -757,3 +757,30 @@ test('save import: the game running in the browser player is "this save" from ei
   // an ordinary run's slot keeps its own save
   assert.equal(playsThisSave(freePlay, { runId: 'abcd1234', slot: 'p1' }, { ...run, mode: 'soullink' }), false);
 });
+
+test('linksession: "Leave it" on a session this page dropped out of tells the others (bye) – a battle is void from this side', async () => {
+  const { A, B, settle, g, fetchFor, results, net } = await pair();
+  await A.invite('battle', ['p2']);
+  await settle(100);
+  await B.accept();
+  await settle(3500);
+  assert.equal(A.state.phase, 'running', JSON.stringify(A.state.ended));
+  const sid = A.state.sid;
+  // B's page reloads and offers to rejoin – the player picks "Leave it"
+  B.stop();
+  const { LinkSessions } = await import('../web/lib/linksession.mjs');
+  const mine = [];
+  const B2 = new LinkSessions({ sync: B.sync, runId: 'run1', me: 'p2', emu: () => null, fetchImpl: fetchFor('p2'), onResult: (e) => mine.push(e) });
+  assert.equal(B2.state.phase, 'rejoinable');
+  const before = net.log.length;
+  B2.leave('left');
+  await settle(300);
+  assert.equal(B2.state.phase, 'idle');
+  assert.equal(g.ls.get('sl-link-run1'), undefined, 'no rejoin offered again');
+  assert.ok(net.log.slice(before).some((m) => m.from === 'p2' && m.to === 'p1' && m.t === 'bye'), 'the partner is told');
+  assert.equal(A.state.phase, 'ended', 'the partner doesn\'t wait for a rejoin that never comes');
+  assert.equal(A.state.ended.reason, 'left');
+  assert.deepEqual(mine.map((e) => [e.sid, e.void]), [[sid, 'rejoin']], 'void from this side: nobody pays on a result it can\'t know');
+  assert.equal(results.p1.at(-1)?.sid, sid, '(the partner writes its own entry as it ends)');
+  A.stop(), B2.stop();
+});

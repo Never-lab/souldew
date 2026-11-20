@@ -438,11 +438,25 @@ export class LinkSessions {
     this._maybeGo();
   }
 
-  /** Leave (or cancel): the session ends for everybody. */
+  /**
+   * Leave (or cancel): the session ends for everybody. Also a session this page dropped out of and won't rejoin ("Leave
+   * it"): the others still wait for it – they are told (bye), and a battle's result is void from this side (this page
+   * can't know what happened while it was away – as after a rejoin), so nobody waits on it.
+   */
   leave(reason = 'left') {
     const st = this.state;
     if (st.phase === 'rejoinable') {
       store.set(REJOIN_KEY(this.runId), null);
+      if (st.sid && Array.isArray(st.seats)) {
+        this._send({ t: 'bye', reason }, { relayToo: true });
+        if (st.kind === 'battle') {
+          try {
+            this.onResult(resultEntry({ sid: st.sid, seats: st.seats, host: st.host, kind: st.kind, reason: 'rejoin' }));
+          } catch (e) {
+            console.warn('link result', e);
+          }
+        }
+      }
       return this._set({ phase: 'idle', sid: null });
     }
     if (!st.sid || st.phase === 'idle' || st.phase === 'ended') return;
