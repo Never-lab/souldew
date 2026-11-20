@@ -184,10 +184,9 @@ Plus a new play view that gives the game the room it deserves.
   link (several videos at once work) or small stills over the relay; with three watchers the video bitrate per watcher
   goes down so the upload stays about the same. Tiles and windows never take the keyboard or the controller from the
   game. On the folded strip partners whose names start alike get two letters (“Mi”, “Ma”).
-- **A partner's game no longer goes black when they pause.** Opening Shared World's A menu, a rock-paper-scissors
-  round or the pause button turned their picture off: your tile went black with “… isn't playing right now” for a
-  moment and came back blurry. Now their picture stays, standing still and marked “paused”, and their video goes on
-  without a restart. While a picture is only late (a new video starting, a switch to stills, a partner on an older
+- **A paused partner stays in the picture.** When a partner opens Shared World's A menu, plays rock-paper-scissors
+  or pauses, their tile keeps showing their game, standing still and marked “paused”, and their video goes on without
+  a restart. While a picture is only late (a new video starting, a switch to stills, a partner on an older
   version) the tile keeps the last good frame instead of a black box, dimmed under the message when the picture
   stopped. The video keeps every game pixel sharp under load and drops frames instead.
 - **The linked groups along the bottom dock are a tracker table:** the players as rows, every group of the run as a
@@ -365,15 +364,12 @@ Plus a new play view that gives the game the room it deserves.
   souldew started or the emulator launched, on a busy computer – could go unnoticed until your next in-game save,
   most often a first save into melonDS's own save folder. souldew now notes every save file the moment it starts
   watching, so that save is read like any other.
-- **Shared World: partners and followers walk as smoothly as the game itself.** Your partners, their Pokémon and
-  your own Pokémon now step exactly with the pictures of your game – no more standing still for a few frames and then
-  catching up, creeping ahead before a walk, slowing into a stop, cutting corners diagonally, or jumping back after a
-  short break in the connection. Your own follower in the Game Boy Advance games no longer stutters at every tile
-  (souldew read your position a few frames late), and it walks on with you over a route's edge into the next town
-  instead of starting again on your heels. In the Game Boy games and on the DS a partner walking beside you keeps their
-  place instead of shaking by a pixel, a partner running in HeartGold/SoulSilver runs evenly, your follower no longer
-  vanishes for a moment when you turn back through it, and in Gold, Silver and Crystal partners no longer blink away
-  each time you stop walking. Measured picture by picture in Emerald, Sapphire, Platinum, HeartGold, Red and Crystal.
+- **Shared World moves as smoothly as the game itself.** Your partners, their Pokémon and your own Pokémon step
+  exactly with the pictures of your game: they start and stop at walking speed, follow the grid around corners, wait
+  on the next tile through a short break in the connection, and your own follower walks pixel by pixel behind you and
+  on over a route's edge into the next town. In the Game Boy games and on the DS a partner beside you keeps their place
+  to the pixel, a partner running in HeartGold/SoulSilver runs evenly, and followers stay in view when you turn back
+  through them. Measured picture by picture in Emerald, Sapphire, Platinum, HeartGold, Red and Crystal.
 - **A DS run opens right away.** Opening a run waited for souldew to read the game's own data out of the game file
   (its types, a ROM hack's own Pokémon) – a few seconds for a DS game, much longer on a slower PC the first time.
   All that time you showed as offline to your partners, nothing synced and no trade or battle could start. The run
@@ -416,11 +412,10 @@ Plus a new play view that gives the game the room it deserves.
 - Raids leave alone ROM hacks whose memory isn't where the original game keeps it; “Pick your copy” shows why a step
   didn't work instead of an empty message.
 - **Wagers only pay what your own souldew saw.** Money moves only for a link battle whose result your computer read
-  itself and every partner's computer agrees with – a changed partner app can no longer make up a battle result and
-  collect.
-- **Cheats in the fast player say “added” only when the game really has it.** The check after a cheat now reads the
-  game's own memory instead of souldew's copy of it, so a write the game lost is reported as not working; a wager
-  paid into the game is checked the same way.
+  itself and every partner's computer agrees with – nobody can claim a result your game didn't see.
+- **Cheats in the fast player say “added” only when the game really has it.** The check after a cheat reads the
+  game's own memory, so a write the game didn't take is reported as not working; a wager paid into the game is
+  checked the same way.
 - **Cheats in Ruby, Sapphire, Emerald, FireRed and LeafGreen** wait until you stand in the overworld – not during a
   battle, a menu, a text or a screen change, when the game may be moving its data around – and not on the title
   screen or the Continue menu, where a new game would throw it away. Otherwise souldew says to try again in a moment.
@@ -430,8 +425,8 @@ Plus a new play view that gives the game the room it deserves.
   “vs” the way your language does.
 - Raids skip the challenge facilities: Emerald's Battle Frontier and Battle Pyramid and the Trainer Tower in
   FireRed and LeafGreen – an ordinary trainer battle, Steven at your side included, still counts.
-- **“Leave it” after a dropped link** now tells your partners, so their game goes on alone right away instead of
-  waiting for you to come back; a battle that was on counts as no result.
+- **“Leave it” after a dropped link** tells your partners at once, so their game goes on alone right away; a battle
+  that was on counts as no result.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
