@@ -9,6 +9,12 @@
 // The money: `lbpay:<sid>:<slot>` – this player's own game paid / was paid, written by their computer when the money is
 // in their game ('written'), and 'saved' once the game saved after it. A game started again before it saved (a reset,
 // a crash, a save state) gets it once more – keyed by the session, so never twice into one save.
+//
+// Whose word the money takes: every partner's computer writes into the run document – under any key, its own slot or
+// this player's. A changed souldew could write a matching pair of entries for a battle that never was. So the money
+// only ever follows this computer's own result: what it read itself, kept apart from the run document (keepOwnResult,
+// in this computer's browser storage). A payment needs every partner's entry to match that – their word alone, under
+// any slot, moves nothing. (The log and the head-to-head record show what the entries say; they move no money.)
 import { summarize, payments, deltaOf, resultHash, WAGER_CAP } from '/shared/linkbattle.mjs';
 
 export { WAGER_CAP };
@@ -40,6 +46,50 @@ export function resultEntry({ sid, seats, host, kind, found, wager = 0, money = 
   return { ...entry, h: resultHash({ sid, seats, per: found.per, wager: stake, multi: entry.multi }) };
 }
 
+const OWN_KEY = (runId) => `sl-lb-own-${runId}`;
+const OWN_MAX = 200; // sessions kept per run (the newest)
+const browserStore = () => {
+  try {
+    return globalThis.localStorage || null;
+  } catch {
+    return null;
+  }
+};
+const ownAll = (runId, store) => {
+  try {
+    const v = JSON.parse(store?.getItem(OWN_KEY(runId)) || 'null');
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch {
+    return {};
+  }
+};
+
+/** Keep this computer's own result of a session (resultEntry) apart from the run document – what a payment follows. */
+export function keepOwnResult(runId, entry, store = browserStore()) {
+  if (!runId || !entry?.sid || !store) return;
+  const all = ownAll(runId, store);
+  all[entry.sid] = entry;
+  const keep = Object.entries(all).sort((a, b) => (b[1]?.at || 0) - (a[1]?.at || 0)).slice(0, OWN_MAX);
+  try {
+    store.setItem(OWN_KEY(runId), JSON.stringify(Object.fromEntries(keep)));
+  } catch {
+    // (storage full or off: no payment for this session – never one on the partners' word alone)
+  }
+}
+
+/** This computer's own result of session `sid` (keepOwnResult), or null. */
+export function ownResultOf(runId, sid, store = browserStore()) {
+  if (!runId || !sid) return null;
+  const e = ownAll(runId, store)[sid];
+  return e && typeof e === 'object' ? e : null;
+}
+
+/** What this computer read of a session: into the run (`lb:<sid>:<me>`, for the partners) and kept for itself. */
+export function recordResult(doc, me, entry, store = browserStore()) {
+  keepOwnResult(doc?.runId, entry, store);
+  doc.set(`lb:${entry.sid}:${me}`, entry);
+}
+
 /** Every session with a result entry: { sid: { slot: entry } }. */
 export function sessionsIn(doc) {
   const out = {};
@@ -52,9 +102,16 @@ export function sessionsIn(doc) {
 
 /**
  * What a session came to: { state: 'pending' | 'void' | 'agreed', seats, summary, wager, pays, at }. 'agreed' needs
- * every seat's final entry with the same hash and a result that fits together.
+ * every seat's final entry with the same hash and a result that fits together. With `me` and `own` (this computer's own
+ * result, ownResultOf): that stands for `me` – whatever the run document holds under `me`'s slot – and the result is
+ * the one it read (the others' entries only have to match it); without `own` nothing is agreed for `me`.
  */
-export function outcomeOf(entries) {
+export function outcomeOf(entries, { me = null, own } = {}) {
+  if (me) {
+    if (!own || typeof own !== 'object' || !Array.isArray(own.seats) || !own.seats.includes(me)) return { state: 'pending' };
+    const others = Object.fromEntries(Object.entries(entries || {}).filter(([s]) => s !== me));
+    entries = { [me]: own, ...others }; // (own first: the result read is this computer's)
+  }
   const list = Object.values(entries || {});
   const first = list[0];
   if (!first || !Array.isArray(first.seats)) return { state: 'pending' };
@@ -69,9 +126,9 @@ export function outcomeOf(entries) {
   return { state: 'agreed', seats, summary, per: first.per, wager: first.wager || 0, pays, at: Math.max(...seats.map((s) => of(s).at || 0)), kind: first.kind, host: first.host };
 }
 
-/** Every agreed session with battles, newest first: [{ sid, …outcomeOf }]. */
-export function agreedBattles(doc) {
-  return Object.entries(sessionsIn(doc)).map(([sid, e]) => ({ sid, ...outcomeOf(e) }))
+/** Every agreed session with battles, newest first: [{ sid, …outcomeOf }]. `trust` ({ me, own(sid) }): see outcomeOf. */
+export function agreedBattles(doc, trust = null) {
+  return Object.entries(sessionsIn(doc)).map(([sid, e]) => ({ sid, ...outcomeOf(e, trust ? { me: trust.me, own: trust.own(sid) } : {}) }))
     .filter((o) => o.state === 'agreed' && o.summary.battles > 0).sort((a, b) => b.at - a.at);
 }
 
@@ -104,10 +161,13 @@ export function wagerStatus(doc, sid, me, pays) {
   return { delta, settled: !!delta && (p?.status === 'written' || p?.status === 'saved') };
 }
 
-/** This player's money still to be put into (or taken from) their game: [{ sid, delta, pays }]. */
-export function owedTo(doc, me, { boot = null } = {}) {
+/**
+ * This player's money still to be put into (or taken from) their game: [{ sid, delta, pays }]. Only sessions whose
+ * result this computer read itself (`own(sid)`: ownResultOf) and every partner's entry matches – see outcomeOf.
+ */
+export function owedTo(doc, me, { boot = null, own = (sid) => ownResultOf(doc?.runId, sid) } = {}) {
   const out = [];
-  for (const o of agreedBattles(doc)) {
+  for (const o of agreedBattles(doc, { me, own })) {
     const delta = deltaOf(o.pays, me);
     if (!delta) continue;
     const p = doc.get(`lbpay:${o.sid}:${me}`);

@@ -463,6 +463,13 @@ part of the hash.
 - **Exploits considered:** a client can only change its own game's money – a tampered page could add money without any
   of this (cheats are a run rule of their own). A lie in the result voids it (the hashes differ). Writing nothing as a
   loser is possible for a tampered client – the log shows the result and the missing payment.
+- **Money follows this computer's own result only.** Every partner's computer can write any key of the run document –
+  its own slot's entry and this player's too. A tampered client could write a matching pair for a battle that never
+  was. So each computer keeps what it read itself apart from the run document (browser storage, `sl-lb-own-<runId>`,
+  `recordResult` / `ownResultOf`, the newest 200 sessions) and `WagerPay` / `owedTo` only pay a session whose
+  result this computer read and every partner's entry matches – that entry stands for this player whatever the run
+  document holds under their slot. A partner's entry that arrives late (a reconnect) still counts then; the log and the
+  head-to-head record keep showing what the entries say, they move no money.
 
 **Rules** (host-signed like every SoulLink rule, `shared/hostrules.mjs`): “Wagers in link battles” (`linkWagers`,
 default on, only with link battles allowed) and “Highest wager” (`linkWagerCap`: no limit, ₽1,000, ₽5,000, ₽10,000,

@@ -404,6 +404,9 @@ Plus a new play view that gives the game the room it deserves.
 - **The host's rules win on every computer,** even when a partner's clock runs ahead of the host's.
 - Raids leave alone ROM hacks whose memory isn't where the original game keeps it; “Pick your copy” shows why a step
   didn't work instead of an empty message.
+- **Wagers only pay what your own souldew saw.** Money moves only for a link battle whose result your computer read
+  itself and every partner's computer agrees with – a changed partner app can no longer make up a battle result and
+  collect.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

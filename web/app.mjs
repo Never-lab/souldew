@@ -18,7 +18,7 @@ import { attachRaid, detachRaid, raidFor, raidRules } from './lib/raid.mjs';
 import { RaidCards } from './views/raid.mjs';
 import { attachTogether } from './lib/together.mjs';
 import { TogetherCards } from './views/together.mjs';
-import { sessionsIn, outcomeOf } from './lib/wager.mjs';
+import { sessionsIn, outcomeOf, recordResult } from './lib/wager.mjs';
 import { play } from './lib/sound.mjs';
 import { Ctx, Toasts, Led, Modal } from './lib/ui.mjs';
 import { groupArrowKeys } from './lib/a11y.mjs';
@@ -885,7 +885,8 @@ function App() {
         return b ? BLOCK_CODE[b.why] || 'linkSystem' : null;
       },
       // what this computer read of a session's battles (web/lib/wager.mjs): compared with the partners' in the run
-      onResult: (entry) => doc.set(`lb:${entry.sid}:${me}`, entry),
+      // (kept on this computer too: a payment follows only what it read itself)
+      onResult: (entry) => recordResult(doc, me, entry),
       onChange: (st) => linkPlayRef.current === lp && setLinkPlay({ ...st }),
       // out of step: from now on the play view writes none of the session's saves, and the ones on their way land first
       beforeRestore: async () => {

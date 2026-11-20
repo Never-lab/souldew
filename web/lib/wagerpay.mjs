@@ -6,7 +6,7 @@
 // Exactly once into a save: `lbpay:<sid>:<me>` in the run says 'written' (with this game's boot) and then 'saved' once
 // the game wrote its battery save after it. A game started again before that (a reset, a save state, the app closed
 // without saving) is another boot: the money goes in again – the save it came from never had it.
-import { owedTo } from './wager.mjs';
+import { owedTo, ownResultOf } from './wager.mjs';
 import { addMoney, fieldIdle, readMoney, GAMES } from '/shared/linkbattle.mjs';
 
 const VERIFY_MS = 1500;
@@ -14,9 +14,12 @@ const VERIFY_MS = 1500;
 export const newBoot = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
 export class WagerPay {
-  /** `onPaid({ sid, delta, before, after, pays })`: the money went in (the play view logs a payment and says so). */
-  constructor({ doc, me, onPaid = () => {} }) {
-    Object.assign(this, { doc, me, onPaid });
+  /**
+   * `onPaid({ sid, delta, before, after, pays })`: the money went in (the play view logs a payment and says so). `own(sid)`:
+   * this computer's own result of a session (web/lib/wager.mjs ownResultOf) – the only one money follows.
+   */
+  constructor({ doc, me, onPaid = () => {}, own = (sid) => ownResultOf(doc?.runId, sid) }) {
+    Object.assign(this, { doc, me, onPaid, own });
     this.boot = newBoot();
     this.busy = false;
     this.check = null; // { sid, after, before, at }: read again once the RAM mirror has caught up
@@ -46,7 +49,7 @@ export class WagerPay {
     try {
       if (this.check && Date.now() - this.check.at >= VERIFY_MS) return await this._verify(game, read);
       if (this.check || busyGame) return null;
-      const owed = owedTo(this.doc, this.me, { boot: this.boot });
+      const owed = owedTo(this.doc, this.me, { boot: this.boot, own: this.own });
       if (!owed.length || !(await fieldIdle(game, read, { cam }))) return null;
       const o = owed[0];
       const res = await addMoney(game, read, write, o.delta);

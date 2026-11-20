@@ -330,6 +330,13 @@ function memDoc() {
 }
 const won = { per: { p1: { w: 1, l: 0, d: 0 }, p2: { w: 0, l: 1, d: 0 } }, multi: false };
 const entry = (o) => W.resultEntry({ sid: 'abc123', seats: ['p1', 'p2'], host: 'p1', kind: 'battle', found: won, wager: 2000, money: { p1: 3000, p2: 5000 }, ...o });
+/** This computer's own results (web/lib/wager.mjs keepOwnResult) – a browser storage of its own per test. */
+function memStore() {
+  const m = new Map();
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) };
+}
+/** Both sides' entries as their souldew writes them – `own` (for WagerPay): what this computer read itself. */
+const ownOf = (e = entry({})) => (sid) => (sid === e.sid ? e : null);
 
 test('wager: only when every seat\'s souldew knows wagers (capability), lowered to every accept, the rule\'s cap and the money', () => {
   const base = { offer: 5000, seats: ['p1', 'p2'], host: 'p1', accepts: { p2: 5000 }, caps: { p1: true, p2: true } };
@@ -364,10 +371,49 @@ test('wager: a result counts once every seat read the same; a desync, a dropout 
   // out of step: void, whatever the other side read
   doc.set('lb:abc123:p2', entry({ reason: 'desync' }));
   assert.equal(W.outcomeOf(W.sessionsIn(doc).abc123).state, 'void');
-  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1' }), [], 'nothing to pay');
+  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1', own: ownOf(entry({ reason: 'desync' })) }), [], 'nothing to pay');
+  assert.deepEqual(W.owedTo(doc, 'p1', { boot: 'b1', own: ownOf() }), [], 'nor to be paid');
   assert.deepEqual(W.headToHead(doc, 'p1', 'p2'), { a: 0, b: 0, draws: 0 }, 'and nothing on the record');
   doc.set('lb:abc123:p2', entry({ reason: 'rejoin' }));
   assert.equal(W.outcomeOf(W.sessionsIn(doc).abc123).why, 'rejoin');
+});
+
+test('wager: money only follows this computer\'s own result – never entries a partner wrote, under any slot', async () => {
+  const store = memStore();
+  const doc = Object.assign(memDoc(), { runId: 'run1' });
+  // p1's souldew was changed: it writes a matching pair – p2 lost ₽999,999 – under its own slot and under p2's
+  const forged = (o) => W.resultEntry({ sid: 'f00d01', seats: ['p1', 'p2'], host: 'p1', kind: 'battle', found: won, wager: 999999, money: { p1: 999999, p2: 999999 }, ...o });
+  doc.set('lb:f00d01:p1', forged({}));
+  doc.set('lb:f00d01:p2', forged({}));
+  assert.equal(W.outcomeOf(W.sessionsIn(doc).f00d01).state, 'agreed', '(the entries alone agree)');
+  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1', own: (sid) => W.ownResultOf('run1', sid, store) }), [], 'p2\'s computer never read that battle: nothing');
+  const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [2] }); // Red, ₽5,000, in the overworld
+  const pay = new WagerPay({ doc, me: 'p2', own: (sid) => W.ownResultOf('run1', sid, store) });
+  await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
+  assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 5000, 'not a ₽ taken');
+  assert.equal(doc.get('lbpay:f00d01:p2'), undefined);
+  // a real session: p2 read a draw-free win for p2 (₽500); p1 writes a pair that says p2 lost ₽999,999 instead
+  const real = (o) => W.resultEntry({ sid: 'beef02', seats: ['p1', 'p2'], host: 'p1', kind: 'battle', found: { per: { p1: { w: 0, l: 1, d: 0 }, p2: { w: 1, l: 0, d: 0 } } }, wager: 500, money: { p1: 3000, p2: 5000 }, ...o });
+  W.recordResult(doc, 'p2', real({}), store);
+  assert.deepEqual(doc.get('lb:beef02:p2').h, real({}).h, 'into the run for the partners, too');
+  doc.set('lb:beef02:p1', forged({ sid: 'beef02' }));
+  doc.set('lb:beef02:p2', forged({ sid: 'beef02' })); // (over p2's own entry in the run)
+  const trusted = (sid) => W.ownResultOf('run1', sid, store);
+  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1', own: trusted }), [], 'the partner\'s word against this computer\'s: void, nobody pays');
+  // honest: the partner's entry arrives late (a reconnect) – then it counts, with what this computer read
+  doc.set('lb:beef02:p1', null);
+  doc.set('lb:beef02:p2', real({}));
+  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1', own: trusted }), [], 'still waiting for p1');
+  doc.set('lb:beef02:p1', real({}));
+  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1', own: trusted }).map((o) => [o.sid, o.delta]), [['beef02', 500]]);
+  // the same matching entries, but p2's own result kept says something else (its computer read p2 losing): void
+  W.keepOwnResult('run1', real({ found: won }), store);
+  assert.deepEqual(W.owedTo(doc, 'p2', { boot: 'b1', own: trusted }), []);
+  // kept apart per run, survives a reload (it is the browser storage), and only the newest sessions
+  assert.equal(W.ownResultOf('run2', 'beef02', store), null);
+  for (let i = 0; i < 205; i++) W.keepOwnResult('run3', { sid: `a${String(i).padStart(5, '0')}`, at: i }, store);
+  assert.equal(W.ownResultOf('run3', 'a00000', store), null, 'the oldest dropped');
+  assert.equal(W.ownResultOf('run3', 'a00204', store).at, 204);
 });
 
 test('wager: the money goes into each game once – again only into a game started anew before it saved', async () => {
@@ -376,7 +422,7 @@ test('wager: the money goes into each game once – again only into a game start
   doc.set('lb:abc123:p2', entry({}));
   const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [2] }); // Red, ₽5,000, two Pokémon, in the overworld
   const paid = [];
-  const pay = new WagerPay({ doc, me: 'p2', onPaid: (o) => paid.push(o) });
+  const pay = new WagerPay({ doc, me: 'p2', onPaid: (o) => paid.push(o), own: ownOf() });
   const tick = (o = {}) => pay.tick({ game: 'redblue', read: tim.read, write: tim.write, ...o });
   await tick({ busyGame: true });
   assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 5000, 'not during a battle or a link');
@@ -407,7 +453,7 @@ test('wager: the money goes into each game once – again only into a game start
   assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000);
   // the winner's game: +₽2,000; a write that didn't land (the money still the old sum) goes in again
   const sam = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [1] });
-  const pay1 = new WagerPay({ doc, me: 'p1' });
+  const pay1 = new WagerPay({ doc, me: 'p1', own: ownOf() });
   await pay1.tick({ game: 'redblue', read: sam.read, write: sam.write });
   assert.equal(L.bcdDecode(sam.read(0xd347, 3)), 5000);
   sam.put(0xd347, [0x00, 0x30, 0x00]); // (as if the write had gone to where the money was a frame earlier)
@@ -429,7 +475,7 @@ test('wager: the result card says "paid" only once the money went into the game 
   assert.equal(W.wagerStatus(doc, 'abc123', 'p1', o.pays).settled, false);
   // the overworld: WagerPay takes it (Red: wIsInBattle and wLinkState 0)
   const tim = bus({ 0xd347: [0x00, 0x50, 0x00], 0xd057: [0], 0xd12b: [4], 0xd163: [2] }); // wLinkState 4: still in the Colosseum
-  const pay = new WagerPay({ doc, me: 'p2' });
+  const pay = new WagerPay({ doc, me: 'p2', own: ownOf() });
   await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
   assert.equal(W.wagerStatus(doc, 'abc123', 'p2', o.pays).settled, false, 'the Colosseum is no overworld');
   tim.put(0xd12b, [0]); // switched off and on, Continue: walking again
@@ -474,7 +520,7 @@ test('wager: never into a game on its title screen – Gen 1/2 read as "idle" th
   doc.set('lb:abc123:p1', entry({}));
   doc.set('lb:abc123:p2', entry({}));
   const tim = bus({ 0xd347: [0, 0, 0], 0xd057: [0], 0xd12b: [0], 0xd163: [0] }); // reset: WRAM cleared, money ₽0
-  const pay = new WagerPay({ doc, me: 'p2' });
+  const pay = new WagerPay({ doc, me: 'p2', own: ownOf() });
   await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
   assert.equal(doc.get('lbpay:abc123:p2'), undefined, 'nothing written on the title screen');
   tim.put(0xd347, [0x00, 0x50, 0x00]);
