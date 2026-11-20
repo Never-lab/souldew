@@ -24,17 +24,19 @@ Plus a new play view that gives the game the room it deserves.
 - **Who's linked shows on the board.** In a run of three or four, while two players trade or battle, the others see
   “In a link with Tim” on both players' cards – Trade and Battle are greyed out with that as the reason, “Link all of
   us” leaves them out, and the Shared World menu says the same. It's gone as soon as the link ends.
-- **Made to be safe for your run.** A trade goes into the run's log. Before the link souldew keeps your save; if the
-  linked games ever fall out of step, both go back to exactly where they were before the link, and the session's
-  last save is kept next to it. In the Game Boy and GBA games a player whose game dropped out can rejoin while the
-  others wait. Nothing a link session shows counts for the run – a battle there never files a death. The run's rules
-  decide whether trades and link battles are allowed.
+- **Made to be safe for your run.** A trade goes into the run's log. Before the link souldew keeps your save, for the
+  whole session; if the linked games ever fall out of step, both go back to exactly where they were before the link –
+  also for a player who reloaded and rejoined – and the session's last save is kept next to it. In the Game Boy and
+  GBA games a player whose game dropped out can rejoin while the others wait, or press “Leave it”: the others' games
+  go on alone right away, and a battle that was on counts as no result. Nothing a link session shows counts for the
+  run – a battle there never files a death. The run's rules decide whether trades and link battles are allowed.
 - **Battle for money, and keep score.** A challenge can be for in-game money: pick single or double battle (two
   against two with four Game Boy Advances), set a wager up to what you have, and your partner sees it in the invite –
   joining for less if they have less. When the battle is over, every player's souldew reads the result from the games
-  themselves, the results are compared, and only one everybody agrees on counts: the log says “Sam won a link
-  battle against Tim”, the loser's game pays the winner's as soon as both stand in the overworld again (saved with
-  your next in-game save – once, even after a reset), and the board keeps the record between you: “Sam 3 : 1 Tim”.
+  themselves, the results are compared, and only one your own souldew read and everybody agrees with counts – nobody
+  can claim a result your game didn't see. The log says “Sam won a link battle against Tim”, the loser's game pays
+  the winner's as soon as both stand in the overworld again (read back from the game, saved with your next in-game
+  save – once, even after a reset), and the board keeps the record between you: “Sam 3 : 1 Tim”.
   Games out of step, a game that dropped out of the link or a result that isn't clear: nobody pays. The host decides
   whether wagers are allowed and the highest wager. Results and wagers count in Red, Blue, Yellow, Gold, Silver,
   Crystal, Ruby, Sapphire, Emerald, FireRed, LeafGreen, Diamond, Pearl, Platinum, HeartGold, SoulSilver, Black, White
@@ -66,7 +68,9 @@ Plus a new play view that gives the game the room it deserves.
   shows the pool per opponent Pokémon and everybody's team; afterwards the result – won or lost, who did the most
   damage, who's still standing, the time – and one line in the log (“Sam, Tim & Lena won a raid together
   (1:38 · most damage: Tim)”). Works in Red, Blue, Crystal, FireRed, LeafGreen, Emerald, Platinum, HeartGold and
-  Black 2 (English); not in the 3DS games, and the app says why for every other game.
+  Black 2 (English), in any ordinary trainer battle – Steven at your side included, but not in Emerald's Battle
+  Frontier and Battle Pyramid or the Trainer Tower of FireRed and LeafGreen. Not in the 3DS games or in ROM hacks that
+  keep their memory elsewhere than the original game, and the app says why for every other game.
 - **Two new host rules:** “Raids” (on by default) and “Deaths in a raid count” (on: a raid is a real battle). With it
   off, Pokémon that go down in a raid don't count – they stand on the board until you heal them. Stream tools get a
   `raid` event with who took part, won or lost, the MVP, the survivors and the time.
@@ -140,11 +144,11 @@ Plus a new play view that gives the game the room it deserves.
   for everyone, for five minutes. Only what the run records – nothing is made up.
 - **Give your partner an item.** “Give item” in the A menu (or on their card on the board while your game runs) lets
   you pick from your bag; your partner accepts, and it leaves your game and arrives in theirs – checked on both sides,
-  never in part, never twice, and back in your bag if their game can't take it. Only while you walk around – not in a
-  battle or a link (in the Game Boy and Gen 3 games not with a menu or a text open either). Key items, TMs/HMs and the
-  Master Ball stay with you. The log says “Sam gave Tim a gift: 3 × Potion”; the host's new rule “Gifts between us”
-  (on by default) switches it off for a stricter run. Works in the games whose bag souldew knows – the same as the
-  cheats'.
+  never in part, never twice, and back in your bag if their game can't take it; between 3DS games a gift from the
+  Medicine pocket arrives safely too. Only while you walk around – not in a battle or a link (in the Game Boy and
+  Gen 3 games not with a menu or a text open either). Key items, TMs/HMs and the Master Ball stay with you. The log says
+  “Sam gave Tim a gift: 3 × Potion”; the host's new rule “Gifts between us” (on by default) switches it off for a
+  stricter run. Works in the games whose bag souldew knows – the same as the cheats'.
 - **“Come to me”.** One button in the play view marks where you are for all your partners: in their game an arrow at
   the edge of the picture points to you when they're on the same map or next door, otherwise their board says “Sam
   is at Route 110 – come here”. It clears when they arrive, or after a few minutes.
@@ -201,15 +205,16 @@ Plus a new play view that gives the game the room it deserves.
   layout and size; the 3DS menu's “Smooth picture” still smooths everything.
 - **Import a save file – and take yours elsewhere** (thanks to a player on Discord). In the library, open a game ›
   “Import a save file …”; in a run, the board's Files menu. It takes .sav and .srm files from other emulators, flash
-  carts and cartridge dumps (Checkpoint, JKSM), DeSmuME's .dsv (its footer comes off), Game Boy saves with either clock
-  footer and mGBA's clock record, and a zip with one save in it. The size is checked per system, and for the Pokémon
-  games souldew tells whether it is a save of that game at all (Gen 1–5: the save's own checksums and signatures) –
-  a save of another game gets a warning you can go past. The save it replaces is always backed up first, Undo puts it
-  back, and nothing is written while the game runs. In a run it is a big change and asks first: it goes into the log
-  for everyone, a SoulLink needs the host's new rule “Allow importing a save file”, and what the save brings along
-  doesn't count – its Pokémon are set aside, its badges are no news, and the run earns no trophies for winning or level
-  records. 3DS: a Checkpoint or JKSM backup (the folder or a zip) goes into souldew's own 3DS player once the game has
-  saved there. “Save game file” stays a plain .sav that other emulators and flash carts read.
+  carts and cartridge dumps (Checkpoint, JKSM), DeSmuME's .dsv (its footer comes off), Game Boy saves with either
+  clock footer and mGBA's clock record, and a zip with one save in it. The size is checked per system, and for the
+  Pokémon games souldew tells whether it is a save of that game at all (Gen 1–5: the save's own checksums and
+  signatures) – a save of another game gets a warning you can go past. The save it replaces is always backed up first
+  (the one from before your first import is kept however many files you try), Undo puts it back, and nothing is
+  written while the game runs. In a run it is a big change and asks first: it goes into the log for everyone, a
+  SoulLink needs the host's new rule “Allow importing a save file”, and what the save brings along doesn't count – its
+  Pokémon are set aside, its badges are no news, and the run earns no trophies for winning or level records. 3DS: a
+  Checkpoint or JKSM backup (the folder or a zip) goes into souldew's own 3DS player once the game has saved there.
+  “Save game file” stays a plain .sav that other emulators and flash carts read.
 - **Pokémon Quetzal is read live** (thanks to a player on Discord). The hack keeps Emerald's game code, so souldew used
   to take it for Emerald: “Pokémon Emerald Version”, no team, and the randomizer's check ending in “unreadable”. Now
   it is recognised by its header – the library files it under Pokémon Quetzal, every version of it – and read with its
@@ -377,7 +382,8 @@ Plus a new play view that gives the game the room it deserves.
 - **A backup before the first start of 3.0.** Updating from 2.x, souldew first copies your runs, in-game saves, save
   states, settings and trophies into a “backups” folder next to your data – not your games, which stay where they are.
   Settings › About shows it with “Open backup folder”. It's made once, and only when there's enough free space on the
-  disk (if not, souldew says so there and changes nothing for lack of it).
+  disk (if not, souldew says so there and changes nothing for lack of it); a file that disappears while it is being
+  copied is left out, not the whole backup.
 - **You decide what souldew sends by itself.** souldew collects no personal data. Two things go out on their own: the
   anonymous “playing now” count while a game runs (once a minute: the system, the mode, the app version and a random
   id), and the update check at start and every four hours. Signed in with a souldew account, the account service also gets your
@@ -396,44 +402,20 @@ Plus a new play view that gives the game the room it deserves.
   us” leaves them out, and the run's log gets one line for them that their 2.8 app shows as a notice: update to trade,
   battle, raid and walk around together. Everything else of the run – catches, deaths, the log, the rules – keeps
   syncing between both versions as before.
-- **Save states of the old Game Boy player are kept.** The first game after the update no longer replaces the last
-  “where you left off” of the previous Game Boy emulator: it moves to the backups, and older ones are set aside in the
-  save-state folder instead of being dropped.
-- **A link that falls out of step really goes back – also after a rejoin.** The save from before the session is kept
-  for the whole session, so a player who reloaded and rejoined no longer “goes back” to a save from the middle of it,
-  and a save the play view was still writing can't land after the step back any more.
-- **Gifts between 3DS games:** items from the Medicine pocket now arrive (they used to vanish on the way), and an item
-  number a pocket can't hold is never written into a game.
-- **Importing saves:** the save you had before your first import is never cleaned away, however many files you try;
-  and a Play together game open in the browser player now counts as the same save from the run and from the library.
-- **Signing out sticks:** a token refresh still on its way can no longer sign the account back in.
-- **The backup before the 3.0 update** no longer gives up when a file disappears while it is being copied.
 - **The host's rules win on every computer,** even when a partner's clock runs ahead of the host's.
-- Raids leave alone ROM hacks whose memory isn't where the original game keeps it; “Pick your copy” shows why a step
-  didn't work instead of an empty message.
-- **Wagers only pay what your own souldew saw.** Money moves only for a link battle whose result your computer read
-  itself and every partner's computer agrees with – nobody can claim a result your game didn't see.
-- **Cheats in the fast player say “added” only when the game really has it.** The check after a cheat reads the
-  game's own memory, so a write the game didn't take is reported as not working; a wager paid into the game is
-  checked the same way.
+- **Cheats in the fast player say “added” only when the game really has it.** The check after a cheat now reads the
+  game's own memory, so a write the game didn't take is reported as not working.
 - **Cheats in Ruby, Sapphire, Emerald, FireRed and LeafGreen** wait until you stand in the overworld – not during a
   battle, a menu, a text or a screen change, when the game may be moving its data around – and not on the title
   screen or the Continue menu, where a new game would throw it away. Otherwise souldew says to try again in a moment.
-  A wager is paid into these games by the same rule.
-- **souldew+ in your language:** the colour themes' descriptions and the names of the banner and frame collections
-  (“Four Seasons”, “Earned” …) are translated now, and the battle and rock-paper-scissors cards write the level and
-  “vs” the way your language does.
-- Raids skip the challenge facilities: Emerald's Battle Frontier and Battle Pyramid and the Trainer Tower in
-  FireRed and LeafGreen – an ordinary trainer battle, Steven at your side included, still counts.
-- **“Leave it” after a dropped link** tells your partners at once, so their game goes on alone right away; a battle
-  that was on counts as no result.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by
   default); a game in the browser emulator joins the link from its last in-game save.
 - Save states made for Game Boy / Game Boy Color games in the fast player before 3.0 (on the old Gambatte emulator)
-  can't be loaded any more – souldew says so and deletes nothing; your in-game saves are fine. Save states of the
-  other Game Boy look load once you switch back to it.
+  can't be loaded any more – souldew says so and deletes nothing: the last “where you left off” moves to the backups,
+  older ones are set aside in the save-state folder, and your in-game saves are fine. Save states of the other Game
+  Boy look load once you switch back to it.
 
 ## 2.8.4
 
