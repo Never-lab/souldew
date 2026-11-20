@@ -33,7 +33,10 @@
 //                 a party), then every cheat of shared/live/cheats.mjs with every amount, each checked through a read
 //                 of its own (page.mjs `cheats` step; the results under "cheats" in live.json – which games get onto
 //                 the checked lists in cheats.mjs). `--cheat-steps <json>`: steps to run after it (open the bag …);
-//                 `--cheats-at <check>`: after that check of the plan instead (one out of battle: afterbattle …)
+//                 `--cheats-at <check>`: after that check of the plan instead (one out of battle: afterbattle …);
+//                 `--cheats-busy` (Gen 3): first a cheat with the start menu open – refused ('busy'), nothing written.
+//                 In the fast player (--native) each write is confirmed by the host and read back after e.fresh(), as
+//                 the play screen does ("fast" in the result)
 // Zipped ROMs are unpacked one at a time when they are needed and deleted again right after (a DS ROM is up to 512 MB);
 // the same ROM found twice (the same CRC32) is checked once.
 // A plan with "save": true starts from a save instead of a new game: <name>.sav next to the patch (or the ROM) of the
@@ -340,7 +343,7 @@ async function runLive(list) {
   const override = opt('plan') ? JSON.parse(readFileSync(resolve(opt('plan')), 'utf8')) : null;
   const cheatSteps = opt('cheat-steps') ? JSON.parse(readFileSync(resolve(opt('cheat-steps')), 'utf8')) : [];
   const jobs = list.map((r) => {
-    const plan = flag('cheats') ? cheatPlan(override || planFor(r), cheatSteps, opt('cheats-at')) : override || planFor(r);
+    const plan = flag('cheats') ? cheatPlan(override || planFor(r), cheatSteps, opt('cheats-at'), flag('cheats-busy')) : override || planFor(r);
     if (plan?.save && !saveFor(r)) {
       r.liveResult = { skipped: `the plan starts from a save: put one next to the ${r.patch ? 'patch' : 'ROM'} (${basename(r.patch || r.name, extname(r.patch || r.name))}.sav)` };
       return null;
@@ -401,12 +404,12 @@ async function runLive(list) {
  * --cheats: the plan up to its first check whose expectation is a team (its starter – or, from a save, the team it
  * loads), then the cheats step and `extra` steps; the rest of the plan is left out. null: no such check.
  */
-function cheatPlan(plan, extra = [], name = null) {
+function cheatPlan(plan, extra = [], name = null, busy = false) {
   if (!plan) return null;
   const at = plan.steps.findIndex((s) => s.do === 'check' && (name ? s.name === name : plan.expect?.[s.name]?.party));
   if (at < 0) return null;
   const exp = plan.expect?.[plan.steps[at].name];
-  return { ...plan, steps: [...plan.steps.slice(0, at + 1), { do: 'cheats' }, ...extra], expect: exp ? { [plan.steps[at].name]: exp } : {} };
+  return { ...plan, steps: [...plan.steps.slice(0, at + 1), { do: 'cheats', ...(busy ? { busy: true } : {}) }, ...extra], expect: exp ? { [plan.steps[at].name]: exp } : {} };
 }
 
 /** Checks the plan's expectations against what the live readers saw. */
@@ -491,7 +494,7 @@ function judge(r, plan, x) {
   if (ch) {
     verdict.cheats = ch;
     const ids = Object.entries(ch.cheats).filter(([, v]) => !v.skipped);
-    verdict.notes.push(`cheats (${ch.layout}${ch.checked ? ', checked' : ''}): ${ids.map(([id, v]) => `${id} ${v.ok ? 'ok' : 'FAILED'}`).join(', ') || 'none'}`);
+    verdict.notes.push(`cheats (${ch.layout}${ch.checked ? ', checked' : ''}${ch.fast ? ', fast player' : ''}): ${ids.map(([id, v]) => `${id} ${v.ok ? 'ok' : 'FAILED'}`).join(', ') || 'none'}${ch.busy ? `; busy ${ch.busy.ok ? 'ok' : 'FAILED'}` : ''}`);
   }
   return verdict;
 }

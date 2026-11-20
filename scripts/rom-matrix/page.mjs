@@ -428,13 +428,38 @@ function helper() {
         const C = await import('/shared/live/cheats.mjs');
         team(); // (the DS games find the bag through the party reader's state)
         const ent = ctx.entry;
-        const mem = { read: e.read, write: e.write };
+        // (the fast player, as web/views/play.mjs doCheat: the host confirms each write, and the read-back reads the
+        // core's memory after it – e.fresh)
+        const fast = typeof e.fresh === 'function' && typeof e.writeChecked === 'function';
+        const mem = { read: e.read, write: fast ? e.writeChecked : e.write, ...(fast ? { fresh: e.fresh } : {}) };
         const bag = () => C.bagItems(ent, e.read, ctx.state);
         const gen = ent?.gen;
         const count = (b, item) => (b || []).filter((x) => x.item === item).reduce((a, x) => a + x.count, 0);
         const rest = (b, item) => JSON.stringify((b || []).filter((x) => x.item !== item).map((x) => [x.pocket, x.item, x.count]).sort());
         const want = (c) => (gen === 1 ? null : c.pocket === 'balls' ? (gen <= 4 ? 'balls' : 'items') : c.pocket === 'items' ? 'items' : gen <= 3 ? 'items' : 'medicine');
-        const res = { entry: ent?.id || null, layout: C.bagLayoutKey(ent), checked: C.checkedLive(ent), moneyChecked: C.moneySupported(ent), cheats: {}, failed: [] };
+        const res = { entry: ent?.id || null, layout: C.bagLayoutKey(ent), checked: C.checkedLive(ent), moneyChecked: C.moneySupported(ent), fast, cheats: {}, failed: [] };
+        // `s.busy` (Gen 3): with the start menu open a cheat is refused ('busy') and nothing is written; closed again,
+        // the cheats below run as usual
+        if (s.busy && gen === 3) {
+          await press(['START']);
+          await frames(60);
+          const b0 = bag();
+          const m0 = await C.readMoneyFor(ent, e.read, ctx.state, { untried: true });
+          const idle = C.cheatIdle(ent, e.read);
+          const item = await C.applyCheat('rareCandy', ent, mem, ctx.state, { amount: 1, untried: true });
+          const money = await C.applyCheat('money', ent, mem, ctx.state, { amount: 1000, untried: true });
+          await frames(30);
+          const b1 = bag();
+          const m1 = await C.readMoneyFor(ent, e.read, ctx.state, { untried: true });
+          const p = await shot('busy-menu');
+          if (p) shots.push(p);
+          await press(['B']);
+          await frames(90);
+          const idleAfter = C.cheatIdle(ent, e.read);
+          const same = !!b0 && JSON.stringify(b0) === JSON.stringify(b1) && m0 === m1;
+          res.busy = { idle, item, money, same, idleAfter, ok: !idle && item.error === 'busy' && money.error === 'busy' && same && idleAfter };
+          if (!res.busy.ok) res.failed.push('busy');
+        }
         for (const [id, c] of Object.entries(C.CHEATS)) {
           if (!C.cheatSupported(ent, id, { untried: true })) {
             res.cheats[id] = { skipped: 'unsupported' };
