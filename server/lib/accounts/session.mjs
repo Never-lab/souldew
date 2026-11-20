@@ -59,21 +59,15 @@ export function sameSecret(a, b) {
  */
 export function createSession({ store, port, fetchImpl = fetch, env = process.env, now = Date.now, onChange = () => {}, toAccount = () => null, platform = process.platform } = {}) {
   const base = accountsBase(env);
-  let saved = store.load(); // { access, accessExp, refresh, sid, service, account }
-  if (saved && !(TOKEN.test(saved.refresh || '') && saved.account)) saved = null;
-  // tokens belong to the service that issued them: a session kept for another address (a development service, a changed
-  // environment) is dropped, never sent to the address in use now
-  if (saved && saved.service !== base) {
-    saved = null;
-    try {
-      store.clear();
-    } catch {
-      // nothing stored
-    }
-  }
+  // { access, accessExp, refresh, sid, service, account } – read from the store by load(), never at creation: reading
+  // it may mean the keychain, and the keychain may mean a password prompt the server must not wait for. Once read it
+  // stays here in memory – no request reads the keychain again.
+  let saved = null;
+  let loading = null;
   let pending = null; // { state, verifier, at, bad }
   let refreshing = null;
-  // what the page is told besides signed-in or not: 'offline' (no answer), 'expired' (the session ended elsewhere)
+  // what the page is told besides signed-in or not: 'offline' (no answer), 'expired' (the session ended elsewhere),
+  // 'unreadable' (the saved sign-in couldn't be read – load())
   let condition = null;
   let lastTier = null;
   // what the session list of the account shows for this computer: the kind of computer, never its name (a host name
@@ -95,19 +89,29 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
     return {
       signedIn: !!saved,
       persistent: store.persistent(),
-      condition: saved ? (['offline', 'suspended'].includes(condition) ? condition : null) : condition === 'expired' ? 'expired' : null,
+      condition: saved ? (['offline', 'suspended'].includes(condition) ? condition : null) : ['expired', 'unreadable'].includes(condition) ? condition : null,
       pending: !!pending && now() - pending.at < LOGIN_TTL,
       account: saved?.account || null,
     };
   }
 
-  function keep(next) {
+  /**
+   * The session changed: in memory at once, to the store behind it (the keychain may take its time – or say no).
+   * → a promise that is settled once the store has it (never rejects) – a rotated refresh token is awaited this way
+   * before it counts, so quitting right after a refresh can't leave the spent one on disk.
+   */
+  function keep(next, opts) {
     saved = next;
-    try {
-      store.save(next);
-    } catch (e) {
+    const failed = (e) => {
       // the keychain refused / disk full: the session works in memory until the app closes
-      console.warn('account: could not store the session –', e.code || e.name);
+      console.warn('account: could not store the session –', e?.code || e?.name);
+      changed(); // persistent may be false now (Settings › Account says so)
+    };
+    try {
+      return Promise.resolve(store.save(next, opts)).catch(failed);
+    } catch (e) {
+      failed(e);
+      return Promise.resolve();
     }
   }
 
@@ -121,6 +125,42 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
     }
     condition = reason || null;
     changed();
+  }
+
+  /**
+   * Reads the saved sign-in (once – later calls get the same promise; it never rejects). Until it is done the player
+   * counts as signed out. Nothing saved → the keychain isn't asked at all (./store.mjs). A saved sign-in the keychain
+   * won't open (denied, gone, another user) → signed out with condition 'unreadable' – the page asks to sign in again.
+   */
+  function load() {
+    loading ||= (async () => {
+      let next = null;
+      let failed = false;
+      try {
+        next = await store.load();
+      } catch {
+        failed = true;
+      }
+      if (next && !(TOKEN.test(next.refresh || '') && next.account)) next = null;
+      // tokens belong to the service that issued them: a session kept for another address (a development service, a
+      // changed environment) is dropped, never sent to the address in use now
+      if (next && next.service !== base) {
+        next = null;
+        try {
+          store.clear();
+        } catch {
+          // nothing stored
+        }
+      }
+      // a sign-in that finished meanwhile is newer than what was saved
+      if (saved) return;
+      if (next) {
+        saved = next;
+        condition = null;
+        changed();
+      } else if (failed) setCondition('unreadable');
+    })();
+    return loading;
   }
 
   /** One request to the service. No answer → { status: 0 }. The body is parsed JSON or {} (never followed redirects). */
@@ -207,7 +247,7 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
       changed();
       return { ok: false, error: errorCode(r.body) === 'account_suspended' ? 'suspended' : 'failed' };
     }
-    keep(next);
+    keep(next, { signIn: true });
     condition = null;
     changed();
     return { ok: true };
@@ -228,7 +268,7 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
         if (saved?.refresh !== used) return 'error';
         const next = sessionFrom(r.body);
         if (!next) return 'error';
-        keep(next);
+        await keep(next);
         return 'ok';
       }
       // 400/401: the refresh token is spent, revoked or reused – the whole session is gone
@@ -245,9 +285,11 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
    * the session. → { status, body, headers } (status 0 = offline, 401 = signed out now).
    */
   async function request(path, opts = {}) {
-    if (!saved) return { status: 401, body: { error: { code: 'signed_out' } } };
+    const signedOut = () => ({ status: 401, body: { error: { code: 'signed_out' } } });
+    if (!saved) return signedOut();
     if (now() > saved.accessExp - REFRESH_EARLY) {
       const res = await refresh();
+      if (!saved) return signedOut(); // signed out while the refresh was on its way (or being stored)
       if (res === 'revoked') {
         drop('expired');
         return { status: 401, body: { error: { code: 'session_revoked' } } };
@@ -262,6 +304,7 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
     // refresh_reused end the session right away.
     if (r.status === 401 && saved && !ENDED.includes(errorCode(r.body))) {
       const res = await refresh();
+      if (!saved) return signedOut();
       if (res === 'ok') r = await raw(path, { ...opts, token: saved.access });
       else if (res === 'revoked') {
         drop('expired');
@@ -314,7 +357,7 @@ export function createSession({ store, port, fetchImpl = fetch, env = process.en
   const extra = (key) => saved?.extra?.[key] ?? null;
 
   return {
-    base, publicState, startLogin, setExtra, extra, cancelLogin, finishLogin, request, refresh, signOut, forget, rememberAccount,
+    base, load, publicState, startLogin, setExtra, extra, cancelLogin, finishLogin, request, refresh, signOut, forget, rememberAccount,
     get signedIn() { return !!saved; },
     /** this computer's session id (ses_…) – from the token answer, else the access token's sid claim */
     get sid() { return saved ? saved.sid || sidOf(saved.access) : null; },

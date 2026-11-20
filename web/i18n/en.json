@@ -109,6 +109,7 @@
   "acct.unlinkTitle": "Unlink the membership from this account?",
   "acct.unlinked": "Membership unlinked",
   "acct.unlinkedText": "This account no longer has it. You can link the same email again in 30 days.",
+  "acct.unreadable": "souldew couldn’t read your saved sign-in – sign in again. Your runs and settings are fine.",
   "acct.until": "until {date}",
   "acct.visFriends": "My friends",
   "acct.visLink": "Anyone with my handle",

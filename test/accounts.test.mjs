@@ -247,12 +247,12 @@ test('refresh: rotation on expiry, one refresh at a time, the new token stored b
   fake.accessTtl = 1; // the access token runs out right away (refreshed 60 s early anyway)
   const { s, store, finish } = await sessionFor(robin);
   await finish();
-  const first = store.load().refresh;
+  const first = (await store.load()).refresh;
   const before = fake.log.filter((l) => l.body?.grant_type === 'refresh_token').length;
   const results = await Promise.all([s.request('/v1/me'), s.request('/v1/friends'), s.request('/v1/pending')]);
   assert.deepEqual(results.map((r) => r.status), [200, 200, 200]);
   assert.equal(fake.log.filter((l) => l.body?.grant_type === 'refresh_token').length - before, 1, 'three calls, one refresh');
-  const second = store.load().refresh;
+  const second = (await store.load()).refresh;
   assert.notEqual(second, first, 'rotated');
   // a stolen copy of the old refresh token is used by somebody else: the service revokes the family
   const stolen = await fetch(`${fake.base}/auth/token`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ grant_type: 'refresh_token', refresh_token: first }) });
@@ -262,7 +262,7 @@ test('refresh: rotation on expiry, one refresh at a time, the new token stored b
   assert.equal(r.status, 401);
   assert.equal(s.signedIn, false);
   assert.equal(s.publicState().condition, 'expired', 'the page says why');
-  assert.equal(store.load(), null, 'tokens gone');
+  assert.equal(await store.load(), null, 'tokens gone');
   fake.accessTtl = 900;
 });
 
@@ -296,17 +296,19 @@ test('token store: only through the keychain, never plain; without one in memory
   const store = createTokenStore(keychain, { file });
   const { finish } = await sessionFor(robin, { store });
   await finish();
+  const saved = await store.load(); // (after the write the sign-in queued)
   const raw = readFileSync(file);
-  const saved = store.load();
   assert.ok(saved.refresh && !raw.includes(Buffer.from(saved.refresh)) && !raw.includes(Buffer.from(saved.access)), 'the file holds no token in plain text');
   if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600);
   const mem = createTokenStore({ available: () => false, encrypt: () => { throw new Error('no'); }, decrypt: () => { throw new Error('no'); } }, { file: join(DATA, 'never.bin') });
+  assert.equal(mem.persistent(), true, 'not asked yet: the keychain is asked only for something to keep or read');
+  assert.equal(await mem.save({ refresh: 'x'.repeat(40) }), false);
   assert.equal(mem.persistent(), false);
-  mem.save({ refresh: 'x'.repeat(40) });
   assert.equal(existsSync(join(DATA, 'never.bin')), false, 'no keychain: nothing written');
-  assert.equal(mem.load().refresh, 'x'.repeat(40));
+  assert.equal((await mem.load()).refresh, 'x'.repeat(40));
   const broken = createTokenStore({ available: () => true, encrypt: keychain.encrypt, decrypt: () => { throw new Error('other user'); } }, { file });
-  assert.equal(broken.load(), null, 'a blob this keychain can’t open is "signed out", not an error');
+  await assert.rejects(broken.load(), { code: 'unreadable' }, 'a blob this keychain can’t open is "signed out" – the session says why (sign in again)');
+  assert.equal(existsSync(file), false, '… and it goes, so the keychain isn’t asked again at every start');
 });
 
 // ---- the local server: routes, loopback, the page's view -----------------------------------------------------------
@@ -395,7 +397,12 @@ test('a keychain keeps the session over a restart – encrypted', async () => {
   assert.ok(!text.includes('kimchi') && !text.includes('refresh'), 'not readable as text');
   a.server.close();
   const b = await app({ secureStore: keychain });
-  const st = (await b.get('/api/account')).body;
+  // read in the background after the start: "signed out" until it is there
+  let st = (await b.get('/api/account')).body;
+  for (let i = 0; i < 50 && !st.session.signedIn; i++) {
+    await new Promise((res) => setTimeout(res, 20));
+    st = (await b.get('/api/account')).body;
+  }
   assert.equal(st.session.signedIn, true);
   assert.equal(st.me.handle, 'kimchi');
   await b.post('/api/account/logout');

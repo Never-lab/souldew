@@ -48,6 +48,7 @@ test('signing out while a token refresh is on its way: the late answer doesn\'t 
     return json(200, {});
   };
   const s = createSession({ store, port: () => 1, fetchImpl, env: { SLS_ACCOUNTS_URL: 'http://127.0.0.1:9' } });
+  await s.load();
   assert.equal(s.signedIn, true);
   const pending = s.request('/v1/me'); // the access token ran out: a refresh starts
   await new Promise((res) => setTimeout(res, 10));

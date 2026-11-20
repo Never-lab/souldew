@@ -478,8 +478,11 @@ export function errorBody(e) {
  * The desktop app also passes the souldew account's helpers (server/lib/accounts/index.mjs): secureStore (Electron's
  * safeStorage – without it a session is kept in memory only), openExternal (the system browser for "Sign in with
  * Discord") and focus (bring the window forward when the browser hands the sign-in back).
+ * The saved sign-in is read only after the server is up and never awaited by it (it may mean the keychain, and the
+ * keychain a password prompt): right after listen, or – deferAccount – when the caller calls loadAccount() (the
+ * desktop app: once its window is open). An account route that comes earlier starts it itself.
  */
-export function startServer({ port = 7373, host = '127.0.0.1', background = true, secureStore = null, openExternal = null, focus = () => {}, packaged = isPackagedBuild(), rendererSecret = null } = {}) {
+export function startServer({ port = 7373, host = '127.0.0.1', background = true, secureStore = null, openExternal = null, focus = () => {}, packaged = isPackagedBuild(), rendererSecret = null, deferAccount = false } = {}) {
   // An installed app never takes the account service, a dev pack or a dev key from the environment (only development
   // and tests do) – otherwise a changed environment could send the tokens elsewhere or make the app trust another key.
   const env = packaged ? withoutDevSwitches(process.env) : process.env;
@@ -2400,8 +2403,9 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         // what an interrupted copy / unpack / upload left in the library folder (souldew closed meanwhile)
         setTimeout(() => removeStaleParts(), 2000).unref?.();
       }
+      if (!deferAccount) setTimeout(() => accounts.loadSession(), 0).unref?.();
       // goOffline: the desktop app awaits it (bounded) before it quits – friends see the player go offline at once
-      resolvePromise({ server, port: actual, url: `http://localhost:${actual}`, goOffline: () => accounts.goOffline() });
+      resolvePromise({ server, port: actual, url: `http://localhost:${actual}`, goOffline: () => accounts.goOffline(), loadAccount: () => accounts.loadSession() });
     });
   });
 }

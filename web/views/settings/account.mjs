@@ -41,6 +41,7 @@ function SignedOut({ acct, toast }) {
             <li><${Icon} name="star" size=${14} /><span>${t('acct.getPlus', 'souldew+ looks for your profile if you support souldew')}</span></li>
           </ul>
           ${s.condition === 'expired' && html`<p class="warning info" role="status">${t('acct.expired', 'You were signed out – the session ended on another device or was signed out everywhere. Sign in again to continue.')}</p>`}
+          ${s.condition === 'unreadable' && html`<p class="warning info" role="status">${t('acct.unreadable', 'souldew couldn’t read your saved sign-in – sign in again. Your runs and settings are fine.')}</p>`}
           ${!s.persistent && html`<p class="small muted">${t('acct.noKeychain', 'This computer has no keychain souldew can use, so you would stay signed in only until you close the app – souldew never keeps your sign-in in a plain file.')}</p>`}
           ${s.pending ? html`<div class="row"><span class="small">${t('acct.pending', 'Finish signing in in your browser …')}</span>
               <button class="btn small ghost" onClick=${() => cancelSignIn()}>${t('common.cancel', 'Cancel')}</button>

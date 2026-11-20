@@ -4261,6 +4261,7 @@
   "set.ctrFfHintHint": "Sur certaines cartes graphiques, le turbo en 2× ou 3× reste bien en dessous de la vitesse choisie – la vue de jeu le signale alors, au plus une fois par lancement de souldew.",
   "acct.showOnThanks": "Afficher mon nom sur la page Merci",
   "acct.showOnThanksHint": "Tant que tu soutiens souldew : ton nom, ta photo Discord, ta bannière et ton cadre, avec ton palier. Désactivé tant que tu ne l’actives pas – tu es compté dans tous les cas.",
+  "acct.unreadable": "souldew n’a pas pu lire ta connexion enregistrée – reconnecte-toi. Tes runs et tes réglages ne sont pas touchés.",
   "plus.thanksLink": "Voir qui soutient déjà souldew",
   "thanks.asOf": "au {time}",
   "thanks.askCoffee": "Merci pour le café ! ☕",

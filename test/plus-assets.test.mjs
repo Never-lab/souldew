@@ -75,14 +75,14 @@ test('a data folder copied to another computer opens nothing: the key is in this
   const mine = mkdtempSync(join(tmpdir(), 'souldew-member-'));
   // the member's computer: tokens + the entitlement with the pack key in account.bin (encrypted by the keychain) …
   const store = createTokenStore(keychain(), { file: join(mine, 'account.bin') });
-  assert.equal(store.save({ refresh: 'r', extra: { entitlement: { packKey: b64url(p.key), packKeyId: SESSION_A } } }), true);
+  assert.equal(await store.save({ refresh: 'r', extra: { entitlement: { packKey: b64url(p.key), packKeyId: SESSION_A } } }), true);
   // … and the encrypted pack cache
   await createPlusPack({ dir: join(mine, 'plus'), devDir: '', fetchImpl: fakeFetch(p), env: NO_ENV }).fetch({ ...p.answer, until: null });
   // copied whole to a friend's computer
   const theirs = mkdtempSync(join(tmpdir(), 'souldew-copy-'));
   cpSync(mine, theirs, { recursive: true });
   const copied = createTokenStore(keychain(), { file: join(theirs, 'account.bin') });
-  assert.equal(copied.load(), null, 'their keychain can\'t open the session: signed out, no pack key');
+  await assert.rejects(copied.load(), { code: 'unreadable' }, 'their keychain can\'t open the session: signed out, no pack key');
   const cache = createPlusPack({ dir: join(theirs, 'plus'), devDir: '', env: NO_ENV });
   const env = cache.file('banners.json');
   assert.ok(Buffer.from(env).subarray(0, 4).toString('latin1') === 'SDP1' && !Buffer.from(env).includes('[]'), 'only the envelope is on disk');

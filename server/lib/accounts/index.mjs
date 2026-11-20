@@ -412,7 +412,16 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
 
   // ---- the page's routes --------------------------------------------------------------------------------------------
   const routes = [];
-  const route = (method, path, handler) => routes.push({ method, pattern: new RegExp(`^/api/account${path}$`), handler });
+  // Every route but the page's status (GET /api/account – "signed out" while the saved sign-in is still being read)
+  // waits for the saved sign-in: an answer must never say "signed out" (or start a second sign-in) for a player whose
+  // session is only still on its way out of the keychain.
+  const route = (method, path, handler) => routes.push({
+    method, pattern: new RegExp(`^/api/account${path}$`),
+    handler: method === 'GET' && path === '' ? handler : async (...args) => {
+      await session.load();
+      return handler(...args);
+    },
+  });
   const signedIn = () => {
     if (!session.signedIn) throw httpError(401, 'Signed out', 'acctSignedOut');
   };
@@ -827,6 +836,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
    * answer is a redirect to /auth/done?r=<outcome>, so the code doesn't stay in the browser's address bar and history.
    */
   async function authDone(req, res, url) {
+    await session.load();
     const page = (status, result) => {
       res.writeHead(status, AUTH_PAGE_HEADERS);
       res.end(authPage(result, lang()));
@@ -881,6 +891,7 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   const avatars = new Map(); // source URL → { type, buf }
   /** GET /api/account/avatar?src=<allowed avatar URL>: fetched once, checked to be a picture, kept in memory. */
   async function avatar(req, res, url) {
+    await session.load();
     const src = safeAvatarUrl(url.searchParams.get('src'), service);
     const fail = (status) => {
       res.writeHead(status, { 'Cache-Control': 'no-store' });
@@ -938,7 +949,10 @@ export function createAccounts({ secure = null, port, emit = () => {}, openExter
   /** For "Save diagnostics": signed in yes / no and the tier – nothing else. */
   const diagnostics = () => ({ signedIn: session.signedIn, tier: session.signedIn ? own?.tier || session.publicState().account?.tier || 'none' : null });
 
-  return { routes, authDone, avatar, close, goOffline, diagnostics, session, setReport, get service() { return service; } };
+  /** Reads the saved sign-in in the background (the server calls it once it is up – ./session.mjs load). */
+  const loadSession = () => session.load();
+
+  return { routes, authDone, avatar, close, goOffline, diagnostics, session, setReport, loadSession, get service() { return service; } };
 }
 
 /** The wall's version for the page's ?have=: its content only (who, which tier and look, the counts) – never `updated`. */

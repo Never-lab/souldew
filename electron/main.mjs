@@ -147,7 +147,8 @@ async function boot() {
   // HttpOnly, SameSite=Strict cookie in the window's own cookie jar – the server never serves it, so another program on
   // this computer that talks HTTP to 127.0.0.1 can't learn it
   const rendererSecret = randomBytes(32).toString('base64url');
-  const accountHelpers = { secureStore, openExternal: openSignIn, focus: focusWindow, packaged: app.isPackaged, rendererSecret };
+  // deferAccount: the saved sign-in (and with it the keychain) only once the window is open – never on the way to it
+  const accountHelpers = { secureStore, openExternal: openSignIn, focus: focusWindow, packaged: app.isPackaged, rendererSecret, deferAccount: true };
   const started = await startServer({ port: 47390, ...accountHelpers }).catch((e) => {
     if (e.code !== 'EADDRINUSE') throw e;
     return startServer({ port: 0, ...accountHelpers });
@@ -156,22 +157,34 @@ async function boot() {
   goOffline = started.goOffline;
   await session.defaultSession.cookies.set({ url: serverUrl, name: RENDERER_COOKIE, value: rendererSecret, httpOnly: true, sameSite: 'strict', path: '/' });
   createWindow();
+  started.loadAccount(); // in the background: the page shows "signed out" until it is done
 }
 
 /**
  * The souldew account's tokens are kept only where the OS encrypts them (server/lib/accounts/store.mjs): macOS Keychain,
  * Windows DPAPI, the Secret Service / KWallet on Linux. Electron's "basic_text" fallback on a Linux desktop without a
  * keyring is plain text in disguise – that counts as no keychain (the session then lives in memory only).
+ * The store asks only when there is a saved sign-in to read or a sign-in to keep – never at start for a player who
+ * isn't signed in. On macOS the keychain is read with the async API: Chromium reads it on a worker thread, so a
+ * keychain prompt (an unsigned build after an update is a "new app" to the item) never freezes the app while it is
+ * open, and Electron asks only once per launch. Same key, same "v10" format as the sync API. Windows (DPAPI never
+ * prompts) and Linux keep the sync API and its backend check.
  */
-const secureStore = {
-  available: () => {
-    if (!safeStorage.isEncryptionAvailable()) return false;
-    if (LINUX && typeof safeStorage.getSelectedStorageBackend === 'function') return !['basic_text', 'unknown'].includes(safeStorage.getSelectedStorageBackend());
-    return true;
-  },
-  encrypt: (text) => safeStorage.encryptString(text),
-  decrypt: (buf) => safeStorage.decryptString(buf),
-};
+const secureStore = MAC
+  ? {
+      available: () => safeStorage.isAsyncEncryptionAvailable(),
+      encrypt: (text) => safeStorage.encryptStringAsync(text),
+      decrypt: async (buf) => (await safeStorage.decryptStringAsync(buf)).result,
+    }
+  : {
+      available: () => {
+        if (!safeStorage.isEncryptionAvailable()) return false;
+        if (LINUX && typeof safeStorage.getSelectedStorageBackend === 'function') return !['basic_text', 'unknown'].includes(safeStorage.getSelectedStorageBackend());
+        return true;
+      },
+      encrypt: (text) => safeStorage.encryptString(text),
+      decrypt: (buf) => safeStorage.decryptString(buf),
+    };
 /** "Sign in with Discord": the system browser at the accounts service (guards.mjs signInUrl: https, or a local test service). */
 function openSignIn(url) {
   const safe = signInUrl(url);
