@@ -14,7 +14,7 @@ import { applyCheat, cheatsFor, cheatBlock, cheatAllowed, bagLayoutKey, CHEATS, 
 import { CheatMenu, cheatConfirmText, cheatDoneText, cheatFailText } from './cheatmenu.mjs';
 import { DeathReveal, effectiveSpeed } from '../lib/reveal.mjs';
 import { MusicKeyTracker } from '/shared/live/location.mjs';
-import { probeGen67 } from '/shared/live/gen67.mjs';
+import { probeGen67, runningVersion } from '/shared/live/gen67.mjs';
 import { PlayHome } from './playhome.mjs';
 import { PartyGrid } from './party.mjs';
 import { PartnerScreens, PartnerTiles, usePartnerLayout, useScreenShare } from './partnerscreen.mjs';
@@ -1108,6 +1108,7 @@ export function GameSession({ session, mode }) {
           if (entry.gen >= 6 && e.update) {
             const u = e.update();
             setCtrUpdate((p) => (p === u ? p : u));
+            state.ctrVersion = runningVersion(u); // (the party is looked for at that update's address first)
           }
           const info = e.ramInfo();
           // Searching the heap is costly – slow down after ~1 min without a hit.
@@ -1144,6 +1145,8 @@ export function GameSession({ session, mode }) {
             const own = romOwnNow();
             const TT = (sp ? T.withSpecies(sp, own) : T).withRom(own).withShinyOdds(target.shinyOdds);
             const res = readLiveParty(ent, e.read, TT, state);
+            // 3DS: the party's address moved to another update's (a copy that stood still, ticket #35)
+            for (const ev of state.g67Log?.splice(0) || []) diag('live', { type: 'ctrPartySwitch', ...ev, runs: state.ctrVersion ?? null });
             // (again when the ROM's data came only on a later try – the server couldn't read the file at first)
             if (romDataReady() && (!fc || fcOwn !== romOwnNow())) {
               fcOwn = romOwnNow();
@@ -1161,7 +1164,7 @@ export function GameSession({ session, mode }) {
             // once (ticket #21: a team that wasn't found any more after reopening the game), and when one turns up later
             if (entry.gen >= 6) {
               if (res?.party?.length) {
-                if (ctrNoTeam.told && !ctrNoTeam.found) diag('live', { type: 'ctrTeamFound', after: Math.round((Date.now() - ctrNoTeam.since) / 1000), version: state.g67 != null ? entry.partyAddrs?.[state.g67]?.version || null : null });
+                if (ctrNoTeam.told && !ctrNoTeam.found) diag('live', { type: 'ctrTeamFound', after: Math.round((Date.now() - ctrNoTeam.since) / 1000), version: state.g67 != null ? entry.partyAddrs?.[state.g67]?.version || null : null, runs: state.ctrVersion ?? null });
                 ctrNoTeam.found = true;
                 ctrNoTeam.since = 0;
               } else if (!e.paused?.()) {
@@ -1169,7 +1172,7 @@ export function GameSession({ session, mode }) {
                 if (!ctrNoTeam.told && Date.now() - ctrNoTeam.since > 60000) {
                   ctrNoTeam.told = true;
                   const rd = romDataNow();
-                  diag('live', { type: 'ctrNoTeam', title: e.title?.() || null, entry: entry.id, ...probeGen67(entry, e.read), places: rd?.data?.ctr?.places?.length ?? null, romHeader: !!rd?.header });
+                  diag('live', { type: 'ctrNoTeam', title: e.title?.() || null, entry: entry.id, ...probeGen67(entry, e.read), runs: state.ctrVersion ?? null, places: rd?.data?.ctr?.places?.length ?? null, romHeader: !!rd?.header });
                 }
               }
             }

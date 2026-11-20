@@ -233,6 +233,11 @@ Plus a new play view that gives the game the room it deserves.
   sound). When fast-forward stays below 70 % of it for about 10 seconds, a small note in the dock says how fast it
   really runs and opens Settings › Play › 3DS resolution – once per start of souldew, with “Don't show again” and a
   switch next to the resolution to bring it back. souldew never lowers the resolution by itself.
+- **The 3DS team keeps up with your game** (thanks to a player on Discord). X/Y and Omega Ruby/Alpha Sapphire keep the
+  team in a different place for version 1.0 and for the latest update, and souldew stuck with the first place it
+  found a team for the whole session. Now it looks at the version of the update the game started with first, and keeps
+  checking: when the team it reads stands still while the other place changes, or stops being a team for a few
+  seconds, souldew moves over – and "Save diagnostics" notes the move.
 - **One cheats menu: Poké Balls, healing items and money** (thanks to a player on Discord). The cheats button in the
   play view's dock now opens one menu instead of single buttons: pick how many (×1, ×10, ×99), then Rare Candy, Max
   Repel, Master Ball, Ultra Ball, Poké Ball, Full Restore, Revive or Max Revive – each goes into its own pocket of the
