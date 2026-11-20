@@ -41,13 +41,14 @@ export class WagerPay {
 
   /**
    * One look: `game` (shared/linkbattle.mjs GAMES key of the running game), `read` / `write` (the player's memory),
-   * `busyGame`: in a battle or a link session right now; `cam`: Gen 3's overworld reading (shared/world.mjs).
+   * `busyGame`: in a battle or a link session right now; `cam`: Gen 3's overworld reading (shared/world.mjs); `fresh()`
+   * (the fast player): the core's whole memory into `read`'s copy – the check after a write reads what the game holds.
    */
-  async tick({ game, read, write, busyGame = false, cam = undefined }) {
+  async tick({ game, read, write, busyGame = false, cam = undefined, fresh = null }) {
     if (this.busy || !game || !GAMES[game] || !read || !write) return null;
     this.busy = true;
     try {
-      if (this.check && Date.now() - this.check.at >= VERIFY_MS) return await this._verify(game, read);
+      if (this.check && Date.now() - this.check.at >= VERIFY_MS) return await this._verify(game, read, fresh);
       if (this.check || busyGame) return null;
       const owed = owedTo(this.doc, this.me, { boot: this.boot, own: this.own });
       if (!owed.length || !(await fieldIdle(game, read, { cam }))) return null;
@@ -64,12 +65,14 @@ export class WagerPay {
   }
 
   /**
-   * After the write: the money as the game holds it now. Still the old sum – the write didn't land (Emerald moved its
-   * save blocks just then): it goes in again. The new sum: done. Anything else (the player spent some at once): left as
-   * it is – better than paying twice.
+   * After the write: the money as the game holds it now (`fresh`: read from the core, not the player's copy). Still
+   * the old sum – the write didn't land (Emerald moved its save blocks just then): it goes in again. The new sum: done.
+   * Anything else (the player spent some at once): left as it is – better than paying twice.
    */
-  async _verify(game, read) {
+  async _verify(game, read, fresh = null) {
     const c = this.check;
+    // (the fast player's copy of the memory takes a write at once: only the core's own memory says whether it landed)
+    if (typeof fresh === 'function' && !(await fresh().catch(() => false))) return null; // (asked again next time)
     this.check = null;
     const key = `lbpay:${c.sid}:${this.me}`;
     const now = await readMoney(game, read);

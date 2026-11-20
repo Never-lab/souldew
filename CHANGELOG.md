@@ -407,6 +407,9 @@ Plus a new play view that gives the game the room it deserves.
 - **Wagers only pay what your own souldew saw.** Money moves only for a link battle whose result your computer read
   itself and every partner's computer agrees with – a changed partner app can no longer make up a battle result and
   collect.
+- **Cheats in the fast player say “added” only when the game really has it.** The check after a cheat now reads the
+  game's own memory instead of souldew's copy of it, so a write the game lost is reported as not working; a wager
+  paid into the game is checked the same way.
 
 Good to know:
 - Every player needs souldew 3.0. Linking without a restart works from the fast player (Settings › Play, on by

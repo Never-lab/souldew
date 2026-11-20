@@ -528,3 +528,30 @@ test('wager: never into a game on its title screen – Gen 1/2 read as "idle" th
   await pay.tick({ game: 'redblue', read: tim.read, write: tim.write });
   assert.equal(L.bcdDecode(tim.read(0xd347, 3)), 3000, 'paid from the loaded ₽5,000');
 });
+
+test('wager: the check after the write reads the core (the fast player\'s fresh) – a write the game lost goes in again', async () => {
+  const doc = memDoc();
+  doc.set('lb:abc123:p1', entry({}));
+  doc.set('lb:abc123:p2', entry({}));
+  // the fast player: the page's copy takes the write at once; the core lost it (it never comes back in a change)
+  const core = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [1] });
+  const mirror = bus({ 0xd347: [0x00, 0x30, 0x00], 0xd057: [0], 0xd12b: [0], 0xd163: [1] });
+  let fresh = 0;
+  const io = {
+    game: 'redblue', read: mirror.read, write: (a, b) => (mirror.put(a, [...b]), true),
+    fresh: async () => (fresh++, core.m.forEach((v, a) => mirror.put(a, [v])), true),
+  };
+  const pay = new WagerPay({ doc, me: 'p1', own: ownOf() });
+  await pay.tick(io);
+  assert.equal(L.bcdDecode(mirror.read(0xd347, 3)), 5000, '(the page\'s copy says paid)');
+  pay.check.at = 0;
+  assert.deepEqual(await pay.tick(io), { retry: true }, 'the core still holds ₽3,000: in again');
+  assert.equal(fresh, 1);
+  assert.equal(doc.get('lbpay:abc123:p1'), undefined);
+  // no answer for the whole memory: asked again later, nothing decided meanwhile
+  await pay.tick({ ...io, write: (a, b) => (mirror.put(a, [...b]), core.put(a, [...b]), true) });
+  pay.check.at = 0;
+  assert.equal(await pay.tick({ ...io, fresh: async () => false }), null);
+  assert.equal(doc.get('lbpay:abc123:p1').checked, undefined);
+  assert.deepEqual(await pay.tick(io), { checked: true, now: 5000 });
+});

@@ -1226,7 +1226,7 @@ export function GameSession({ session, mode }) {
               const g = pay && gameNow();
               if (g) {
                 if (ent.gen === 3 && world3?.from !== ent) world3 = { from: ent, t: worldTable(ent) };
-                pay.tick({ game: g, read: e.read, write: e.write, busyGame: !!fight || !!target.link, cam: ent.gen === 3 && world3?.t ? readCamera(world3.t, e.read) : undefined })
+                pay.tick({ game: g, read: e.read, write: e.write, fresh: e.fresh, busyGame: !!fight || !!target.link, cam: ent.gen === 3 && world3?.t ? readCamera(world3.t, e.read) : undefined })
                   .catch(() => {});
               }
               // (an ended run takes no snapshots: what is held is still revealed as it comes due)
@@ -1743,7 +1743,10 @@ export function GameSession({ session, mode }) {
     try {
       // (the 3DS player answers once its host has written – between two frames)
       // (a 3DS game's bag that isn't where souldew knows it is searched for nearby: the player reads more memory then)
-      res = await applyCheat(id, entry, { read: e.read, write: e.write, ...(entry.platform === '3ds' && e.watch ? { watch: e.watch } : {}) }, state, { amount: pending.amount });
+      // (the fast player: the host confirms the write, and the read-back reads the core's memory after it – e.fresh)
+      const fast = typeof e.fresh === 'function' && typeof e.writeChecked === 'function';
+      res = await applyCheat(id, entry, { read: e.read, write: fast ? e.writeChecked : e.write, ...(fast ? { fresh: e.fresh } : {}),
+        ...(entry.platform === '3ds' && e.watch ? { watch: e.watch } : {}) }, state, { amount: pending.amount });
     } catch {
       res = { error: 'write' };
     }

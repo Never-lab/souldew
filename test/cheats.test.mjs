@@ -849,3 +849,54 @@ test('switching the cheat rule is logged too', () => {
   R.logCheatRule(d, SOLO, 'p1', false);
   assert.deepEqual(R.feedList(d).map((f) => [f.type, f.text]).sort(), [['cheat', 'Cheats turned off for this run'], ['cheat', 'allowed cheats for this run']]);
 });
+
+// ---- the fast player: the read-back reads the core, not the player's own copy -----------------------------------
+
+/**
+ * The fast player as web/lib/nativeplayer.mjs is: a `core` (what the game holds) and the page's `mirror` of it. A write
+ * goes into the mirror at once and to the host, which writes it into the core between two frames – unless `lose` (the
+ * game moved its memory just then: the write lands nowhere it reads). The host only sends blocks that changed, so a lost
+ * write never comes back into the mirror; fresh() is RESYNC: the whole core into the mirror.
+ */
+function fastPlayer({ lose = false } = {}) {
+  const core = memory();
+  const mirror = memory();
+  return {
+    core,
+    mirror,
+    read: (a, n) => mirror.read(a, n),
+    write: (a, b) => {
+      mirror.poke(a, b);
+      if (!lose) core.poke(a, b);
+      return Promise.resolve(true); // (writeChecked: the host answered "written")
+    },
+    fresh: async () => {
+      for (const [a, n] of [[0xd000, 0x1000]]) mirror.poke(a, core.read(a, n));
+      return true;
+    },
+  };
+}
+
+test('the fast player: a cheat counts only once the core holds it – read back after the write, not from the page\'s copy', async () => {
+  const e = entry({ platform: 'gb', title: 'POKEMON RED' });
+  for (const lose of [false, true]) {
+    const p = fastPlayer({ lose });
+    for (const m of [p.core, p.mirror]) {
+      m.poke(0xd31d, [1, 0x14, 5, 0xff]); // Potion ×5
+      m.poke(0xd347, [0x00, 0x30, 0x00]);
+    }
+    const res = await applyCheat('maxRepel', e, p, {});
+    if (!lose) assert.deepEqual(res, { ok: true, before: 0, after: 10, added: 10 });
+    else {
+      assert.deepEqual(res, { error: 'write' }, 'the game never got it: no "+10 in your bag"');
+      assert.equal(p.mirror.read(0xd31d, 1)[0], 1, 'and the page reads the bag as the game has it again');
+    }
+  }
+  // no answer from the host for the whole memory: not claimed either
+  const p = fastPlayer();
+  p.core.poke(0xd31d, [1, 0x14, 5, 0xff]);
+  p.mirror.poke(0xd31d, [1, 0x14, 5, 0xff]);
+  assert.deepEqual(await applyCheat('maxRepel', e, { ...p, fresh: async () => false }, {}), { error: 'write', why: 'unverified' });
+  // the host refused the write
+  assert.deepEqual(await applyCheat('maxRepel', e, { ...p, write: () => Promise.resolve(false) }, {}), { error: 'write' });
+});

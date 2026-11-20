@@ -394,9 +394,39 @@ function onRam(p) {
     if (o + len > p.length) break;
     const r = st.ram.find((x) => addr >= x.addr && addr + len <= x.addr + x.b.length);
     if (r) r.b.set(p.subarray(o, o + len), addr - r.addr);
+    if (r && addr === r.addr && len === r.b.length) whole.add(r);
     o += len;
   }
   if (!st.ramReady && st.ram.length) st.ramReady = true;
+  // every region whole (a RESYNC's answer – the host's changes are blocks, never all of it): the mirror is the core's now
+  const full = st.ram.length > 0 && st.ram.every((r) => whole.has(r));
+  whole.clear();
+  if (full) freshWaiters.splice(0).forEach((f) => f(true));
+}
+const whole = new Set(); // (onRam: the regions a message carried whole)
+const freshWaiters = []; // fresh(): who waits for the core's whole RAM
+/**
+ * The mirror as the core holds it right now: the whole RAM once more (RESYNC), sent by the host after everything asked
+ * of it before (a WRITE included) and after the next frame. A write's own copy in the mirror (write) can't tell whether
+ * it landed – the host only sends what changed against what it sent last, so a write the game lost (Emerald moving its
+ * save blocks) would never come back. Resolves true once it is in, false when it can't come (no game, a link session,
+ * no answer).
+ */
+function fresh() {
+  if (!st.ramReady || st.ended || LINK_SESSION || !st.id) return Promise.resolve(false);
+  return new Promise((res) => {
+    const f = (ok) => {
+      clearTimeout(timer);
+      res(ok);
+    };
+    const timer = setTimeout(() => {
+      const i = freshWaiters.indexOf(f);
+      if (i >= 0) freshWaiters.splice(i, 1);
+      res(false);
+    }, 4000);
+    freshWaiters.push(f);
+    cmd(CMD.RESYNC);
+  });
 }
 const region = (addr, len) => st.ram.find((r) => addr >= r.addr && addr + len <= r.addr + r.b.length);
 /** `len` bytes at a console bus address (a copy), or null outside the game's RAM. */
@@ -590,6 +620,7 @@ function onMem(p) {
 }
 function ended() {
   st.ended = true;
+  freshWaiters.splice(0).forEach((f) => f(false));
   memWaiters.splice(0).forEach((w) => w.res(null));
   seatSaves.res?.(null);
   for (const k of ['state', 'stepped', 'seatState', 'seatSram']) waiters[k].splice(0).forEach((f) => f(null));
@@ -764,6 +795,7 @@ window.__emu = {
   read,
   write,
   writeChecked,
+  fresh,
   paused: () => st.paused,
   pause() {
     if (LINK_SESSION) return; // (the partners' games would stand still too – leave the link instead)

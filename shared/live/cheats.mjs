@@ -703,6 +703,9 @@ function ctrAdd(L, entry, mem, state, item, count, pocketName = 'medicine') {
 const refusal = (r) => (r === false ? {} : r && typeof r === 'object' && r.ok === false ? r : null);
 const refused = ({ why }) => (why === 'changed' ? { error: 'changed' } : { error: 'write', ...(why ? { why: String(why) } : {}) });
 
+// `mem.fresh()` (the fast player): the core's whole memory into the mirror, after the write and a frame – the read-back
+// then reads what the game really holds. Without it the read-back reads the player's copy, which a write sets at once
+// (the fast player) – it could never catch a write that didn't land.
 function commit(mem, writes, before, after) {
   const check = (results) => {
     const no = results.map(refusal).find(Boolean);
@@ -720,6 +723,13 @@ function commit(mem, writes, before, after) {
     if (refusal(r)) return refused(refusal(r));
     results.push(r);
   }
+  if (typeof mem.fresh === 'function') {
+    return Promise.all(results).then(async (rs) => {
+      const no = rs.map(refusal).find(Boolean);
+      if (no) return refused(no);
+      return (await mem.fresh().catch(() => false)) ? check(rs) : { error: 'write', why: 'unverified' };
+    }, () => ({ error: 'write' }));
+  }
   // the 3DS player answers once its host has written (between two frames)
   return results.some((r) => typeof r?.then === 'function') ? Promise.all(results).then(check, () => ({ error: 'write' })) : check(results);
 }
@@ -728,7 +738,7 @@ function commit(mem, writes, before, after) {
  * Put `count` Rare Candies into the player's bag (onto the stack they have, else into a free slot; capped at the
  * game's stack size: 99, Gen 4–7 999).
  * @param {object} entry   addresses.json entry (findEntry)
- * @param {{read:(addr:number,len:number)=>Uint8Array|null, write:(addr:number,bytes:Uint8Array)=>boolean|Promise<boolean|{ok:false,why:string}>, watch?:(regions:object[])=>Promise<boolean>}} mem
+ * @param {{read:(addr:number,len:number)=>Uint8Array|null, write:(addr:number,bytes:Uint8Array)=>boolean|Promise<boolean|{ok:false,why:string}>, watch?:(regions:object[])=>Promise<boolean>, fresh?:()=>Promise<boolean>}} mem
  *                         `watch` (the 3DS player): more memory to read – a 3DS bag not at a known address is then
  *                         searched for nearby (locateCtrBag)
  * @param {object} state   the live reader's state (readLiveParty) – DS games find the bag through the party, 3DS games
